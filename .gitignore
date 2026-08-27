@@ -1,0 +1,20 @@
+# Dependencies and build output
+node_modules/
+dist/
+.next/
+
+# Local runtime state
+.sites-runtime/
+.wrangler/
+*.tsbuildinfo
+
+# Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Editors and operating systems
+.DS_Store
+.vscode/
+.idea/
