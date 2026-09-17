@@ -1,8 +1,8 @@
 export const TRAVEL_DATE = "2026-09-05";
 
 export const trips = [
-  { id: 1, from: "UMaT Main Campus", to: "Accra", time: "6:30 AM", arrival: "11:30 AM", price: 190, tag: "Morning Express" },
-  { id: 2, from: "UMaT Main Campus", to: "Accra", time: "1:00 PM", arrival: "6:00 PM", price: 190, tag: "Afternoon Express" },
+  { id: 1, from: "UMaT Main Campus", to: "Accra", time: "6:30 AM", arrival: "11:30 AM", price: 180, tag: "Morning Express" },
+  { id: 2, from: "UMaT Main Campus", to: "Accra", time: "1:00 PM", arrival: "6:00 PM", price: 180, tag: "Afternoon Express" },
 ] as const;
 
 export function getTrip(id: number) {

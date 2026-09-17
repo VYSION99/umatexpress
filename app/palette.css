@@ -1,0 +1,459 @@
+/* ========================================
+   PAGE PALETTE
+   The client home, campusRide and vacationRide share one surface language:
+   a white page, white cards with real elevation, and the yellow / green /
+   dark cyan accents. `home.css` consumes these tokens too.
+
+   This file only ever overrides colour, background, border-colour and
+   shadow. Layout, spacing and type stay with globals.css so the responsive
+   rules there keep working.
+   ======================================== */
+
+:root {
+  --ui-green: #0d694d;
+  --ui-green-deep: #0b5740;
+  --ui-green-soft: #eaf6ef;
+  --ui-cyan: #0e7490;
+  --ui-cyan-deep: #0b5f76;
+  --ui-cyan-soft: #e6f3f7;
+  --ui-yellow: #eab308;
+  --ui-yellow-soft: #fdf6df;
+  --ui-yellow-ink: #8a5a06;
+  --ui-ink: #12261f;
+  --ui-muted: #57675f;
+  --ui-line: #e3eae5;
+  --ui-surface: #ffffff;
+  --ui-card-shadow: 0 1px 2px rgba(18, 38, 31, .05), 0 10px 26px rgba(18, 38, 31, .08);
+  --ui-card-shadow-lg: 0 2px 4px rgba(18, 38, 31, .05), 0 20px 44px rgba(18, 38, 31, .11);
+
+  /* globals.css still declares the legacy marketing tokens. Remap the two that
+     never fit this palette here, in the layer that owns it, instead of shadowing
+     each surface by hand: the old lime leaked through ~10 rules (seat map,
+     legend, seat badge, capacity bubble, ticket head, seat card, payment glyph)
+     so new surfaces kept inheriting it. Remapping also lets every rule keep its
+     own foreground colour, which the per-surface overrides were breaking (the
+     seat card reads better on ticket.css's #314034 than on yellow ink). */
+  --lime: var(--ui-yellow);
+  --cream: var(--ui-surface);
+}
+
+
+/* ========================================
+   ONE TYPEFACE, EVERYWHERE
+   campusRide and the console were unified on Inter earlier; the client home and
+   vacationRide were still picking up the marketing serif (the homepage hero and
+   the console hero through the old unscoped `h1` rule, vacation on purpose).
+   Only the family changes here — size, weight and line-height stay with the
+   rules that already set them.
+   ======================================== */
+
+.launcher :is(h1, h2, h3),
+.vacation :is(h1, h2, h3, .coach-capacity strong) {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+
+/* ========================================
+   campusRide
+   ======================================== */
+
+.campus-shell {
+  background: var(--ui-surface);
+}
+
+.campus-student-shell {
+  --campus-depth: var(--ui-card-shadow);
+  --campus-depth-hover: var(--ui-card-shadow-lg);
+
+  background: var(--ui-surface);
+}
+
+.campus-student-shell .campus-hero {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+}
+
+.campus-student-shell .campus-logo {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow);
+}
+
+.campus-student-shell .campus-hero nav a.is-current {
+  background: var(--ui-green-soft);
+  color: var(--ui-green);
+}
+
+/* The status strip is the one place the dark cyan reads at a glance. */
+.campus-shell .campus-status-banner {
+  border-color: #cfe4ea;
+  background: var(--ui-cyan-soft);
+  color: var(--ui-muted);
+}
+
+.campus-shell .campus-status-banner strong {
+  color: var(--ui-cyan);
+}
+
+.campus-student-shell :is(.nearest-ride-finder, .ride-match-list, .campus-map-widget, .campus-ai-widget) {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow);
+}
+
+.campus-student-shell .ride-match-card {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow);
+}
+
+.campus-student-shell .ride-match-card:hover {
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.campus-student-shell .ride-match-card.is-selected {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+  box-shadow: var(--ui-card-shadow-lg), 0 0 0 4px rgba(13, 105, 77, .1);
+}
+
+.campus-student-shell .ride-match-card li {
+  border-color: var(--ui-line);
+  background: #f4f8f5;
+}
+
+.campus-student-shell .queue-join-form {
+  background: var(--ui-surface);
+  box-shadow: inset 0 0 0 1px var(--ui-line);
+}
+
+.campus-student-shell .nearest-ride-finder select {
+  border-color: #cdd9d1;
+  background: var(--ui-surface);
+}
+
+/* Primary action stays green; the paired secondary action carries the cyan. */
+.campus-student-shell :is(.nearest-ride-finder button, .ride-match-card button, .campus-ai-widget button) {
+  background: linear-gradient(180deg, #12805e, var(--ui-green));
+  box-shadow: 0 6px 0 var(--ui-green-deep), 0 12px 22px rgba(13, 105, 77, .22);
+}
+
+.campus-student-shell :is(.nearest-ride-finder button, .ride-match-card button, .campus-ai-widget button):hover {
+  box-shadow: 0 8px 0 var(--ui-green-deep), 0 16px 26px rgba(13, 105, 77, .26);
+}
+
+.campus-student-shell :is(.nearest-ride-finder button, .ride-match-card button, .campus-ai-widget button):active {
+  box-shadow: 0 2px 0 var(--ui-green-deep), 0 5px 10px rgba(13, 105, 77, .2);
+}
+
+.campus-student-shell .nearest-ride-actions button + button {
+  background: linear-gradient(180deg, #1289a8, var(--ui-cyan));
+  box-shadow: 0 6px 0 var(--ui-cyan-deep), 0 12px 22px rgba(14, 116, 144, .22);
+}
+
+.campus-student-shell .nearest-ride-actions button + button:hover {
+  box-shadow: 0 8px 0 var(--ui-cyan-deep), 0 16px 26px rgba(14, 116, 144, .26);
+}
+
+.campus-student-shell .nearest-ride-actions button + button:active {
+  box-shadow: 0 2px 0 var(--ui-cyan-deep), 0 5px 10px rgba(14, 116, 144, .2);
+}
+
+.campus-student-shell :is(button, select, input, textarea):focus-visible {
+  outline-color: var(--ui-yellow-ink);
+}
+
+.campus-student-shell .campus-map-canvas {
+  border-color: #cfe0e5;
+  background: radial-gradient(circle at 18% 30%, rgba(234, 179, 8, .16), transparent 20%), linear-gradient(135deg, #e2f0f4, #f6fbf9);
+}
+
+.campus-student-shell .campus-map-grid {
+  background-image: linear-gradient(rgba(14, 116, 144, .1) 1px, transparent 1px), linear-gradient(90deg, rgba(14, 116, 144, .1) 1px, transparent 1px), linear-gradient(32deg, transparent 47%, rgba(255, 255, 255, .72) 48%, rgba(255, 255, 255, .72) 53%, transparent 54%);
+}
+
+.campus-student-shell .campus-map-pin {
+  border-color: rgba(14, 116, 144, .16);
+  box-shadow: 0 7px 0 rgba(14, 116, 144, .14), 0 13px 22px rgba(18, 38, 31, .13);
+}
+
+.campus-student-shell .campus-vehicle-dot {
+  background: linear-gradient(145deg, #f5cc45, var(--ui-yellow));
+  color: var(--ui-ink);
+  box-shadow: 0 7px 0 var(--ui-yellow-ink), 0 13px 22px rgba(90, 62, 5, .24);
+}
+
+.campus-student-shell .campus-vehicle-dot.is-selected {
+  background: linear-gradient(145deg, #189a70, var(--ui-green));
+  color: #ffffff;
+  box-shadow: 0 9px 0 var(--ui-green-deep), 0 18px 30px rgba(11, 87, 64, .3);
+}
+
+.campus-shell :is(select, input, textarea):focus-visible {
+  outline-color: var(--ui-yellow-ink);
+}
+
+
+/* ========================================
+   campusRide — driver + admin inherit the same surface
+   ======================================== */
+
+.campus-driver-shell .campus-hero,
+.campus-admin-shell .campus-hero {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+}
+
+.campus-driver-shell :is(.campus-auth-card, .campus-widget-card, .campus-map-widget, .campus-ai-widget),
+.campus-admin-shell :is(.campus-panel, .campus-map-widget, .campus-ai-widget, .campus-admin-control) {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow);
+}
+
+.campus-driver-shell .campus-widget-card:hover,
+.campus-admin-shell .campus-panel:hover {
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.campus-driver-shell .campus-queue-entry,
+.campus-admin-shell .campus-list-row {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+}
+
+
+/* ========================================
+   vacationRide
+   ======================================== */
+
+.vacation {
+  min-height: 100svh;
+  background: var(--ui-surface);
+}
+
+.vacation .topbar {
+  border-bottom-color: var(--ui-line);
+  background: var(--ui-surface);
+}
+
+.vacation .hero {
+  background: radial-gradient(115% 120% at 90% 4%, var(--ui-cyan-soft) 0%, transparent 50%), radial-gradient(120% 130% at 2% 102%, var(--ui-green-soft) 0%, transparent 54%), var(--ui-surface);
+}
+
+.vacation .eyebrow {
+  border-color: #bfe0cd;
+  background: var(--ui-surface);
+  color: var(--ui-green);
+}
+
+.vacation .trust-row {
+  color: var(--ui-muted);
+}
+
+.vacation .coach-logo-badge {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .bus-photo-frame {
+  background: var(--ui-ink);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .art-card {
+  border: 1px solid var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .art-card span {
+  color: var(--ui-muted);
+}
+
+.vacation .coach-capacity {
+  background: var(--ui-yellow);
+  color: var(--ui-ink);
+  box-shadow: 0 10px 25px rgba(18, 38, 31, .3);
+}
+
+.vacation .search-card {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .search-card label {
+  border-right-color: var(--ui-line);
+}
+
+.vacation .search-card label > span {
+  color: var(--ui-muted);
+}
+
+.vacation .swap {
+  border-color: var(--ui-line);
+  background: var(--ui-green-soft);
+  color: var(--ui-green);
+}
+
+.vacation .flyer-promo {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .flyer-main {
+  background: linear-gradient(135deg, var(--ui-green) 0%, var(--ui-green) 62%, var(--ui-yellow) 62%);
+}
+
+.vacation .flyer-details div,
+.vacation .flyer-times div {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+}
+
+.vacation .content .section-heading p,
+.vacation .results,
+.vacation .duration,
+.vacation .times span {
+  color: var(--ui-muted);
+}
+
+.vacation .section-heading .step {
+  background: var(--ui-green);
+  color: #ffffff;
+}
+
+.vacation .pill {
+  background: var(--ui-cyan-soft);
+  color: var(--ui-cyan);
+}
+
+.vacation .trip-card {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow);
+}
+
+.vacation .trip-card:hover {
+  border-color: #bfe0cd;
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .trip-card.chosen {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+  box-shadow: var(--ui-card-shadow-lg), 0 0 0 3px rgba(13, 105, 77, .1);
+}
+
+.vacation .amenities {
+  border-bottom-color: var(--ui-line);
+}
+
+.vacation .amenities span {
+  border-color: var(--ui-line);
+  background: #f4f8f5;
+  color: var(--ui-muted);
+}
+
+.vacation .divider {
+  background: var(--ui-line);
+}
+
+.vacation .booking-section {
+  background: linear-gradient(160deg, var(--ui-ink) 0%, #0b3a3d 100%);
+}
+
+.vacation .section-heading.light .step {
+  background: var(--ui-yellow);
+  color: var(--ui-ink);
+}
+
+.vacation .bus-shell {
+  border-color: #2f4d45;
+  background: #143128;
+}
+
+.vacation .seats button {
+  border-color: #4d6a5f;
+  background: #23443a;
+  color: #bed0c7;
+}
+
+.vacation .seats button:disabled {
+  border-color: #2e4a41;
+  background: #1d362e;
+  color: #587066;
+}
+
+.vacation .seats button.chosen {
+  border-color: var(--ui-yellow);
+  background: var(--ui-yellow);
+  color: var(--ui-ink);
+  box-shadow: 0 0 0 3px rgba(234, 179, 8, .22);
+}
+
+.vacation .legend {
+  border-top-color: #40604f;
+  color: #9eb0a7;
+}
+
+.vacation .legend i.chosen {
+  border-color: var(--ui-yellow);
+  background: var(--ui-yellow);
+}
+
+.vacation .summary {
+  border: 1px solid var(--ui-line);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .summary-label {
+  color: var(--ui-muted);
+}
+
+.vacation .seat-badge {
+  background: var(--ui-yellow-soft);
+  color: var(--ui-yellow-ink);
+}
+
+.vacation .primary-button,
+.vacation .confirm-button {
+  background: var(--ui-green);
+}
+
+.vacation .primary-button:hover,
+.vacation .confirm-button:hover {
+  background: var(--ui-green-deep);
+}
+
+.vacation .secondary-ai-button {
+  border-color: var(--ui-line);
+  background: var(--ui-cyan-soft);
+  color: var(--ui-cyan);
+}
+
+.vacation .passenger-help-box {
+  border-color: var(--ui-line);
+  background: var(--ui-cyan-soft);
+}
+
+.vacation .passenger-help-box p {
+  color: var(--ui-ink);
+}
+
+.vacation :is(button, a, input, select, textarea):focus-visible {
+  outline-color: var(--ui-yellow-ink);
+}
+
+/* globals.css scoped the marketing footer to this page, so the cream band and
+   the 90px gutters are opt-in here rather than leaking onto every <footer>. */
+.vacation > footer {
+  border-top: 1px solid var(--ui-line);
+  background: var(--ui-surface);
+  color: var(--ui-muted);
+}

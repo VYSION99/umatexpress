@@ -1,3 +1,5 @@
+import { envValue } from "@/lib/runtime-env";
+
 const DEFAULT_BASE_URL = "https://sandbox.momodeveloper.mtn.com";
 
 type TokenCache = { token: string; expiresAt: number };
@@ -18,8 +20,28 @@ function getConfig() {
   return { apiUser, apiKey, collectionKey, baseUrl, targetEnvironment, currency };
 }
 
+async function getRuntimeConfig() {
+  const apiUser = await envValue("MTN_MOMO_API_USER");
+  const apiKey = await envValue("MTN_MOMO_API_KEY");
+  const collectionKey = await envValue("MTN_MOMO_COLLECTION_KEY");
+  const baseUrl = (await envValue("MTN_MOMO_BASE_URL") || DEFAULT_BASE_URL).replace(/\/$/, "");
+  const targetEnvironment = await envValue("MTN_MOMO_TARGET_ENVIRONMENT") || "sandbox";
+  const configuredCurrency = await envValue("MTN_MOMO_CURRENCY") || "GHS";
+  const currency = targetEnvironment === "sandbox" ? "EUR" : configuredCurrency;
+
+  if (!apiUser || !apiKey || !collectionKey) {
+    throw new Error("MTN MoMo is not configured yet.");
+  }
+
+  return { apiUser, apiKey, collectionKey, baseUrl, targetEnvironment, currency };
+}
+
 export function getMomoCurrency() {
   return getConfig().currency;
+}
+
+export async function getMomoCurrencyRuntime() {
+  return (await getRuntimeConfig()).currency;
 }
 
 export function normalizeGhanaPhone(input: string) {
@@ -32,7 +54,7 @@ export function normalizeGhanaPhone(input: string) {
 export async function getAccessToken() {
   if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) return tokenCache.token;
 
-  const { apiUser, apiKey, collectionKey, baseUrl } = getConfig();
+  const { apiUser, apiKey, collectionKey, baseUrl } = await getRuntimeConfig();
   const basic = btoa(`${apiUser}:${apiKey}`);
   const response = await fetch(`${baseUrl}/collection/token/`, {
     method: "POST",
@@ -62,7 +84,7 @@ export async function requestToPay(input: {
   payerMessage: string;
   payeeNote: string;
 }) {
-  const { collectionKey, baseUrl, targetEnvironment, currency } = getConfig();
+  const { collectionKey, baseUrl, targetEnvironment, currency } = await getRuntimeConfig();
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${baseUrl}/collection/v1_0/requesttopay`, {
@@ -93,7 +115,7 @@ export async function requestToPay(input: {
 }
 
 export async function getPaymentStatus(referenceId: string) {
-  const { collectionKey, baseUrl, targetEnvironment } = getConfig();
+  const { collectionKey, baseUrl, targetEnvironment } = await getRuntimeConfig();
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${baseUrl}/collection/v1_0/requesttopay/${encodeURIComponent(referenceId)}`, {

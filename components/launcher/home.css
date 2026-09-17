@@ -1,0 +1,1345 @@
+/* ========================================
+   STUDENT HOMEPAGE
+   Figma Make layout, rebuilt on a white
+   surface with the yellow / green / dark
+   cyan palette. Only this file may style
+   `.home`; `launcher.css` stays shared with
+   the management console.
+   ======================================== */
+
+.launcher.home {
+  /* The palette itself lives in app/palette.css so the client home, campusRide
+     and vacationRide cannot drift apart. */
+  --home-green: var(--ui-green);
+  --home-green-soft: var(--ui-green-soft);
+  --home-cyan: var(--ui-cyan);
+  --home-cyan-soft: var(--ui-cyan-soft);
+  --home-yellow: var(--ui-yellow);
+  --home-yellow-soft: var(--ui-yellow-soft);
+  --home-yellow-ink: var(--ui-yellow-ink);
+  --home-ink: var(--ui-ink);
+  --home-muted: var(--ui-muted);
+  --home-line: var(--ui-line);
+  --home-shadow: var(--ui-card-shadow);
+  --home-shadow-lg: var(--ui-card-shadow-lg);
+
+  background: var(--ui-surface);
+  color: var(--home-ink);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+
+/* ========================================
+   TOP BAR
+   ======================================== */
+
+.home-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  padding: 14px clamp(16px, 4vw, 40px);
+
+  background: #fffffff2;
+  border-bottom: 1px solid var(--home-line);
+  backdrop-filter: blur(14px);
+}
+
+.home-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 48px;
+}
+
+.home-mark {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+
+  border-radius: 13px;
+  object-fit: contain;
+}
+
+.home-wordmark {
+  display: block;
+  font-size: 17px;
+  font-weight: 850;
+  letter-spacing: -.5px;
+  line-height: 1.1;
+}
+
+.home-wordmark em {
+  font-style: normal;
+  color: var(--home-cyan);
+}
+
+.home-tagline {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--home-muted);
+}
+
+.home-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-nav-desktop {
+  display: none;
+  gap: 4px;
+}
+
+.home-nav-desktop a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  min-height: 44px;
+  padding: 0 14px;
+
+  border-radius: 12px;
+  color: var(--home-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.home-nav-desktop a:hover {
+  background: var(--home-green-soft);
+  color: var(--home-green);
+}
+
+.home-icon-button,
+.home-guest {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  min-height: 44px;
+  padding: 0;
+
+  border: 1px solid var(--home-line);
+  border-radius: 13px;
+  background: #fff;
+  color: var(--home-ink);
+}
+
+.home-icon-button {
+  width: 44px;
+}
+
+.home-guest {
+  padding: 0 15px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.home-icon-button:hover,
+.home-guest:hover {
+  border-color: #cfded6;
+  background: var(--home-green-soft);
+  color: var(--home-green);
+}
+
+
+/* ========================================
+   MAIN COLUMN
+   ======================================== */
+
+.home-main {
+  width: min(1060px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 18px 0 40px;
+}
+
+
+/* ========================================
+   HERO
+   ======================================== */
+
+.home-hero {
+  position: relative;
+  overflow: hidden;
+
+  padding: 30px 26px 34px;
+  margin-bottom: 26px;
+
+  border: 1px solid var(--home-line);
+  border-radius: 28px;
+
+  background:
+    radial-gradient(115% 120% at 92% 4%, var(--home-yellow-soft) 0%, transparent 52%),
+    radial-gradient(120% 130% at -8% 108%, var(--home-cyan-soft) 0%, transparent 58%),
+    #ffffff;
+  box-shadow: var(--home-shadow-lg);
+}
+
+.home-hero:after {
+  content: "";
+  position: absolute;
+  right: -70px;
+  bottom: -96px;
+
+  width: 230px;
+  height: 230px;
+
+  border-radius: 50%;
+  background: var(--home-green-soft);
+  pointer-events: none;
+}
+
+.home-pill {
+  position: relative;
+  z-index: 1;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+
+  padding: 6px 13px;
+  margin-bottom: 18px;
+
+  border: 1px solid #bfe0cd;
+  border-radius: 999px;
+  background: #fff;
+
+  color: var(--home-green);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.home-hero h1 {
+  position: relative;
+  z-index: 1;
+
+  margin: 0 0 14px;
+  max-width: 15ch;
+
+  font-size: clamp(32px, 7.4vw, 54px);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -1.6px;
+}
+
+.home-hero h1 em {
+  font-style: normal;
+  color: var(--home-cyan);
+}
+
+.home-hero > p {
+  position: relative;
+  z-index: 1;
+
+  margin: 0;
+  max-width: 46ch;
+
+  color: var(--home-muted);
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+
+/* ========================================
+   SECTION HEADINGS
+   ======================================== */
+
+.home-section {
+  margin-bottom: 26px;
+}
+
+.home-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.home-section-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -.45px;
+}
+
+.home-section-head button,
+.home-section-head a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 44px;
+  padding: 0;
+
+  border: 0;
+  background: none;
+  color: var(--home-cyan);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.home-section-note {
+  color: var(--home-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+
+/* ========================================
+   SERVICE RAIL
+   ======================================== */
+
+.home-rail {
+  display: flex;
+  gap: 12px;
+
+  margin: 0 -16px;
+  padding: 4px 16px 10px;
+
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.home-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.home-card {
+  --card-ink: var(--home-cyan);
+  --card-soft: var(--home-cyan-soft);
+
+  flex: 0 0 172px;
+  scroll-snap-align: start;
+
+  display: flex;
+  flex-direction: column;
+
+  min-height: 168px;
+  padding: 16px;
+
+  border: 1px solid var(--home-line);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: var(--home-shadow);
+  transition: box-shadow .18s ease, transform .18s ease;
+}
+
+.home-card:hover {
+  box-shadow: var(--home-shadow-lg);
+  transform: translateY(-2px);
+}
+
+.home-card.is-green {
+  --card-ink: var(--home-green);
+  --card-soft: var(--home-green-soft);
+}
+
+.home-card.is-yellow {
+  --card-ink: var(--home-yellow-ink);
+  --card-soft: var(--home-yellow-soft);
+}
+
+.home-card-icon {
+  display: grid;
+  place-items: center;
+
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+
+  border-radius: 14px;
+  background: var(--card-soft);
+  color: var(--card-ink);
+}
+
+.home-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  margin: 14px 0 5px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.3px;
+}
+
+.home-card h3 svg {
+  color: var(--home-muted);
+}
+
+.home-card p {
+  margin: 0;
+  flex: 1;
+
+  color: var(--home-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.home-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 44px;
+  margin-top: 4px;
+
+  color: var(--card-ink);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.home-card-soon {
+  display: inline-flex;
+  align-items: center;
+
+  margin-top: 10px;
+  padding: 5px 11px;
+  align-self: flex-start;
+
+  border: 1px solid var(--home-line);
+  border-radius: 999px;
+  background: var(--card-soft);
+
+  color: var(--card-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.home-card-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+
+/* ========================================
+   FEATURE CARDS
+   ======================================== */
+
+.home-feature {
+  --card-ink: var(--home-cyan);
+  --card-soft: var(--home-cyan-soft);
+
+  position: relative;
+  overflow: hidden;
+
+  padding: 24px;
+  margin-bottom: 22px;
+
+  border: 1px solid var(--home-line);
+  border-radius: 26px;
+  background: #fff;
+  box-shadow: var(--home-shadow-lg);
+}
+
+.home-feature.is-green {
+  --card-ink: var(--home-green);
+  --card-soft: var(--home-green-soft);
+}
+
+.home-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 20px;
+}
+
+.home-feature-head h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -.4px;
+}
+
+.home-feature-head p {
+  margin: 3px 0 0;
+  color: var(--home-muted);
+  font-size: 12.5px;
+}
+
+.home-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.home-steps li {
+  position: relative;
+
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.home-steps i {
+  display: grid;
+  place-items: center;
+
+  width: 22px;
+  height: 22px;
+
+  border-radius: 50%;
+  background: var(--card-soft);
+  color: var(--card-ink);
+  font-style: normal;
+}
+
+.home-steps li:not(:last-child) i:after {
+  content: "";
+  position: absolute;
+
+  top: 26px;
+  bottom: 6px;
+  left: 10px;
+  width: 2px;
+
+  background: var(--home-line);
+}
+
+.home-steps div {
+  padding-bottom: 16px;
+}
+
+.home-steps small {
+  display: block;
+
+  color: var(--card-ink);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.home-steps strong {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.home-photo {
+  overflow: hidden;
+
+  margin-bottom: 18px;
+  border: 1px solid var(--home-line);
+  border-radius: 18px;
+  background: var(--card-soft);
+}
+
+.home-photo img {
+  display: block;
+  width: 100%;
+  height: clamp(160px, 30vw, 230px);
+  object-fit: cover;
+}
+
+.home-feature-copy {
+  margin: 0 0 22px;
+  max-width: 46ch;
+
+  color: var(--home-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.home-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+
+  min-height: 50px;
+  padding: 0 22px;
+
+  border-radius: 15px;
+  background: var(--home-green);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.home-cta:hover {
+  background: #0b5740;
+}
+
+.home-feature.is-cyan .home-cta {
+  background: var(--home-cyan);
+}
+
+.home-feature.is-cyan .home-cta:hover {
+  background: #0b5f76;
+}
+
+
+/* ========================================
+   ON THE WAY
+   ======================================== */
+
+.home-soon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.home-soon article {
+  padding: 16px;
+
+  border: 1px dashed #d5e2da;
+  border-radius: 20px;
+  background: var(--home-green-soft);
+  color: var(--home-ink);
+  box-shadow: var(--home-shadow);
+}
+
+.home-soon article.is-cyan {
+  background: var(--home-cyan-soft);
+}
+
+.home-soon article.is-yellow {
+  background: var(--home-yellow-soft);
+}
+
+.home-soon svg {
+  color: var(--home-muted);
+}
+
+.home-soon h3 {
+  margin: 10px 0 4px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.home-soon p {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+
+/* ========================================
+   BOOKINGS
+   ======================================== */
+
+.home-bookings {
+  padding: 24px;
+  margin-bottom: 22px;
+
+  border: 1px solid var(--home-line);
+  border-radius: 26px;
+  background: #fff;
+  box-shadow: var(--home-shadow-lg);
+}
+
+.home-bookings-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.home-bookings-head span {
+  display: grid;
+  place-items: center;
+
+  width: 46px;
+  height: 46px;
+
+  border-radius: 14px;
+  background: var(--home-yellow-soft);
+  color: var(--home-yellow-ink);
+}
+
+.home-bookings-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -.4px;
+}
+
+.home-bookings-head p {
+  margin: 3px 0 0;
+  color: var(--home-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.home-bookings strong {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.home-bookings p {
+  margin: 0 0 18px;
+  max-width: 66ch;
+  color: var(--home-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+
+/* ========================================
+   FOOTER
+   ======================================== */
+
+.home-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+
+  padding: 0 2px 18px;
+
+  color: var(--home-muted);
+  font-size: 12.5px;
+}
+
+.home-note svg {
+  flex-shrink: 0;
+  color: var(--home-green);
+}
+
+.home-note button {
+  min-height: 44px;
+  margin-left: auto;
+  padding: 0;
+
+  border: 0;
+  background: none;
+  color: var(--home-cyan);
+  font-size: 12.5px;
+  font-weight: 750;
+}
+
+.home-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  padding: 18px 0 0;
+  border-top: 1px solid var(--home-line);
+
+  color: var(--home-muted);
+  font-size: 12.5px;
+}
+
+.home-footer strong {
+  color: var(--home-ink);
+  font-weight: 800;
+}
+
+.home-footer button {
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--home-cyan);
+  font-size: 12.5px;
+  font-weight: 750;
+}
+
+
+/* ========================================
+   BOTTOM NAVIGATION
+   ======================================== */
+
+.home-nav {
+  display: none;
+}
+
+@media (max-width: 719px) {
+  .home-nav {
+    position: fixed;
+    z-index: 40;
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    display: flex;
+    justify-content: space-around;
+    gap: 0;
+
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+
+    background: #fffffff7;
+    border-top: 1px solid var(--home-line);
+    backdrop-filter: blur(14px);
+  }
+
+  .home-nav a,
+  .home-nav button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+
+    min-width: 62px;
+    min-height: 50px;
+
+    border: 0;
+    border-radius: 14px;
+    background: transparent;
+
+    color: var(--home-muted);
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+
+  .home-nav a[aria-current] {
+    background: var(--home-green-soft);
+    color: var(--home-green);
+  }
+
+  .home-main {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+
+  /* The install banner is fixed to the viewport bottom and would otherwise sit
+     on top of the bottom navigation. globals.css lifts it above `.campus-nav`,
+     so the homepage needs the same treatment for its own bar. */
+  body:has(.home-nav) .app-install-prompt {
+    bottom: calc(90px + env(safe-area-inset-bottom));
+  }
+}
+
+
+/* ========================================
+   PANEL OVERRIDES
+   `launch-dialog` and friends ship in
+   launcher.css and are shared with the
+   management console, so the homepage only
+   re-tints them here.
+   ======================================== */
+
+.launcher.home .launch-dialog {
+  border-color: var(--home-line);
+  background: #fff;
+  color: var(--home-ink);
+}
+
+.launcher.home .launch-dialog::backdrop {
+  background: #12261f59;
+}
+
+.launcher.home .launch-directory article {
+  border-color: var(--home-line);
+}
+
+.launcher.home .launch-search {
+  border-color: var(--home-line);
+  background: #f5f8f6;
+}
+
+.launcher.home .launch-directory a,
+.launcher.home .launch-panel-message a,
+.launcher.home .launch-reset {
+  color: var(--home-cyan);
+}
+
+.launcher.home .launch-directory button,
+.launcher.home .launch-customise button,
+.launcher.home .launch-reset {
+  border-color: var(--home-line);
+  background: #f5f8f6;
+}
+
+.launcher.home .launch-customise button[aria-pressed=true] {
+  border-color: #bfe0cd;
+  background: var(--home-green-soft);
+  color: var(--home-green);
+}
+
+.launcher.home .launch-empty {
+  border-color: #d5e2da;
+}
+
+.launcher.home :is(a, button, input):focus-visible {
+  outline-color: var(--home-cyan);
+}
+
+
+/* ========================================
+   PROFILE PANEL
+   The device-local passenger profile. It
+   renders inside the shared launch dialog,
+   so it only supplies the body.
+   ======================================== */
+
+.profile-panel {
+  display: grid;
+  gap: 16px;
+}
+
+/* The account summary sits above the details: who is signed in, or the
+   sign-in call to action for a guest. */
+.profile-account {
+  display: grid;
+  gap: 5px;
+  padding-bottom: 4px;
+}
+
+.profile-account strong {
+  font-size: 14.5px;
+  overflow-wrap: anywhere;
+}
+
+.profile-account-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--home-green-soft);
+  color: var(--home-green);
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.profile-account-badge.is-guest {
+  background: var(--home-yellow-soft);
+  color: var(--home-yellow-ink);
+}
+
+a.profile-save,
+a.profile-forget {
+  text-decoration: none;
+}
+
+.profile-note {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.profile-fields {
+  display: grid;
+  gap: 11px;
+}
+
+.profile-fields label {
+  display: grid;
+  gap: 6px;
+  color: var(--home-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.profile-fields input {
+  min-height: 46px;
+  padding: 0 13px;
+  border: 1px solid var(--home-line);
+  border-radius: 13px;
+  background: var(--ui-surface);
+  color: var(--home-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.profile-save,
+.profile-forget {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.profile-save {
+  background: var(--home-green);
+  color: #fff;
+}
+
+.profile-save:hover {
+  background: var(--ui-green-deep);
+}
+
+.profile-forget {
+  border-color: var(--home-line);
+  background: var(--ui-surface);
+  color: var(--home-muted);
+}
+
+.profile-forget:hover {
+  border-color: #e3b8b8;
+  color: #a93636;
+}
+
+.profile-status {
+  margin: 0;
+  color: var(--home-green);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.profile-tickets {
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--home-line);
+}
+
+.profile-tickets-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.profile-tickets-head h3 {
+  margin: 0;
+  font-size: 14.5px;
+}
+
+.profile-tickets-head > span {
+  color: var(--home-muted);
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.profile-tickets ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-tickets li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--home-line);
+  border-radius: 15px;
+  background: var(--ui-surface);
+  box-shadow: var(--home-shadow);
+}
+
+.profile-tickets li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-tickets li strong {
+  font-size: 13px;
+}
+
+.profile-tickets li small {
+  color: var(--home-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.profile-ticket-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--home-yellow-soft);
+  color: var(--home-yellow-ink);
+}
+
+.profile-tickets li a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--home-cyan);
+  font-size: 12.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.profile-tickets li button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--home-line);
+  border-radius: 10px;
+  background: var(--ui-surface);
+  color: var(--home-muted);
+  cursor: pointer;
+}
+
+.profile-tickets li button:hover {
+  border-color: #e3b8b8;
+  color: #a93636;
+}
+
+.profile-empty {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.profile-empty svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* Narrow phones: the open/remove controls drop under the ticket text. */
+@media (max-width: 420px) {
+  .profile-tickets li {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .profile-tickets li a,
+  .profile-tickets li button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+
+@media (min-width: 720px) {
+  .home-nav-desktop {
+    display: flex;
+  }
+
+  .home-main {
+    width: min(1060px, calc(100% - 64px));
+    padding-top: 26px;
+  }
+
+  .home-hero {
+    padding: 46px 48px 50px;
+    border-radius: 32px;
+  }
+
+  .home-hero:after {
+    right: -40px;
+    bottom: -120px;
+    width: 320px;
+    height: 320px;
+  }
+
+  .home-rail {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+
+  .home-card {
+    flex: 1 1 auto;
+  }
+
+  .home-feature {
+    padding: 30px 32px;
+  }
+
+  .home-section-head h2 {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 900px) {
+  .home-feature {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 30px;
+  }
+
+  .home-feature-head {
+    grid-column: 1 / -1;
+    margin-bottom: 4px;
+  }
+
+  .home-feature .home-photo {
+    margin-bottom: 0;
+  }
+
+  .home-feature .home-steps {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+  }
+
+  .home-cta {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has(.home) {
+    scroll-behavior: auto;
+  }
+
+  .home * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+
+/* ========================================
+   NOTIFICATIONS
+   The bell dot and the in-app feed. The
+   feed is the student's own outbox, so it
+   only fills in once an account is signed in.
+   ======================================== */
+
+.launcher.home .home-icon-button {
+  position: relative;
+}
+
+.home-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+
+  background: var(--home-yellow);
+}
+
+.feed {
+  display: grid;
+  gap: 12px;
+}
+
+.feed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--home-muted);
+}
+
+.feed-read-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--home-line);
+  border-radius: 999px;
+
+  background: #fff;
+  color: var(--home-green);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.feed-read-all:hover {
+  border-color: #bfe0cd;
+  background: var(--home-green-soft);
+}
+
+.feed ul {
+  display: grid;
+  gap: 10px;
+
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feed li {
+  display: grid;
+  gap: 6px;
+
+  padding: 13px 14px;
+  border: 1px solid var(--home-line);
+  border-radius: 14px;
+
+  background: #fff;
+  box-shadow: var(--home-shadow);
+}
+
+/* An unread row keeps the accent so the newest message is obvious. */
+.feed li.is-unread {
+  border-left: 3px solid var(--home-yellow);
+}
+
+.feed-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feed-item-head strong {
+  font-size: 14px;
+}
+
+.feed-item-head small {
+  font-size: 11.5px;
+  color: var(--home-muted);
+  white-space: nowrap;
+}
+
+.feed li p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--home-muted);
+}
+
+.feed li a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--home-cyan);
+}

@@ -1,0 +1,113 @@
+/* ========================================
+   UMATEXPRESS ACCOUNT
+   One platform sign-in for both services.
+   Layout only; colour comes from the
+   palette tokens in app/palette.css.
+   ======================================== */
+
+.student-auth-interface {
+  display: grid;
+  width: min(520px, 100%);
+  margin: 0 auto;
+  gap: 14px;
+}
+
+.student-auth-interface > .campus-status-banner {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  display: grid;
+  justify-content: start;
+  gap: 3px;
+}
+
+.student-auth-interface > .campus-auth-card {
+  width: 100%;
+  margin: 0;
+}
+
+.student-auth-interface > a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-height: 44px;
+  margin: 4px auto 0;
+  color: var(--ui-green);
+  font-weight: 750;
+}
+
+.student-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--ui-line);
+  border-radius: 15px;
+  background: var(--ui-green-soft);
+}
+
+.student-auth-tabs button {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.student-auth-tabs button[aria-pressed="true"] {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+}
+
+.student-auth-hint {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.student-auth-signed-in {
+  display: grid;
+  gap: 3px;
+}
+
+.student-auth-signed-in strong {
+  font-size: 15px;
+}
+
+.student-auth-signed-in small {
+  color: var(--ui-muted);
+}
+
+.student-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.student-auth-actions a,
+.student-auth-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--ui-line);
+  border-radius: 13px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.student-auth-actions .is-primary {
+  border-color: transparent;
+  background: var(--ui-green);
+  color: #fff;
+}

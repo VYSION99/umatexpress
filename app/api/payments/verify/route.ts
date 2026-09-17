@@ -2,6 +2,8 @@ import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "
 import { getPaymentStatus } from "@/lib/mtn-momo";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
+import { getDynamicTrip } from "@/lib/dynamic-trips";
+import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 function errorStatus(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -14,8 +16,10 @@ function errorStatus(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const requestId = requestIdFromRequest(request);
+  const respond = (body: unknown, init?: ResponseInit) => withRequestId(Response.json(body, init), requestId);
   const reference = new URL(request.url).searchParams.get("reference");
-  if (!reference) return Response.json({ error: "Missing payment reference." }, { status: 400 });
+  if (!reference) return respond({ error: "Missing payment reference." }, { status: 400 });
 
   try {
     await ensureBookingsTable();
@@ -25,11 +29,11 @@ export async function GET(request: Request) {
       "SELECT id, booking_id, provider, reference_id, amount, status, access_token_hash FROM payments WHERE reference_id = ? LIMIT 1",
       [reference],
     ))[0];
-    if (!payment) return Response.json({ error: "Payment was not found." }, { status: 404 });
+    if (!payment) return respond({ error: "Payment was not found." }, { status: 404 });
 
     const token = paymentTokenFromRequest(request, reference);
     if (!token || !payment.access_token_hash || await hashPaymentToken(token) !== String(payment.access_token_hash)) {
-      return Response.json({ error: "Payment access is not authorised." }, { status: 403 });
+      return respond({ error: "Payment access is not authorised." }, { status: 403 });
     }
 
     let status = String(payment.status || "PENDING").toUpperCase();
@@ -98,10 +102,21 @@ export async function GET(request: Request) {
         "SELECT reference, passenger_name, seat, trip_id, travel_date, departure_time, amount FROM bookings WHERE id = ? AND booking_status = 'CONFIRMED' LIMIT 1",
         [String(payment.booking_id)],
       ))[0];
+      if (ticket) {
+        const trip = await getDynamicTrip(String(ticket.trip_id), { includeArchived: true });
+        ticket = {
+          ...ticket,
+          route_from: trip?.from || "UMaT Main Campus",
+          route_to: trip?.to || "Accra",
+          arrival_time: trip?.arrival || "",
+          coach_type: trip?.coachType || "VIP Coach",
+          trip_title: trip?.title || "UMaTeXPRESS",
+        };
+      }
     }
 
-    return Response.json({ paid: status === "SUCCESSFUL", status, reference, ticket }, { headers: { "Cache-Control": "no-store" } });
+    return respond({ paid: status === "SUCCESSFUL", status, reference, ticket }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Payment verification failed." }, { status: errorStatus(error) });
+    return respond({ error: error instanceof Error ? error.message : "Payment verification failed." }, { status: errorStatus(error) });
   }
 }

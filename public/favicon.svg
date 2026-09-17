@@ -1,6 +1,24 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M22 19.2727C22 20.779 20.779 22 19.2727 22H14.7273C13.221 22 12 20.779 12 19.2727V12H19.2727C20.779 12 22 13.221 22 14.7273V19.2727Z" fill="#68C4FF"/>
-<path d="M20 2C21.1046 2 22 2.89543 22 4V7C22 8.10457 21.1046 9 20 9H17C15.8954 9 15 8.10457 15 7V4C15 2.89543 15.8954 2 17 2H20Z" fill="#0C79D8"/>
-<path d="M7 15C8.10457 15 9 15.8954 9 17V20C9 21.1046 8.10457 22 7 22H4C2.89543 22 2 21.1046 2 20V17C2 15.8954 2.89543 15 4 15H7Z" fill="#0C79D8"/>
-<path d="M12 12H4.72727C3.22104 12 2 10.779 2 9.27273V4.72727C2 3.22104 3.22104 2 4.72727 2H9.27273C10.779 2 12 3.22104 12 4.72727V12Z" fill="#2E9EFF"/>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop stop-color="#5A120B"/>
+      <stop offset="1" stop-color="#2D0301"/>
+    </radialGradient>
+    <linearGradient id="runner" x1="15" y1="43" x2="43" y2="14" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF1E1E"/>
+      <stop offset=".48" stop-color="#FF6B1A"/>
+      <stop offset="1" stop-color="#FFC12C"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="url(#bg)"/>
+  <path d="M51 7C49 5 46 5 44 8C42 5 39 5 37 7C35 9 35 12 37 14L44 21L51 14C53 12 53 9 51 7Z" stroke="white" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M28 17L13 19L27 21L34 18L28 17Z" fill="#FF5A1E"/>
+  <path d="M21 25L5 27L20 29L31 26L21 25Z" fill="#FF3318"/>
+  <path d="M35 12C38 11 41 13 42 16C43 18 42 20 40 22L46 23L43 26L38 25L35 29L31 27L31 22C29 20 29 18 30 16C31 14 32 13 35 12Z" fill="url(#runner)"/>
+  <path d="M25 19C29 17 35 17 38 20L35 26L29 25L22 31L16 34L14 31L19 25L25 19Z" fill="url(#runner)"/>
+  <path d="M38 20L41 23L43 32L40 34L36 27L33 25L38 20Z" fill="url(#runner)"/>
+  <path d="M43 27H51V35H44L41 33V29L43 27Z" fill="#FFA322"/>
+  <path d="M25 25L20 35L13 43L10 40L15 33L18 27L25 25Z" fill="url(#runner)"/>
+  <path d="M20 35L30 40L40 39C43 39 45 43 42 45L31 46L17 38L20 35Z" fill="url(#runner)"/>
+  <path d="M14 43L8 51L5 49L10 41L14 43Z" fill="url(#runner)"/>
 </svg>

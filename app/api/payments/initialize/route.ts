@@ -1,15 +1,19 @@
 import { ensureBookingsTable, ensurePaymentsTable, turso } from "@/lib/turso";
-import { getMomoCurrency, normalizeGhanaPhone, requestToPay } from "@/lib/mtn-momo";
-import { getPaymentProvider, getPaystackCurrency, initializePaystackTransaction } from "@/lib/paystack";
+import { getMomoCurrencyRuntime, normalizeGhanaPhone, requestToPay } from "@/lib/mtn-momo";
+import { calculatePaystackCharge, getPaymentProviderRuntime, getPaystackCurrencyRuntime, getPaystackFeePercentRuntime, initializePaystackTransaction } from "@/lib/paystack";
 import { hashPaymentToken, paymentAccessCookie } from "@/lib/payment-access";
-import { getTrip, isValidTravelDate } from "@/lib/trips";
-import { departureForTrip, getTripSettings, tripIsEnabled } from "@/lib/trip-settings";
+import { getDynamicTrip } from "@/lib/dynamic-trips";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { requireStudent } from "@/lib/student-auth";
+import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
 function errorStatus(error: unknown) {
+  if (error instanceof CampusEngineError) return error.status;
   const message = error instanceof Error ? error.message : "";
   if (message.includes("Turso") || message.includes("valid Turso credentials")) return 503;
   if (message.includes("MTN MoMo is not configured")) return 503;
@@ -21,29 +25,38 @@ function errorStatus(error: unknown) {
 }
 
 export async function POST(request: Request) {
+  const requestId = requestIdFromRequest(request);
+  const respond = (body: unknown, init?: ResponseInit) => withRequestId(Response.json(body, init), requestId);
   let bookingId = "";
   try {
+    const limited = await rateLimit(request, "payment-initialize", { limit: 20, windowMs: 10 * 60_000 });
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const body = await request.json() as Record<string, unknown>;
-    const name = cleanText(body.name, 100);
-    const email = cleanText(body.email, 254).toLowerCase();
+    // Booking is the only gated action: anyone may browse trips and seats, but a
+    // passenger must hold a UMaTeXPRESS student account to hold a seat and pay.
+    const student = await requireStudent(request);
+    const name = cleanText(body.name, 100) || student.name;
+    const submittedEmail = cleanText(body.email, 254).toLowerCase();
+    // The receipt address is the account address, so a booking can never be made
+    // under someone else's email.
+    const email = student.email;
+    if (submittedEmail && submittedEmail !== email) {
+      return respond({ error: "Book with the email on your account." }, { status: 400 });
+    }
     const travelDate = cleanText(body.travelDate, 10);
     const seat = Number(body.seat);
-    const tripId = Number(body.tripId);
-    const trip = getTrip(tripId);
+    const tripId = cleanText(body.tripId, 80);
+    const trip = await getDynamicTrip(tripId);
 
     if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return Response.json({ error: "Enter a valid passenger name and email address." }, { status: 400 });
+      return respond({ error: "Enter a valid passenger name and email address." }, { status: 400 });
     }
-    if (!Number.isInteger(seat) || seat < 1 || seat > 50) {
-      return Response.json({ error: "Choose a valid seat from 1 to 50." }, { status: 400 });
+    if (!trip || !trip.active) return respond({ error: "Choose a valid trip." }, { status: 400 });
+    if (!Number.isInteger(seat) || seat < 1 || seat > trip.capacity) {
+      return respond({ error: `Choose a valid seat from 1 to ${trip.capacity}.` }, { status: 400 });
     }
-    if (!trip) return Response.json({ error: "Choose a valid trip." }, { status: 400 });
-    const tripSettings = await getTripSettings();
-    if (!tripIsEnabled(tripSettings.mode, tripId)) {
-      return Response.json({ error: "That departure is not currently open for booking." }, { status: 409 });
-    }
-    if (!isValidTravelDate(travelDate)) {
-      return Response.json({ error: "That travel date is not available." }, { status: 400 });
+    if (trip.travelDate !== travelDate) {
+      return respond({ error: "That travel date is not available." }, { status: 400 });
     }
 
     const phoneText = cleanText(body.phone, 30);
@@ -62,8 +75,10 @@ export async function POST(request: Request) {
     const accessToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
     const accessTokenHash = await hashPaymentToken(accessToken);
     const holdExpiresAt = new Date(now.getTime() + 10 * 60_000).toISOString();
-    const provider = getPaymentProvider();
-    const currency = provider === "PAYSTACK" ? getPaystackCurrency() : getMomoCurrency();
+    const provider = await getPaymentProviderRuntime();
+    const currency = provider === "PAYSTACK" ? await getPaystackCurrencyRuntime() : await getMomoCurrencyRuntime();
+    const paystackCharge = provider === "PAYSTACK" ? calculatePaystackCharge(ticketAmount, await getPaystackFeePercentRuntime()) : null;
+    const payableAmount = paystackCharge?.totalAmount ?? ticketAmount;
 
     try {
       await turso(
@@ -71,27 +86,27 @@ export async function POST(request: Request) {
         [crypto.randomUUID(), bookingId, tripId, travelDate, seat, holdExpiresAt, nowIso],
       );
     } catch {
-      return Response.json({ error: "That seat has just been reserved. Please choose another seat." }, { status: 409 });
+      return respond({ error: "That seat has just been reserved. Please choose another seat." }, { status: 409 });
     }
 
     try {
       await turso(
         "INSERT INTO bookings (id, reference, passenger_name, email, phone, seat, trip_id, travel_date, amount, payment_status, booking_status, hold_expires_at, departure_time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [bookingId, bookingReference, name, email, phone, seat, tripId, travelDate, ticketAmount, "PENDING", "AWAITING_PAYMENT", holdExpiresAt, departureForTrip(tripSettings, tripId), nowIso],
+        [bookingId, bookingReference, name, email, phone, seat, tripId, travelDate, payableAmount, "PENDING", "AWAITING_PAYMENT", holdExpiresAt, trip.time, nowIso],
       );
       await turso(
-        "INSERT INTO payments (id, booking_id, provider, reference_id, external_id, payer_phone, amount, currency, status, access_token_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [crypto.randomUUID(), bookingId, provider, paymentReference, bookingReference, phone, ticketAmount, currency, "PENDING", accessTokenHash, nowIso, nowIso],
+        "INSERT INTO payments (id, booking_id, provider, reference_id, external_id, payer_phone, amount, currency, status, access_token_hash, fare_amount, fee_amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [crypto.randomUUID(), bookingId, provider, paymentReference, bookingReference, phone, payableAmount, currency, "PENDING", accessTokenHash, ticketAmount, paystackCharge?.feeAmount || 0, nowIso, nowIso],
       );
       if (provider === "PAYSTACK") {
         const paystack = await initializePaystackTransaction({
           email,
-          amount: ticketAmount,
+          amount: payableAmount,
           reference: paymentReference,
           callbackUrl: `${new URL(request.url).origin}/payment/callback?reference=${encodeURIComponent(paymentReference)}`,
-          metadata: { bookingReference, passengerName: name, phone, seat, tripId, travelDate },
+          metadata: { bookingReference, passengerName: name, phone, seat, tripId, travelDate, fareAmount: ticketAmount, paystackFee: paystackCharge?.feeAmount || 0 },
         });
-        return Response.json({ reference: paymentReference, status: "PENDING", provider, authorizationUrl: paystack.authorizationUrl, message: "Redirecting to Paystack Checkout." }, {
+        return respond({ reference: paymentReference, status: "PENDING", provider, authorizationUrl: paystack.authorizationUrl, fareAmount: ticketAmount, feeAmount: paystackCharge?.feeAmount || 0, totalAmount: payableAmount, message: "Redirecting to Paystack Checkout." }, {
           status: 202,
           headers: { "Set-Cookie": paymentAccessCookie(paymentReference, accessToken, new URL(request.url).protocol === "https:"), "Cache-Control": "no-store" },
         });
@@ -99,7 +114,7 @@ export async function POST(request: Request) {
         await requestToPay({
           referenceId: paymentReference,
           externalId: bookingReference,
-          amount: (ticketAmount / 100).toFixed(2),
+          amount: (payableAmount / 100).toFixed(2),
           phone,
           payerMessage: "UMaTeXPRESS student transport payment",
           payeeNote: `UMaTeXPRESS booking ${bookingReference}`,
@@ -113,11 +128,11 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    return Response.json({ reference: paymentReference, status: "PENDING", message: "Payment request sent. Approve the MTN MoMo prompt on your phone." }, {
+    return respond({ reference: paymentReference, status: "PENDING", message: "Payment request sent. Approve the MTN MoMo prompt on your phone." }, {
       status: 202,
       headers: { "Set-Cookie": paymentAccessCookie(paymentReference, accessToken, new URL(request.url).protocol === "https:"), "Cache-Control": "no-store" },
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Payment could not start." }, { status: errorStatus(error) });
+    return respond({ error: error instanceof Error ? error.message : "Payment could not start." }, { status: errorStatus(error) });
   }
 }

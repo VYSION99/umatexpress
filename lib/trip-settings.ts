@@ -24,7 +24,7 @@ export const DEFAULT_FLYER_PROMO: FlyerPromo = {
   enabled: true,
   title: "UMaT Express",
   route: "UMaT to Accra",
-  fare: "GHS 190",
+  fare: "GHS 180",
   nightBus: "4th Sept @ 9pm",
   dayBuses: ["5th Sept @ 6am", "7th Sept @ 6am"],
   dropOffPoints: ["Circle", "Kasoa", "Kaneshie", "Mallam"],
@@ -93,7 +93,8 @@ export function normalizeFlyerPromo(value: unknown): FlyerPromo {
 function parseFlyerPromo(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return DEFAULT_FLYER_PROMO;
   try {
-    return normalizeFlyerPromo(JSON.parse(value));
+    const promo = normalizeFlyerPromo(JSON.parse(value));
+    return promo.fare === "GHS 190" || promo.fare === "GH₵ 190" || promo.fare === "GH₵190" ? { ...promo, fare: DEFAULT_FLYER_PROMO.fare } : promo;
   } catch {
     return DEFAULT_FLYER_PROMO;
   }

@@ -1,4 +1,7 @@
+import { envValue } from "@/lib/runtime-env";
+
 const DEFAULT_BASE_URL = "https://api.paystack.co";
+const DEFAULT_PAYSTACK_FEE_PERCENT = 1.95;
 
 type PaystackInitializeResponse = {
   status?: boolean;
@@ -27,12 +30,68 @@ function getConfig() {
   return { secretKey, baseUrl, currency };
 }
 
+async function getRuntimeConfig() {
+  const secretKey = await envValue("PAYSTACK_SECRET_KEY");
+  const baseUrl = (await envValue("PAYSTACK_BASE_URL") || DEFAULT_BASE_URL).replace(/\/$/, "");
+  const currency = await envValue("PAYSTACK_CURRENCY") || "GHS";
+  if (!secretKey || secretKey.startsWith("replace-with")) throw new Error("Paystack is not configured yet.");
+  return { secretKey, baseUrl, currency };
+}
+
+function hex(bytes: ArrayBuffer) {
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function safeEqual(left: string, right: string) {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  let difference = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < Math.max(leftBytes.length, rightBytes.length); index++) {
+    difference |= (leftBytes[index] || 0) ^ (rightBytes[index] || 0);
+  }
+  return difference === 0;
+}
+
+export async function verifyPaystackWebhookSignature(rawBody: string, suppliedSignature: string | null) {
+  if (!suppliedSignature) return false;
+  const { secretKey } = await getRuntimeConfig();
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secretKey), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
+  return safeEqual(hex(signature), suppliedSignature.trim().toLowerCase());
+}
+
 export function getPaymentProvider() {
   return (process.env.PAYMENT_PROVIDER || "MTN_MOMO").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
 }
 
+export async function getPaymentProviderRuntime() {
+  return (await envValue("PAYMENT_PROVIDER") || "MTN_MOMO").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
+}
+
 export function getPaystackCurrency() {
   return getConfig().currency;
+}
+
+export async function getPaystackCurrencyRuntime() {
+  return (await getRuntimeConfig()).currency;
+}
+
+export function getPaystackFeePercent() {
+  const value = Number(process.env.PAYSTACK_FEE_PERCENT || DEFAULT_PAYSTACK_FEE_PERCENT);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_PAYSTACK_FEE_PERCENT;
+}
+
+export async function getPaystackFeePercentRuntime() {
+  const value = Number(await envValue("PAYSTACK_FEE_PERCENT") || DEFAULT_PAYSTACK_FEE_PERCENT);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_PAYSTACK_FEE_PERCENT;
+}
+
+export function calculatePaystackCharge(baseAmount: number, feePercent = getPaystackFeePercent()) {
+  const safeBaseAmount = Math.max(0, Math.round(baseAmount));
+  const rate = Math.max(0, feePercent) / 100;
+  if (!safeBaseAmount || !rate) return { baseAmount: safeBaseAmount, feeAmount: 0, totalAmount: safeBaseAmount, feePercent };
+  const totalAmount = Math.ceil(safeBaseAmount / (1 - rate));
+  return { baseAmount: safeBaseAmount, feeAmount: totalAmount - safeBaseAmount, totalAmount, feePercent };
 }
 
 export async function initializePaystackTransaction(input: {
@@ -42,7 +101,7 @@ export async function initializePaystackTransaction(input: {
   callbackUrl: string;
   metadata: Record<string, string | number>;
 }) {
-  const { secretKey, baseUrl, currency } = getConfig();
+  const { secretKey, baseUrl, currency } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transaction/initialize`, {
     method: "POST",
     headers: {
@@ -71,7 +130,7 @@ export async function initializePaystackTransaction(input: {
 }
 
 export async function verifyPaystackTransaction(reference: string) {
-  const { secretKey, baseUrl } = getConfig();
+  const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
     headers: { Authorization: `Bearer ${secretKey}` },
   });

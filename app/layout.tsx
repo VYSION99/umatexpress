@@ -1,14 +1,25 @@
 import type { Metadata } from "next";
+import { AppInstallPrompt } from "@/components/pwa/AppInstallPrompt";
 import "./globals.css";
 import "./ticket.css";
+import "./palette.css";
 
 export const metadata: Metadata = {
-  title: "UmateXPRESS | UMaT Vacation Transport",
-  description: "VIP student transport from UMaT Main Campus to Accra.",
-  other: { "codex-preview": "development" },
+  title: "UMaTeXPRESS | UMaT Student Transport",
+  description: "Choose vacationRide for long-distance trips or campusRide for live campus transport.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "UMaTeXPRESS",
+  appleWebApp: {
+    capable: true,
+    title: "UMaTeXPRESS",
+    statusBarStyle: "default",
+  },
+  themeColor: "#0d694d",
+  other: { "codex-preview": "development", "mobile-web-app-capable": "yes" },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/icon-192.png",
   },
 };
 
@@ -19,7 +30,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {children}
+        <AppInstallPrompt />
+      </body>
     </html>
   );
 }

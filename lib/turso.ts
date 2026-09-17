@@ -1,3 +1,5 @@
+import { envValue } from "@/lib/runtime-env";
+
 type SqlArg = { type: "text" | "integer"; value: string };
 type TursoResult = { rows?: unknown[]; cols?: Array<{ name: string }>; affected_row_count?: number };
 
@@ -7,15 +9,22 @@ export function isTursoConfigured() {
   return Boolean(url && token && !url.includes("your-database") && !token.startsWith("replace-with"));
 }
 
-function config() {
-  const url = process.env.TURSO_DATABASE_URL?.replace("libsql://", "https://").replace(/\/$/, "");
-  const token = process.env.TURSO_AUTH_TOKEN;
-  if (!isTursoConfigured() || !url || !token) throw new Error("Add valid Turso credentials to .env to enable live data.");
+export async function isTursoConfiguredRuntime() {
+  const url = await envValue("TURSO_DATABASE_URL");
+  const token = await envValue("TURSO_AUTH_TOKEN");
+  return Boolean(url && token && !url.includes("your-database") && !token.startsWith("replace-with"));
+}
+
+async function config() {
+  const rawUrl = await envValue("TURSO_DATABASE_URL");
+  const url = rawUrl.replace("libsql://", "https://").replace(/\/$/, "");
+  const token = await envValue("TURSO_AUTH_TOKEN");
+  if (!await isTursoConfiguredRuntime() || !url || !token) throw new Error("Add valid Turso credentials to .env to enable live data.");
   return { url, token };
 }
 
 export async function turso(sql: string, values: Array<string | number> = []) {
-  const { url, token } = config();
+  const { url, token } = await config();
   const args: SqlArg[] = values.map((value) => ({
     type: typeof value === "number" ? "integer" : "text",
     value: String(value),
@@ -38,8 +47,23 @@ export function rowsToObjects(result: Awaited<ReturnType<typeof turso>>) {
   const columns = result?.cols?.map((col) => col.name) ?? [];
   return (result?.rows ?? []).map((row) => {
     const values = Array.isArray(row) ? row : [];
-    return Object.fromEntries(columns.map((column, index) => [column, (values[index] as { value?: unknown })?.value ?? values[index]]));
+    return Object.fromEntries(columns.map((column, index) => [column, cellValue(values[index])]));
   });
+}
+
+/**
+ * Turso sends every cell as `{ type, value }`, and sends SQL NULL as
+ * `{ type: "null" }` with no value at all. Unwrapping that shape by its `value`
+ * alone would hand callers the cell object itself for a NULL column, which then
+ * reads as the truthy string "[object Object]" — an empty string that looked
+ * filled in, or a `read_at` that looked set on an unread row.
+ */
+function cellValue(cell: unknown) {
+  if (cell && typeof cell === "object") {
+    if ("value" in cell) return (cell as { value?: unknown }).value ?? null;
+    if ("type" in cell) return null;
+  }
+  return cell;
 }
 
 export async function hasColumn(table: string, column: string) {
@@ -50,7 +74,7 @@ export async function hasColumn(table: string, column: string) {
 export async function ensureBookingsTable() {
   await turso(`CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY, reference TEXT UNIQUE NOT NULL, passenger_name TEXT NOT NULL,
-    email TEXT NOT NULL, phone TEXT NOT NULL, seat INTEGER NOT NULL, trip_id INTEGER NOT NULL,
+    email TEXT NOT NULL, phone TEXT NOT NULL, seat INTEGER NOT NULL, trip_id TEXT NOT NULL,
     travel_date TEXT NOT NULL, amount INTEGER NOT NULL, payment_status TEXT NOT NULL DEFAULT 'PENDING',
     booking_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT', hold_expires_at TEXT,
     confirmed_at TEXT, departure_time TEXT, created_at TEXT NOT NULL
@@ -91,16 +115,123 @@ export async function ensurePaymentsTable() {
   if (!(await hasColumn("payments", "access_token_hash"))) {
     await turso("ALTER TABLE payments ADD COLUMN access_token_hash TEXT");
   }
+  if (!(await hasColumn("payments", "fare_amount"))) {
+    await turso("ALTER TABLE payments ADD COLUMN fare_amount INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!(await hasColumn("payments", "fee_amount"))) {
+    await turso("ALTER TABLE payments ADD COLUMN fee_amount INTEGER NOT NULL DEFAULT 0");
+  }
 
   await turso(`CREATE TABLE IF NOT EXISTS seat_holds (
     id TEXT PRIMARY KEY,
     booking_id TEXT UNIQUE NOT NULL,
-    trip_id INTEGER NOT NULL,
+    trip_id TEXT NOT NULL,
     travel_date TEXT NOT NULL,
     seat INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'HELD',
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
     UNIQUE(trip_id, travel_date, seat)
+  )`);
+}
+
+export async function ensurePaymentEventsTable() {
+  await turso(`CREATE TABLE IF NOT EXISTS payment_events (
+    provider TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    reference TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    PRIMARY KEY (provider, event_id)
+  )`);
+}
+
+export async function ensureMetricsTable() {
+  await turso(`CREATE TABLE IF NOT EXISTS metrics_counters (
+    name TEXT NOT NULL,
+    day TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (name, day)
+  )`);
+}
+
+export async function ensureRateLimitTable() {
+  await turso(`CREATE TABLE IF NOT EXISTS rate_limit_windows (
+    scope TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    window_key TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (scope, subject, window_key)
+  )`);
+}
+
+export async function ensureAuthFailuresTable() {
+  await turso(`CREATE TABLE IF NOT EXISTS auth_failures (
+    scope TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (scope, subject)
+  )`);
+}
+
+let notificationsTableReady: Promise<void> | null = null;
+
+/**
+ * Creates and self-heals the notification outbox once per isolate. The check is
+ * several statements against a hosted database, and the in-app feed reads this
+ * table on every home-screen load, so repeating it would be paid by the student.
+ * A failure is forgotten rather than cached.
+ */
+export function ensureNotificationsTable() {
+  if (!notificationsTableReady) {
+    notificationsTableReady = createNotificationsTable().catch((error: unknown) => {
+      notificationsTableReady = null;
+      throw error;
+    });
+  }
+  return notificationsTableReady;
+}
+
+async function createNotificationsTable() {
+  await turso(`CREATE TABLE IF NOT EXISTS notification_outbox (
+    id TEXT PRIMARY KEY,
+    channel TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    template TEXT NOT NULL,
+    subject TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    reference TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    available_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    sent_at TEXT,
+    read_at TEXT
+  )`);
+  if (!(await hasColumn("notification_outbox", "subject"))) {
+    await turso("ALTER TABLE notification_outbox ADD COLUMN subject TEXT NOT NULL DEFAULT ''");
+  }
+  if (!(await hasColumn("notification_outbox", "read_at"))) {
+    await turso("ALTER TABLE notification_outbox ADD COLUMN read_at TEXT");
+  }
+  await turso("CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_dedupe ON notification_outbox(reference, template)");
+  await turso("CREATE INDEX IF NOT EXISTS idx_notification_due ON notification_outbox(status, available_at)");
+  await turso("CREATE INDEX IF NOT EXISTS idx_notification_recipient ON notification_outbox(recipient, created_at)");
+}
+
+export async function ensureAdminAuditLogTable() {
+  await turso(`CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id TEXT PRIMARY KEY,
+    admin_email TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_reference TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
   )`);
 }

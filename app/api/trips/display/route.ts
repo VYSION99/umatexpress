@@ -1,9 +1,9 @@
 import { DEFAULT_TRIP_SETTINGS, activeTripIds, getTripSettings, isValidTime, normalizeFlyerPromo, type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
 import { adminEmailFromRequest } from "@/lib/admin-auth";
-import { isTursoConfigured, turso } from "@/lib/turso";
+import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 
 export async function GET() {
-  if (!isTursoConfigured()) {
+  if (!(await isTursoConfiguredRuntime())) {
     const settings = { ...DEFAULT_TRIP_SETTINGS };
     return Response.json({ ...settings, activeTripIds: activeTripIds(settings.mode), configured: false }, { headers: { "Cache-Control": "no-store" } });
   }

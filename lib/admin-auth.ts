@@ -1,18 +1,37 @@
-import { verifyAdminPassword } from "@/lib/admin-credentials";
+import { adminSessionEpoch, verifyAdminPassword } from "@/lib/admin-credentials";
+import { envList, envValue } from "@/lib/runtime-env";
 
 const COOKIE_NAME = "umx_admin_session";
 const SESSION_SECONDS = 8 * 60 * 60;
 
-type SessionPayload = { email: string; exp: number };
+type SessionPayload = { email: string; exp: number; ver: number };
 
-function adminEmails() {
-  return (process.env.ADMIN_EMAILS || "").toLowerCase().split(",").map((item) => item.trim()).filter(Boolean);
+async function adminEmails() {
+  return envList("ADMIN_EMAILS");
 }
 
-function sessionSecret() {
-  const secret = process.env.ADMIN_SESSION_SECRET || "";
+/**
+ * The workspace hosting injects an identity header. That header is only
+ * trustworthy when the request actually came through that proxy, so it is
+ * opt-in. On a plain deployment the header is client-controlled and must be
+ * ignored in favour of the signed session cookie.
+ */
+async function platformIdentityTrusted() {
+  const value = (await envValue("TRUST_PLATFORM_IDENTITY")).toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+}
+
+async function sessionSecret() {
+  const secret = await envValue("ADMIN_SESSION_SECRET");
   if (secret.length < 32 || secret.startsWith("replace-with")) return null;
   return secret;
+}
+
+function isSecureRequest(request: Request) {
+  const url = new URL(request.url);
+  return url.protocol === "https:"
+    || request.headers.get("x-forwarded-proto") === "https"
+    || Boolean(request.headers.get("cf-visitor")?.includes("https"));
 }
 
 function encode(value: string) {
@@ -54,32 +73,37 @@ function cookieValue(request: Request) {
 }
 
 export async function createAdminSession(email: string) {
-  const secret = sessionSecret();
+  const secret = await sessionSecret();
   if (!secret) throw new Error("ADMIN_SESSION_SECRET must contain at least 32 characters.");
-  const payload = encode(JSON.stringify({ email: email.toLowerCase(), exp: Date.now() + SESSION_SECONDS * 1000 } satisfies SessionPayload));
+  const payload = encode(JSON.stringify({ email: email.toLowerCase(), exp: Date.now() + SESSION_SECONDS * 1000, ver: await adminSessionEpoch(email) } satisfies SessionPayload));
   return `${payload}.${await signature(payload, secret)}`;
 }
 
 export async function adminSessionCookie(email: string, secure: boolean) {
   const value = await createAdminSession(email);
-  return `${COOKIE_NAME}=${encodeURIComponent(value)}; Path=/; HttpOnly;${secure ? " Secure;" : ""} SameSite=Strict; Max-Age=${SESSION_SECONDS}`;
+  return `${COOKIE_NAME}=${encodeURIComponent(value)}; Path=/; HttpOnly;${secure ? " Secure;" : ""} SameSite=Lax; Max-Age=${SESSION_SECONDS}`;
 }
 
 export function clearAdminSessionCookie(secure: boolean) {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly;${secure ? " Secure;" : ""} SameSite=Strict; Max-Age=0`;
+  return `${COOKIE_NAME}=; Path=/; HttpOnly;${secure ? " Secure;" : ""} SameSite=Lax; Max-Age=0`;
 }
 
 export async function adminEmailFromRequest(request: Request) {
-  const injectedEmail = request.headers.get("oai-authenticated-user-email")?.toLowerCase();
-  if (injectedEmail && adminEmails().includes(injectedEmail)) return injectedEmail;
-  const secret = sessionSecret();
+  const emails = await adminEmails();
+  if (await platformIdentityTrusted()) {
+    const injectedEmail = request.headers.get("oai-authenticated-user-email")?.toLowerCase();
+    if (injectedEmail && emails.includes(injectedEmail)) return injectedEmail;
+  }
+  const secret = await sessionSecret();
   const value = cookieValue(request);
   if (!secret || !value) return null;
   try {
     const [payload, suppliedSignature] = value.split(".");
     if (!payload || !suppliedSignature || !await equalSecret(await signature(payload, secret), suppliedSignature)) return null;
     const session = JSON.parse(decode(payload)) as SessionPayload;
-    if (!adminEmails().includes(session.email) || session.exp <= Date.now()) return null;
+    if (!emails.includes(session.email) || session.exp <= Date.now()) return null;
+    // A password change bumps the epoch, immediately retiring older cookies.
+    if (Number(session.ver || 0) !== await adminSessionEpoch(session.email)) return null;
     return session.email;
   } catch {
     return null;
@@ -87,6 +111,17 @@ export async function adminEmailFromRequest(request: Request) {
 }
 
 export async function validateAdminCredentials(email: string, password: string) {
-  if (!adminEmails().includes(email.toLowerCase())) return false;
+  if (!(await adminEmails()).includes(email.toLowerCase())) return false;
   return verifyAdminPassword(email, password);
 }
+
+export async function adminAuthConfigStatus() {
+  const emails = await adminEmails();
+  const secret = await sessionSecret();
+  return {
+    hasAdminEmails: emails.length > 0,
+    hasSessionSecret: Boolean(secret),
+  };
+}
+
+export { isSecureRequest };

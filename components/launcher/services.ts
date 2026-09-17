@@ -1,0 +1,25 @@
+import { BedDouble, BusFront, CarFront, Clapperboard, Utensils } from "lucide-react";
+
+// The launcher registry is deliberately independent of server-only business logic.
+// `accent` is the homepage card tint: the three brand colours, rotated so no two
+// neighbouring cards share a hue. Nothing here may claim data the app cannot back.
+export const services = [
+  { id: "campus", title: "CampusRide", icon: CarFront, accent: "cyan", available: true, destination: "/campus", action: "Find a ride", description: "Move around campus.", detail: "Zones, seats and fares", category: "Around campus" },
+  { id: "vacation", title: "VacationRide", icon: BusFront, accent: "green", available: true, destination: "/vacation", action: "Book a seat", description: "Next stop, home.", detail: "Choose a route and travel date", category: "Beyond campus" },
+  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "yellow", available: false, destination: null, action: "Explore hostels", description: "Find your own corner of campus.", detail: "Places to settle in", category: "Make yourself at home" },
+  { id: "food", title: "Food", icon: Utensils, accent: "cyan", available: false, destination: null, action: "Explore food", description: "Good food. Better study breaks.", detail: "Your next favourite bite", category: "A little refuel" },
+  { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "green", available: false, destination: null, action: "Explore cinema", description: "Make room for movie night.", detail: "Stories worth sharing", category: "After the lectures" },
+] as const;
+export type Service = typeof services[number];
+export type LauncherPreference = { id: string; hidden: boolean; pinned: boolean };
+export const defaultPreferences = (): LauncherPreference[] => services.map(({ id }) => ({ id, hidden: false, pinned: false }));
+export function normalizePreferences(value: unknown): LauncherPreference[] {
+  if (!Array.isArray(value)) return defaultPreferences();
+  const result: LauncherPreference[] = [];
+  for (const item of value) {
+    if (item && services.some(service => service.id === item.id) && !result.some(row => row.id === item.id)) {
+      result.push({ id: item.id, hidden: item.hidden === true, pinned: item.pinned === true });
+    }
+  }
+  return [...result, ...defaultPreferences().filter(item => !result.some(row => row.id === item.id))];
+}
