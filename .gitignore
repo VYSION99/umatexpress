@@ -2,19 +2,36 @@
 node_modules/
 dist/
 .next/
+/out/
+/coverage
 
 # Local runtime state
 .sites-runtime/
 .wrangler/
 *.tsbuildinfo
 
-# Secrets
+# Secrets and local environment
 .env
 .env.local
 .env.*.local
 !.env.example
+*.pem
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Editors and operating systems
 .DS_Store
 .vscode/
 .idea/
+
+# Platform
+.vercel
+/.pnp
+.pnp.js
+next-env.d.ts
+
+# NOTE: the root `build/` directory is source (the platform Vite plugin), not
+# build output, so it is deliberately not ignored here.
