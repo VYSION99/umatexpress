@@ -1,0 +1,230 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { AlertTriangle, Banknote, LogOut, RefreshCw, ShieldCheck, Undo2 } from "lucide-react";
+import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
+
+type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
+type Summary = {
+  organizerId: string; name: string; organization: string; status: string; kycStatus: string;
+  commissionBps: number; totals: Totals;
+};
+type Entry = {
+  id: string; bookingReference: string; title: string; from: string; to: string;
+  grossAmount: number; commissionAmount: number; netAmount: number; commissionBps: number;
+  releaseAfter: string; status: string; transferReference: string; releasedAt: string;
+  reversedAt: string; reversedReason: string; createdAt: string;
+};
+type Batch = { id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdAt: string };
+type Detail = {
+  organizer: {
+    id: string; name: string; organization: string; status: string; kycStatus: string;
+    commissionBps: number; payoutMethod: string; payoutAccountName: string; payoutAccountMasked: string;
+  };
+  statement: { totals: Totals; entries: Entry[]; batches: Batch[] };
+};
+
+const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
+const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
+
+export default function PayoutsConsolePage() {
+  return <ConsoleSessionGate label="organizer payouts">
+    {(session) => session.account.role === "ADMIN"
+      ? <PayoutsWorkspace />
+      : <main className="console-page"><section className="console-hero"><h1>Not available</h1><span>Recording payouts is an administrator action.</span></section></main>}
+  </ConsoleSessionGate>;
+}
+
+function PayoutsWorkspace() {
+  const [organizers, setOrganizers] = useState<Summary[]>([]);
+  const [selected, setSelected] = useState("");
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [form, setForm] = useState({ reference: "", note: "" });
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState("");
+
+  const loadOverview = useCallback(async () => {
+    try {
+      const response = await fetch("/api/console/payouts", { credentials: "same-origin", cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Organizer balances could not be loaded.");
+      setOrganizers(data.organizers || []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Organizer balances could not be loaded.");
+    }
+  }, []);
+
+  const loadDetail = useCallback(async (organizerId: string) => {
+    try {
+      const response = await fetch(`/api/console/payouts?organizerId=${encodeURIComponent(organizerId)}`, { credentials: "same-origin", cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "That statement could not be loaded.");
+      setDetail(data);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "That statement could not be loaded.");
+    }
+  }, []);
+
+  useEffect(() => { queueMicrotask(loadOverview); }, [loadOverview]);
+  useEffect(() => { if (selected) queueMicrotask(() => loadDetail(selected)); }, [selected, loadDetail]);
+
+  const record = useCallback(async () => {
+    if (!detail) return;
+    setBusy("record"); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/console/payouts", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ organizerId: detail.organizer.id, reference: form.reference, note: form.note }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The payout could not be recorded.");
+      setNotice(`Recorded ${cedis(data.batch.totalAmount)} across ${data.batch.entryCount} entries · ${data.batch.transferReference}`);
+      setForm({ reference: "", note: "" });
+      await Promise.all([loadDetail(detail.organizer.id), loadOverview()]);
+    } catch (recordError) {
+      setError(recordError instanceof Error ? recordError.message : "The payout could not be recorded.");
+    } finally {
+      setBusy("");
+    }
+  }, [detail, form, loadDetail, loadOverview]);
+
+  const backfill = useCallback(async () => {
+    setBusy("backfill"); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/console/payouts/backfill", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 10 }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Missing entries could not be rebuilt.");
+      setNotice(`Checked ${data.scanned} confirmed bookings: ${data.accrued} entries rebuilt, ${data.skipped} already present${data.failed ? `, ${data.failed} failed` : ""}.`);
+      await Promise.all([loadOverview(), detail ? loadDetail(detail.organizer.id) : Promise.resolve()]);
+    } catch (backfillError) {
+      setError(backfillError instanceof Error ? backfillError.message : "Missing entries could not be rebuilt.");
+    } finally {
+      setBusy("");
+    }
+  }, [detail, loadDetail, loadOverview]);
+
+  const totals = detail?.statement.totals;
+  const ready = useMemo(() => (totals?.ready || 0) > 0 && (totals?.debt || 0) === 0, [totals]);
+  const kycVerified = detail?.organizer.kycStatus === "VERIFIED";
+
+  return <main className="console-page">
+    <header className="console-header">
+      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
+      <div className="console-account">
+        <span className="console-role-chip"><ShieldCheck size={15}/>Administrator</span>
+        <button className="console-panel-close" disabled={busy === "backfill"} onClick={backfill}><RefreshCw size={14}/>{busy === "backfill" ? "Rebuilding…" : "Rebuild missing entries"}</button>
+        <Link href="/console"><LogOut size={16}/>Back to console</Link>
+      </div>
+    </header>
+
+    <section className="console-hero">
+      <p>ORGANIZER PAYOUTS</p>
+      <h1>What the platform owes</h1>
+      <span>Make the transfer in your bank or mobile money app, then record the reference here. Nothing pays out before the release date or before KYC is verified.</span>
+    </section>
+
+    {error && <div className="console-alert" role="alert">{error}</div>}
+    {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
+
+    <section className="console-panel">
+      <h2><Banknote size={18}/>Balances by organizer</h2>
+      {organizers.length === 0
+        ? <p className="console-empty">No organizer has earned anything yet.</p>
+        : <table className="console-table">
+          <thead><tr><th>Organizer</th><th>KYC</th><th>Balance</th><th>Ready</th><th>Paid out</th><th></th></tr></thead>
+          <tbody>
+            {organizers.map((row) => (
+              <tr key={row.organizerId}>
+                <td><span>{row.organization || row.name}</span><small>{row.name}</small></td>
+                <td><span className={`console-badge console-badge-${row.kycStatus.toLowerCase()}`}>{row.kycStatus}</span></td>
+                <td><strong className={row.totals.balance < 0 ? "console-reason" : ""}>{cedis(row.totals.balance)}</strong></td>
+                <td>{cedis(row.totals.ready)}</td>
+                <td>{cedis(row.totals.released)}</td>
+                <td className="console-row-actions">
+                  <button onClick={() => { setSelected(row.organizerId); setError(""); setNotice(""); }}>Open statement</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>}
+    </section>
+
+    {detail && <section className="console-panel">
+      <h2><ShieldCheck size={18}/>{detail.organizer.organization || detail.organizer.name}
+        <button className="console-panel-close" onClick={() => { setDetail(null); setSelected(""); }}>Close</button>
+      </h2>
+      <p className="console-note">
+        {detail.organizer.payoutMethod || "No payout method"} · {detail.organizer.payoutAccountName || "no account name"} · {detail.organizer.payoutAccountMasked || "no account saved"} · commission {(detail.organizer.commissionBps / 100).toFixed(2)}%
+      </p>
+
+      {totals && totals.debt > 0 && <div className="console-alert" role="alert">
+        <AlertTriangle size={15}/> {cedis(totals.debt)} was refunded after payout. The debt is carried forward; a batch is refused until it is settled.
+      </div>}
+
+      <form className="console-form" onSubmit={(event) => { event.preventDefault(); void record(); }}>
+        <label>Transfer reference
+          <input type="text" required value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} placeholder="Paystack or bank transfer reference" />
+        </label>
+        <label>Note (optional)
+          <input type="text" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="August batch" />
+        </label>
+        <button disabled={busy === "record" || !ready || !kycVerified}>
+          <Banknote size={16}/>{busy === "record" ? "Recording…" : `Record ${cedis(totals?.ready || 0)} payout`}
+        </button>
+      </form>
+      {!kycVerified && <p className="console-note">KYC is {detail.organizer.kycStatus}. Verify it before recording a payout.</p>}
+      {kycVerified && !ready && <p className="console-note">Nothing is ready to pay right now. Entries release after midnight following the trip, and a debt blocks the batch.</p>}
+
+      <h3 className="console-note">Entries</h3>
+      {detail.statement.entries.length === 0
+        ? <p className="console-empty">No ledger entries.</p>
+        : <table className="console-table">
+          <thead><tr><th>Booking</th><th>Fare</th><th>Commission</th><th>Net</th><th>Release</th><th>Status</th></tr></thead>
+          <tbody>
+            {detail.statement.entries.map((entry) => (
+              <tr key={entry.id}>
+                <td><span>{entry.bookingReference || "—"}</span><small>{when(entry.createdAt)}</small></td>
+                <td>{cedis(entry.grossAmount)}</td>
+                <td>{cedis(entry.commissionAmount)}</td>
+                <td><strong>{cedis(entry.netAmount)}</strong></td>
+                <td>{when(entry.releaseAfter)}</td>
+                <td>
+                  <span className={`console-badge console-badge-${entry.status.toLowerCase()}`}>{entry.status}</span>
+                  {entry.transferReference && <small>Ref {entry.transferReference}</small>}
+                  {entry.reversedReason && <small className="console-reason">{entry.reversedReason}</small>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>}
+
+      <h3 className="console-note">Payout batches</h3>
+      {detail.statement.batches.length === 0
+        ? <p className="console-empty">No payout has been recorded for this organizer.</p>
+        : <table className="console-table">
+          <thead><tr><th>Date</th><th>Reference</th><th>Entries</th><th>Amount</th><th>Recorded by</th></tr></thead>
+          <tbody>
+            {detail.statement.batches.map((batch) => (
+              <tr key={batch.id}>
+                <td>{when(batch.createdAt)}</td>
+                <td>{batch.transferReference || "—"}</td>
+                <td>{batch.entryCount}</td>
+                <td><strong>{cedis(batch.totalAmount)}</strong></td>
+                <td>{batch.note || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>}
+      <p className="console-note"><Undo2 size={13}/> A cancelled booking reverses its entry. If it had already been paid out, the reversal becomes a debt on the next batch.</p>
+    </section>}
+  </main>;
+}

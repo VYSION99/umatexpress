@@ -91,20 +91,39 @@
            │                    └──────────────────────┘
 
 ┌──────────────────────┐        ┌──────────────────────┐
-│      seat_holds      │        │  organizer_payouts   │  Phase 4
+│      seat_holds      │        │  organizer_payouts   │  Phase 4 ✓
 │──────────────────────│        │──────────────────────│
 │ id (PK)              │        │ id (PK)              │
 │ booking_id (UQ, FK)  │        │ organizer_id (FK)    │
-│ trip_id (FK)         │        │ booking_id (FK)      │
-│ travel_date          │        │ gross_amount         │  = payments.fare_amount
-│ seat                 │        │ commission_amount    │
-│ status               │        │ net_amount           │
-│ expires_at           │        │ release_after        │
-│ created_at           │        │ status               │
-│ UQ(trip_id,          │        │ transfer_reference   │
-│    travel_date,      │        │ released_at          │
-│    seat)             │        │ transferred_at       │
-└──────────────────────┘        │ created/updated_at   │
+│ trip_id (FK)         │        │ booking_id (FK, UQ)  │
+│ travel_date          │        │ booking_reference    │
+│ seat                 │        │ trip_id (FK)         │
+│ status               │        │ gross_amount         │  = payments.fare_amount
+│ expires_at           │        │ commission_amount    │
+│ created_at           │        │ net_amount           │  gross − commission
+│ UQ(trip_id,          │        │ commission_bps       │  the rate in force at accrual
+│    travel_date,      │        │ release_after        │  next midnight, never before departure + 24h
+│    seat)             │        │ status               │  ACCRUED | RELEASED | REVERSED | FAILED
+└──────────────────────┘        │ batch_id (FK)        │
+                                │ transfer_reference   │  recorded by an admin in Phase 4
+                                │ released_at          │  kept when reversed: proof money left
+                                │ transferred_at       │
+                                │ reversed_at, reason  │
+                                │ created/updated_at   │
+                                └──────────┬───────────┘
+                                           │ N
+                                           │ 1
+                                ┌──────────▼───────────┐
+                                │ organizer_payout_    │  Phase 4 ✓
+                                │ batches              │
+                                │──────────────────────│
+                                │ id (PK)              │
+                                │ organizer_id (FK)    │
+                                │ total_amount         │
+                                │ entry_count          │
+                                │ transfer_reference   │  the hand-recorded one
+                                │ note, created_by     │
+                                │ created_at           │
                                 └──────────────────────┘
 
 ┌──────────────────────┐        ┌──────────────────────┐
@@ -135,6 +154,7 @@ organizer rows.
 | `bookings` → `payments` | 1:N | One booking can have several payment attempts |
 | `bookings` → `seat_holds` | 1:1 | At most one active hold per booking |
 | `bookings` → `organizer_payouts` | 1:1 | A confirmed booking accrues exactly one payout row, enforced by a unique index on `booking_id` |
+| `organizer_payouts` → `organizer_payout_batches` | N:1 | Entries released together share the batch that recorded their transfer reference |
 | `scheduled_trips` → `trip_notices` | N:1 | A trip uses its organizer's notice, or the platform fallback |
 
 ## 3. Design notes
@@ -150,6 +170,12 @@ organizer rows.
   Paystack is an integer in pesewas. The commission base is
   `payments.fare_amount`, never `bookings.amount` (which adds Paystack's
   pass-through charge).
+- **`organizer_payouts` is append-only.** A release or a reversal changes
+  `status` and the timestamps, never the gross, the commission or the net, so a
+  statement always reconciles to the bookings behind it. `released_at` is kept
+  when a released entry is reversed: that timestamp is the only evidence money
+  left the platform, and therefore the only reason a reversal creates a debt
+  instead of quietly cancelling a row.
 - **`admin_audit_logs` is the platform audit table**, not an admin-only one:
   driver, moderator, organizer and admin actions all land there with the actor
   and role in `details`. There is no `organizer_audit_logs`.

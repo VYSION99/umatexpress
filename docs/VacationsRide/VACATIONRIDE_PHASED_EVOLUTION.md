@@ -29,7 +29,7 @@ this file numbered the phases differently, which made "Phase 2" mean two things.
 | 1 | Console identity | `console_accounts`, one sign-in, host boundary, role guards | **Shipped** |
 | 2 | Organizer accounts and ownership | Registration + approval, `trip_organizers`, trip ownership and manifest, per-organizer notice | **Shipped** |
 | 3 | Self-service trip publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture, public listing by organizer | **Shipped** |
-| 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, organizer statement, admin-triggered payout batches | Planned |
+| 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, organizer statement, admin-triggered payout batches | **Shipped** |
 | 5 | Scale | Paystack Transfers, daily job + reconcile, suspension and disputes, analytics | Planned |
 
 The 3% commission is calculated and stored at booking confirmation from Phase 4
@@ -47,6 +47,20 @@ documents need a retention policy first. Payout accounts are captured sealed
 (AES-GCM) with the last four digits stored for the mask, and the full number is
 read back only through an audited admin reveal. Capturing a payout account is
 not payout eligibility: KYC and the Phase 4 ledger remain separate gates.
+
+**Phase 4, as built.** One ledger row per confirmed booking, written at
+confirmation time by whichever path confirms first — verification or the
+Paystack webhook — with a unique booking index making the second write a no-op.
+The commission base is the fare (`payments.fare_amount`), never
+`bookings.amount`, which carries Paystack's pass-through charge; the rate is
+copied onto the booking and the ledger row, so a later rate change cannot
+rewrite what an organizer earned, and the owner is copied onto the booking at
+creation for the same reason. `release_after` is the later of the next midnight
+and departure + 24 hours. An administrator makes the transfer by hand and
+records the reference, which releases every ready entry in one batch; Phase 5
+replaces the human transfer with Paystack Transfers. Cancelling a booking
+reverses its entry — un-earned if it was never released, a carried debt if it
+was — and a batch is refused while a debt stands.
 
 ---
 

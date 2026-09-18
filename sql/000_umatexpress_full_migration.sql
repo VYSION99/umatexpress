@@ -114,6 +114,47 @@ CREATE TABLE IF NOT EXISTS bookings (
   hold_expires_at TEXT,
   confirmed_at TEXT,
   departure_time TEXT,
+  organizer_id TEXT,
+  commission_amount INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+-- Phase 4: one ledger row per confirmed booking. Amounts are pesewas and
+-- append-only; a release or a reversal changes `status` and the timestamps,
+-- never the money. The unique booking index is what makes accrual idempotent
+-- when payment verification and the Paystack webhook both confirm one booking.
+CREATE TABLE IF NOT EXISTS organizer_payouts (
+  id TEXT PRIMARY KEY,
+  organizer_id TEXT NOT NULL,
+  booking_id TEXT NOT NULL,
+  booking_reference TEXT NOT NULL DEFAULT '',
+  trip_id TEXT NOT NULL DEFAULT '',
+  gross_amount INTEGER NOT NULL DEFAULT 0,
+  commission_amount INTEGER NOT NULL DEFAULT 0,
+  net_amount INTEGER NOT NULL DEFAULT 0,
+  commission_bps INTEGER NOT NULL DEFAULT 300,
+  release_after TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACCRUED',
+  batch_id TEXT NOT NULL DEFAULT '',
+  transfer_reference TEXT NOT NULL DEFAULT '',
+  released_at TEXT,
+  transferred_at TEXT,
+  reversed_at TEXT,
+  reversed_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- A payout the administrator made by hand, with the transfer reference they
+-- were given. Phase 5 records the same rows from the Paystack Transfers API.
+CREATE TABLE IF NOT EXISTS organizer_payout_batches (
+  id TEXT PRIMARY KEY,
+  organizer_id TEXT NOT NULL,
+  total_amount INTEGER NOT NULL DEFAULT 0,
+  entry_count INTEGER NOT NULL DEFAULT 0,
+  transfer_reference TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -381,6 +422,11 @@ VALUES ('scheduledTrips', '2026-09-18.2', datetime('now'));
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
 VALUES ('tripOrganizers', '2026-09-18.2', datetime('now'));
 
+-- The Phase 4 ledger. Must match PAYOUTS_SCHEMA_VERSION in
+-- lib/organizer-payouts.ts.
+INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
+VALUES ('organizerPayouts', '2026-09-18.1', datetime('now'));
+
 -- Existing trips predate review and belong to the platform, so they are already
 -- live. Anything created afterwards starts as DRAFT and must be reviewed.
 UPDATE scheduled_trips SET review_status = 'APPROVED'
@@ -551,6 +597,12 @@ CREATE INDEX IF NOT EXISTS idx_trip_organizers_status ON trip_organizers(status)
 CREATE INDEX IF NOT EXISTS idx_trip_organizers_kyc ON trip_organizers(kyc_status, status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_organizers_phone ON trip_organizers(phone) WHERE phone <> '';
 
+-- Organizer payouts: idempotent accrual, per-organizer reads and due entries.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_organizer_payouts_booking ON organizer_payouts(booking_id);
+CREATE INDEX IF NOT EXISTS idx_organizer_payouts_organizer ON organizer_payouts(organizer_id, status);
+CREATE INDEX IF NOT EXISTS idx_organizer_payouts_due ON organizer_payouts(status, release_after);
+CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches ON organizer_payout_batches(organizer_id, created_at);
+
 -- Platform
 CREATE INDEX IF NOT EXISTS idx_payment_events_reference ON payment_events(provider, reference);
 CREATE INDEX IF NOT EXISTS idx_auth_failures_locked ON auth_failures(scope, locked_until);
@@ -623,6 +675,8 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE bookings                 ADD COLUMN hold_expires_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN confirmed_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN departure_time TEXT;
+-- ALTER TABLE bookings                 ADD COLUMN organizer_id TEXT;
+-- ALTER TABLE bookings                 ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE admin_credentials        ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE campus_drivers           ADD COLUMN password_reset_required INTEGER NOT NULL DEFAULT 1;
 -- ALTER TABLE campus_drivers           ADD COLUMN password_changed_at TEXT;

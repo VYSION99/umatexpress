@@ -3,6 +3,7 @@ import { getPaymentStatus } from "@/lib/mtn-momo";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
+import { accrueForBooking } from "@/lib/organizer-payouts";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 function errorStatus(error: unknown) {
@@ -82,6 +83,9 @@ export async function GET(request: Request) {
             "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'CONFIRMED', confirmed_at = ? WHERE id = ?",
             [now, String(payment.booking_id)],
           );
+          // The ledger write must never turn a successful payment into an
+          // error, so it logs its own failure and the admin backfill catches it.
+          await accrueForBooking(String(payment.booking_id));
         }
         }
       } else if (status === "FAILED") {

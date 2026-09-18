@@ -67,6 +67,9 @@
 }
 
 .console-account button:hover { border-color: var(--ui-green, #0d694d); color: var(--ui-green, #0d694d); }
+/* The close/action pill keeps its own margin when it heads a panel, but in the
+   account bar it sits with the links instead of being pushed to the edge. */
+.console-account .console-panel-close { margin-left: 0; }
 
 .console-hero {
   max-width: 1080px;
@@ -236,6 +239,19 @@
 .console-badge-pending, .console-badge-pending_review { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
 .console-badge-approved, .console-badge-verified { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-rejected, .console-badge-suspended { background: #fff0ee; color: #9c3026; }
+.console-badge-accrued { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
+.console-badge-released { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
+.console-badge-reversed, .console-badge-failed { background: #fff0ee; color: #9c3026; }
+
+/* Money totals sit above the ledger tables. Pesewas are formatted for display
+   only: every value in the API and the database stays an integer. */
+.console-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.console-totals article { padding: 14px 16px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 16px; background: #ffffff; box-shadow: 0 10px 24px rgba(18, 46, 36, .06); }
+.console-totals span { display: flex; align-items: center; gap: 6px; color: var(--ui-muted, #57675f); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.console-totals strong { display: block; margin: 7px 0 3px; font-size: 21px; color: var(--ui-ink, #12261f); }
+.console-totals small { color: var(--ui-muted, #57675f); font-size: 11px; }
+@media (max-width: 820px) { .console-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .console-totals { grid-template-columns: 1fr; } }
 
 .console-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: end; }
 .console-form label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 800; letter-spacing: .04em; color: var(--ui-muted, #57675f); }

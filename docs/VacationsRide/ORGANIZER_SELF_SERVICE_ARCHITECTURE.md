@@ -271,9 +271,11 @@ Organizers create and edit trips (route, date, times, capacity, price, coach typ
 
 **Carried forward to Phase 4:** the payout release rule (never before departure + 24h, settled funds only) and every question about how a payout batch is assembled. Phase 3 captures the account; it pays nothing.
 
-### Phase 4 — Money and attribution
-Commission per organizer, `bookings.organizer_id` + `commission_amount`, payout ledger accrued on confirmed payment, admin-triggered payout batches, organizer statement view.
-**Acceptance:** every confirmed booking produces exactly one ledger entry; a statement reconciles to the bookings behind it; refunds reverse the correct entry.
+### Phase 4 — Money and attribution — **Shipped**
+Commission per organizer, `bookings.organizer_id` + `commission_amount`, `organizer_payouts` ledger accrued on confirmed payment, `organizer_payout_batches` recorded by an administrator, organizer statement at `/console/earnings` and the money console at `/console/payouts`.
+**Acceptance:** every confirmed booking produces exactly one ledger entry; a statement reconciles to the bookings behind it; refunds reverse the correct entry. All three are covered by `tests/organizer-payouts.test.mjs`, including a payment confirmed through the real verify route.
+
+**Decided here:** the ledger is append-only (status and timestamps change, never an amount); a reversal of a released entry becomes a debt that blocks the next batch until it is settled, rather than being silently netted; and recording a payout is ADMIN-only, because it is the last human step before money moves.
 
 ### Phase 5 — Scale
 Paystack Transfers for automated payouts, suspension and dispute handling, route-overlap warnings, organizer analytics, rate limits on public trip reads.
@@ -310,5 +312,5 @@ Still open, and deliberately parked until the phase that spends money:
 |----------|-----------|
 | ~~Payout release rule: is `release_after` the next 12:00 AM, or after the coach has departed?~~ | **Decided: never before departure + 24h, on settled funds only — enforced in Phase 4** |
 | ~~Are KYC documents stored, or is only the ID type and number recorded?~~ | **Decided: ID type and number only. No scan is uploaded; storing documents needs an R2 binding and a retention policy first** |
-| Manual payout batches before automated Paystack Transfers? (Recommended: ledger in Phase 4, automated transfers in Phase 5) | Phase 4 |
-| Refund after a payout: the affected organizer's balance goes negative and the next payout absorbs it? | Phase 4 |
+| ~~Manual payout batches before automated Paystack Transfers?~~ | **Decided: ledger and hand-recorded batches in Phase 4 (shipped); Paystack Transfers in Phase 5** |
+| ~~Refund after a payout: the affected organizer's balance goes negative and the next payout absorbs it?~~ | **Decided: the reversal is a carried debt that blocks the next batch until settled. Phase 5 automates the netting** |

@@ -29,6 +29,10 @@ pending" does not exist. Once approved, the organizer works their own trips; KYC
 only ever decides whether money may leave. This keeps one trust decision per
 phase instead of two at once.
 
+Recording a payout is a third, narrower decision and it is **ADMIN-only**: a
+moderator may approve an organizer and verify KYC, but only an administrator
+can release money, and only for an organizer whose KYC is `VERIFIED`.
+
 The tier table lives in `VACATIONRIDE_ORGANIZER_ONBOARDING.md` and is not
 duplicated here.
 

@@ -1,7 +1,7 @@
 # vacationRide — Payout Architecture (Trip Organizers)
 
-**Version:** 1.0  
-**Status:** Draft for Review
+**Version:** 1.1  
+**Status:** Phase 4 built — sections 2 to 4 and 6 describe what now runs; section 4's automated transfer is Phase 5
 
 ---
 
@@ -157,8 +157,30 @@ them apart:
 
 | Phase | What ships |
 |-------|-----------|
-| 4 | Accrual ledger, organizer statement, admin-triggered payout batch that records the transfer reference by hand |
+| 4 ✓ | Accrual ledger, organizer statement, admin-triggered payout batch that records the transfer reference by hand |
 | 5 | Paystack Transfers API, the daily 12:00 AM job, and the reconcile job for failed or stuck transfers |
+
+**As built.** The ledger is `organizer_payouts`, written once per confirmed
+booking at confirmation time (verification and the webhook both call
+`accrueForBooking`, and a unique index on `booking_id` makes the second write a
+no-op). `release_after` is the later of the next midnight and departure + 24h.
+An administrator records a payout from `/console/payouts`, which moves every
+ready entry to `RELEASED` in one batch and stores the transfer reference they
+were given. Organizers read their own statement at `/console/earnings`.
+
+Two rules this document set out, as implemented:
+
+1. **A payout is never released before the coach has departed**, and never on
+   the midnight of the sale: `release_after` is `max(next midnight, departure +
+   24h)`, computed when the entry is written.
+2. **Release waits for settlement.** Phase 4 has no settlement feed, so the
+   administrator is the settlement check — the batch button says so, and Phase
+   5 replaces that judgement with the Paystack balance.
+
+A refund before release reverses the entry and nothing else happens. A refund
+after release reverses the entry and leaves a debt, because `released_at` is
+kept as the evidence that money left. The debt blocks the next batch until it
+is settled: Phase 4 does not net a payout against a debt automatically.
 
 Before Phase 4 starts, confirm the Paystack account can create recipients and
 initiate transfers (that permission is separate from collecting payments), and

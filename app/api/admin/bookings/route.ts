@@ -1,4 +1,5 @@
 import { staffEmailFromRequest } from "@/lib/staff-session";
+import { reversePayoutForBooking } from "@/lib/organizer-payouts";
 import { ensureAdminAuditLogTable, ensureBookingsTable, rowsToObjects, turso } from "@/lib/turso";
 
 export async function GET(request: Request) {
@@ -44,9 +45,16 @@ export async function DELETE(request: Request) {
 
     await turso("DELETE FROM seat_holds WHERE booking_id = ?", [String(booked.id)]).catch(() => undefined);
     await turso("UPDATE bookings SET payment_status = 'CANCELLED', booking_status = 'CANCELLED' WHERE reference = ?", [reference]);
+    // A cancelled booking stops earning. A reversal the platform already paid
+    // out becomes a debt the next payout absorbs, which the statement shows.
+    const reversed = await reversePayoutForBooking({
+      bookingId: String(booked.id),
+      reason: "BOOKING_CANCELLED",
+      actor: adminEmail,
+    }).catch(() => ({ reversed: false }));
     await turso(
       "INSERT INTO admin_audit_logs (id, admin_email, action, target_type, target_reference, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [crypto.randomUUID(), adminEmail, "CANCEL_BOOKING", "booking", reference, JSON.stringify(booked), new Date().toISOString()],
+      [crypto.randomUUID(), adminEmail, "CANCEL_BOOKING", "booking", reference, JSON.stringify({ ...booked, payoutReversed: reversed.reversed === true }), new Date().toISOString()],
     );
 
     return Response.json({ cancelled: true, reference, seat: booked.seat, trip_id: booked.trip_id, travel_date: booked.travel_date }, { headers: { "Cache-Control": "no-store" } });

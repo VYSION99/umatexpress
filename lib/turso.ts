@@ -136,13 +136,30 @@ export async function hasColumn(table: string, column: string) {
   return rowsToObjects(result).some((row) => String(row.name) === column);
 }
 
-export async function ensureBookingsTable() {
+let bookingsTableReady: Promise<void> | null = null;
+let paymentsTableReady: Promise<void> | null = null;
+
+/**
+ * Memoised per isolate: the payment path calls this on every initialize,
+ * verify and webhook delivery, and the column probes below are one subrequest
+ * each against a hosted database with a hard per-invocation budget.
+ */
+export function ensureBookingsTable() {
+  bookingsTableReady ??= createBookingsTable().catch((error: unknown) => {
+    bookingsTableReady = null;
+    throw error;
+  });
+  return bookingsTableReady;
+}
+
+async function createBookingsTable() {
   await turso(`CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY, reference TEXT UNIQUE NOT NULL, passenger_name TEXT NOT NULL,
     email TEXT NOT NULL, phone TEXT NOT NULL, seat INTEGER NOT NULL, trip_id TEXT NOT NULL,
     travel_date TEXT NOT NULL, amount INTEGER NOT NULL, payment_status TEXT NOT NULL DEFAULT 'PENDING',
     booking_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT', hold_expires_at TEXT,
-    confirmed_at TEXT, departure_time TEXT, created_at TEXT NOT NULL
+    confirmed_at TEXT, departure_time TEXT, organizer_id TEXT, commission_amount INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
   )`);
 
   if (!(await hasColumn("bookings", "booking_status"))) {
@@ -157,9 +174,26 @@ export async function ensureBookingsTable() {
   if (false === await hasColumn("bookings", "departure_time")) {
     await turso("ALTER TABLE bookings ADD COLUMN departure_time TEXT");
   }
+  // Phase 4 attribution: the owner and the commission are copied onto the
+  // booking at confirmation, so a later rate or ownership change cannot rewrite
+  // what an organizer already earned.
+  if (!(await hasColumn("bookings", "organizer_id"))) {
+    await turso("ALTER TABLE bookings ADD COLUMN organizer_id TEXT");
+  }
+  if (!(await hasColumn("bookings", "commission_amount"))) {
+    await turso("ALTER TABLE bookings ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
-export async function ensurePaymentsTable() {
+export function ensurePaymentsTable() {
+  paymentsTableReady ??= createPaymentsTable().catch((error: unknown) => {
+    paymentsTableReady = null;
+    throw error;
+  });
+  return paymentsTableReady;
+}
+
+async function createPaymentsTable() {
   await turso(`CREATE TABLE IF NOT EXISTS payments (
     id TEXT PRIMARY KEY,
     booking_id TEXT NOT NULL,

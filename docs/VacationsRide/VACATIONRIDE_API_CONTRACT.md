@@ -264,7 +264,42 @@ on its own and never changes whether an organizer can sign in or publish.
 
 ---
 
-## 6. Phase 4+ endpoints (not yet built)
+## 6. Phase 4 endpoints (built)
 
-Organizer statement and payout batches. Amounts in every payout response are
-pesewas.
+Every amount in a payout response is an integer in **pesewas**.
+
+`GET /api/console/payouts/statement` (ORGANIZER) returns the caller's own
+statement: `totals` (`accrued`, `ready`, `released`, `reversed`, `debt`,
+`balance`, `entries`), up to 200 ledger entries and up to 50 recorded batches.
+The organizer id comes from the signed session; a `?organizerId=` is ignored.
+
+`GET /api/console/payouts` (ADMIN) lists every organizer with their totals.
+`?organizerId=` returns one organizer — account details are the **masked** ones
+from the profile read — plus their statement.
+
+`POST /api/console/payouts` (ADMIN) records a payout the administrator has
+already made by hand:
+
+```json
+{ "organizerId": "...", "reference": "TRF-2026-01", "note": "January batch" }
+```
+
+Every `ACCRUED` entry whose `release_after` has passed moves to `RELEASED` in
+the same statement, carrying the reference. The batch is refused with `409`
+when KYC is not `VERIFIED`, when the organizer is not `APPROVED`, when nothing
+is ready yet, or when a refund after payout left the balance in debt. Two
+admins recording the same batch cannot release one entry twice: the status
+check is part of the `UPDATE`.
+
+`POST /api/console/payouts/backfill` (ADMIN) rebuilds ledger rows for confirmed
+bookings that a failed write left without one. Idempotent, bounded to 20
+bookings per call (each costs a couple of subrequests), and audited like the
+rest.
+
+---
+
+## 7. Phase 5+ endpoints (not yet built)
+
+Paystack Transfers, the daily 12:00 AM payout job, the transfer reconcile job,
+and the settlement feed that replaces the administrator's judgement with the
+platform balance.

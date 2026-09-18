@@ -2,6 +2,7 @@ import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
 import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
+import { accrueForBooking } from "@/lib/organizer-payouts";
 import { incrementMetric, logEvent, requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 type PaystackWebhook = {
@@ -73,6 +74,9 @@ async function markSuccessful(reference: string, amount: number, transactionId: 
     "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'CONFIRMED', confirmed_at = ? WHERE id = ?",
     [now, String(payment.booking_id)],
   );
+  // Verify and the webhook can both confirm the same booking; the ledger's
+  // unique booking index makes the second accrual a no-op.
+  await accrueForBooking(String(payment.booking_id));
   return { handled: true, status: "SUCCESSFUL" };
 }
 

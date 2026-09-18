@@ -91,8 +91,10 @@ export async function POST(request: Request) {
 
     try {
       await turso(
-        "INSERT INTO bookings (id, reference, passenger_name, email, phone, seat, trip_id, travel_date, amount, payment_status, booking_status, hold_expires_at, departure_time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [bookingId, bookingReference, name, email, phone, seat, tripId, travelDate, payableAmount, "PENDING", "AWAITING_PAYMENT", holdExpiresAt, trip.time, nowIso],
+        // The organizer is copied onto the booking now, not resolved at payout
+        // time: an admin reassigning the trip later must not move the money.
+        "INSERT INTO bookings (id, reference, passenger_name, email, phone, seat, trip_id, travel_date, amount, payment_status, booking_status, hold_expires_at, departure_time, organizer_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [bookingId, bookingReference, name, email, phone, seat, tripId, travelDate, payableAmount, "PENDING", "AWAITING_PAYMENT", holdExpiresAt, trip.time, trip.organizerId || null, nowIso],
       );
       await turso(
         "INSERT INTO payments (id, booking_id, provider, reference_id, external_id, payer_phone, amount, currency, status, access_token_hash, fare_amount, fee_amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
