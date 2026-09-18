@@ -15,6 +15,22 @@
 | D4 | **Open registration with a mandatory approval gate** | Anyone may apply to become an organizer, but a `PENDING` account cannot publish a trip, be bookable, or take money until a human approves it. This matches the Hostel Finder landlord flow (`DRAFT → PENDING_REVIEW → APPROVED`) so both systems behave alike, and it scales onboarding without letting a stranger publish a coach in minutes. |
 | D5 | **The console hosts every console, existing and future** | Campus admin, vacation admin, driver and organizer all move onto the one console identity and the console origin. New console services are added as roles on `console_accounts`, never as another credential store. |
 
+### Implementation status
+
+Phase 1 shipped as described in `docs/CONSOLE_ARCHITECTURE.md`:
+
+- `console_accounts`, `lib/console-auth.ts` and `lib/console-signin.ts` — one
+  identity, four roles, session-derived role checks.
+- `lib/console-hosts.ts` + `worker/index.ts` — the console origin serves console
+  surfaces only, and console paths are refused on the public host.
+- `app/console/*` — the console entry, sign-in and password screens, with the
+  service list scoped by role.
+- Existing admin endpoints and the driver guard accept a console session, so
+  both surfaces already run on the unified identity.
+
+Still open in Phase 1: retiring the legacy admin and driver sign-ins, and
+binding `console.umatexpress.com` to the Worker (see section 5).
+
 ### Why D4 rather than invite-only
 
 Invite-only is safer on day one but does not scale: every organizer becomes a manual admin task, which is the problem this work exists to solve. Open registration moves the cost to one review decision per organizer instead of an onboarding conversation, and the approval gate makes publishing the trust boundary rather than signing up. If abuse appears, the gate that already exists is where to tighten — raise the bar for approval, or require a deposit — rather than closing registration.
@@ -147,13 +163,13 @@ organizer_payout_ledger (
 
 ## 5. Prerequisite: the console hostname does not exist yet
 
-`scripts/deploy-cloudflare.sh` rewrites the generated config and sets only `name`, `main` and `assets`. There is **no `routes` entry**, so the Worker is reachable on `workers.dev` and nowhere else. Before any console work is reachable:
+`scripts/deploy-cloudflare.sh` now writes a `routes` entry with `custom_domain: true` whenever `CLOUDFLARE_CONSOLE_HOST` is set, so a redeploy cannot drop the console domain. Remaining before the console is reachable on its own name:
 
-1. Bind a custom domain (or route) for `console.umatexpress.com` to the same Worker in Cloudflare.
-2. Add that route in `scripts/deploy-cloudflare.sh` so a redeploy does not drop it.
-3. Add the public origin to `CAMPUS_APP_URL`-style configuration so links resolve per host.
+1. Confirm `umatexpress.com` is in the same Cloudflare account, then deploy with `CLOUDFLARE_CONSOLE_HOST=console.umatexpress.com`.
+2. Set the `CONSOLE_SESSION_SECRET` Worker secret.
+3. Add `console.umatexpress.com` (and, until step 1 lands, the workers.dev host) to `CONSOLE_HOSTS`.
 
-Until step 1 is done, host-based branching is untestable in production.
+Until the DNS record exists, run the console on the workers.dev host or locally.
 
 ---
 
@@ -180,6 +196,8 @@ Legacy seeded trips keep working: `organizer_id` stays `NULL` and they belong to
 ### Phase 1 — Console identity (no money)
 `console_accounts`, `lib/console-auth.ts`, host-based branching, console sign-in, and migration of the existing admin and driver sign-ins onto the unified identity. No organizer features yet.
 **Acceptance:** admin and driver both sign in at the console origin; a public-host request to a console route is rejected; an organizer session cannot satisfy an admin guard; the old sign-in paths still work.
+
+**Status:** built. One identity, role guards, the origin boundary, console sign-in and the role-scoped console home are in place; admin endpoints and the driver guard accept a console session. Legacy sign-ins still work, as required.
 
 ### Phase 2 — Organizer accounts and ownership (no money)
 Organizer registration, `PENDING → APPROVED` by admin/moderator, `scheduled_trips.organizer_id`, `/console/trips` listing **only** the organizer's own trips and manifest with phone numbers, per-organizer notice.
