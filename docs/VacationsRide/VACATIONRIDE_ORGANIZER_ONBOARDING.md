@@ -1,0 +1,135 @@
+# vacationRide — Trip Organizer Onboarding & KYC Flow
+
+**Version:** 1.0  
+**Status:** Draft for Review
+
+---
+
+## 1. Purpose
+
+This document defines the onboarding and verification process for **Trip Organizers** in the new marketplace model of vacationRide. Organizers must go through a structured process before they can create trips and receive payouts.
+
+---
+
+## 2. Onboarding Stages
+
+### Stage 1: Registration
+
+- Organizer applies at the console (`/console/register`) with **name, phone,
+  email, organization and password**. Email plus password is the credential, not
+  phone: the console identity already works that way, and Resend is the
+  platform's only messaging provider (there is no SMS channel).
+- System creates a `console_accounts` row (role `ORGANIZER`, status `PENDING`)
+  and a matching `trip_organizers` row (status `PENDING`).
+- The application joins the review queue for an admin or moderator.
+
+**Outcome:** A pending application. A `PENDING` account **cannot sign in**; the
+console refuses it until a human approves it (decision D4). Approval sets
+`console_accounts.status = ACTIVE` and `trip_organizers.status = APPROVED`
+together, and suspension sets both to `SUSPENDED` and revokes live sessions.
+
+---
+
+### Stage 2: Payout Account Setup
+
+- Organizer enters bank or MoMo details.
+- Details are stored **masked** by default.
+- Encryption is a single policy applied to every payout row, never an opt-in:
+  a partly encrypted column means nobody can tell which rows are protected.
+  The full number is shown only through an audited reveal action (Phase 3).
+- System prepares for Paystack Recipient creation.
+
+**Outcome:** Payout account is recorded but not yet active.
+
+> **Storage note (Phase 3 decision).** No R2 or other file storage binding
+> exists on this Worker today, so a document upload has nowhere to go. Until a
+> bucket is bound, KYC records the ID type and number only, and any scan is
+> handled out of band. Storing identity documents also needs a stated retention
+> period and an audited reveal action, both of which belong in the Phase 3
+> design rather than being improvised later.
+
+---
+
+### Stage 3: Trip Creation (Limited)
+
+- Organizer can create scheduled trips (date, route, time, capacity, price).
+- Trips are created in `DRAFT` state.
+- Trips are **not visible** to students until approved.
+
+**Outcome:** Organizer can prepare trips, but they are not live.
+
+---
+
+### Stage 4: KYC Verification
+
+Organizers must submit:
+
+- Ghana Card or Passport number (type + number until document storage exists)
+- Proof of business / transport operation (optional but recommended)
+- Any additional compliance documents required by the platform
+
+Admin reviews and updates `kyc_status` to `VERIFIED` or `REJECTED`.
+
+**Outcome:** 
+- If verified → Organizer can receive payouts.
+- If rejected → Organizer is notified with reason.
+
+---
+
+### Stage 5: Trip Activation
+
+- Organizer submits a trip for review.
+- Admin reviews the trip details (route, pricing, schedule).
+- If approved, trip status changes to `APPROVED` and becomes bookable.
+
+**Outcome:** Trip is live and students can book.
+
+Trip approval is **mandatory**, not optional: nothing an organizer writes is
+bookable until a reviewer approves it.
+
+---
+
+### Stage 6: Payout Activation
+
+- Once `kyc_status = VERIFIED` and at least one trip has been approved, the organizer becomes eligible for payouts.
+- Daily payout job (12:00 AM) begins processing their earnings.
+
+---
+
+## 3. Trust Tiers
+
+The first two rows are the only ones in scope for Phase 2; the last two arrive
+with payouts (Phase 3+).
+
+| Tier | Account status | KYC status | Can sign in | Can receive payouts | Notes |
+|------|----------------|------------|-------------|---------------------|-------|
+| Applicant | `PENDING` | — | No | No | Waiting for approval |
+| Organizer | `APPROVED` | `PENDING` | Yes | No | Works own trips, prepares KYC |
+| Verified | `APPROVED` | `VERIFIED` | Yes | Yes | Full access |
+| Restricted | `SUSPENDED` | any | No | No | Ended live sessions, hides trips |
+
+---
+
+## 4. Re-verification Triggers
+
+Organizers may be asked to re-verify if:
+
+- Multiple student complaints or disputes
+- Sudden change in payout account
+- High volume of bookings in a short period
+- Platform detects suspicious activity
+
+---
+
+## 5. Admin Oversight
+
+Admins should have dedicated views for:
+
+- Pending KYC reviews
+- Pending trip approvals
+- Flagged organizers
+- Payout account change requests (with audit trail)
+
+---
+
+**End of Trip Organizer Onboarding Document**

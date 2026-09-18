@@ -14,7 +14,8 @@ In this model:
 - **Trip Organizers** (individuals or companies) create and manage their own scheduled long-distance trips.
 - Students book seats directly through the platform.
 - The platform handles payments, takes a **3% commission**, and transfers the remaining **97%** to the trip organizer via **Paystack Transfers**.
-- Payouts are released daily at **12:00 AM**.
+- Payouts are released daily at **12:00 AM**, never before the coach has
+  departed and never against unsettled funds (see `VACATIONRIDE_PAYOUTS.md`).
 
 This is a significant architectural shift that brings vacationRide closer in structure to the planned **Hostel Finder** (marketplace with payouts), while retaining its core strength in scheduled, seat-based bookings.
 
@@ -37,12 +38,16 @@ This is a significant architectural shift that brings vacationRide closer in str
 | Entity | Purpose |
 |--------|---------|
 | `trip_organizers` | Organizers who create and manage trips (with Paystack recipient details) |
-| `scheduled_trips` | Now owned by a `trip_organizer_id` |
+| `scheduled_trips` | Now owned by an `organizer_id` (NULL for the legacy platform-owned trips) |
 | `bookings` | Student seat reservations (unchanged core logic) |
 | `seat_holds` | Temporary seat reservation during payment (unchanged) |
 | `payments` | Inbound payments from students (unchanged) |
-| `organizer_payouts` | **New** — Tracks commission split and payout to organizers |
-| `organizer_audit_logs` | Tracks organizer actions (trip creation, modifications, cancellations) |
+| `organizer_payouts` | **New** — one append-only row per confirmed booking carrying the commission split, the release rule and the transfer result |
+
+There is deliberately **no** separate `organizer_audit_logs` table. Organizer
+actions are written to the existing platform audit table with the console
+account as actor, so one query answers "who did what" across admin, moderator,
+organizer and driver activity instead of four partial histories.
 
 ### Commission & Payout Model
 
@@ -68,7 +73,7 @@ This is a significant architectural shift that brings vacationRide closer in str
 
 | Area | Requirement |
 |------|-------------|
-| **Organizer Self-Service** | Organizers need their own console (`/organizer`) to create/manage trips |
+| **Organizer Self-Service** | Organizers work inside the existing console (`/console/*`); no second portal and no second sign-in |
 | **Commission Calculation** | Must be calculated and recorded at booking confirmation time |
 | **Payout Ledger** | New `organizer_payouts` table + daily release job at 12:00 AM |
 | **KYC & Trust** | Organizers must complete verification before receiving payouts |
@@ -98,7 +103,7 @@ System calculates:
 Creates record in organizer_payouts
         ↓
 Daily job runs at 12:00 AM:
-   - Finds all eligible payouts (confirmed + release time reached)
+   - Finds eligible payouts (confirmed, settled, and departure + 24h passed)
    - Initiates Paystack Transfer to organizer
    - Updates payout status
 ```
@@ -123,9 +128,13 @@ Organizers will be able to:
 Similar to the Hostel Finder approach:
 
 - New organizers start in **PENDING** KYC status.
-- They can create trips, but payouts are blocked until `VERIFIED`.
-- Trips require admin approval before becoming bookable (optional but recommended for trust).
-- All organizer actions are logged in `organizer_audit_logs`.
+- A `PENDING` account cannot sign in at all: approval (not KYC) is the account
+  gate, and it is mandatory.
+- Once approved, an organizer can prepare trips; every trip needs approval
+  before it becomes bookable.
+- Payouts are blocked until KYC reaches `VERIFIED`.
+- Every organizer action is written to the platform audit table with the console
+  account as actor.
 
 ---
 
@@ -141,12 +150,15 @@ vacationRide will continue to share the platform’s core infrastructure:
 
 ## 9. Recommended Phased Rollout
 
+`ORGANIZER_SELF_SERVICE_ARCHITECTURE.md` owns the phase list. It is:
+
 | Phase | Focus | Key Deliverables |
 |-------|-------|------------------|
-| **Phase 1** | Organizer Foundation | `trip_organizers` table, organizer auth, KYC flow, payout account setup |
-| **Phase 2** | Trip Self-Service | Organizer console, trip creation & management, commission calculation |
-| **Phase 3** | Payouts | `organizer_payouts` table, daily 12:00 AM release job, Paystack Transfers, reconcile logic |
-| **Phase 4** | Polish | Admin oversight tools, analytics, dispute handling |
+| 1 | Console identity (shipped) | `console_accounts`, one sign-in, console origin boundary, role guards |
+| 2 | Organizer accounts and ownership | Registration + approval, `trip_organizers`, trip ownership and manifest, per-organizer notice |
+| 3 | Self-service publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture |
+| 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, statement, admin-triggered batches |
+| 5 | Scale | Paystack Transfers, daily job + reconcile, disputes, analytics |
 
 ---
 
@@ -154,9 +166,11 @@ vacationRide will continue to share the platform’s core infrastructure:
 
 | Decision | Status |
 |----------|--------|
-| Exact KYC requirements for organizers | To be defined |
-| Whether trips need admin approval before going live | Recommended but not yet confirmed |
-| Maximum payout retry attempts and backoff strategy | To be defined in payout reconcile design |
+| Exact KYC requirements for organizers | Open — Phase 3, blocked on whether document storage is added |
+| Whether trips need admin approval before going live | **Decided: yes, mandatory** (D4) |
+| Payout release rule | **Decided: never before departure + 24h, and only on settled funds** |
+| Maximum payout retry attempts and backoff strategy | Open — Phase 5 |
+| One audit table or one per role | **Decided: one platform audit table, actor + role columns** |
 
 ---
 

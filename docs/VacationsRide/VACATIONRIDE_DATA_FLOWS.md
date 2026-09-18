@@ -76,32 +76,69 @@ This is one of the more sophisticated parts of vacationRide and demonstrates def
 ## 4. Admin Password Recovery Flow
 
 ```
-Admin forgets password
+Staff member forgets password
         ↓
-Runs SQL from sql/002_admin_password_recovery.sql
+Runs section 9 of sql/000_umatexpress_full_migration.sql (or asks an admin to)
         ↓
-Signs in with bootstrap ADMIN_PASSWORD
+Signs in with the bootstrap ADMIN_PASSWORD
         ↓
-Immediately forced to change password via /admin/change-password
+Is sent to /console/change-password and sets a console password
         ↓
-New password is hashed with 100,000 PBKDF2 iterations
+The console account now owns the credential; PBKDF2-SHA256, 100,000 iterations
 ```
+
+A console account whose session still owes a password change reaches the
+password screens but no staff data: `staffEmailFromRequest` refuses it.
 
 ---
 
 ## 5. Dynamic Trip Creation Flow
 
 ```
-Admin creates dynamic trip
+Admin creates a trip
         ↓
-System inserts into dynamic_trips table
+System inserts into scheduled_trips (POST /api/trips/schedule)
         ↓
-Trip becomes available for booking (same flow as scheduled_trips)
+The trip becomes bookable when it is active and its review status is APPROVED
         ↓
 No automatic recurrence (must be created manually each time)
 ```
 
-Currently, dynamic trips are treated similarly to scheduled trips once created.
+There is no `dynamic_trips` table: "dynamic trips" are `scheduled_trips` rows.
+
+## 6. Organizer Onboarding and Approval (Phase 2)
+
+```
+Applicant                          Reviewer                      System
+──────────────────────────────────────────────────────────────────────────
+1. Applies at /console/register
+                              2. Account + organizer row created PENDING
+                              3. Application appears in the review queue
+                              4. Approve / reject with a reason
+                                     - APPROVE: account ACTIVE + record APPROVED
+                                     - REJECT:  reason recorded, applicant told
+5. Signs in on the console
+                              6. Session carries role ORGANIZER and profile id
+7. Opens own trips only
+```
+
+## 7. Organizer Manifest Read (Phase 2, D3)
+
+```
+Organizer opens a trip manifest
+        ↓
+Session gives the organizer id and profile id (never the request)
+        ↓
+Query is scoped: WHERE trip_id = ? AND organizer_id = <session organizer>
+        ↓
+Zero rows → 404, the same answer as a trip that does not exist
+        ↓
+Rows returned with passenger contact details
+        ↓
+One audit row written per read: actor, trip, rows returned
+        ↓
+Suspending the organizer revokes the session, so the next read is 401
+```
 
 ---
 

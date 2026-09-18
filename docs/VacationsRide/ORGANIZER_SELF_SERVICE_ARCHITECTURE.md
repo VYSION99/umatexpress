@@ -114,14 +114,14 @@ trip_organizers (
   payout_method TEXT, payout_account_name TEXT,
   payout_account_number TEXT,              -- masked by default, audited on read
   paystack_recipient_code TEXT,
-  commission_bps INTEGER NOT NULL DEFAULT 0,
+  commission_bps INTEGER NOT NULL DEFAULT 300,  -- 300 bps = the platform's 3%
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 
 scheduled_trips (
   ...existing columns...,
   organizer_id TEXT,                       -- NULL only for legacy seeded trips
-  review_status TEXT NOT NULL DEFAULT 'APPROVED'  -- DRAFT | PENDING_REVIEW | APPROVED | REJECTED
+  review_status TEXT NOT NULL DEFAULT 'DRAFT'     -- DRAFT | PENDING_REVIEW | APPROVED | REJECTED | SUSPENDED
 );
 
 trip_notices (
@@ -138,15 +138,35 @@ organizer_payout_ledger (
   id TEXT PRIMARY KEY,
   organizer_id TEXT NOT NULL,
   booking_reference TEXT NOT NULL,
-  gross_amount INTEGER NOT NULL,
+  gross_amount INTEGER NOT NULL,           -- the fare only (payments.fare_amount), in pesewas
   commission_amount INTEGER NOT NULL,
   net_amount INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'ACCRUED',  -- ACCRUED | RELEASED | REVERSED
+  status TEXT NOT NULL DEFAULT 'ACCRUED',  -- ACCRUED | RELEASED | REVERSED | FAILED
   created_at TEXT NOT NULL, released_at TEXT
 );
 ```
 
 `bookings` gains `organizer_id` and `commission_amount`, both written at booking time so historical revenue never has to be recomputed from a rate that has since changed.
+
+`commission_amount` is charged on the **fare** (`payments.fare_amount`), never on
+`bookings.amount`, which is the fare plus Paystack's pass-through charge. Full
+definition in `VACATIONRIDE_PAYOUTS.md`.
+
+Three corrections to the shape above, agreed during the document review:
+
+1. **One payout table, not two.** `organizer_payout_ledger` and the
+   `organizer_payouts` table in `VACATIONRIDE_PAYOUTS.md` describe the same rows.
+   `organizer_payouts` is the name of record, and it carries the transfer fields
+   (`release_after`, `transfer_reference`, `transferred_at`) as well. The states
+   above are the ledger lifecycle; `VACATIONRIDE_PAYOUTS.md` owns the transfer
+   lifecycle. This table is Phase 4 work.
+2. **`review_status` defaults to `DRAFT`, never `APPROVED`.** A default of
+   `APPROVED` would publish a trip the moment an insert forgot the column. The
+   migration backfills the existing seeded trips to `APPROVED` explicitly.
+3. **`commission_bps` defaults to 300.** A default of `0` means the organizer
+   keeps 100%, which is the opposite of the product rule. The per-organizer
+   value is copied onto the booking at confirmation, so a later rate change
+   never rewrites history.
 
 ---
 
@@ -201,7 +221,22 @@ Legacy seeded trips keep working: `organizer_id` stays `NULL` and they belong to
 
 ### Phase 2 — Organizer accounts and ownership (no money)
 Organizer registration, `PENDING → APPROVED` by admin/moderator, `scheduled_trips.organizer_id`, `/console/trips` listing **only** the organizer's own trips and manifest with phone numbers, per-organizer notice.
-**Acceptance:** an organizer registers, is approved, signs in, sees only their own trips and passenger contacts, and edits only their own notice. A second organizer cannot see or mutate the first organizer's data by any request. No money moves.
+
+Concrete scope, so the phase has no missing half:
+
+| # | Deliverable | Where |
+|---|-------------|-------|
+| 1 | Organizer application (name, phone, email, password, organization) creating a `console_accounts` row with role `ORGANIZER` and status `PENDING` plus a `trip_organizers` row | `POST /api/console/organizers/register`, `/console/register` |
+| 2 | Application queue: approve, reject with a reason, suspend | `GET/PATCH /api/console/organizers`, `/console/organizers` (ADMIN + MODERATOR) |
+| 3 | Account and business record kept in step: approval sets `console_accounts.status = ACTIVE` and `trip_organizers.status = APPROVED`; suspension sets both to `SUSPENDED` and bumps `token_version` so live sessions die | `lib/organizers.ts` |
+| 4 | Admin assigns an existing trip to an organizer (`scheduled_trips.organizer_id`), because Phase 2 has no trip creation | `PATCH /api/console/trips`, admin-only |
+| 5 | Organizer trip list + passenger manifest with phone numbers, every read audited | `GET /api/console/trips`, `GET /api/console/trips/[id]/manifest` |
+| 6 | Per-organizer trip notice replacing the global notice for their trips | `PUT /api/console/trips/notice`, `trip_notices` |
+| 7 | Console service cards split so a moderator reviews applications and an organizer works on their own trips | `components/admin/console-services.ts` |
+
+**Acceptance:** an organizer registers, is approved, signs in, sees only their own trips and passenger contacts, and edits only their own notice. A second organizer cannot see or mutate the first organizer's data by any request. A `PENDING` organizer cannot sign in. A suspended organizer's live session stops working on the next request. No money moves.
+
+**Test requirements:** organizer B gets `404` for organizer A's trip id, booking reference and notice; a forged `organizer_id` in a body or query string changes nothing; a moderator session can approve an application but is refused every admin-only trip mutation; every manifest read writes one audit row.
 
 ### Phase 3 — Self-service trip publishing
 Organizers create and edit trips (route, date, times, capacity, price, coach type, amenities), submit for review, admin or moderator approves or rejects with a reason. The public page lists approved trips grouped by organizer.
@@ -234,6 +269,17 @@ Paystack Transfers for automated payouts, suspension and dispute handling, route
 
 ## 9. Open questions
 
-1. Is commission per organizer, per trip, or a platform default an admin can override?
-2. Do students book one trip at a time, or can a single payment cover seats on two organizers' coaches?
-3. Should an organizer also run campusRide trips, or is vacationRide the only surface?
+Resolved during the document review:
+
+1. **Commission format** — per-organizer rate in basis points (`commission_bps`, default `300`), copied onto the booking at confirmation. Whether an admin may override the default per organizer is a Phase 4 decision; the Phase 2 schema already carries the column.
+2. **Booking model** — one booking covers one seat on one trip, and only a signed-in student may create one (`POST /api/payments/initialize` calls `requireStudent`). A single payment spanning two organizers' coaches is therefore out of scope.
+3. **Organizer surface** — vacationRide only. A campusRide driver is a separate role with a separate profile id; the two never share a record.
+
+Still open, and deliberately parked until the phase that spends money:
+
+| Question | Needed by |
+|----------|-----------|
+| Payout release rule: is `release_after` the next 12:00 AM, or after the coach has departed (recommended: never before departure + 24h)? | Phase 3 |
+| Are KYC documents stored, or is only the ID type and number recorded? No R2 bucket is bound today, so storing scans needs a storage decision first | Phase 3 |
+| Manual payout batches before automated Paystack Transfers? (Recommended: ledger in Phase 4, automated transfers in Phase 5) | Phase 4 |
+| Refund after a payout: the affected organizer's balance goes negative and the next payout absorbs it? | Phase 4 |
