@@ -23,6 +23,7 @@ type PublicTrip = {
   amenities: string[];
   notes: string;
   active?: boolean;
+  organizerName?: string;
 };
 
 export default function Home() {
@@ -46,6 +47,19 @@ export default function Home() {
   const [passengerHelp, setPassengerHelp] = useState("");
   const [passengerHelpLoading, setPassengerHelpLoading] = useState(false);
   const trip = useMemo(() => visibleTrips.find((item) => item.id === selectedTrip) ?? visibleTrips[0], [selectedTrip, visibleTrips]);
+  /**
+   * Coaches are grouped by who runs them. The platform's own trips share one
+   * group, and a list from a single organizer keeps the flat grid it had before
+   * organisers existed.
+   */
+  const tripGroups = useMemo(() => {
+    const groups = new Map<string, PublicTrip[]>();
+    for (const item of visibleTrips) {
+      const key = item.organizerName?.trim() || "UMaTeXPRESS";
+      groups.set(key, [...(groups.get(key) || []), item]);
+    }
+    return [...groups.entries()];
+  }, [visibleTrips]);
   const routeFrom = trip?.from || from;
   const routeTo = trip?.to || to;
   const seatNumbers = useMemo(() => Array.from({ length: trip?.capacity || 50 }, (_, i) => i + 1), [trip?.capacity]);
@@ -120,6 +134,15 @@ export default function Home() {
     }
   };
 
+  const tripCard = (item: PublicTrip) => (
+    <button className={`trip-card ${selectedTrip === item.id ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedTrip(item.id); setPaymentError(""); setPaymentMessage(""); }}>
+      <div className="trip-top"><span className="pill">{item.tag}</span><span className="radio">{selectedTrip === item.id && <Check size={14} />}</span></div>
+      <div className="times"><div><strong>{formatTime(item.time)}</strong><span>{item.from}</span></div><div className="duration"><span>Direct trip</span><i /><small>{item.coachType}</small></div><div><strong>{formatTime(item.arrival)}</strong><span>{item.to}</span></div></div>
+      <div className="amenities">{item.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div>
+      <div className="fare"><span><Clock3 size={15} /> {selectedTrip === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
+    </button>
+  );
+
   return (
     <main className="vacation">
       <header className="topbar">
@@ -178,16 +201,18 @@ export default function Home() {
 
       <section className="content" id="trips">
         <div className="section-heading"><div><span className="step">01</span><h2>Choose your trip</h2><p>{new Date(`${trip?.travelDate || date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} · {routeFrom} to {routeTo}</p></div><span className="results">{visibleTrips.length} {visibleTrips.length === 1 ? "coach" : "coaches"} available</span></div>
-        <div className={`trip-grid ${visibleTrips.length > 1 ? "trip-carousel" : ""}`}>
-          {visibleTrips.map((item) => (
-            <button className={`trip-card ${selectedTrip === item.id ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedTrip(item.id); setPaymentError(""); setPaymentMessage(""); }}>
-              <div className="trip-top"><span className="pill">{item.tag}</span><span className="radio">{selectedTrip === item.id && <Check size={14} />}</span></div>
-              <div className="times"><div><strong>{formatTime(item.time)}</strong><span>{item.from}</span></div><div className="duration"><span>Direct trip</span><i /><small>{item.coachType}</small></div><div><strong>{formatTime(item.arrival)}</strong><span>{item.to}</span></div></div>
-              <div className="amenities">{item.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div>
-              <div className="fare"><span><Clock3 size={15} /> {selectedTrip === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
-            </button>
-          ))}
-        </div>
+        {tripGroups.length > 1
+          ? tripGroups.map(([organizerName, items]) => (
+            <div className="trip-group" key={organizerName}>
+              <h3 className="trip-group-name">{organizerName}</h3>
+              <div className={`trip-grid ${items.length > 1 ? "trip-carousel" : ""}`}>
+                {items.map((item) => tripCard(item))}
+              </div>
+            </div>
+          ))
+          : <div className={`trip-grid ${visibleTrips.length > 1 ? "trip-carousel" : ""}`}>
+            {visibleTrips.map((item) => tripCard(item))}
+          </div>}
       </section>
 
       {trip && <section className="booking-section" id="booking">

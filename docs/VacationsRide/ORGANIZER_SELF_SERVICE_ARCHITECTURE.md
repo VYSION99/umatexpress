@@ -265,9 +265,11 @@ Concrete scope, so the phase has no missing half:
 
 **Test requirements:** organizer B gets `404` for organizer A's trip id, booking reference and notice; a forged `organizer_id` in a body or query string changes nothing; a moderator session can approve an application but is refused every admin-only trip mutation; every manifest read writes one audit row.
 
-### Phase 3 — Self-service trip publishing
-Organizers create and edit trips (route, date, times, capacity, price, coach type, amenities), submit for review, admin or moderator approves or rejects with a reason. The public page lists approved trips grouped by organizer.
-**Acceptance:** an organizer publishes a bookable trip without admin data entry; an unapproved trip is never publicly bookable.
+### Phase 3 — Self-service trip publishing — **Shipped**
+Organizers create and edit trips (route, date, times, capacity, price, coach type, amenities), submit for review, and an admin or moderator approves or rejects with a reason. The public page lists approved trips grouped by organizer, labelled with the organizer's display name (falling back to `UMaTeXPRESS` for platform trips).
+**Acceptance:** an organizer publishes a bookable trip without admin data entry; an unapproved trip is never publicly bookable; an edit to a live trip re-enters review; another organizer's trip id returns `404` on every read and write; KYC and the payout account are stored for the money phases without ever being returned in the clear.
+
+**Carried forward to Phase 4:** the payout release rule (never before departure + 24h, settled funds only) and every question about how a payout batch is assembled. Phase 3 captures the account; it pays nothing.
 
 ### Phase 4 — Money and attribution
 Commission per organizer, `bookings.organizer_id` + `commission_amount`, payout ledger accrued on confirmed payment, admin-triggered payout batches, organizer statement view.
@@ -306,7 +308,7 @@ Still open, and deliberately parked until the phase that spends money:
 
 | Question | Needed by |
 |----------|-----------|
-| Payout release rule: is `release_after` the next 12:00 AM, or after the coach has departed (recommended: never before departure + 24h)? | Phase 3 |
-| Are KYC documents stored, or is only the ID type and number recorded? No R2 bucket is bound today, so storing scans needs a storage decision first | Phase 3 |
+| ~~Payout release rule: is `release_after` the next 12:00 AM, or after the coach has departed?~~ | **Decided: never before departure + 24h, on settled funds only — enforced in Phase 4** |
+| ~~Are KYC documents stored, or is only the ID type and number recorded?~~ | **Decided: ID type and number only. No scan is uploaded; storing documents needs an R2 binding and a retention policy first** |
 | Manual payout batches before automated Paystack Transfers? (Recommended: ledger in Phase 4, automated transfers in Phase 5) | Phase 4 |
 | Refund after a payout: the affected organizer's balance goes negative and the next payout absorbs it? | Phase 4 |

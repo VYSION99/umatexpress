@@ -1,8 +1,8 @@
 # vacationRide — API Contract
 
-**Version:** 2.0  
+**Version:** 2.1  
 **Status:** Draft for Review — corrected against the implementation  
-**Scope:** the public booking flow as built, plus the Phase 2 console endpoints
+**Scope:** the public booking flow as built, plus the Phase 2 and Phase 3 console endpoints
 
 ---
 
@@ -51,6 +51,7 @@
       "active": true,
       "archived": false,
       "displayOrder": 1,
+      "organizerName": "Mensah Travel",
       "createdAt": "2026-09-01T00:00:00.000Z"
     }
   ]
@@ -59,8 +60,9 @@
 
 `?admin=1` additionally requires a staff session and includes inactive trips.
 
-**Phase 2 change:** with organizers in the picture this read must also filter
-`review_status = 'APPROVED'` and carry `organizerId` / organizer display name.
+**Built (Phase 2/3):** this read filters `review_status = 'APPROVED'` and carries
+the organizer's display name (`organization`, falling back to the contact name,
+falling back to `UMaTeXPRESS`). It never carries a contact or payout field.
 
 ### `GET /api/trips/availability?tripId=&travelDate=`
 
@@ -148,7 +150,7 @@ the booking to `PAYMENT_RECEIVED_REVIEW` rather than being accepted or dropped.
 
 ---
 
-## 4. Phase 2 console endpoints (to build)
+## 4. Phase 2 console endpoints (built)
 
 Ownership always comes from the session. An id in a body or query string never
 selects the tenant.
@@ -203,8 +205,66 @@ because organizer-created trips arrive in Phase 3.
 
 ---
 
-## 5. Phase 3+ endpoints (not yet built)
+## 5. Phase 3 console endpoints (built)
 
-Organizer trip create/edit and review submission, moderator approve/reject with a
-reason, KYC submission and review, payout account capture, organizer statement
-and payout batches. Amounts in every payout response are pesewas.
+`POST /api/console/trips` (ORGANIZER) creates a trip for the signed-in
+organizer. The owner is the session's profile id, never a body field. The trip
+is written `DRAFT` and inactive, so an approval is the only thing that can make
+it bookable.
+
+`PATCH /api/console/trips/[tripId]` and `DELETE` (ORGANIZER) edit and archive a
+trip the session owns. Ownership is part of the `WHERE` clause, so another
+organizer's id returns `404` rather than `403`. **Editing an `APPROVED` trip
+sends it back to `PENDING_REVIEW`** and turns `active` off in the same
+statement — nothing an organizer writes reaches students unreviewed. `DELETE`
+refuses a live trip; ask an admin to pull it first.
+
+`PATCH /api/console/trips/[tripId]/review` — one endpoint for the whole state
+machine:
+
+```json
+{ "action": "SUBMIT" | "APPROVE" | "REJECT" | "SUSPEND", "reason": "..." }
+```
+
+`SUBMIT` is ORGANIZER-only, for the caller's own trip, and allowed from
+`DRAFT`, `REJECTED` or `SUSPENDED`. `APPROVE`/`REJECT` are ADMIN and MODERATOR
+and only leave `PENDING_REVIEW`. `SUSPEND` is ADMIN-only: it takes down a trip
+students can currently buy. `REJECT` and `SUSPEND` require a reason, which is
+stored as the trip's `reviewReason` and shown to the organizer. An approval
+sets `active = 1`; every other decision sets `active = 0`.
+
+`GET /api/console/trips/review` (ADMIN, MODERATOR) is the queue: every trip in
+`PENDING_REVIEW`, oldest submission first, with `platformOwned: true` when the
+trip has no organizer.
+
+`GET /api/console/organizers/profile` (ORGANIZER) returns the caller's KYC and
+payout record with the ID and account numbers **masked**. There is no query
+parameter that widens it, so the response is safe to render anywhere.
+
+`PUT /api/console/organizers/profile/kyc` (ORGANIZER) captures
+`{ idType, idNumber }`. The number is sealed with AES-GCM before it is stored.
+No scan is uploaded: the Worker has no object-storage binding, and identity
+documents need a retention policy before they are kept.
+
+`PUT /api/console/organizers/profile/payout` (ORGANIZER) captures
+`{ method: "BANK" | "MOMO", accountName, accountNumber }`. The number is sealed;
+only the last four digits are stored in the clear, for the mask. **Capturing a
+payout account is not the same as being eligible to be paid** — KYC
+verification and the Phase 4 ledger are separate gates.
+
+`POST /api/console/organizers/reveal` — ADMIN only. `{ "organizerId": "..." }`
+returns the full payout account and ID number, and **every call writes an audit
+row** naming the actor and the fields opened. This is the only path that returns
+an unsealed value.
+
+`PATCH /api/console/organizers` also accepts `VERIFY_KYC` and `REJECT_KYC`
+(ADMIN, MODERATOR). KYC is the money gate, not the account gate: it is decided
+on its own and never changes whether an organizer can sign in or publish.
+`REJECT_KYC` requires a reason; a fresh submission clears the previous decision.
+
+---
+
+## 6. Phase 4+ endpoints (not yet built)
+
+Organizer statement and payout batches. Amounts in every payout response are
+pesewas.

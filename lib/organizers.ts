@@ -7,6 +7,7 @@ import {
   revokeConsoleSessions,
 } from "@/lib/console-auth";
 import { ensureScheduledTripsTable } from "@/lib/dynamic-trips";
+import { lastFour, maskAccountNumber, openSecret, sealSecret } from "@/lib/secret-box";
 import { EMPTY_FLYER_PROMO, normalizeFlyerPromo, type FlyerPromo } from "@/lib/trip-notice";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
@@ -53,7 +54,12 @@ export type OrganizerTrip = {
   price: number;
   capacity: number;
   coachType: string;
+  tag: string;
+  amenities: string[];
+  notes: string;
   reviewStatus: string;
+  /** Why a reviewer sent it back, so the organizer knows what to change. */
+  reviewReason: string;
   archived: boolean;
   bookingCount: number;
   confirmedCount: number;
@@ -69,7 +75,7 @@ export type ManifestPassenger = {
   createdAt: string;
 };
 
-const ORGANIZER_SCHEMA_VERSION = "2026-09-18.1";
+const ORGANIZER_SCHEMA_VERSION = "2026-09-18.2";
 
 const ORGANIZER_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS trip_organizers (
@@ -103,7 +109,15 @@ const ORGANIZER_SCHEMA_STATEMENTS = [
     updated_at TEXT NOT NULL
   )`,
   "ALTER TABLE trip_organizers ADD COLUMN review_reason TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trip_organizers ADD COLUMN kyc_id_type TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trip_organizers ADD COLUMN kyc_id_number TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trip_organizers ADD COLUMN kyc_reason TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trip_organizers ADD COLUMN kyc_submitted_at TEXT",
+  "ALTER TABLE trip_organizers ADD COLUMN kyc_reviewed_at TEXT",
+  "ALTER TABLE trip_organizers ADD COLUMN payout_account_last4 TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trip_organizers ADD COLUMN payout_updated_at TEXT",
   "CREATE INDEX IF NOT EXISTS idx_trip_organizers_status ON trip_organizers(status)",
+  "CREATE INDEX IF NOT EXISTS idx_trip_organizers_kyc ON trip_organizers(kyc_status, status)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_organizers_phone ON trip_organizers(phone) WHERE phone <> ''",
 ];
 
@@ -145,6 +159,23 @@ function organizerView(row: Record<string, unknown>): Organizer {
     accountId: String(row.account_id || ""),
     accountStatus: String(row.account_status || ""),
   };
+}
+
+/**
+ * `amenities` is stored as JSON text. A row written by hand or by an older
+ * version may hold a comma-separated list instead, so a parse failure falls
+ * back to splitting rather than throwing the whole trip list away.
+ */
+function amenityList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item));
+  const text = String(value ?? "").trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+  } catch {
+    return text.split(",").map((item) => item.trim()).filter(Boolean);
+  }
 }
 
 export async function getOrganizer(organizerId: string): Promise<Organizer | null> {
@@ -323,7 +354,9 @@ export async function listOrganizerTrips(organizerId: string) {
   await ensureScheduledTripsTable();
   const rows = rowsToObjects(await turso(
     `SELECT t.id,t.title,t.route_from,t.route_to,t.travel_date,t.departure_time,t.arrival_time,t.price,t.capacity,t.coach_type,
+       COALESCE(t.tag,'') AS tag,COALESCE(t.amenities,'') AS amenities,COALESCE(t.notes,'') AS notes,
        COALESCE(t.review_status,'DRAFT') AS review_status,COALESCE(t.archived,0) AS archived,
+       COALESCE(t.review_reason,'') AS review_reason,
        (SELECT COUNT(*) FROM bookings b WHERE b.trip_id = t.id) AS booking_count,
        (SELECT COUNT(*) FROM bookings b WHERE b.trip_id = t.id AND b.booking_status = 'CONFIRMED') AS confirmed_count
      FROM scheduled_trips t WHERE t.organizer_id = ?
@@ -341,7 +374,11 @@ export async function listOrganizerTrips(organizerId: string) {
     price: Number(row.price || 0),
     capacity: Number(row.capacity || 0),
     coachType: String(row.coach_type || ""),
+    tag: String(row.tag || ""),
+    amenities: amenityList(row.amenities),
+    notes: String(row.notes || ""),
     reviewStatus: String(row.review_status || "DRAFT"),
+    reviewReason: String(row.review_reason || ""),
     archived: Number(row.archived ?? 0) === 1,
     bookingCount: Number(row.booking_count || 0),
     confirmedCount: Number(row.confirmed_count || 0),
@@ -472,4 +509,208 @@ export async function organizerNoticeForTrip(tripId: string): Promise<FlyerPromo
   const organizerId = String(row?.organizer_id || "");
   if (!organizerId) return null;
   return getOrganizerNotice(organizerId);
+}
+
+export type OrganizerProfile = {
+  organizerId: string;
+  kycStatus: string;
+  kycIdType: string;
+  /** Masked. The full number is only ever returned by an audited reveal. */
+  kycIdNumberMasked: string;
+  kycReason: string;
+  kycSubmittedAt: string;
+  kycReviewedAt: string;
+  payoutMethod: string;
+  payoutAccountName: string;
+  /** Masked. The full number is only ever returned by an audited reveal. */
+  payoutAccountMasked: string;
+  payoutUpdatedAt: string;
+  payoutRecipientReady: boolean;
+};
+
+const KYC_ACTIONS = ["VERIFY", "REJECT"] as const;
+export type KycAction = (typeof KYC_ACTIONS)[number];
+export function isKycAction(value: unknown): value is KycAction {
+  return typeof value === "string" && (KYC_ACTIONS as readonly string[]).includes(value);
+}
+
+const PAYOUT_METHODS = ["BANK", "MOMO"] as const;
+
+/**
+ * The organizer's own KYC and payout record, always masked. Nothing here is
+ * decryptable, so a page that renders this cannot leak an account number.
+ */
+export async function getOrganizerProfile(organizerId: string): Promise<OrganizerProfile | null> {
+  await ensureOrganizerTables();
+  const row = rowsToObjects(await turso(
+    `SELECT id,COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(kyc_id_type,'') AS kyc_id_type,
+       COALESCE(kyc_id_number,'') AS kyc_id_number,COALESCE(kyc_reason,'') AS kyc_reason,
+       COALESCE(kyc_submitted_at,'') AS kyc_submitted_at,COALESCE(kyc_reviewed_at,'') AS kyc_reviewed_at,
+       COALESCE(payout_method,'') AS payout_method,COALESCE(payout_account_name,'') AS payout_account_name,
+       COALESCE(payout_account_number,'') AS payout_account_number,
+       COALESCE(payout_account_last4,'') AS payout_account_last4,COALESCE(payout_updated_at,'') AS payout_updated_at,
+       COALESCE(paystack_recipient_code,'') AS paystack_recipient_code
+     FROM trip_organizers WHERE id = ? LIMIT 1`,
+    [organizerId],
+  ))[0];
+  if (!row) return null;
+  // Older rows may predate the last4 column; fall back to reading the sealed
+  // value rather than showing nothing.
+  let last4 = String(row.payout_account_last4 || "");
+  if (!last4 && row.payout_account_number) last4 = lastFour((await openSecret(row.payout_account_number)) || "");
+  // KYC has no last4 column: the mask is derived from the sealed number, so a
+  // submission shows as `••••1234` instead of an empty placeholder.
+  const kycLast4 = last4Of(String(row.kyc_id_number || "")) || lastFour((await openSecret(row.kyc_id_number)) || "");
+  return {
+    organizerId: String(row.id),
+    kycStatus: String(row.kyc_status || "PENDING"),
+    kycIdType: String(row.kyc_id_type || ""),
+    kycIdNumberMasked: maskAccountNumber(kycLast4),
+    kycReason: String(row.kyc_reason || ""),
+    kycSubmittedAt: String(row.kyc_submitted_at || ""),
+    kycReviewedAt: String(row.kyc_reviewed_at || ""),
+    payoutMethod: String(row.payout_method || ""),
+    payoutAccountName: String(row.payout_account_name || ""),
+    payoutAccountMasked: maskAccountNumber(last4),
+    payoutUpdatedAt: String(row.payout_updated_at || ""),
+    payoutRecipientReady: Boolean(String(row.paystack_recipient_code || "")),
+  };
+}
+
+/**
+ * The last four digits of a sealed value, used only for masking. Reading the
+ * sealed payload is cheap and avoids storing a second copy of the same secret.
+ */
+function last4Of(value: string) {
+  const cleaned = String(value || "").trim();
+  return /^\d{3,}$/.test(cleaned) ? lastFour(cleaned) : "";
+}
+
+export async function saveOrganizerKyc(organizerId: string, input: { idType?: unknown; idNumber?: unknown }) {
+  await ensureOrganizerTables();
+  const idType = String(input.idType || "").trim();
+  const idNumber = String(input.idNumber || "").trim();
+  if (!idType || !idNumber) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose an ID type and enter the ID number.", 400);
+  }
+  if (idNumber.length < 4 || idNumber.length > 40) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Enter the ID number as it appears on the document.", 400);
+  }
+  const stamp = new Date().toISOString();
+  // Re-submitting after a rejection clears the old decision, so the record
+  // never shows a rejection reason next to a fresh submission.
+  await turso(
+    `UPDATE trip_organizers SET kyc_id_type=?,kyc_id_number=?,kyc_status='PENDING',kyc_reason='',kyc_submitted_at=?,kyc_reviewed_at=NULL,updated_at=?
+     WHERE id=?`,
+    [idType, await sealSecret(idNumber), stamp, stamp, organizerId],
+  );
+  return getOrganizerProfile(organizerId);
+}
+
+export async function saveOrganizerPayoutAccount(organizerId: string, input: {
+  method?: unknown; accountName?: unknown; accountNumber?: unknown;
+}) {
+  await ensureOrganizerTables();
+  const method = String(input.method || "").trim().toUpperCase();
+  const accountName = String(input.accountName || "").trim();
+  const accountNumber = String(input.accountNumber || "").trim();
+  if (!(PAYOUT_METHODS as readonly string[]).includes(method)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose a bank account or a mobile money account.", 400);
+  }
+  if (!accountName) throw new CampusEngineError("VALIDATION_ERROR", "Enter the account holder's name.", 400);
+  if (accountNumber.length < 5 || accountNumber.length > 40 || !/^[0-9A-Za-z -]+$/.test(accountNumber)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Enter the account or mobile money number.", 400);
+  }
+  const stamp = new Date().toISOString();
+  await turso(
+    "UPDATE trip_organizers SET payout_method=?,payout_account_name=?,payout_account_number=?,payout_account_last4=?,payout_updated_at=?,updated_at=? WHERE id=?",
+    [method, accountName, await sealSecret(accountNumber), lastFour(accountNumber), stamp, stamp, organizerId],
+  );
+  await consoleAudit({
+    actor: organizerId,
+    action: "ORGANIZER_PAYOUT_ACCOUNT_SAVED",
+    targetType: "trip_organizer",
+    targetReference: organizerId,
+    // The last four are enough to recognise a change; the number itself is
+    // deliberately never written to the audit trail.
+    details: { method, last4: lastFour(accountNumber) },
+  }).catch(() => undefined);
+  return getOrganizerProfile(organizerId);
+}
+
+/**
+ * The one way to read a full number back. Every call is audited with the actor
+ * and which fields were opened, so a reveal is never silent.
+ */
+export async function revealOrganizerProfile(organizerId: string, actor: string) {
+  await ensureOrganizerTables();
+  const row = rowsToObjects(await turso(
+    "SELECT COALESCE(payout_account_number,'') AS payout_account_number, COALESCE(kyc_id_number,'') AS kyc_id_number FROM trip_organizers WHERE id = ? LIMIT 1",
+    [organizerId],
+  ))[0];
+  if (!row) throw new CampusEngineError("NOT_FOUND", "That organizer was not found.", 404);
+  const revealed: Record<string, string> = {};
+  const payout = await openSecret(row.payout_account_number);
+  if (payout) revealed.payoutAccountNumber = payout;
+  const kyc = await openSecret(row.kyc_id_number);
+  if (kyc) revealed.kycIdNumber = kyc;
+  await consoleAudit({
+    actor,
+    action: "ORGANIZER_PROFILE_REVEALED",
+    targetType: "trip_organizer",
+    targetReference: organizerId,
+    details: { fields: Object.keys(revealed) },
+  });
+  return revealed;
+}
+
+/** KYC is a separate gate from account approval: it only decides whether money may leave. */
+export async function reviewOrganizerKyc(input: {
+  organizerId: string; action: KycAction; reason?: string; actor: string;
+}) {
+  await ensureOrganizerTables();
+  const organizer = await getOrganizer(input.organizerId);
+  if (!organizer) throw new CampusEngineError("NOT_FOUND", "That organizer was not found.", 404);
+  if (organizer.status !== "APPROVED") {
+    throw new CampusEngineError("INVALID_STATE", "Approve the organizer before reviewing their KYC.", 409);
+  }
+  const reason = String(input.reason || "").trim();
+  if (input.action === "REJECT" && !reason) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Give a reason so the organizer knows what to fix.", 400);
+  }
+  const stamp = new Date().toISOString();
+  await turso(
+    "UPDATE trip_organizers SET kyc_status=?,kyc_reason=?,kyc_reviewed_at=?,updated_at=? WHERE id=?",
+    [input.action === "VERIFY" ? "VERIFIED" : "REJECTED", input.action === "VERIFY" ? "" : reason, stamp, stamp, organizer.id],
+  );
+  await consoleAudit({
+    actor: input.actor,
+    action: `ORGANIZER_KYC_${input.action}`,
+    targetType: "trip_organizer",
+    targetReference: organizer.id,
+    details: { from: organizer.kycStatus, reason },
+  });
+  return getOrganizer(organizer.id);
+}
+
+/**
+ * Display names for the public trip list. Names only: never a contact, an
+ * account number or a status.
+ */
+export async function organizerDisplayNames(ids: readonly string[]): Promise<Record<string, string>> {
+  const unique = [...new Set(ids.map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!unique.length || !(await isTursoConfiguredRuntime())) return {};
+  try {
+    await ensureOrganizerTables();
+    const placeholders = unique.map(() => "?").join(",");
+    const rows = rowsToObjects(await turso(
+      `SELECT id,COALESCE(NULLIF(organization,''),name) AS display_name FROM trip_organizers WHERE id IN (${placeholders})`,
+      unique,
+    ));
+    return Object.fromEntries(rows.map((row) => [String(row.id), String(row.display_name || "")]));
+  } catch {
+    // An organizer name is a nicety on the public list; a database that has not
+    // caught up must not take the trip list down with it.
+    return {};
+  }
 }

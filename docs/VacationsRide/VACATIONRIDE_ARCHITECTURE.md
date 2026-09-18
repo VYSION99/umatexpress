@@ -166,7 +166,7 @@ vacationRide will continue to share the platform’s core infrastructure:
 
 | Decision | Status |
 |----------|--------|
-| Exact KYC requirements for organizers | Open — Phase 3, blocked on whether document storage is added |
+| Exact KYC requirements for organizers | **Decided: ID type and number only, sealed at rest. No document scans are stored, so there is no retention policy to write yet** |
 | Whether trips need admin approval before going live | **Decided: yes, mandatory** (D4) |
 | Payout release rule | **Decided: never before departure + 24h, and only on settled funds** |
 | Maximum payout retry attempts and backoff strategy | Open — Phase 5 |

@@ -18,9 +18,10 @@
 │ password_hash/salt   │        │ email (UQ)           │
 │ password_iterations  │        │ organization         │
 │ role                 │        │ status               │
-│ status               │        │ kyc_status           │  Phase 3
-│ profile_id  ─────────┼───────►│ payout_*             │  Phase 3
-│ token_version        │        │ paystack_recipient_  │  Phase 3
+│ status               │        │ kyc_status           │  Phase 3 ✓
+│ profile_id  ─────────┼───────►│ kyc_id_* / kyc_reason│  Phase 3 ✓ (sealed)
+│ token_version        │        │ payout_*             │  Phase 3 ✓ (sealed)
+│                      │        │ paystack_recipient_  │  Phase 4
 │ created/updated_at   │        │   code               │
 └──────────┬───────────┘        │ commission_bps       │
            │ 1                  │ created/updated_at   │

@@ -38,7 +38,7 @@ function parseList(value: unknown, fallback = DEFAULT_AMENITIES) {
   return fallback;
 }
 
-const TRIPS_SCHEMA_VERSION = "2026-09-18.1";
+const TRIPS_SCHEMA_VERSION = "2026-09-18.2";
 
 function sqlText(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
@@ -69,6 +69,10 @@ const tripsSchemaStatements = [
     display_order INTEGER NOT NULL DEFAULT 0,
     organizer_id TEXT,
     review_status TEXT NOT NULL DEFAULT 'DRAFT',
+    review_reason TEXT NOT NULL DEFAULT '',
+    submitted_at TEXT,
+    reviewed_at TEXT,
+    reviewed_by TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT ''
   )`,
@@ -80,6 +84,10 @@ const tripsSchemaStatements = [
   "ALTER TABLE scheduled_trips ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE scheduled_trips ADD COLUMN organizer_id TEXT",
   "ALTER TABLE scheduled_trips ADD COLUMN review_status TEXT NOT NULL DEFAULT 'DRAFT'",
+  "ALTER TABLE scheduled_trips ADD COLUMN review_reason TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE scheduled_trips ADD COLUMN submitted_at TEXT",
+  "ALTER TABLE scheduled_trips ADD COLUMN reviewed_at TEXT",
+  "ALTER TABLE scheduled_trips ADD COLUMN reviewed_by TEXT",
   // Every trip that existed before review existed has no owner and is already
   // live, so it belongs to the platform and is approved. Anything created
   // afterwards defaults to DRAFT and must be reviewed.
@@ -156,6 +164,8 @@ export async function getDynamicTrips({ activeOnly = true, includeArchived = fal
       archived: false,
       displayOrder: trip.id,
       createdAt: new Date().toISOString(),
+      organizerId: "",
+      reviewStatus: "APPROVED",
     }));
   }
 

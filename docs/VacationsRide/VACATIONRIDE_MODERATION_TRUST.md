@@ -22,7 +22,7 @@ There are **two gates, not one**, and they belong to different phases:
 | Gate | Values | Decided by | Applies from |
 |------|--------|-----------|--------------|
 | Account approval | `PENDING → ACTIVE → SUSPENDED` on `console_accounts`, mirrored as `PENDING → APPROVED → SUSPENDED` on `trip_organizers` | Admin or moderator | Phase 2 |
-| Payout readiness (KYC) | `PENDING → VERIFIED / REJECTED` on `trip_organizers.kyc_status` | Admin | Phase 3 |
+| Payout readiness (KYC) | `PENDING → VERIFIED / REJECTED` on `trip_organizers.kyc_status` | Admin (moderator may also review) | Phase 3 — built |
 
 A `PENDING` account cannot sign in at all, so "limited trip creation while
 pending" does not exist. Once approved, the organizer works their own trips; KYC

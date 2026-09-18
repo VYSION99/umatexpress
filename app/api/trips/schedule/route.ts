@@ -1,6 +1,7 @@
 import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { ensureScheduledTripsTable, getDynamicTrips, seedDefaultScheduledTrips } from "@/lib/dynamic-trips";
+import { organizerDisplayNames } from "@/lib/organizers";
 
 export type ScheduledTripInput = {
   title: string;
@@ -77,7 +78,11 @@ export async function GET(request: Request) {
     // The admin view is the only reader allowed to see trips that are not
     // approved; students never see an unreviewed trip.
     const trips = await getDynamicTrips({ activeOnly: !adminView, approvedOnly: !adminView });
-    return Response.json({ trips });
+    // The public list groups coaches by who runs them, so it needs a display
+    // name. Names only, and an unreachable lookup degrades to the platform
+    // label rather than failing the list.
+    const names = await organizerDisplayNames(trips.map((trip) => trip.organizerId));
+    return Response.json({ trips: trips.map((trip) => ({ ...trip, organizerName: names[trip.organizerId] || "" })) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Scheduled trips could not be loaded." }, { status: 503 });
   }
@@ -101,7 +106,9 @@ export async function POST(request: Request) {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     await turso(
-      "INSERT INTO scheduled_trips (id, title, route_from, route_to, travel_date, departure_time, arrival_time, price, capacity, coach_type, tag, amenities, notes, active, display_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      // A trip an administrator creates belongs to the platform and is live
+      // immediately; the review gate exists for organizer submissions.
+      "INSERT INTO scheduled_trips (id, title, route_from, route_to, travel_date, departure_time, arrival_time, price, capacity, coach_type, tag, amenities, notes, active, display_order, organizer_id, review_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'APPROVED', ?, ?)",
       [id, title, routeFrom, routeTo, travelDate, departureTime, arrivalTime, price, capacity, coachType, tag, JSON.stringify(amenities), notes, active ? 1 : 0, displayOrder, now, now],
     );
 

@@ -47,6 +47,10 @@ CREATE TABLE IF NOT EXISTS scheduled_trips (
   display_order INTEGER NOT NULL DEFAULT 0,
   organizer_id TEXT,
   review_status TEXT NOT NULL DEFAULT 'DRAFT',
+  review_reason TEXT NOT NULL DEFAULT '',
+  submitted_at TEXT,
+  reviewed_at TEXT,
+  reviewed_by TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 );
@@ -62,9 +66,16 @@ CREATE TABLE IF NOT EXISTS trip_organizers (
   organization TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'PENDING',
   kyc_status TEXT NOT NULL DEFAULT 'PENDING',
+  kyc_id_type TEXT NOT NULL DEFAULT '',
+  kyc_id_number TEXT NOT NULL DEFAULT '',
+  kyc_reason TEXT NOT NULL DEFAULT '',
+  kyc_submitted_at TEXT,
+  kyc_reviewed_at TEXT,
   payout_method TEXT NOT NULL DEFAULT '',
   payout_account_name TEXT NOT NULL DEFAULT '',
   payout_account_number TEXT NOT NULL DEFAULT '',
+  payout_account_last4 TEXT NOT NULL DEFAULT '',
+  payout_updated_at TEXT,
   paystack_recipient_code TEXT NOT NULL DEFAULT '',
   commission_bps INTEGER NOT NULL DEFAULT 300,
   review_reason TEXT NOT NULL DEFAULT '',
@@ -365,10 +376,10 @@ VALUES ('campusRide', '2026-09-18.1', datetime('now'));
 -- must match its constant in the source: TRIPS_SCHEMA_VERSION in
 -- lib/dynamic-trips.ts and ORGANIZER_SCHEMA_VERSION in lib/organizers.ts.
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
-VALUES ('scheduledTrips', '2026-09-18.1', datetime('now'));
+VALUES ('scheduledTrips', '2026-09-18.2', datetime('now'));
 
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
-VALUES ('tripOrganizers', '2026-09-18.1', datetime('now'));
+VALUES ('tripOrganizers', '2026-09-18.2', datetime('now'));
 
 -- Existing trips predate review and belong to the platform, so they are already
 -- live. Anything created afterwards starts as DRAFT and must be reviewed.
@@ -537,6 +548,7 @@ CREATE INDEX IF NOT EXISTS idx_campus_audit_target ON campus_audit_logs(target_t
 CREATE INDEX IF NOT EXISTS idx_scheduled_trips_organizer ON scheduled_trips(organizer_id);
 CREATE INDEX IF NOT EXISTS idx_scheduled_trips_review ON scheduled_trips(review_status, active, archived);
 CREATE INDEX IF NOT EXISTS idx_trip_organizers_status ON trip_organizers(status);
+CREATE INDEX IF NOT EXISTS idx_trip_organizers_kyc ON trip_organizers(kyc_status, status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_organizers_phone ON trip_organizers(phone) WHERE phone <> '';
 
 -- Platform
@@ -596,6 +608,17 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE scheduled_trips          ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE scheduled_trips          ADD COLUMN organizer_id TEXT;
 -- ALTER TABLE scheduled_trips          ADD COLUMN review_status TEXT NOT NULL DEFAULT 'DRAFT';
+-- ALTER TABLE scheduled_trips          ADD COLUMN review_reason TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE scheduled_trips          ADD COLUMN submitted_at TEXT;
+-- ALTER TABLE scheduled_trips          ADD COLUMN reviewed_at TEXT;
+-- ALTER TABLE scheduled_trips          ADD COLUMN reviewed_by TEXT;
+-- ALTER TABLE trip_organizers          ADD COLUMN kyc_id_type TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE trip_organizers          ADD COLUMN kyc_id_number TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE trip_organizers          ADD COLUMN kyc_reason TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE trip_organizers          ADD COLUMN kyc_submitted_at TEXT;
+-- ALTER TABLE trip_organizers          ADD COLUMN kyc_reviewed_at TEXT;
+-- ALTER TABLE trip_organizers          ADD COLUMN payout_account_last4 TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE trip_organizers          ADD COLUMN payout_updated_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN booking_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT';
 -- ALTER TABLE bookings                 ADD COLUMN hold_expires_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN confirmed_at TEXT;

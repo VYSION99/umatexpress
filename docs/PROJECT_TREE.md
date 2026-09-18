@@ -52,10 +52,13 @@ uMATeXPRESS/
 │   ├── dynamic-trips.ts                 # vacationRide dynamic trips
 │   ├── edge-cache.ts                    # Cloudflare per-colo response cache
 │   ├── mtn-momo.ts                      # MTN MoMo provider
+│   ├── organizer-trips.ts               # organizer trip lifecycle and review state machine
+│   ├── organizers.ts                    # organizer records, KYC and payout capture
 │   ├── payment-access.ts                # ticket/payment access cookies
 │   ├── paystack.ts                      # Paystack provider
 │   ├── rate-limit.ts                    # in-worker request throttling
 │   ├── runtime-env.ts                   # Cloudflare/local env access
+│   ├── secret-box.ts                    # AES-GCM seal/open for payout and KYC values
 │   ├── staff-session.ts                 # staff guard bridging console and legacy admin
 │   ├── trip-notice.ts                   # client-safe trip notice shape and merge rules
 │   ├── trip-settings.ts                 # vacationRide display settings

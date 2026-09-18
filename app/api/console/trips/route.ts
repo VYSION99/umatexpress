@@ -1,6 +1,7 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { assignTripToOrganizer, listOrganizerTrips } from "@/lib/organizers";
+import { createOrganizerTrip } from "@/lib/organizer-trips";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -37,6 +38,26 @@ export async function PATCH(request: Request) {
       actor: account.email,
     });
     return Response.json({ ok: true, ...result }, { headers: NO_STORE });
+  } catch (error) {
+    const { status, body } = campusErrorPayload(error);
+    return Response.json(body, { status, headers: NO_STORE });
+  }
+}
+
+/**
+ * Creates a trip for the signed-in organizer. The owner is the session's
+ * profile id and never a field in the body, so an organizer cannot file a trip
+ * under someone else's name. The trip starts as `DRAFT` and inactive, and only
+ * an approval makes it bookable.
+ */
+export async function POST(request: Request) {
+  try {
+    const account = await requireConsoleRole(request, ["ORGANIZER"]);
+    if (!account.profileId) {
+      throw new CampusEngineError("UNAUTHORIZED", "This account is not linked to an organizer profile.", 401);
+    }
+    const trip = await createOrganizerTrip(account.profileId, await request.json() as Record<string, unknown>);
+    return Response.json({ ok: true, trip }, { status: 201, headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

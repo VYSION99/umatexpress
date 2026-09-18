@@ -1,4 +1,4 @@
-import { BedDouble, BusFront, CarFront, Clapperboard, LockKeyhole, MapPinned, Store, Utensils } from "lucide-react";
+import { BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Store, Utensils } from "lucide-react";
 import type { LauncherPreference } from "@/components/launcher/services";
 
 export const consoleServices = [
@@ -9,6 +9,7 @@ export const consoleServices = [
   { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "green", href: null, label: "ACCOMMODATION", description: "A home for every student.", detail: "Hostel management is not available yet.", action: "Coming soon", tags: [] },
   { id: "organizers", title: "Organizer applications", icon: Store, accent: "orange", href: "/console/organizers", label: "SELF-SERVICE TRIPS", description: "Approve who publishes coaches.", detail: "Review applications, activate or suspend organizers, and assign trips to them.", action: "Review applications", tags: ["Applications", "Trip ownership"] },
   { id: "organizer", title: "Organizer workspace", icon: BusFront, accent: "orange", href: "/console/trips", label: "MY TRIPS", description: "Your coaches and passengers.", detail: "The trips you own, their passenger manifests and your trip notice.", action: "Open workspace", tags: ["Trips", "Manifests"] },
+  { id: "profile", title: "Business profile", icon: IdCard, accent: "cyan", href: "/console/profile", label: "VERIFICATION & PAYOUTS", description: "Get verified, get paid.", detail: "Submit identity verification and the account your payouts should reach.", action: "Open profile", tags: ["KYC", "Payout account"] },
   { id: "food", title: "Food", icon: Utensils, accent: "peach", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [] },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "purple", href: null, label: "ENTERTAINMENT", description: "A place for movie nights.", detail: "Cinema management is not available yet.", action: "Coming soon", tags: [] },
 ] as const;
@@ -34,7 +35,7 @@ export function consoleServicesForRole(role: string) {
   const order: Record<string, string[]> = {
     MODERATOR: ["organizers", "vacation", "hostels", "security"],
     DRIVER: ["driver", "security"],
-    ORGANIZER: ["organizer", "security"],
+    ORGANIZER: ["organizer", "profile", "security"],
   };
   return (order[role] || ["security"]).flatMap((id) => consoleServices.filter((service) => service.id === id));
 }

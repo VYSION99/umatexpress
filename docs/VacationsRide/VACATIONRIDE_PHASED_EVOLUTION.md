@@ -28,13 +28,25 @@ this file numbered the phases differently, which made "Phase 2" mean two things.
 |-------|-------|------------------|--------|
 | 1 | Console identity | `console_accounts`, one sign-in, host boundary, role guards | **Shipped** |
 | 2 | Organizer accounts and ownership | Registration + approval, `trip_organizers`, trip ownership and manifest, per-organizer notice | **Shipped** |
-| 3 | Self-service trip publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture, public listing by organizer | Planned |
+| 3 | Self-service trip publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture, public listing by organizer | **Shipped** |
 | 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, organizer statement, admin-triggered payout batches | Planned |
 | 5 | Scale | Paystack Transfers, daily job + reconcile, suspension and disputes, analytics | Planned |
 
 The 3% commission is calculated and stored at booking confirmation from Phase 4
 on. KYC and payout-account capture sit in Phase 3 because they are prerequisites
 for money, not for publishing a trip.
+
+**Phase 3 decisions, as built.** A trip is written `DRAFT` and inactive;
+`active = 1` is set by the approving statement and by nothing else. Organizers
+submit, admins and moderators approve or reject with a reason, and only an admin
+may suspend a live trip. Editing an `APPROVED` trip returns it to
+`PENDING_REVIEW` and turns `active` off in the same statement, because a review
+rule that exempts edits is not a review rule. KYC records an ID type and number
+only — no scan is uploaded, since no object storage is bound and identity
+documents need a retention policy first. Payout accounts are captured sealed
+(AES-GCM) with the last four digits stored for the mask, and the full number is
+read back only through an audited admin reveal. Capturing a payout account is
+not payout eligibility: KYC and the Phase 4 ledger remain separate gates.
 
 ---
 

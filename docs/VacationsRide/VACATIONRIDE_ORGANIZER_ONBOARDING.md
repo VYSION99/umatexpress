@@ -36,17 +36,19 @@ together, and suspension sets both to `SUSPENDED` and revokes live sessions.
 - Details are stored **masked** by default.
 - Encryption is a single policy applied to every payout row, never an opt-in:
   a partly encrypted column means nobody can tell which rows are protected.
-  The full number is shown only through an audited reveal action (Phase 3).
+  The full number is shown only through an audited reveal action — built as
+  ADMIN-only `POST /api/console/organizers/reveal`, which writes one audit row
+  per call.
 - System prepares for Paystack Recipient creation.
 
 **Outcome:** Payout account is recorded but not yet active.
 
-> **Storage note (Phase 3 decision).** No R2 or other file storage binding
-> exists on this Worker today, so a document upload has nowhere to go. Until a
-> bucket is bound, KYC records the ID type and number only, and any scan is
-> handled out of band. Storing identity documents also needs a stated retention
-> period and an audited reveal action, both of which belong in the Phase 3
-> design rather than being improvised later.
+> **Storage note (decided; Phase 3 shipped).** No R2 or other file storage
+> binding exists on this Worker today, so a document upload has nowhere to go.
+> Until a bucket is bound, KYC records the ID type and number only, and any scan
+> is handled out of band. Storing identity documents also needs a stated
+> retention period, which does not exist yet — so the platform deliberately
+> keeps no copy of the document.
 
 ---
 
@@ -87,6 +89,11 @@ Admin reviews and updates `kyc_status` to `VERIFIED` or `REJECTED`.
 Trip approval is **mandatory**, not optional: nothing an organizer writes is
 bookable until a reviewer approves it.
 
+**Built in Phase 3:** organizers create and submit their own trips (`POST
+/api/console/trips`, `PATCH .../[tripId]`), a moderator or admin decides
+(`PATCH .../[tripId]/review`), and editing an `APPROVED` trip returns it to
+`PENDING_REVIEW` so a silent edit cannot bypass the review.
+
 ---
 
 ### Stage 6: Payout Activation
@@ -98,8 +105,9 @@ bookable until a reviewer approves it.
 
 ## 3. Trust Tiers
 
-The first two rows are the only ones in scope for Phase 2; the last two arrive
-with payouts (Phase 3+).
+All four rows exist as data from Phase 3. `Can receive payouts` additionally
+requires the Phase 4 ledger: KYC verification clears the eligibility gate but
+does not move money on its own.
 
 | Tier | Account status | KYC status | Can sign in | Can receive payouts | Notes |
 |------|----------------|------------|-------------|---------------------|-------|

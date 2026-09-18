@@ -207,8 +207,9 @@
 }
 
 .console-panel h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 16px; font-size: 16px; letter-spacing: -.01em; }
-.console-panel-close { margin-left: auto; min-height: 34px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 999px; background: #ffffff; color: var(--ui-muted, #57675f); font-size: 12px; font-weight: 800; cursor: pointer; }
+.console-panel-close { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 999px; background: #ffffff; color: var(--ui-muted, #57675f); font-size: 12px; font-weight: 800; cursor: pointer; }
 .console-panel-close:hover { border-color: var(--ui-green, #0d694d); color: var(--ui-green, #0d694d); }
+.console-reason { display: block; margin-top: 4px; color: #9c3026; font-size: 11px; font-weight: 600; }
 .console-note { margin: 14px 0 0; color: var(--ui-muted, #57675f); font-size: 12px; line-height: 1.6; }
 .console-empty { margin: 0; padding: 18px 0; color: var(--ui-muted, #57675f); font-size: 14px; }
 
@@ -233,13 +234,20 @@
 
 .console-badge { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; background: var(--ui-cyan-soft, #e6f3f7); color: var(--ui-cyan, #0e7490); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
 .console-badge-pending, .console-badge-pending_review { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
-.console-badge-approved { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
+.console-badge-approved, .console-badge-verified { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-rejected, .console-badge-suspended { background: #fff0ee; color: #9c3026; }
 
 .console-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: end; }
 .console-form label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 800; letter-spacing: .04em; color: var(--ui-muted, #57675f); }
 .console-form input[type="text"] { min-height: 44px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 12px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 14px; font-weight: 600; }
 .console-form input[type="text"]:focus { outline: 2px solid var(--ui-green, #0d694d); outline-offset: 1px; border-color: transparent; }
+.console-form select { min-height: 44px; padding: 0 11px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 12px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 14px; font-weight: 600; }
+.console-form select:focus { outline: 2px solid var(--ui-green, #0d694d); outline-offset: 1px; border-color: transparent; }
+.console-form textarea { min-height: 88px; padding: 11px 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 12px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 14px; font-weight: 600; font-family: inherit; resize: vertical; }
+.console-form textarea:focus { outline: 2px solid var(--ui-green, #0d694d); outline-offset: 1px; border-color: transparent; }
+.console-form .console-field-wide { grid-column: 1 / -1; }
+.console-form button.console-secondary { background: #ffffff; border: 1px solid var(--ui-line, #e3eae5); color: var(--ui-ink, #12261f); }
+.console-form button.console-secondary:hover { background: #f6f8f7; }
 .console-check-field { flex-direction: row; align-items: center; gap: 10px; }
 .console-check-field input { width: 18px; height: 18px; accent-color: var(--ui-green, #0d694d); }
 .console-form button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 20px; border: 0; border-radius: 13px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 14px; font-weight: 800; cursor: pointer; }
