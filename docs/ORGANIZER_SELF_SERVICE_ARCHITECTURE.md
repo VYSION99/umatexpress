@@ -12,6 +12,12 @@
 | D1 | **One console identity system covering every console service** | A single sign-in for admin, organizer and driver. Roles, not separate auth stacks. |
 | D2 | **The console lives on its own origin**, e.g. `console.umatexpress.com` | Console code and console cookies never share an origin with the public site. |
 | D3 | **Organizers can see passenger phone numbers** | Manifests expose contact details to the owning organizer. Auditing and read controls carry more weight as a result. |
+| D4 | **Open registration with a mandatory approval gate** | Anyone may apply to become an organizer, but a `PENDING` account cannot publish a trip, be bookable, or take money until a human approves it. This matches the Hostel Finder landlord flow (`DRAFT → PENDING_REVIEW → APPROVED`) so both systems behave alike, and it scales onboarding without letting a stranger publish a coach in minutes. |
+| D5 | **The console hosts every console, existing and future** | Campus admin, vacation admin, driver and organizer all move onto the one console identity and the console origin. New console services are added as roles on `console_accounts`, never as another credential store. |
+
+### Why D4 rather than invite-only
+
+Invite-only is safer on day one but does not scale: every organizer becomes a manual admin task, which is the problem this work exists to solve. Open registration moves the cost to one review decision per organizer instead of an onboarding conversation, and the approval gate makes publishing the trust boundary rather than signing up. If abuse appears, the gate that already exists is where to tighten — raise the bar for approval, or require a deposit — rather than closing registration.
 
 ---
 
@@ -210,7 +216,6 @@ Paystack Transfers for automated payouts, suspension and dispute handling, route
 
 ## 9. Open questions
 
-1. Should organizers sign up freely, or be invite-only until trust is established?
-2. Is commission per organizer, per trip, or a platform default an admin can override?
-3. Do students book one trip at a time, or can a single payment cover seats on two organizers' coaches?
-4. Should an organizer also run campusRide trips, or is vacationRide the only surface?
+1. Is commission per organizer, per trip, or a platform default an admin can override?
+2. Do students book one trip at a time, or can a single payment cover seats on two organizers' coaches?
+3. Should an organizer also run campusRide trips, or is vacationRide the only surface?
