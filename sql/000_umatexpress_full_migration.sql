@@ -308,6 +308,20 @@ CREATE TABLE IF NOT EXISTS campus_audit_logs (
   created_at TEXT NOT NULL
 );
 
+-- The application records the schema version it has applied here, so a cold
+-- Worker isolate can read one row and skip the whole idempotent schema pass.
+-- This value must match CAMPUS_SCHEMA_VERSION in lib/campus-ride.ts. A mismatch
+-- is harmless — the app replays the pass once and rewrites the row — but
+-- keeping them equal preserves the single-subrequest cold start.
+CREATE TABLE IF NOT EXISTS campus_schema_meta (
+  id TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+
+INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
+VALUES ('campusRide', '2026-09-18.1', datetime('now'));
+
 
 -- ============================================================================
 -- 4. Platform (payments, auth)

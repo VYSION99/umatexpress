@@ -2,6 +2,26 @@ import { envValue } from "@/lib/runtime-env";
 
 type SqlArg = { type: "text" | "integer"; value: string };
 type TursoResult = { rows?: unknown[]; cols?: Array<{ name: string }>; affected_row_count?: number };
+type TursoStep = { error?: { message?: string }; response?: { result?: TursoResult } };
+
+async function pipeline(requests: Array<Record<string, unknown>>) {
+  const { url, token } = await config();
+  const response = await fetch(`${url}/v2/pipeline`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ requests: [...requests, { type: "close" }] }),
+  });
+  if (!response.ok) throw new Error("Turso database request failed.");
+  const data = await response.json() as { results?: TursoStep[] };
+  return data.results ?? [];
+}
+
+function stepResult(step: TursoStep | undefined) {
+  if (!step) throw new Error("Turso returned an empty database response.");
+  if (step.error) throw new Error(step.error.message || "Turso database operation failed.");
+  if (!step.response?.result) throw new Error("Turso returned an invalid database response.");
+  return step.response.result;
+}
 
 export function isTursoConfigured() {
   const url = process.env.TURSO_DATABASE_URL;
@@ -24,23 +44,25 @@ async function config() {
 }
 
 export async function turso(sql: string, values: Array<string | number> = []) {
-  const { url, token } = await config();
   const args: SqlArg[] = values.map((value) => ({
     type: typeof value === "number" ? "integer" : "text",
     value: String(value),
   }));
-  const response = await fetch(`${url}/v2/pipeline`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ requests: [{ type: "execute", stmt: { sql, args } }, { type: "close" }] }),
-  });
-  if (!response.ok) throw new Error("Turso database request failed.");
-  const data = await response.json() as { results?: Array<{ type?: string; error?: { message?: string }; response?: { result?: TursoResult } }> };
-  const first = data.results?.[0];
-  if (!first) throw new Error("Turso returned an empty database response.");
-  if (first.type === "error" || first.error) throw new Error(first.error?.message || "Turso database operation failed.");
-  if (!first.response?.result) throw new Error("Turso returned an invalid database response.");
-  return first.response.result;
+  const [first] = await pipeline([{ type: "execute", stmt: { sql, args } }]);
+  return stepResult(first);
+}
+
+/**
+ * Sends many statements in one pipeline request. Turso bills and counts one
+ * subrequest per HTTP call, not per statement, so a schema pass that used to
+ * cost dozens of round trips now costs one. Every statement still runs and
+ * failures are reported per statement rather than aborting the batch, which is
+ * what lets a `duplicate column name` on an existing database be tolerated.
+ */
+export async function tursoBatch(statements: string[]) {
+  if (!statements.length) return [];
+  const steps = await pipeline(statements.map((sql) => ({ type: "execute", stmt: { sql, args: [] as SqlArg[] } })));
+  return statements.map((_sql, index) => steps[index]);
 }
 
 export function rowsToObjects(result: Awaited<ReturnType<typeof turso>>) {

@@ -89,18 +89,36 @@ takes batches of ten, and a queue-driven dispatch skips the lease and retention
 scans that belong to the cron. Two jobs never share one invocation:
 
 - `*/5 * * * *` — payment reconciliation (`runCampusReconcile`).
-- `*/15 * * * *` — notification sweep (`runNotificationSweep`).
+- `2,17,32,47 * * * *` — notification sweep (`runNotificationSweep`).
 
 The triggers are declared from `lib/campus-engine/crons.ts` and routed in
 `worker/index.ts`; adding a third job means adding a third trigger. On a paid
 plan, set `CLOUDFLARE_SUBREQUEST_LIMIT=1000` to buy headroom for a bigger batch;
 the free plan rejects the field outright, which is why it is empty here.
 
-One known ceiling remains: `ensureCampusRideTables()` re-runs its whole schema
-probe (about thirty-seven statements) on every cold isolate because nothing
-records that the schema is already current. On the free plan that is most of an
-invocation's budget before any real work starts. A durable "schema is ready"
-marker is the fix, and it should land before campusRide traffic grows.
+The sweep is offset by two minutes rather than left on `*/15` because
+Cloudflare folds every trigger that falls due in the same minute into a single
+invocation. Every quarter hour also belongs to `*/5`, so a `*/15` sweep was
+never reached — the reconcile ran and the sweep was skipped. `tests/cloudflare-bindings.test.mjs`
+parses both minute fields and fails if they ever share a minute again.
+
+**Schema marker.** `ensureCampusRideTables()` used to replay its whole schema
+probe — about thirty-seven statements, each its own subrequest — on every cold
+isolate, spending most of an invocation's budget before any real work started.
+It now writes and reads a `campus_schema_meta` row holding `CAMPUS_SCHEMA_VERSION`:
+a cold isolate reads one marker and stops, and warm isolates skip the check
+entirely. The pass itself is sent through `tursoBatch()`, which puts every
+statement in one pipeline request because Turso counts subrequests per HTTP
+call rather than per statement. Measured against the live database, a migrated
+cold isolate costs one subrequest and about 280ms, against roughly thirty-seven
+requests before. **Bump `CAMPUS_SCHEMA_VERSION` in `lib/campus-ride.ts` whenever
+those statements change**, or the new statement never runs.
+
+`campus_schema_meta` is written only after every statement in the batch has
+landed, and the in-isolate promise is discarded on failure, so a partially
+applied schema is retried rather than cached. `ALTER TABLE ADD COLUMN` is the
+one statement that is not idempotent; the pass tolerates its
+`duplicate column name` reply instead of probing each column with its own query.
 
 ## Deploying
 
