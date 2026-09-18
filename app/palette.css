@@ -374,12 +374,48 @@
 .vacation .bus-shell {
   border-color: #2f4d45;
   background: #143128;
+  /* A coach is long and narrow. Without this the 2+2 grid stretched to the
+     column width and each seat rendered ~120x104px. */
+  /* An explicit width, not max-width: with `margin-inline: auto` a grid item
+     shrink-wraps, which left the coach hugging 252px inside a 700px column. */
+  width: min(100%, 400px);
+  max-width: 400px;
+  margin-inline: auto;
+  padding: 18px 20px 22px;
+}
+
+.vacation .seats {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 20px repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: min(100%, 244px);
+  margin: 18px auto;
 }
 
 .vacation .seats button {
   border-color: #4d6a5f;
   background: #23443a;
   color: #bed0c7;
+  /* Overrides both the legacy aspect-ratio box and the global 44px floor. */
+  aspect-ratio: auto;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 6px 6px 4px 4px;
+  font-size: 10px;
+}
+
+@media (max-width: 560px) {
+  .vacation .bus-shell { padding: 16px 14px 18px; }
+  .vacation .seats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 16px repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    width: min(100%, 200px);
+    margin: 14px auto;
+  }
+  .vacation .seats button {
+    height: 26px;
+    font-size: 9px;
+  }
 }
 
 .vacation .seats button:disabled {
