@@ -155,6 +155,9 @@ organizer rows.
 - **`payments.access_token_hash`** allows a ticket to be read with a bearer
   cookie instead of exposing passenger details to anyone who knows a reference.
 - **`console_accounts.status`** is the account gate (`PENDING | ACTIVE |
-  SUSPENDED`) and `trip_organizers.status` mirrors it (`PENDING | APPROVED |
-  SUSPENDED`). `kyc_status` is a separate, later gate that only decides whether
-  money may be paid out.
+  SUSPENDED`) and `trip_organizers.status` carries the application's own
+  decision (`PENDING | APPROVED | REJECTED | SUSPENDED`). The two move together
+  on approval and suspension; a `REJECTED` application leaves its console
+  account `PENDING`, which is already a state that cannot sign in, so the
+  console vocabulary stays three-valued. `kyc_status` is a separate, later gate
+  that only decides whether money may be paid out.

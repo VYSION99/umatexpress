@@ -74,7 +74,9 @@ export async function GET(request: Request) {
       return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
     }
     await seedDefaultScheduledTrips();
-    const trips = await getDynamicTrips({ activeOnly: !adminView });
+    // The admin view is the only reader allowed to see trips that are not
+    // approved; students never see an unreviewed trip.
+    const trips = await getDynamicTrips({ activeOnly: !adminView, approvedOnly: !adminView });
     return Response.json({ trips });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Scheduled trips could not be loaded." }, { status: 503 });
@@ -146,7 +148,7 @@ export async function PATCH(request: Request) {
       "UPDATE scheduled_trips SET title = ?, route_from = ?, route_to = ?, travel_date = ?, departure_time = ?, arrival_time = ?, price = ?, capacity = ?, coach_type = ?, tag = ?, amenities = ?, notes = ?, active = ?, display_order = ?, updated_at = ? WHERE id = ?",
       [title, routeFrom, routeTo, travelDate, departureTime, arrivalTime, price, capacity, coachType, tag, JSON.stringify(amenities), notes, active ? 1 : 0, displayOrder, now, id],
     );
-    const trip = (await getDynamicTrips({ activeOnly: false })).find((item) => item.id === id);
+    const trip = (await getDynamicTrips({ activeOnly: false, approvedOnly: false })).find((item) => item.id === id);
     if (!trip) return Response.json({ error: "Trip was not found." }, { status: 404 });
     return Response.json({ trip });
   } catch (error) {

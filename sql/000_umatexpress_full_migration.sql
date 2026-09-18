@@ -45,8 +45,47 @@ CREATE TABLE IF NOT EXISTS scheduled_trips (
   active INTEGER NOT NULL DEFAULT 1,
   archived INTEGER NOT NULL DEFAULT 0,
   display_order INTEGER NOT NULL DEFAULT 0,
+  organizer_id TEXT,
+  review_status TEXT NOT NULL DEFAULT 'DRAFT',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
+);
+
+-- Phase 2: organizer accounts and trip ownership. A trip with no organizer_id
+-- is the platform's. `status` is the account gate; `kyc_status` is a separate,
+-- later gate that only ever decides whether money may be paid out.
+CREATE TABLE IF NOT EXISTS trip_organizers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  organization TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  kyc_status TEXT NOT NULL DEFAULT 'PENDING',
+  payout_method TEXT NOT NULL DEFAULT '',
+  payout_account_name TEXT NOT NULL DEFAULT '',
+  payout_account_number TEXT NOT NULL DEFAULT '',
+  paystack_recipient_code TEXT NOT NULL DEFAULT '',
+  commission_bps INTEGER NOT NULL DEFAULT 300,
+  review_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- The per-organizer trip notice. The platform-wide notice stays in
+-- trip_settings and is the fallback for trips that have no organizer.
+CREATE TABLE IF NOT EXISTS trip_notices (
+  organizer_id TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '',
+  route TEXT NOT NULL DEFAULT '',
+  fare TEXT NOT NULL DEFAULT '',
+  night_bus TEXT NOT NULL DEFAULT '',
+  day_buses TEXT NOT NULL DEFAULT '',
+  drop_off_points TEXT NOT NULL DEFAULT '',
+  amenities TEXT NOT NULL DEFAULT '',
+  contacts TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -322,6 +361,20 @@ CREATE TABLE IF NOT EXISTS campus_schema_meta (
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
 VALUES ('campusRide', '2026-09-18.1', datetime('now'));
 
+-- The other two schema passes the application keeps markers for. Each value
+-- must match its constant in the source: TRIPS_SCHEMA_VERSION in
+-- lib/dynamic-trips.ts and ORGANIZER_SCHEMA_VERSION in lib/organizers.ts.
+INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
+VALUES ('scheduledTrips', '2026-09-18.1', datetime('now'));
+
+INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
+VALUES ('tripOrganizers', '2026-09-18.1', datetime('now'));
+
+-- Existing trips predate review and belong to the platform, so they are already
+-- live. Anything created afterwards starts as DRAFT and must be reviewed.
+UPDATE scheduled_trips SET review_status = 'APPROVED'
+WHERE organizer_id IS NULL AND review_status = 'DRAFT';
+
 
 -- ============================================================================
 -- 4. Platform (payments, auth)
@@ -480,6 +533,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_campus_drivers_phone ON campus_drivers(pho
 -- campusRide audit
 CREATE INDEX IF NOT EXISTS idx_campus_audit_target ON campus_audit_logs(target_type, target_reference);
 
+-- Organizer ownership
+CREATE INDEX IF NOT EXISTS idx_scheduled_trips_organizer ON scheduled_trips(organizer_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_trips_review ON scheduled_trips(review_status, active, archived);
+CREATE INDEX IF NOT EXISTS idx_trip_organizers_status ON trip_organizers(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_organizers_phone ON trip_organizers(phone) WHERE phone <> '';
+
 -- Platform
 CREATE INDEX IF NOT EXISTS idx_payment_events_reference ON payment_events(provider, reference);
 CREATE INDEX IF NOT EXISTS idx_auth_failures_locked ON auth_failures(scope, locked_until);
@@ -535,6 +594,8 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE scheduled_trips          ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE scheduled_trips          ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE scheduled_trips          ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE scheduled_trips          ADD COLUMN organizer_id TEXT;
+-- ALTER TABLE scheduled_trips          ADD COLUMN review_status TEXT NOT NULL DEFAULT 'DRAFT';
 -- ALTER TABLE bookings                 ADD COLUMN booking_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT';
 -- ALTER TABLE bookings                 ADD COLUMN hold_expires_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN confirmed_at TEXT;

@@ -1,6 +1,6 @@
 import { envValue } from "@/lib/runtime-env";
 
-type SqlArg = { type: "text" | "integer"; value: string };
+type SqlArg = { type: "text" | "integer" | "null"; value?: string };
 type TursoResult = { rows?: unknown[]; cols?: Array<{ name: string }>; affected_row_count?: number };
 type TursoStep = { error?: { message?: string }; response?: { result?: TursoResult } };
 
@@ -43,11 +43,12 @@ async function config() {
   return { url, token };
 }
 
-export async function turso(sql: string, values: Array<string | number> = []) {
-  const args: SqlArg[] = values.map((value) => ({
-    type: typeof value === "number" ? "integer" : "text",
-    value: String(value),
-  }));
+export async function turso(sql: string, values: Array<string | number | null> = []) {
+  // Turso sends SQL NULL as a tagged cell with no value at all; sending the
+  // string "null" instead would store four characters and read back as filled.
+  const args: SqlArg[] = values.map((value) => (value === null
+    ? { type: "null" as const }
+    : { type: typeof value === "number" ? "integer" as const : "text" as const, value: String(value) }));
   const [first] = await pipeline([{ type: "execute", stmt: { sql, args } }]);
   return stepResult(first);
 }
@@ -63,6 +64,48 @@ export async function tursoBatch(statements: string[]) {
   if (!statements.length) return [];
   const steps = await pipeline(statements.map((sql) => ({ type: "execute", stmt: { sql, args: [] as SqlArg[] } })));
   return statements.map((_sql, index) => steps[index]);
+}
+
+/**
+ * Applies an idempotent schema pass at most once per version, across isolates.
+ * A cold isolate reads one marker row and stops, so the pass costs a single
+ * subrequest instead of one per statement.
+ *
+ * `statements` must survive being run against a database that already has some
+ * of them applied. `CREATE TABLE/INDEX IF NOT EXISTS` does; `ALTER TABLE ADD
+ * COLUMN` does not, so its `duplicate column name` reply is tolerated rather
+ * than probing every column with a query of its own.
+ *
+ * The marker is written only after every statement has landed, so a partial
+ * pass is retried by the next caller instead of being trusted as complete.
+ */
+export async function runSchemaPass(input: {
+  id: string;
+  version: string;
+  statements: string[];
+  metaTable?: string;
+  tolerate?: RegExp;
+}) {
+  const metaTable = input.metaTable || "schema_passes";
+  const tolerate = input.tolerate ?? /duplicate column name/i;
+  const [createMarker, readMarker] = await tursoBatch([
+    `CREATE TABLE IF NOT EXISTS ${metaTable} (id TEXT PRIMARY KEY,version TEXT NOT NULL,applied_at TEXT NOT NULL)`,
+    `SELECT version FROM ${metaTable} WHERE id = '${input.id}'`,
+  ]);
+  const probeFailure = [createMarker, readMarker].find((step) => step?.error);
+  if (probeFailure) throw new Error(probeFailure.error?.message || "Could not read the schema marker.");
+  const applied = rowsToObjects(readMarker?.response?.result ?? {})[0]?.version;
+  if (String(applied ?? "") === input.version) return;
+
+  const steps = await tursoBatch(input.statements);
+  const failed = steps
+    .map((step) => step?.error?.message)
+    .filter((message) => message && !tolerate.test(String(message)));
+  if (failed.length) throw new Error(String(failed[0]));
+
+  await tursoBatch([
+    `INSERT OR REPLACE INTO ${metaTable} (id,version,applied_at) VALUES ('${input.id}','${input.version}','${new Date().toISOString()}')`,
+  ]);
 }
 
 export function rowsToObjects(result: Awaited<ReturnType<typeof turso>>) {

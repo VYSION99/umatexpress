@@ -40,7 +40,8 @@ export default function ConsoleLoginPage() {
       <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       {error && <div className="console-auth-error" role="alert">{error}</div>}
       <button disabled={submitting}><LockKeyhole size={17} />{submitting ? "Signing in…" : "Sign in"}</button>
-      <small>Accounts are created by the UMaTeXPRESS team. Organizer self-registration arrives with the next release.</small>
+      <small>Organizers apply from this page and sign in once an administrator approves the application.</small>
+      <Link href="/console/register">Want to organise coaches? Apply here</Link>
       <Link href="/console">Already signed in? Open the console</Link>
     </form>
   </main>;

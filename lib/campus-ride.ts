@@ -1,4 +1,4 @@
-import { hasColumn, rowsToObjects, turso, tursoBatch, isTursoConfiguredRuntime } from "@/lib/turso";
+import { hasColumn, rowsToObjects, runSchemaPass, turso, isTursoConfiguredRuntime } from "@/lib/turso";
 
 export type CampusZone = { id:string; name:string; description:string; landmark:string; latitude:number|null; longitude:number|null; active:boolean };
 // `path` is optional surveyed geometry ([lng,lat] pairs). When absent the map
@@ -78,7 +78,6 @@ export const demoCampusRides: CampusRide[] = [
 ];
 
 const CAMPUS_SCHEMA_VERSION = "2026-09-18.1";
-const CAMPUS_SCHEMA_META = "campus_schema_meta";
 
 /**
  * Everything runs as one pipeline request, so the whole pass costs a single
@@ -88,7 +87,6 @@ const CAMPUS_SCHEMA_META = "campus_schema_meta";
  * with its own query first.
  */
 const campusSchemaStatements = [
-  `CREATE TABLE IF NOT EXISTS ${CAMPUS_SCHEMA_META} (id TEXT PRIMARY KEY,version TEXT NOT NULL,applied_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_zones (id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',landmark TEXT NOT NULL DEFAULT '',latitude REAL,longitude REAL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_route_corridors (id TEXT PRIMARY KEY,name TEXT NOT NULL,origin_zone_id TEXT NOT NULL,destination_zone_id TEXT NOT NULL,estimated_minutes INTEGER NOT NULL DEFAULT 10,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,path TEXT)`,
   `CREATE TABLE IF NOT EXISTS campus_fares (id TEXT PRIMARY KEY,corridor_id TEXT NOT NULL,amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'GHS',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
@@ -139,36 +137,18 @@ let campusTablesReady: Promise<void> | null = null;
  * one subrequest.
  */
 export function ensureCampusRideTables() {
-  campusTablesReady ??= applyCampusRideSchema().catch((error: unknown) => {
+  campusTablesReady ??= runSchemaPass({
+    metaTable: "campus_schema_meta",
+    id: "campusRide",
+    version: CAMPUS_SCHEMA_VERSION,
+    statements: campusSchemaStatements,
+  }).catch((error: unknown) => {
     // Never cache a failed pass: the next caller must retry rather than
     // inherit a half-applied schema for the life of the isolate.
     campusTablesReady = null;
     throw error;
   });
   return campusTablesReady;
-}
-
-async function applyCampusRideSchema() {
-  const [createMarker, readMarker] = await tursoBatch([
-    campusSchemaStatements[0],
-    `SELECT version FROM ${CAMPUS_SCHEMA_META} WHERE id = 'campusRide'`,
-  ]);
-  const failure = [createMarker, readMarker].find((step) => step?.error);
-  if (failure) throw new Error(failure.error?.message || "Could not read the campusRide schema marker.");
-  const applied = rowsToObjects(readMarker?.response?.result ?? {})[0]?.version;
-  if (String(applied ?? "") === CAMPUS_SCHEMA_VERSION) return;
-
-  const steps = await tursoBatch(campusSchemaStatements);
-  const failed = steps
-    .map((step, index) => ({ message: step?.error?.message, sql: campusSchemaStatements[index] }))
-    .filter((entry) => entry.message && !/duplicate column name/i.test(String(entry.message)));
-  if (failed.length) throw new Error(String(failed[0].message));
-
-  // Written last, and only once every statement above has landed, so a partial
-  // pass is retried on the next call instead of being trusted as complete.
-  await tursoBatch([
-    `INSERT OR REPLACE INTO ${CAMPUS_SCHEMA_META} (id,version,applied_at) VALUES ('campusRide','${CAMPUS_SCHEMA_VERSION}','${new Date().toISOString()}')`,
-  ]);
 }
 
 function slug(value: string) {

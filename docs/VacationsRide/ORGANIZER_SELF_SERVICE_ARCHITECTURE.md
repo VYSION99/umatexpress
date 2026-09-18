@@ -222,6 +222,33 @@ Legacy seeded trips keep working: `organizer_id` stays `NULL` and they belong to
 ### Phase 2 — Organizer accounts and ownership (no money)
 Organizer registration, `PENDING → APPROVED` by admin/moderator, `scheduled_trips.organizer_id`, `/console/trips` listing **only** the organizer's own trips and manifest with phone numbers, per-organizer notice.
 
+**Status:** built. `lib/organizers.ts` owns the two records and keeps them in
+step, `/console/register` takes applications, `/console/organizers` is the
+review queue, `/console/trips` is the organizer workspace, and an admin panel on
+the queue assigns trips because this phase has no trip creation. The public
+notice read resolves a trip's organizer notice and falls back to the platform
+notice. Three notes where the build settled a question the plan left open:
+
+1. **`trip_organizers.status` gains `REJECTED`.** The API contract has always
+   listed a `REJECT` action, but the enum here had no state for it. `REJECT` is
+   terminal for the application and leaves `console_accounts.status` at
+   `PENDING`, so a rejected applicant still cannot sign in and the console
+   vocabulary stays three-valued.
+2. **Staff reading a manifest must name the organizer** (`?organizerId=`), so an
+   admin or moderator can read a manifest without an organizer session and the
+   audit row still records whose trip it was. An organizer's own read ignores
+   that parameter entirely.
+3. **Trip assignment has a UI.** `PATCH /api/console/trips` was specified as an
+   admin-only endpoint with no screen; without one, approving an organizer left
+   no way to give them a trip.
+
+Isolation is covered by `tests/organizer-isolation.test.mjs`, which drives the
+real route handlers: organizer B gets `404` for organizer A's trip, a forged
+`organizerId` in a query string changes nothing, a moderator is refused the
+trip mutation, an unapproved organizer cannot be assigned a trip, a pending or
+suspended account cannot reach the workspace, and a manifest read writes an
+audit row.
+
 Concrete scope, so the phase has no missing half:
 
 | # | Deliverable | Where |

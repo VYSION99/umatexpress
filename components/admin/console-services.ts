@@ -7,7 +7,8 @@ export const consoleServices = [
   { id: "driver", title: "Driver portal", icon: MapPinned, accent: "green", href: "/driver", label: "BOARDING & QUEUES", description: "From pickup to arrival.", detail: "Open the driver workspace. A separate driver sign-in is required.", action: "Open driver portal", tags: ["Driver access"] },
   { id: "security", title: "Account security", icon: LockKeyhole, accent: "purple", href: "/admin/change-password", label: "ADMIN ACCESS", description: "Look after your access.", detail: "Update the administrator password from the protected security page.", action: "Change password", tags: ["Password settings"] },
   { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "green", href: null, label: "ACCOMMODATION", description: "A home for every student.", detail: "Hostel management is not available yet.", action: "Coming soon", tags: [] },
-  { id: "organizer", title: "Organizer workspace", icon: Store, accent: "orange", href: null, label: "SELF-SERVICE TRIPS", description: "Publish your own coach.", detail: "Organizer registration, trip review, manifests and passenger contacts arrive with the next release.", action: "Coming soon", tags: [] },
+  { id: "organizers", title: "Organizer applications", icon: Store, accent: "orange", href: "/console/organizers", label: "SELF-SERVICE TRIPS", description: "Approve who publishes coaches.", detail: "Review applications, activate or suspend organizers, and assign trips to them.", action: "Review applications", tags: ["Applications", "Trip ownership"] },
+  { id: "organizer", title: "Organizer workspace", icon: BusFront, accent: "orange", href: "/console/trips", label: "MY TRIPS", description: "Your coaches and passengers.", detail: "The trips you own, their passenger manifests and your trip notice.", action: "Open workspace", tags: ["Trips", "Manifests"] },
   { id: "food", title: "Food", icon: Utensils, accent: "peach", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [] },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "purple", href: null, label: "ENTERTAINMENT", description: "A place for movie nights.", detail: "Cinema management is not available yet.", action: "Coming soon", tags: [] },
 ] as const;
@@ -31,7 +32,7 @@ export function consoleServicesForRole(role: string) {
   // Role order matters: the role's own workspace leads and account security is
   // always last, so the first card is the one the person signed in to use.
   const order: Record<string, string[]> = {
-    MODERATOR: ["vacation", "hostels", "organizer", "security"],
+    MODERATOR: ["organizers", "vacation", "hostels", "security"],
     DRIVER: ["driver", "security"],
     ORGANIZER: ["organizer", "security"],
   };

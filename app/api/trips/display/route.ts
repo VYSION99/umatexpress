@@ -1,15 +1,32 @@
 import { DEFAULT_TRIP_SETTINGS, activeTripIds, getTripSettings, isValidTime, normalizeFlyerPromo, type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
+import { organizerNoticeForTrip } from "@/lib/organizers";
 import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
+import { hasNoticeContent } from "@/lib/trip-notice";
 
-export async function GET() {
+/**
+ * `?tripId=` makes the notice that trip's organizer's, so one organizer's fare
+ * and contacts never appear on another organizer's coach. A trip with no
+ * organizer, or an organizer who has not filled a notice in, keeps the platform
+ * notice that existed before organizers did.
+ */
+export async function GET(request: Request) {
+  const tripId = new URL(request.url).searchParams.get("tripId") || "";
+  async function noticeFor(fallback: FlyerPromo) {
+    if (!tripId) return fallback;
+    const organizerNotice = await organizerNoticeForTrip(tripId).catch(() => null);
+    return organizerNotice && organizerNotice.enabled && hasNoticeContent(organizerNotice) ? organizerNotice : fallback;
+  }
   if (!(await isTursoConfiguredRuntime())) {
     const settings = { ...DEFAULT_TRIP_SETTINGS };
     return Response.json({ ...settings, activeTripIds: activeTripIds(settings.mode), configured: false }, { headers: { "Cache-Control": "no-store" } });
   }
   try {
     const settings = await getTripSettings();
-    return Response.json({ ...settings, activeTripIds: activeTripIds(settings.mode) }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json(
+      { ...settings, flyerPromo: await noticeFor(settings.flyerPromo), activeTripIds: activeTripIds(settings.mode) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Trip settings could not be loaded." }, { status: 503 });
   }

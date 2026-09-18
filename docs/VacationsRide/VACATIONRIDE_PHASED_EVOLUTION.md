@@ -27,7 +27,7 @@ this file numbered the phases differently, which made "Phase 2" mean two things.
 | Phase | Focus | Key deliverables | Status |
 |-------|-------|------------------|--------|
 | 1 | Console identity | `console_accounts`, one sign-in, host boundary, role guards | **Shipped** |
-| 2 | Organizer accounts and ownership | Registration + approval, `trip_organizers`, trip ownership and manifest, per-organizer notice | Next |
+| 2 | Organizer accounts and ownership | Registration + approval, `trip_organizers`, trip ownership and manifest, per-organizer notice | **Shipped** |
 | 3 | Self-service trip publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture, public listing by organizer | Planned |
 | 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, organizer statement, admin-triggered payout batches | Planned |
 | 5 | Scale | Paystack Transfers, daily job + reconcile, suspension and disputes, analytics | Planned |

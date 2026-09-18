@@ -103,7 +103,9 @@ export async function GET(request: Request) {
         [String(payment.booking_id)],
       ))[0];
       if (ticket) {
-        const trip = await getDynamicTrip(String(ticket.trip_id), { includeArchived: true });
+        // A ticket that was already sold must still resolve even if the trip has
+        // since been archived or pulled from sale.
+        const trip = await getDynamicTrip(String(ticket.trip_id), { includeArchived: true, approvedOnly: false });
         ticket = {
           ...ticket,
           route_from: trip?.from || "UMaT Main Campus",
