@@ -1,4 +1,8 @@
 import { hasColumn, rowsToObjects, turso } from "@/lib/turso";
+import { hasNoticeContent, normalizeFlyerPromo, type FlyerPromo } from "@/lib/trip-notice";
+
+export { normalizeFlyerPromo };
+export type { FlyerPromo };
 
 export type TripDisplayMode = "MORNING" | "EVENING" | "BOTH";
 export type TripSchedule = {
@@ -7,30 +11,38 @@ export type TripSchedule = {
   eveningDeparture: string;
   eveningArrival: string;
 };
-export type FlyerPromo = {
-  enabled: boolean;
-  title: string;
-  route: string;
-  fare: string;
-  nightBus: string;
-  dayBuses: string[];
-  dropOffPoints: string[];
-  amenities: string[];
-  contacts: string[];
-};
 export type TripSettings = TripSchedule & { mode: TripDisplayMode; flyerPromo: FlyerPromo };
 
-export const DEFAULT_FLYER_PROMO: FlyerPromo = {
-  enabled: true,
-  title: "UMaT Express",
-  route: "UMaT to Accra",
-  fare: "GHS 180",
-  nightBus: "4th Sept @ 9pm",
-  dayBuses: ["5th Sept @ 6am", "7th Sept @ 6am"],
-  dropOffPoints: ["Circle", "Kasoa", "Kaneshie", "Mallam"],
-  amenities: ["Item 13 assured", "Free Wi-Fi", "Safety & comfort", "Free luggage (limited)"],
-  contacts: ["Manuel: 0556179235", "Vision: 0543375583"],
-};
+function envText(name: string) {
+  if (typeof process === "undefined") return "";
+  return String(process.env?.[name] ?? "").trim();
+}
+
+function envList(name: string) {
+  return envText(name).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+/**
+ * Fallback notice for a deployment that has not saved anything yet. Read from
+ * configuration so no fare, contact number or departure time is baked into the
+ * source, and left disabled when nothing is configured.
+ */
+export function flyerPromoFromEnv(): FlyerPromo {
+  const promo: FlyerPromo = {
+    enabled: true,
+    title: envText("TRIP_NOTICE_TITLE"),
+    route: envText("TRIP_NOTICE_ROUTE"),
+    fare: envText("TRIP_NOTICE_FARE"),
+    nightBus: envText("TRIP_NOTICE_NIGHT_BUS"),
+    dayBuses: envList("TRIP_NOTICE_DAY_BUSES"),
+    dropOffPoints: envList("TRIP_NOTICE_DROP_OFFS"),
+    amenities: envList("TRIP_NOTICE_AMENITIES"),
+    contacts: envList("TRIP_NOTICE_CONTACTS"),
+  };
+  return { ...promo, enabled: hasNoticeContent(promo) };
+}
+
+export const DEFAULT_FLYER_PROMO: FlyerPromo = flyerPromoFromEnv();
 
 export const DEFAULT_TRIP_SETTINGS: TripSettings = {
   mode: "BOTH",
@@ -70,24 +82,6 @@ export async function ensureTripSettingsTable() {
     "INSERT OR IGNORE INTO trip_settings (id, display_mode, morning_departure, morning_arrival, evening_departure, evening_arrival, updated_at) VALUES (1, 'BOTH', '06:30', '11:30', '13:00', '18:00', ?)",
     [new Date().toISOString()],
   );
-}
-
-export function normalizeFlyerPromo(value: unknown): FlyerPromo {
-  const input = typeof value === "object" && value !== null ? value as Partial<FlyerPromo> : {};
-  const strings = (items: unknown, fallback: string[]) => Array.isArray(items)
-    ? items.map((item) => String(item).trim()).filter(Boolean)
-    : fallback;
-  return {
-    enabled: typeof input.enabled === "boolean" ? input.enabled : DEFAULT_FLYER_PROMO.enabled,
-    title: typeof input.title === "string" && input.title.trim() ? input.title.trim() : DEFAULT_FLYER_PROMO.title,
-    route: typeof input.route === "string" && input.route.trim() ? input.route.trim() : DEFAULT_FLYER_PROMO.route,
-    fare: typeof input.fare === "string" && input.fare.trim() ? input.fare.trim() : DEFAULT_FLYER_PROMO.fare,
-    nightBus: typeof input.nightBus === "string" && input.nightBus.trim() ? input.nightBus.trim() : DEFAULT_FLYER_PROMO.nightBus,
-    dayBuses: strings(input.dayBuses, DEFAULT_FLYER_PROMO.dayBuses),
-    dropOffPoints: strings(input.dropOffPoints, DEFAULT_FLYER_PROMO.dropOffPoints),
-    amenities: strings(input.amenities, DEFAULT_FLYER_PROMO.amenities),
-    contacts: strings(input.contacts, DEFAULT_FLYER_PROMO.contacts),
-  };
 }
 
 function parseFlyerPromo(value: unknown) {

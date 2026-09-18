@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bot, CircleDollarSign, Copy, Edit3, Megaphone, RefreshCw, Save, Sparkles, TicketCheck, Trash2, Users } from "lucide-react";
 import { formatTime, TRAVEL_DATE } from "@/lib/trips";
-import { DEFAULT_FLYER_PROMO, type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
+import { type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
+import { EMPTY_FLYER_PROMO } from "@/lib/trip-notice";
 
 type Booking = { reference:string; passenger_name:string; email:string; phone:string; seat:string; trip_id:string; travel_date:string; amount:string; payment_status:string; booking_status:string; departure_time:string; created_at:string };
 type ScheduledTrip = { id:string; title:string; from:string; to:string; travelDate:string; time:string; arrival:string; price:number; capacity:number; coachType:string; tag:string; amenities:string[]; active:boolean; notes:string; displayOrder:number; createdAt:string };
@@ -79,7 +80,7 @@ export default function AdminPage() {
   const [bookings,setBookings]=useState<Booking[]>([]);
   const [displayMode,setDisplayMode]=useState<TripDisplayMode>("BOTH");
   const [schedule,setSchedule]=useState<TripSchedule>(defaultSchedule);
-  const [flyerPromo,setFlyerPromo]=useState<FlyerPromo>(DEFAULT_FLYER_PROMO);
+  const [flyerPromo,setFlyerPromo]=useState<FlyerPromo>(EMPTY_FLYER_PROMO);
   const [error,setError]=useState("");
   const [saveMessage,setSaveMessage]=useState("");
   const [loading,setLoading]=useState(true);
@@ -116,7 +117,7 @@ export default function AdminPage() {
       setBookings(bookingData.bookings||[]);
       setDisplayMode(displayData.mode||"BOTH");
       setSchedule({ morningDeparture:displayData.morningDeparture, morningArrival:displayData.morningArrival, eveningDeparture:displayData.eveningDeparture, eveningArrival:displayData.eveningArrival });
-      setFlyerPromo(displayData.flyerPromo||DEFAULT_FLYER_PROMO);
+      setFlyerPromo(displayData.flyerPromo||EMPTY_FLYER_PROMO);
       setScheduledTrips(sortTrips(scheduledData.trips||[]));
       setError("");
     } catch (loadError) {

@@ -48,6 +48,7 @@ uMATeXPRESS/
 │   ├── paystack.ts                      # Paystack provider
 │   ├── rate-limit.ts                    # in-worker request throttling
 │   ├── runtime-env.ts                   # Cloudflare/local env access
+│   ├── trip-notice.ts                   # client-safe trip notice shape and merge rules
 │   ├── trip-settings.ts                 # vacationRide display settings
 │   ├── trips.ts                         # shared trip helpers
 │   └── turso.ts                         # Turso REST pipeline client

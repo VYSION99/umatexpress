@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatTime, TRAVEL_DATE } from "@/lib/trips";
 import { ArrowRight, Bot, BusFront, CalendarDays, Check, Clock3, MapPin, Megaphone, Phone, ShieldCheck, Sparkles, Users } from "lucide-react";
-import { DEFAULT_FLYER_PROMO, type FlyerPromo } from "@/lib/trip-settings";
+import { EMPTY_FLYER_PROMO, hasNoticeContent, type FlyerPromo } from "@/lib/trip-notice";
 import { readProfile, writeProfile } from "@/lib/passenger-profile";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 
@@ -31,7 +31,7 @@ export default function Home() {
   const [date] = useState(TRAVEL_DATE);
   const [selectedTrip, setSelectedTrip] = useState("1");
   const [visibleTrips, setVisibleTrips] = useState<PublicTrip[]>([]);
-  const [flyerPromo, setFlyerPromo] = useState<FlyerPromo>(DEFAULT_FLYER_PROMO);
+  const [flyerPromo, setFlyerPromo] = useState<FlyerPromo>(EMPTY_FLYER_PROMO);
   const [selectedSeat, setSelectedSeat] = useState(6);
   const [passenger, setPassenger] = useState({ name: "", email: "", phone: "" });
   const { ready: accountReady, account } = useStudentAccount();
@@ -66,7 +66,7 @@ export default function Home() {
       });
       setVisibleTrips(trips);
       setSelectedTrip((current) => trips.some((item) => item.id === current) ? current : (trips[0]?.id || "1"));
-      if (displayResponse.ok) setFlyerPromo(displayData.flyerPromo || DEFAULT_FLYER_PROMO);
+      if (displayResponse.ok) setFlyerPromo(displayData.flyerPromo || EMPTY_FLYER_PROMO);
     } catch (error) {
       setAvailabilityError(error instanceof Error ? error.message : "Trips could not be loaded.");
     }
@@ -153,7 +153,7 @@ export default function Home() {
         <a className="primary-button" href="#trips">Find trips <ArrowRight size={18} /></a>
       </section>
 
-      {flyerPromo.enabled && <section className="flyer-promo" aria-label="UMaT Express flyer information">
+      {flyerPromo.enabled && hasNoticeContent(flyerPromo) && <section className="flyer-promo" aria-label="UMaT Express flyer information">
         <div className="flyer-main">
           <span><Megaphone size={15} /> Official trip notice</span>
           <h2>{flyerPromo.title}</h2>

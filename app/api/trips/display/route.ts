@@ -33,7 +33,9 @@ export async function PATCH(request: Request) {
     if (Object.values(schedule).some((value) => !isValidTime(value))) {
       return Response.json({ error: "Enter valid departure and arrival times." }, { status: 400 });
     }
-    const flyerPromo = body.flyerPromo ? normalizeFlyerPromo(body.flyerPromo) : current.flyerPromo;
+    // Merge any partial update onto the stored notice so an omitted field keeps
+    // its saved value instead of being blanked.
+    const flyerPromo = body.flyerPromo ? normalizeFlyerPromo(body.flyerPromo, current.flyerPromo) : current.flyerPromo;
     await turso(
       "UPDATE trip_settings SET display_mode = ?, morning_departure = ?, morning_arrival = ?, evening_departure = ?, evening_arrival = ?, flyer_promo = ?, updated_at = ? WHERE id = 1",
       [mode, schedule.morningDeparture, schedule.morningArrival, schedule.eveningDeparture, schedule.eveningArrival, JSON.stringify(flyerPromo), new Date().toISOString()],
