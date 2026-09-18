@@ -39,10 +39,10 @@ uMATeXPRESS/
 │   ├── campus-location.ts               # distance/location helpers
 │   ├── campus-matching.ts               # nearest ride matching
 │   ├── campus-ride.ts                   # campusRide data access and setup
-│   ├── campus-routing.ts                # Google/OSRM route engine
+│   ├── campus-route-geometry.ts         # corridor route geometry (no routing service)
 │   ├── cloudflare-ai.ts                 # Workers AI client
 │   ├── dynamic-trips.ts                 # vacationRide dynamic trips
-│   ├── google-maps-loader.ts            # browser Maps JavaScript loader
+│   ├── edge-cache.ts                    # Cloudflare per-colo response cache
 │   ├── mtn-momo.ts                      # MTN MoMo provider
 │   ├── payment-access.ts                # ticket/payment access cookies
 │   ├── paystack.ts                      # Paystack provider

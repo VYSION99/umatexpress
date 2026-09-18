@@ -43,9 +43,9 @@ export default defineConfig(async ({ mode }) => {
   process.env.WRANGLER_WRITE_LOGS ??= "false";
   process.env.WRANGLER_LOG_PATH ??= ".wrangler/logs";
   process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
-  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ??= localEnv.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || localEnv.GoogleMap_JAVASCRIPT_KEY;
-  process.env.GOOGLE_MAPS_API_KEY ??= localEnv.GOOGLE_MAPS_API_KEY || localEnv.GoogleMap_JAVASCRIPT_KEY;
-  process.env.NEXT_PUBLIC_MAP_PROVIDER ??= localEnv.NEXT_PUBLIC_MAP_PROVIDER || (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? "google" : undefined);
+  // Assigning an undefined value to process.env stores the *string* "undefined",
+  // which is truthy and silently defeats every `|| fallback` downstream.
+  if (localEnv.NEXT_PUBLIC_MAP_STYLE_URL) process.env.NEXT_PUBLIC_MAP_STYLE_URL = localEnv.NEXT_PUBLIC_MAP_STYLE_URL;
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");

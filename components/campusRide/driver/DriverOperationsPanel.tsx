@@ -213,7 +213,7 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
       {error && <p className="campus-admin-error">{error}</p>}
     </div>
     <div>
-      <CampusMap zones={data.zones} rides={data.ride ? [data.ride] : []} title="Driver live map" />
+      <CampusMap zones={data.zones} corridors={data.corridors} rides={data.ride ? [data.ride] : []} title="Driver live map" />
       <CampusAiAssistant area="driver" context={`Driver: ${data.driver.name}\nZone: ${currentZone?.name || "Not set"}\nRide: ${data.ride?.status || "None"}\nAvailable slots: ${data.ride?.availableSlots || 0}`} />
     </div>
   </section>;

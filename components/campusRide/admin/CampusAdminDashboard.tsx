@@ -61,7 +61,7 @@ export function CampusAdminDashboard() {
     <CampusAdminControlPanel initialData={{ zones:data.zones, corridors:data.corridors, vehicles:data.vehicles, drivers:data.drivers }} />
     <section className="campus-two-column">
       <div>
-        <CampusMap zones={data.zones} rides={data.rides} title="Admin live campus map" />
+        <CampusMap zones={data.zones} corridors={data.corridors} rides={data.rides} title="Admin live campus map" />
         <LiveRideMonitorWidget rides={data.rides} />
       </div>
       <div>

@@ -267,51 +267,30 @@ test("campusRide engine enforces state transitions, pricing, and nearest matchin
   assert.ok(Number.isFinite(gpsMatches[0].pickupDistanceKm));
 });
 
-test("campusRide routing falls back to direct geometry when router is unavailable", async () => {
-  const previousFetch = globalThis.fetch;
-  const previousRouteUrl = process.env.CAMPUS_ROUTING_BASE_URL;
-  process.env.CAMPUS_ROUTING_BASE_URL = "https://router.example.test";
-  globalThis.fetch = async () => { throw new Error("offline"); };
-  try {
-    const { campusRoadRoute } = await vite.ssrLoadModule("/lib/campus-routing.ts");
-    const route = await campusRoadRoute({ latitude: 5.3009, longitude: -1.9897 }, { latitude: 5.3033, longitude: -1.9948 });
-    assert.equal(route.provider, "direct");
-    assert.equal(route.fallback, true);
-    assert.equal(route.geometry.type, "LineString");
-    assert.equal(route.geometry.coordinates.length, 3);
-    assert.ok(route.durationSeconds >= 60);
-  } finally {
-    globalThis.fetch = previousFetch;
-    if (previousRouteUrl === undefined) delete process.env.CAMPUS_ROUTING_BASE_URL; else process.env.CAMPUS_ROUTING_BASE_URL = previousRouteUrl;
-  }
+test("campusRide routes are drawn from corridor geometry with no routing service", async () => {
+  const { corridorGeometry, routeMetrics } = await vite.ssrLoadModule("/lib/campus-route-geometry.ts");
+  const origin = { latitude: 5.3009, longitude: -1.9897 };
+  const destination = { latitude: 5.3033, longitude: -1.9948 };
+  const geometry = corridorGeometry(origin, destination, null);
+  assert.ok(geometry.length >= 3, "generated geometry needs intermediate points");
+  assert.deepEqual(geometry[0], [origin.longitude, origin.latitude]);
+  assert.deepEqual(geometry[geometry.length - 1], [destination.longitude, destination.latitude]);
+  const metrics = routeMetrics(origin, destination, geometry, 7);
+  assert.ok(metrics.distanceMeters > 0);
+  assert.ok(metrics.durationSeconds >= 60);
+  assert.ok(metrics.durationSeconds <= 7 * 60, "a partial ride cannot exceed the corridor ETA");
 });
 
-test("campusRide routing can use Google Routes when configured", async () => {
-  const previousFetch = globalThis.fetch;
-  const previousProvider = process.env.CAMPUS_ROUTING_PROVIDER;
-  const previousKey = process.env.GOOGLE_MAPS_API_KEY;
-  process.env.CAMPUS_ROUTING_PROVIDER = "google";
-  process.env.GOOGLE_MAPS_API_KEY = "test-google-key";
-  globalThis.fetch = async (url, options = {}) => {
-    assert.equal(String(url), "https://routes.googleapis.com/directions/v2:computeRoutes");
-    assert.equal(options.headers["X-Goog-Api-Key"], "test-google-key");
-    assert.match(options.headers["X-Goog-FieldMask"], /geoJsonLinestring/);
-    const body = JSON.parse(options.body);
-    assert.equal(body.polylineEncoding, "GEO_JSON_LINESTRING");
-    return Response.json({ routes: [{ distanceMeters: 920, duration: "240s", polyline: { geoJsonLinestring: { type: "LineString", coordinates: [[-1.9897, 5.3009], [-1.9948, 5.3033]] } } }] });
-  };
-  try {
-    const { campusRoadRoute } = await vite.ssrLoadModule("/lib/campus-routing.ts");
-    const route = await campusRoadRoute({ latitude: 5.3009, longitude: -1.9897 }, { latitude: 5.3033, longitude: -1.9948 });
-    assert.equal(route.provider, "google");
-    assert.equal(route.fallback, false);
-    assert.equal(route.distanceMeters, 920);
-    assert.equal(route.durationSeconds, 240);
-  } finally {
-    globalThis.fetch = previousFetch;
-    if (previousProvider === undefined) delete process.env.CAMPUS_ROUTING_PROVIDER; else process.env.CAMPUS_ROUTING_PROVIDER = previousProvider;
-    if (previousKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY; else process.env.GOOGLE_MAPS_API_KEY = previousKey;
-  }
+test("a surveyed corridor path is sliced to the segment actually ridden", async () => {
+  const { corridorGeometry, polylineLengthMeters } = await vite.ssrLoadModule("/lib/campus-route-geometry.ts");
+  const path = [[-1.9897, 5.3009], [-1.991, 5.3015], [-1.9925, 5.3025], [-1.9948, 5.3033]];
+  const origin = { latitude: 5.3015, longitude: -1.991 };
+  const destination = { latitude: 5.3033, longitude: -1.9948 };
+  const geometry = corridorGeometry(origin, destination, path);
+  assert.ok(geometry.length >= 3);
+  assert.deepEqual(geometry[0], [origin.longitude, origin.latitude]);
+  assert.deepEqual(geometry[geometry.length - 1], [destination.longitude, destination.latitude]);
+  assert.ok(polylineLengthMeters(geometry) < polylineLengthMeters(path), "a partial ride must be shorter than the whole corridor");
 });
 
 test("campusRide driver demo auth creates a protected session", async () => {

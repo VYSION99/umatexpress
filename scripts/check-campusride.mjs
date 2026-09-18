@@ -37,18 +37,17 @@ try {
   await call("Runtime.enable"); await call("Page.enable");
   await call("Page.navigate", { url:`${origin}/campus` });
   await until(`document.querySelector('.nearest-ride-finder') && document.readyState === 'complete'`);
-  await until(`Boolean(document.querySelector('.real-map-error')) || Boolean(document.querySelector('.maplibregl-canvas,.google-map-canvas'))`);
+  await until(`Boolean(document.querySelector('.real-map-error')) || Boolean(document.querySelector('.maplibregl-canvas'))`);
   errors.length = 0;
   for (const width of [320, 390, 768, 1440]) {
     await call("Emulation.setDeviceMetricsOverride", { width, height:1000, deviceScaleFactor:1, mobile:false });
     await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
-    await until(`Boolean(document.querySelector('.google-map-widget')) || document.querySelectorAll('.zone-marker').length > 0 || Boolean(document.querySelector('.real-map-error'))`);
+    await until(`document.querySelectorAll('.zone-marker').length > 0 || Boolean(document.querySelector('.real-map-error'))`);
     const result = await evaluate(`({
       page: document.documentElement.scrollWidth,
       tiny: [...document.querySelectorAll('.campus-student-shell button,.campus-student-shell select,.campus-student-shell input')]
         .filter(element => !element.closest('.real-map-canvas') && element.getClientRects().length && (element.getBoundingClientRect().height < 40 || element.getBoundingClientRect().width < 40)).length,
-      mapProvider: document.querySelector('.google-map-widget') ? 'google' : 'maplibre',
-      mapCanvas: Boolean(document.querySelector('.maplibregl-canvas,.google-map-canvas')),
+      mapCanvas: Boolean(document.querySelector('.maplibregl-canvas')),
       mapError: document.querySelector('.real-map-error')?.textContent || '',
       zoneMarkers: document.querySelectorAll('.zone-marker').length,
       rideMarkers: document.querySelectorAll('.ride-marker').length
@@ -57,22 +56,21 @@ try {
     assert.equal(result.tiny, 0, `Undersized controls at ${width}px`);
     assert.equal(result.mapError, "", `Real map failed at ${width}px: ${result.mapError}`);
     assert.equal(result.mapCanvas, true, `Real map canvas missing at ${width}px`);
-    if (result.mapProvider === "maplibre") assert.ok(result.zoneMarkers > 0, `Real map zone markers missing at ${width}px`);
+    assert.ok(result.zoneMarkers > 0, `Real map zone markers missing at ${width}px`);
     const image = await call("Page.captureScreenshot", { format:"png", captureBeyondViewport:true });
     await writeFile(`/tmp/campusride-${width}.png`, Buffer.from(image.data, "base64"));
     console.log(`PASS CampusRide responsive layout: ${width}px`);
   }
   const rideCount = await evaluate(`document.querySelectorAll('.ride-match-card').length`);
   if (rideCount > 1) {
-    const mapProvider = await evaluate(`document.querySelector('.google-map-widget') ? 'google' : 'maplibre'`);
     const previousSelectedMarker = await evaluate(`document.querySelector('.ride-marker.is-selected')?.getAttribute('aria-label')`);
     const previousSelectedCard = await evaluate(`document.querySelector('.ride-match-card.is-selected')?.innerText`);
     await evaluate(`[...document.querySelectorAll('.ride-match-card:not(.is-selected) .ride-select-control')][0]?.click()`);
     await until(`document.querySelectorAll('.ride-match-card.is-selected').length === 1`);
     await until(`document.querySelector('.ride-match-card.is-selected')?.innerText !== ${JSON.stringify(previousSelectedCard)}`);
     assert.equal(await evaluate(`document.querySelectorAll('.ride-selected-actions').length`), 1);
-    if (mapProvider === "maplibre") assert.notEqual(await evaluate(`document.querySelector('.ride-marker.is-selected')?.getAttribute('aria-label')`), previousSelectedMarker);
-    console.log(`PASS ride selection updates its queue/payment action${mapProvider === "maplibre" ? " and map marker" : ""}`);
+    assert.notEqual(await evaluate(`document.querySelector('.ride-marker.is-selected')?.getAttribute('aria-label')`), previousSelectedMarker);
+    console.log("PASS ride selection updates its queue/payment action and map marker");
   } else console.log("PASS empty or single-ride state rendered without fabricated availability");
   assert.deepEqual(errors, []);
 } finally { socket.close(); }

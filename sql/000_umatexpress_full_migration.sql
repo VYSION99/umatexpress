@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS campus_route_corridors (
   destination_zone_id TEXT NOT NULL,
   estimated_minutes INTEGER NOT NULL DEFAULT 10,
   active INTEGER NOT NULL DEFAULT 1,
+  -- Optional surveyed corridor geometry: JSON array of [lng,lat] pairs. When
+  -- NULL the map draws a generated arc between the two zones.
+  path TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -513,6 +516,7 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE campus_payments          ADD COLUMN fee_amount INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE notification_outbox      ADD COLUMN subject TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE notification_outbox      ADD COLUMN read_at TEXT;
+-- ALTER TABLE campus_route_corridors   ADD COLUMN path TEXT;
 --
 -- After adding campus_rides.next_queue_position for the first time, run this
 -- ONCE so new joins cannot reuse an existing position. Do not run it again:

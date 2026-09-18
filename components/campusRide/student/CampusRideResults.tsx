@@ -19,7 +19,7 @@ export function CampusRideResults({ zones, corridors, matches, pickupZoneId, des
       </div>
     </div>
     <div>
-      <CampusMap zones={zones} matches={matches} selectedRideId={selectedRideId} title={`${selectedPickup} → ${selectedDestination}`} />
+      <CampusMap zones={zones} corridors={corridors} matches={matches} selectedRideId={selectedRideId} title={`${selectedPickup} → ${selectedDestination}`} />
       <CampusAiAssistant area="student" context={`Pickup: ${selectedPickup}\nDestination: ${selectedDestination}\nMatches: ${matches.length}`} />
     </div>
   </section>;
