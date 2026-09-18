@@ -1,7 +1,7 @@
 # vacationRide — Payout Architecture (Trip Organizers)
 
-**Version:** 1.1  
-**Status:** Phase 4 built — sections 2 to 4 and 6 describe what now runs; section 4's automated transfer is Phase 5
+**Version:** 1.2  
+**Status:** Phase 4 and Phase 5 built — sections 2 to 6 describe what now runs, including the automated transfer and its reconcile job
 
 ---
 
@@ -122,17 +122,43 @@ Daily cron runs at 12:00 AM:
 
 **Idempotency:** The job must be safe to run multiple times without creating duplicate transfers.
 
+**As built.** The job runs every fifteen minutes rather than once at midnight,
+because `release_after` is already the gate: only a looser schedule makes a
+payout early, and running more often drains a backlog sooner without paying
+anyone before their release date. Each run takes at most four organizers, which
+keeps it inside the free plan's fifty subrequests per invocation, and it stops
+when the settled balance runs out of headroom — every transfer also costs a
+fee, budgeted with `PAYOUT_TRANSFER_FEE_PESEWAS`.
+
+Idempotency is the claim, not a check: the batch row is written first, then a
+conditional `UPDATE ... WHERE status = 'ACCRUED' AND batch_id = ''` moves the
+entries to `PROCESSING`. Only the run that moved rows sends anything, so a cron
+run overlapping an administrator's run cannot pay a booking twice.
+
+An entry is released only when Paystack says the transfer arrived. The webhook
+is the fast path; the reconcile job, which waits two minutes before looking, is
+what notices a delivery that never came. A transfer that fails returns its
+entries to `ACCRUED` — the platform still holds the money — and one that
+reverses does the same rather than creating a debt. Only a refund of a booking
+whose payout already arrived creates a debt.
+
+Unattended runs are off unless `PAYOUT_AUTO_ENABLED` is true. Running the job
+from `/console/payouts` is an attended act and is not gated by the switch.
+
 ---
 
 ## 5. Error Handling & Recovery
 
 | Scenario | Handling |
 |----------|----------|
-| Transfer fails | Status → `FAILED`, retry on next run |
-| Organizer recipient is invalid | Mark payout for manual review |
-| Paystack transfer is pending | Poll status via reconcile job |
+| Transfer fails | Entries return to `ACCRUED` with the failure recorded; retried by the next run |
+| Transfer fails three times | Entries park as `FAILED`; an administrator reopens them from the console |
+| Organizer recipient is invalid | Recipient creation fails, the batch is marked `FAILED`, nothing is sent |
+| Paystack transfer is pending | The reconcile job polls it; the webhook settles it if it arrives first |
+| Platform balance does not cover a payout | The organizer is skipped this run and picked up when the balance settles |
 | Organizer KYC revoked | Block future payouts until re-verified |
 | Refund after the payout was released | The organizer's balance goes negative and the next payout absorbs it; the ledger row moves to `REVERSED` |
+| Transfer reversed by Paystack | Entries return to the ledger, not to debt: the money came back, so it is still owed |
 | Organizer balance is negative at payout time | No transfer; the balance carries forward and the organizer statement shows why |
 
 ---
@@ -158,7 +184,7 @@ them apart:
 | Phase | What ships |
 |-------|-----------|
 | 4 ✓ | Accrual ledger, organizer statement, admin-triggered payout batch that records the transfer reference by hand |
-| 5 | Paystack Transfers API, the daily 12:00 AM job, and the reconcile job for failed or stuck transfers |
+| 5 ✓ | Paystack Transfers API, the release job, the reconcile job, and the settlement feed that replaced the administrator's judgement with Paystack's balance |
 
 **As built.** The ledger is `organizer_payouts`, written once per confirmed
 booking at confirmation time (verification and the webhook both call
@@ -173,18 +199,19 @@ Two rules this document set out, as implemented:
 1. **A payout is never released before the coach has departed**, and never on
    the midnight of the sale: `release_after` is `max(next midnight, departure +
    24h)`, computed when the entry is written.
-2. **Release waits for settlement.** Phase 4 has no settlement feed, so the
-   administrator is the settlement check — the batch button says so, and Phase
-   5 replaces that judgement with the Paystack balance.
+2. **Release waits for settlement.** The release job reads Paystack's balance
+   and stops when a transfer plus its fee would not be covered, so a payout is
+   only attempted against money that has actually settled. An administrator
+   recording a manual batch is still their own settlement check for that batch.
 
 A refund before release reverses the entry and nothing else happens. A refund
 after release reverses the entry and leaves a debt, because `released_at` is
 kept as the evidence that money left. The debt blocks the next batch until it
-is settled: Phase 4 does not net a payout against a debt automatically.
+is settled: neither phase nets a payout against a debt automatically.
 
-Before Phase 4 starts, confirm the Paystack account can create recipients and
-initiate transfers (that permission is separate from collecting payments), and
-that the platform balance holds organizer funds long enough to settle.
+Before Phase 5 moved real money, the Paystack account was checked for the
+transfer permission, which is separate from collecting payments: the recipients,
+transfers and balance endpoints all answer on the live account.
 
 ---
 

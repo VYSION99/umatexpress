@@ -15,7 +15,7 @@ export async function PUT(request: Request) {
     if (!account.profileId) {
       throw new CampusEngineError("UNAUTHORIZED", "This account is not linked to an organizer profile.", 401);
     }
-    const body = await request.json() as { method?: string; accountName?: string; accountNumber?: string };
+    const body = await request.json() as { method?: string; accountName?: string; accountNumber?: string; bankCode?: string };
     return Response.json({ ok: true, profile: await saveOrganizerPayoutAccount(account.profileId, body) }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

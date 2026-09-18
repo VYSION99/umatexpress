@@ -17,9 +17,15 @@ const PAYOUT_METHODS = [
   { value: "MOMO", label: "Mobile money" },
 ] as const;
 
+type PayoutDestination = { code: string; name: string };
+type Destinations = { BANK: PayoutDestination[]; MOMO: PayoutDestination[] };
+
+const EMPTY_DESTINATIONS: Destinations = { BANK: [], MOMO: [] };
+
 type Profile = {
   organizerId: string; kycStatus: string; kycIdType: string; kycIdNumberMasked: string; kycReason: string;
   payoutMethod: string; payoutAccountName: string; payoutAccountMasked: string;
+  payoutBankCode: string; payoutBankName: string; payoutRecipientReady: boolean;
 };
 
 export default function OrganizerProfilePage() {
@@ -33,7 +39,8 @@ export default function OrganizerProfilePage() {
 function ProfileWorkspace() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [kyc, setKyc] = useState({ idType: "GHANA_CARD", idNumber: "" });
-  const [payout, setPayout] = useState({ method: "MOMO", accountName: "", accountNumber: "" });
+  const [payout, setPayout] = useState({ method: "MOMO", accountName: "", accountNumber: "", bankCode: "" });
+  const [destinations, setDestinations] = useState<Destinations>(EMPTY_DESTINATIONS);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
@@ -44,8 +51,16 @@ function ProfileWorkspace() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Your profile could not be loaded.");
       setProfile(data.profile);
+      setDestinations(data.destinations || EMPTY_DESTINATIONS);
       if (data.profile?.kycIdType) setKyc((current) => ({ ...current, idType: data.profile.kycIdType }));
-      if (data.profile?.payoutMethod) setPayout((current) => ({ ...current, method: data.profile.payoutMethod, accountName: data.profile.payoutAccountName || "" }));
+      if (data.profile?.payoutMethod) {
+        setPayout((current) => ({
+          ...current,
+          method: data.profile.payoutMethod,
+          accountName: data.profile.payoutAccountName || "",
+          bankCode: data.profile.payoutBankCode || "",
+        }));
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Your profile could not be loaded.");
     }
@@ -116,8 +131,16 @@ function ProfileWorkspace() {
       <h2><CreditCard size={18}/>Payout account</h2>
       <form className="console-form" onSubmit={(event) => { event.preventDefault(); void save("payout"); }}>
         <label>Method
-          <select value={payout.method} onChange={(event) => setPayout({ ...payout, method: event.target.value })}>
+          <select value={payout.method} onChange={(event) => setPayout({ ...payout, method: event.target.value, bankCode: "" })}>
             {PAYOUT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+          </select>
+        </label>
+        <label>{payout.method === "MOMO" ? "Network" : "Bank"}
+          <select required value={payout.bankCode} onChange={(event) => setPayout({ ...payout, bankCode: event.target.value })}>
+            <option value="">{payout.method === "MOMO" ? "Choose the network" : "Choose the bank"}</option>
+            {(destinations[payout.method as "BANK" | "MOMO"] || []).map((destination) => (
+              <option key={destination.code} value={destination.code}>{destination.name}</option>
+            ))}
           </select>
         </label>
         <label>Account holder
@@ -130,6 +153,9 @@ function ProfileWorkspace() {
       </form>
       <p className="console-note">
         <ShieldAlert size={13}/> The number is encrypted at rest and shown to administrators masked; opening it in full is recorded in the audit log.
+      </p>
+      <p className="console-note">
+        Payouts are addressed to this exact account, so changing any detail here retires the saved payee and the next payout is addressed again.
       </p>
     </section>
   </main>;

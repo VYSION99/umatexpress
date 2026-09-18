@@ -1,6 +1,9 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { logEvent } from "@/lib/observability";
+import { createPaystackRecipient, fetchPaystackBalance, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
+import { isPayoutMethod, recipientTypeFor, type PayoutMethod } from "@/lib/paystack-banks";
+import { openSecret } from "@/lib/secret-box";
 import { ensureBookingsTable, ensurePaymentsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 /**
@@ -11,17 +14,31 @@ import { ensureBookingsTable, ensurePaymentsTable, isTursoConfiguredRuntime, row
  * timestamps, never the gross, the commission or the net. That is what makes
  * the statement reconcile to the bookings behind it.
  *
- * Phase 4 records payouts; it does not execute transfers. An administrator
- * makes the transfer and records the reference here, which is the one field
- * Phase 5's Paystack Transfers will fill in for itself.
+ * Phase 4 records payouts; an administrator makes the transfer and records the
+ * reference. Phase 5 executes them: `runPayoutReleaseJob` addresses a Paystack
+ * transfer to the organizer's recipient, and `runPayoutReconcileJob` settles
+ * whatever the webhook did not. Both write the same ledger, so a manual batch
+ * and an automatic one are the same fact recorded twice.
  */
 
-export const PAYOUT_STATUSES = ["ACCRUED", "RELEASED", "REVERSED", "FAILED"] as const;
+/**
+ * `PROCESSING` is a transfer that has left for Paystack and has not come back
+ * yet. It is deliberately not `RELEASED`: money is only released once Paystack
+ * says it arrived, and an entry that is merely in flight must not be released
+ * a second time.
+ */
+export const PAYOUT_STATUSES = ["ACCRUED", "PROCESSING", "RELEASED", "REVERSED", "FAILED"] as const;
 export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 
-const PAYOUTS_SCHEMA_VERSION = "2026-09-18.1";
+const PAYOUTS_SCHEMA_VERSION = "2026-09-18.2";
 const DEFAULT_COMMISSION_BPS = 300;
 const MAX_BATCH_ENTRIES = 500;
+/** A transfer that has failed this many times stops retrying and asks for a human. */
+const MAX_TRANSFER_ATTEMPTS = 3;
+const MAX_RELEASE_CANDIDATES = 4;
+const MAX_RECONCILE_BATCHES = 5;
+/** Paystack charges per transfer, and it comes out of the same balance. */
+const DEFAULT_TRANSFER_FEE_PESEWAS = 800;
 
 const PAYOUTS_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS organizer_payouts (
@@ -38,6 +55,8 @@ const PAYOUTS_SCHEMA_STATEMENTS = [
     status TEXT NOT NULL DEFAULT 'ACCRUED',
     batch_id TEXT NOT NULL DEFAULT '',
     transfer_reference TEXT NOT NULL DEFAULT '',
+    payout_attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
     released_at TEXT,
     transferred_at TEXT,
     reversed_at TEXT,
@@ -56,11 +75,35 @@ const PAYOUTS_SCHEMA_STATEMENTS = [
     total_amount INTEGER NOT NULL DEFAULT 0,
     entry_count INTEGER NOT NULL DEFAULT 0,
     transfer_reference TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'MANUAL',
+    status TEXT NOT NULL DEFAULT 'RECORDED',
+    transfer_code TEXT NOT NULL DEFAULT '',
+    recipient_code TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 0,
     note TEXT NOT NULL DEFAULT '',
     created_by TEXT NOT NULL DEFAULT '',
+    initiated_at TEXT,
+    settled_at TEXT,
+    updated_at TEXT,
     created_at TEXT NOT NULL
   )`,
   "CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches ON organizer_payout_batches(organizer_id, created_at)",
+  // Transfer execution, added after the ledger shipped: an entry that is in
+  // flight, and the attempts that failed before it got there.
+  "ALTER TABLE organizer_payouts ADD COLUMN payout_attempts INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE organizer_payouts ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'MANUAL'",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN status TEXT NOT NULL DEFAULT 'RECORDED'",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN transfer_code TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN recipient_code TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN initiated_at TEXT",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN settled_at TEXT",
+  "ALTER TABLE organizer_payout_batches ADD COLUMN updated_at TEXT",
+  "CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches_status ON organizer_payout_batches(status, created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_organizer_payouts_batch ON organizer_payouts(batch_id)",
 ];
 
 let payoutsTableReady: Promise<void> | null = null;
@@ -221,7 +264,7 @@ export async function backfillAccruals(input: { limit?: number } = {}) {
 }
 
 export type PayoutTotals = {
-  /** Everything earned and not yet released. */
+  /** Everything earned and not yet paid out: waiting, in flight, or stuck. */
   accrued: number;
   /** Accrued entries whose release gate has passed and can be put in a batch. */
   ready: number;
@@ -257,8 +300,8 @@ function totalsFrom(row: Record<string, unknown> | undefined): PayoutTotals {
  * only reason a reversal creates a debt instead of quietly cancelling a row.
  */
 const TOTALS_SQL = `SELECT
-  COALESCE(SUM(CASE WHEN status = 'ACCRUED' THEN net_amount ELSE 0 END),0) AS accrued,
-  COALESCE(SUM(CASE WHEN status = 'ACCRUED' AND release_after <= ? THEN net_amount ELSE 0 END),0) AS ready,
+  COALESCE(SUM(CASE WHEN status IN ('ACCRUED','PROCESSING','FAILED') THEN net_amount ELSE 0 END),0) AS accrued,
+  COALESCE(SUM(CASE WHEN status = 'ACCRUED' AND COALESCE(batch_id,'') = '' AND release_after <= ? THEN net_amount ELSE 0 END),0) AS ready,
   COALESCE(SUM(CASE WHEN status = 'RELEASED' THEN net_amount ELSE 0 END),0) AS released,
   COALESCE(SUM(CASE WHEN status = 'REVERSED' THEN net_amount ELSE 0 END),0) AS reversed,
   COALESCE(SUM(CASE WHEN status = 'REVERSED' AND COALESCE(released_at,'') <> '' THEN net_amount ELSE 0 END),0) AS debt,
@@ -287,8 +330,8 @@ export async function listPayoutOrganizers() {
   const now = new Date().toISOString();
   const grouped = rowsToObjects(await turso(
     `SELECT organizer_id,
-       COALESCE(SUM(CASE WHEN status = 'ACCRUED' THEN net_amount ELSE 0 END),0) AS accrued,
-       COALESCE(SUM(CASE WHEN status = 'ACCRUED' AND release_after <= ? THEN net_amount ELSE 0 END),0) AS ready,
+       COALESCE(SUM(CASE WHEN status IN ('ACCRUED','PROCESSING','FAILED') THEN net_amount ELSE 0 END),0) AS accrued,
+       COALESCE(SUM(CASE WHEN status = 'ACCRUED' AND COALESCE(batch_id,'') = '' AND release_after <= ? THEN net_amount ELSE 0 END),0) AS ready,
        COALESCE(SUM(CASE WHEN status = 'RELEASED' THEN net_amount ELSE 0 END),0) AS released,
        COALESCE(SUM(CASE WHEN status = 'REVERSED' THEN net_amount ELSE 0 END),0) AS reversed,
        COALESCE(SUM(CASE WHEN status = 'REVERSED' AND COALESCE(released_at,'') <> '' THEN net_amount ELSE 0 END),0) AS debt,
@@ -339,6 +382,8 @@ export type PayoutEntry = {
   releaseAfter: string;
   status: string;
   transferReference: string;
+  attempts: number;
+  lastError: string;
   releasedAt: string;
   reversedAt: string;
   reversedReason: string;
@@ -350,8 +395,15 @@ export type PayoutBatch = {
   totalAmount: number;
   entryCount: number;
   transferReference: string;
+  mode: string;
+  status: string;
+  transferCode: string;
+  reason: string;
+  attempts: number;
   note: string;
   createdBy: string;
+  initiatedAt: string;
+  settledAt: string;
   createdAt: string;
 };
 
@@ -362,7 +414,8 @@ export async function organizerStatement(organizerId: string) {
     `SELECT p.id,p.booking_id,p.booking_reference,p.trip_id,
        COALESCE(t.title,'') AS title,COALESCE(t.route_from,'') AS route_from,COALESCE(t.route_to,'') AS route_to,
        p.gross_amount,p.commission_amount,p.net_amount,p.commission_bps,p.release_after,p.status,
-       COALESCE(p.transfer_reference,'') AS transfer_reference,COALESCE(p.released_at,'') AS released_at,
+       COALESCE(p.transfer_reference,'') AS transfer_reference,COALESCE(p.payout_attempts,0) AS payout_attempts,
+       COALESCE(p.last_error,'') AS last_error,COALESCE(p.released_at,'') AS released_at,
        COALESCE(p.reversed_at,'') AS reversed_at,COALESCE(p.reversed_reason,'') AS reversed_reason,p.created_at
      FROM organizer_payouts p LEFT JOIN scheduled_trips t ON t.id = p.trip_id
      WHERE p.organizer_id = ? ORDER BY p.created_at DESC LIMIT 200`,
@@ -370,6 +423,9 @@ export async function organizerStatement(organizerId: string) {
   ));
   const batches = rowsToObjects(await turso(
     `SELECT id,total_amount,entry_count,COALESCE(transfer_reference,'') AS transfer_reference,COALESCE(note,'') AS note,
+       COALESCE(mode,'MANUAL') AS mode,COALESCE(status,'RECORDED') AS status,COALESCE(transfer_code,'') AS transfer_code,
+       COALESCE(reason,'') AS reason,COALESCE(attempts,0) AS attempts,
+       COALESCE(initiated_at,'') AS initiated_at,COALESCE(settled_at,'') AS settled_at,
        COALESCE(created_by,'') AS created_by,created_at
      FROM organizer_payout_batches WHERE organizer_id = ? ORDER BY created_at DESC LIMIT 50`,
     [organizerId],
@@ -391,6 +447,8 @@ export async function organizerStatement(organizerId: string) {
       releaseAfter: String(row.release_after || ""),
       status: String(row.status || "ACCRUED"),
       transferReference: String(row.transfer_reference || ""),
+      attempts: Number(row.payout_attempts || 0),
+      lastError: String(row.last_error || ""),
       releasedAt: String(row.released_at || ""),
       reversedAt: String(row.reversed_at || ""),
       reversedReason: String(row.reversed_reason || ""),
@@ -401,8 +459,15 @@ export async function organizerStatement(organizerId: string) {
       totalAmount: Number(row.total_amount || 0),
       entryCount: Number(row.entry_count || 0),
       transferReference: String(row.transfer_reference || ""),
+      mode: String(row.mode || "MANUAL"),
+      status: String(row.status || "RECORDED"),
+      transferCode: String(row.transfer_code || ""),
+      reason: String(row.reason || ""),
+      attempts: Number(row.attempts || 0),
       note: String(row.note || ""),
       createdBy: String(row.created_by || ""),
+      initiatedAt: String(row.initiated_at || ""),
+      settledAt: String(row.settled_at || ""),
       createdAt: String(row.created_at || ""),
     })),
   };
@@ -533,4 +598,439 @@ export async function reversePayoutForBooking(input: { bookingId: string; reason
     }).catch(() => undefined);
   }
   return { reversed: true, debtCreated: wasReleased };
+}
+
+/* ------------------------------------------------------------------ *
+ * Phase 5: executing the transfer.
+ *
+ * The ledger above decides who is owed what. This section decides when it is
+ * safe to send, and records the result. Two rules shape all of it:
+ *
+ *   1. An entry is only ever in one place. A conditional UPDATE claims the
+ *      rows it moves, so a cron run overlapping an administrator's manual run
+ *      cannot pay the same booking twice.
+ *   2. Nothing is released until Paystack says the money arrived. In flight is
+ *      its own state, and the reconcile job — not the send — is what settles.
+ * ------------------------------------------------------------------ */
+
+async function envFlag(name: string, fallback: boolean) {
+  const { envValue } = await import("@/lib/runtime-env");
+  const raw = (await envValue(name)).trim().toLowerCase();
+  if (!raw) return fallback;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+async function envNumber(name: string, fallback: number) {
+  const { envValue } = await import("@/lib/runtime-env");
+  const raw = Number((await envValue(name)).trim());
+  return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : fallback;
+}
+
+/**
+ * Unattended transfers are opt-in. The switch exists so that a deployment can
+ * hold the ledger and the statements without a cron ever moving money; an
+ * administrator clicking "run now" is attended and is not gated by it.
+ */
+export async function payoutAutoEnabled() {
+  return envFlag("PAYOUT_AUTO_ENABLED", false);
+}
+
+export async function payoutTransferFee() {
+  return envNumber("PAYOUT_TRANSFER_FEE_PESEWAS", DEFAULT_TRANSFER_FEE_PESEWAS);
+}
+
+/** What Paystack says can be paid right now. Null when Paystack cannot be reached. */
+export async function platformPayoutBalance() {
+  try {
+    const { envValue } = await import("@/lib/runtime-env");
+    const currency = (await envValue("PAYSTACK_CURRENCY")) || "GHS";
+    return await fetchPaystackBalance(currency);
+  } catch (error) {
+    logEvent("warn", "payout_balance_unavailable", { reason: error instanceof Error ? error.message : "unknown" });
+    return null;
+  }
+}
+
+type OrganizerPayee = {
+  status: string;
+  kyc_status: string;
+  name: string;
+  email: string;
+  payout_method: string;
+  payout_account_name: string;
+  payout_account_number: string;
+  payout_bank_code: string;
+  paystack_recipient_code: string;
+};
+
+/**
+ * The Paystack address for an organizer, created once and reused. It is
+ * rebuilt whenever the account details change, which is why saving new payout
+ * details clears the stored code.
+ */
+export async function ensureOrganizerRecipient(organizerId: string, options: { actor?: string } = {}) {
+  const row = rowsToObjects(await turso(
+    `SELECT COALESCE(status,'PENDING') AS status,COALESCE(kyc_status,'PENDING') AS kyc_status,
+       COALESCE(name,'') AS name,COALESCE(email,'') AS email,COALESCE(payout_method,'') AS payout_method,
+       COALESCE(payout_account_name,'') AS payout_account_name,COALESCE(payout_account_number,'') AS payout_account_number,
+       COALESCE(payout_bank_code,'') AS payout_bank_code,COALESCE(paystack_recipient_code,'') AS paystack_recipient_code
+     FROM trip_organizers WHERE id = ? LIMIT 1`,
+    [organizerId],
+  ))[0] as OrganizerPayee | undefined;
+  if (!row) throw new CampusEngineError("NOT_FOUND", "That organizer was not found.", 404);
+  if (String(row.status) !== "APPROVED") {
+    throw new CampusEngineError("INVALID_STATE", "This organizer is not approved.", 409);
+  }
+  if (String(row.kyc_status) !== "VERIFIED") {
+    throw new CampusEngineError("INVALID_STATE", "Verify the organizer's KYC before paying them.", 409);
+  }
+  if (String(row.paystack_recipient_code)) {
+    return { recipientCode: String(row.paystack_recipient_code), created: false };
+  }
+  const method = String(row.payout_method || "").toUpperCase();
+  if (!isPayoutMethod(method)) {
+    throw new CampusEngineError("INVALID_STATE", "The organizer has not recorded where to be paid.", 409);
+  }
+  const bankCode = String(row.payout_bank_code || "").trim();
+  if (!bankCode) {
+    throw new CampusEngineError("INVALID_STATE", "The organizer's bank or network is missing, so a transfer cannot be addressed.", 409);
+  }
+  const accountNumber = await openSecret(row.payout_account_number);
+  if (!accountNumber) {
+    // Sealed with a key that is no longer held: only the organizer can fix it
+    // by saving the details again.
+    throw new CampusEngineError("INVALID_STATE", "The organizer's account number cannot be read. Ask them to save it again.", 409);
+  }
+  const { envValue } = await import("@/lib/runtime-env");
+  const currency = (await envValue("PAYSTACK_CURRENCY")) || "GHS";
+  const created = await createPaystackRecipient({
+    type: recipientTypeFor(method as PayoutMethod),
+    name: String(row.payout_account_name || row.name || "Organizer"),
+    accountNumber,
+    bankCode,
+    currency,
+    email: String(row.email || "") || undefined,
+    description: `UMaTeXPRESS organizer ${organizerId}`,
+  });
+  await turso(
+    "UPDATE trip_organizers SET paystack_recipient_code=?,updated_at=? WHERE id=?",
+    [created.recipientCode, new Date().toISOString(), organizerId],
+  );
+  await consoleAudit({
+    actor: String(options.actor || "system:payouts"),
+    action: "ORGANIZER_RECIPIENT_CREATED",
+    targetType: "trip_organizer",
+    targetReference: organizerId,
+    // The recipient code is an address, not a secret, but the account number
+    // that produced it never reaches the audit trail.
+    details: { recipientCode: created.recipientCode, method, bankCode },
+  }).catch(() => undefined);
+  return { recipientCode: created.recipientCode, created: true };
+}
+
+export type PayoutReleaseSummary = {
+  status: "RAN" | "SKIPPED";
+  reason?: string;
+  considered: number;
+  transferred: number;
+  inFlight: number;
+  skipped: Array<{ organizerId: string; reason: string }>;
+  failed: Array<{ organizerId: string; reason: string }>;
+  totalTransferred: number;
+  balance: number | null;
+};
+
+/**
+ * Sends what is due, and only what the settled balance can cover.
+ *
+ * Paystack settles on its own schedule, so the platform balance — not the sum
+ * of what has been collected — is the ceiling. A transfer also costs a fee
+ * that comes out of the same balance, so the fee is budgeted per organizer
+ * rather than assumed away.
+ */
+export async function runPayoutReleaseJob(options: { limit?: number; actor?: string; now?: Date } = {}): Promise<PayoutReleaseSummary> {
+  const empty: PayoutReleaseSummary = { status: "RAN", considered: 0, transferred: 0, inFlight: 0, skipped: [], failed: [], totalTransferred: 0, balance: null };
+  if (!(await isTursoConfiguredRuntime())) return { ...empty, status: "SKIPPED", reason: "TURSO_NOT_CONFIGURED" };
+  await ensurePayoutTables();
+  if ((await getPaymentProviderRuntime()) !== "PAYSTACK") {
+    // Money collected by another provider is not in the Paystack balance, so
+    // there would be nothing to transfer from.
+    return { ...empty, status: "SKIPPED", reason: "PAYMENT_PROVIDER_NOT_PAYSTACK" };
+  }
+  const manual = Boolean(options.actor);
+  if (!manual && !(await payoutAutoEnabled())) return { ...empty, status: "SKIPPED", reason: "AUTO_DISABLED" };
+
+  const now = options.now ?? new Date();
+  const stamp = now.toISOString();
+  const limit = Math.max(1, Math.min(MAX_RELEASE_CANDIDATES, Math.round(Number(options.limit) || MAX_RELEASE_CANDIDATES)));
+  const fee = await payoutTransferFee();
+
+  // One query decides the queue: due entries, an approved and verified
+  // organizer, somewhere to send the money, no standing debt, and no transfer
+  // already in flight. Oldest first, so a backlog pays out in the order it was
+  // earned.
+  const candidates = rowsToObjects(await turso(
+    `SELECT p.organizer_id,
+       MIN(p.release_after) AS oldest,
+       COUNT(*) AS entry_count,
+       COALESCE(SUM(p.net_amount),0) AS total_amount,
+       COALESCE(o.status,'') AS organizer_status,
+       COALESCE(o.kyc_status,'') AS kyc_status,
+       COALESCE(o.payout_method,'') AS payout_method,
+       COALESCE(o.payout_bank_code,'') AS payout_bank_code
+     FROM organizer_payouts p
+     LEFT JOIN trip_organizers o ON o.id = p.organizer_id
+     WHERE p.status = 'ACCRUED' AND COALESCE(p.batch_id,'') = '' AND p.release_after <= ?
+       AND NOT EXISTS (SELECT 1 FROM organizer_payout_batches b WHERE b.organizer_id = p.organizer_id AND b.status = 'PENDING')
+       AND NOT EXISTS (SELECT 1 FROM organizer_payouts d WHERE d.organizer_id = p.organizer_id AND d.status = 'REVERSED' AND COALESCE(d.released_at,'') <> '')
+     GROUP BY p.organizer_id ORDER BY oldest ASC LIMIT ?`,
+    [stamp, limit],
+  ));
+  empty.considered = candidates.length;
+  if (!candidates.length) return empty;
+
+  const balance = await platformPayoutBalance();
+  empty.balance = balance ? balance.balance : null;
+  let budget = balance ? balance.balance : 0;
+
+  const summary: PayoutReleaseSummary = { ...empty, skipped: [], failed: [] };
+  for (const candidate of candidates) {
+    const organizerId = String(candidate.organizer_id || "");
+    const skip = (reason: string) => { summary.skipped.push({ organizerId, reason }); };
+    if (!organizerId) { skip("NO_ORGANIZER"); continue; }
+    if (String(candidate.organizer_status) !== "APPROVED") { skip("NOT_APPROVED"); continue; }
+    if (String(candidate.kyc_status) !== "VERIFIED") { skip("KYC_NOT_VERIFIED"); continue; }
+    if (!isPayoutMethod(String(candidate.payout_method || "")) || !String(candidate.payout_bank_code || "")) { skip("NO_DESTINATION"); continue; }
+    const entryCount = Number(candidate.entry_count || 0);
+    const amount = Number(candidate.total_amount || 0);
+    if (!amount) { skip("NOTHING_DUE"); continue; }
+    // A batch this size is a data problem, not a payout: it is far more likely
+    // to be a backlog nobody looked at than a single day's earnings.
+    if (entryCount > MAX_BATCH_ENTRIES) { skip("TOO_MANY_ENTRIES"); continue; }
+    if (!balance) { skip("BALANCE_UNAVAILABLE"); continue; }
+    if (amount + fee > budget) { skip("INSUFFICIENT_BALANCE"); continue; }
+
+    const batchId = crypto.randomUUID();
+    const reference = `UMX-PAYOUT-${batchId}`;
+    try {
+      // The batch row comes first so the claim below has somewhere to point,
+      // and it is removed again if the claim wins nothing.
+      await turso(
+        `INSERT INTO organizer_payout_batches
+           (id,organizer_id,total_amount,entry_count,transfer_reference,mode,status,attempts,created_by,initiated_at,updated_at,created_at)
+         VALUES (?,?,0,0,?,'AUTO','PENDING',1,?,?,?,?)`,
+        [batchId, organizerId, reference, String(options.actor || "system:payouts"), stamp, stamp, stamp],
+      );
+      // The claim: moving the rows is what proves nobody else has them.
+      await turso(
+        `UPDATE organizer_payouts SET status = 'PROCESSING', batch_id = ?, transfer_reference = ?, updated_at = ?
+         WHERE organizer_id = ? AND status = 'ACCRUED' AND COALESCE(batch_id,'') = '' AND release_after <= ?`,
+        [batchId, reference, stamp, organizerId, stamp],
+      );
+      const claimed = rowsToObjects(await turso(
+        "SELECT COUNT(*) AS entry_count, COALESCE(SUM(net_amount),0) AS total_amount FROM organizer_payouts WHERE batch_id = ?",
+        [batchId],
+      ))[0];
+      const claimedCount = Number(claimed?.entry_count || 0);
+      const claimedAmount = Number(claimed?.total_amount || 0);
+      if (!claimedCount) {
+        await turso("DELETE FROM organizer_payout_batches WHERE id = ?", [batchId]).catch(() => undefined);
+        skip("CLAIMED_BY_ANOTHER_RUN");
+        continue;
+      }
+
+      const recipient = await ensureOrganizerRecipient(organizerId, { actor: options.actor });
+      const transfer = await initiatePaystackTransfer({
+        amount: claimedAmount,
+        recipientCode: recipient.recipientCode,
+        reference,
+        reason: "UMaTeXPRESS trip earnings",
+      });
+      await turso(
+        "UPDATE organizer_payout_batches SET total_amount=?,entry_count=?,transfer_code=?,recipient_code=?,status=?,reason=?,updated_at=? WHERE id=?",
+        [claimedAmount, claimedCount, transfer.transferCode, recipient.recipientCode, transfer.status === "SUCCESS" ? "SUCCESS" : "PENDING", transfer.reason, stamp, batchId],
+      );
+      if (transfer.status === "SUCCESS") {
+        await settlePayoutBatch({ batchId, stamp });
+        summary.transferred += 1;
+      } else if (transfer.status === "FAILED" || transfer.status === "REVERSED") {
+        await failPayoutBatch({ batchId, reason: transfer.reason || transfer.rawStatus || "TRANSFER_FAILED", stamp });
+        summary.failed.push({ organizerId, reason: transfer.reason || "TRANSFER_FAILED" });
+        continue;
+      } else {
+        // In flight. The budget stays spent: the money is already committed.
+        summary.inFlight += 1;
+      }
+      summary.totalTransferred += claimedAmount;
+      budget -= claimedAmount + fee;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "unknown";
+      await failPayoutBatch({ batchId, reason, stamp }).catch(() => undefined);
+      summary.failed.push({ organizerId, reason });
+      logEvent("error", "payout_transfer_failed", { organizerId, batchId, reason });
+    }
+  }
+  logEvent("info", "payout_release_ran", {
+    considered: summary.considered,
+    transferred: summary.transferred,
+    inFlight: summary.inFlight,
+    skipped: summary.skipped.length,
+    failed: summary.failed.length,
+    manual,
+  });
+  return summary;
+}
+
+/** Paystack said the money arrived: this is the only place an entry is released by automation. */
+async function settlePayoutBatch(input: { batchId: string; stamp: string }) {
+  const moved = await turso(
+    `UPDATE organizer_payouts SET status='RELEASED', released_at=?, transferred_at=?, last_error='', updated_at=?
+     WHERE batch_id = ? AND status = 'PROCESSING'`,
+    [input.stamp, input.stamp, input.stamp, input.batchId],
+  );
+  await turso(
+    "UPDATE organizer_payout_batches SET status='SUCCESS', settled_at=?, reason='', updated_at=? WHERE id=?",
+    [input.stamp, input.stamp, input.batchId],
+  );
+  return { released: Number(moved?.affected_row_count || 0) };
+}
+
+/**
+ * A transfer that did not arrive. The entries go back to being owed rather
+ * than becoming a debt, because the platform still holds the money — this is
+ * the opposite situation to a refund after a payout, which does create one.
+ */
+async function failPayoutBatch(input: { batchId: string; reason: string; stamp: string }) {
+  const reason = String(input.reason || "TRANSFER_FAILED").slice(0, 200);
+  await turso(
+    `UPDATE organizer_payouts
+       SET status = CASE WHEN payout_attempts + 1 >= ? THEN 'FAILED' ELSE 'ACCRUED' END,
+           payout_attempts = payout_attempts + 1, last_error = ?, batch_id = '', updated_at = ?
+     WHERE batch_id = ? AND status = 'PROCESSING'`,
+    [MAX_TRANSFER_ATTEMPTS, reason, input.stamp, input.batchId],
+  );
+  await turso(
+    "UPDATE organizer_payout_batches SET status='FAILED', reason=?, settled_at=?, updated_at=? WHERE id=?",
+    [reason, input.stamp, input.stamp, input.batchId],
+  );
+}
+
+export type PayoutReconcileSummary = {
+  scanned: number;
+  settled: number;
+  failed: number;
+  stillPending: number;
+};
+
+/**
+ * The safety net for a webhook that never arrived (or arrived while the Worker
+ * was down). Only batches still marked pending are looked at, so a delivery
+ * that already settled is skipped rather than re-settled.
+ */
+export async function runPayoutReconcileJob(options: { limit?: number; now?: Date } = {}): Promise<PayoutReconcileSummary> {
+  const summary: PayoutReconcileSummary = { scanned: 0, settled: 0, failed: 0, stillPending: 0 };
+  if (!(await isTursoConfiguredRuntime())) return summary;
+  await ensurePayoutTables();
+  const now = options.now ?? new Date();
+  const stamp = now.toISOString();
+  // A transfer that is seconds old is not stuck; the wait keeps a fast webhook
+  // from racing the job that sent it.
+  const cutoff = new Date(now.getTime() - 2 * 60_000).toISOString();
+  const limit = Math.max(1, Math.min(MAX_RECONCILE_BATCHES, Math.round(Number(options.limit) || MAX_RECONCILE_BATCHES)));
+  const batches = rowsToObjects(await turso(
+    `SELECT id,COALESCE(transfer_reference,'') AS transfer_reference,COALESCE(transfer_code,'') AS transfer_code
+     FROM organizer_payout_batches
+     WHERE status='PENDING' AND mode='AUTO' AND COALESCE(initiated_at,created_at) <= ?
+     ORDER BY created_at ASC LIMIT ?`,
+    [cutoff, limit],
+  ));
+  summary.scanned = batches.length;
+  for (const batch of batches) {
+    const batchId = String(batch.id);
+    const reference = String(batch.transfer_reference || "");
+    if (!reference) { summary.stillPending += 1; continue; }
+    try {
+      const transfer = await verifyPaystackTransfer(reference);
+      if (transfer.status === "SUCCESS") {
+        await settlePayoutBatch({ batchId, stamp });
+        summary.settled += 1;
+      } else if (transfer.status === "FAILED" || transfer.status === "REVERSED") {
+        await failPayoutBatch({ batchId, reason: transfer.reason || transfer.rawStatus || "TRANSFER_NOT_SENT", stamp });
+        summary.failed += 1;
+      } else {
+        summary.stillPending += 1;
+      }
+    } catch (error) {
+      // Left pending on purpose: a verify that could not run says nothing
+      // about the transfer, and marking it failed would invite a second send.
+      logEvent("warn", "payout_reconcile_deferred", { batchId, reason: error instanceof Error ? error.message : "unknown" });
+      summary.stillPending += 1;
+    }
+  }
+  if (summary.settled || summary.failed) logEvent("info", "payout_reconcile_ran", summary);
+  return summary;
+}
+
+/**
+ * Transfer webhooks. The reference is ours, so it is what the batch is found
+ * by; the transfer code is kept as the fallback for a delivery that arrives
+ * with only Paystack's own identifier.
+ */
+export async function applyPaystackTransferEvent(input: { event: string; data: Record<string, unknown> }) {
+  await ensurePayoutTables();
+  const reference = String(input.data.reference || "").trim();
+  const transferCode = String(input.data.transfer_code || "").trim();
+  if (!reference && !transferCode) return { handled: false, reason: "REFERENCE_REQUIRED" };
+  const batch = rowsToObjects(await turso(
+    `SELECT id,COALESCE(status,'') AS status FROM organizer_payout_batches
+     WHERE (transfer_reference <> '' AND transfer_reference = ?) OR (transfer_code <> '' AND transfer_code = ?)
+     ORDER BY created_at DESC LIMIT 1`,
+    [reference, transferCode],
+  ))[0];
+  if (!batch) return { handled: false, reason: "BATCH_NOT_FOUND" };
+  const batchId = String(batch.id);
+  if (String(batch.status) !== "PENDING") return { handled: true, reason: "ALREADY_SETTLED" };
+
+  const stamp = new Date().toISOString();
+  const status = input.event === "transfer.reversed"
+    ? "REVERSED"
+    : input.event === "transfer.failed"
+      ? "FAILED"
+      : input.event === "transfer.success"
+        ? "SUCCESS"
+        : normalizeTransferStatus(input.data.status);
+  const reason = String(input.data.reason || input.data.gateway_response || input.event || "").slice(0, 200);
+  if (status === "SUCCESS") {
+    await settlePayoutBatch({ batchId, stamp });
+    return { handled: true, status: "RELEASED" };
+  }
+  if (status === "FAILED" || status === "REVERSED") {
+    await failPayoutBatch({ batchId, reason, stamp });
+    return { handled: true, status: "RETURNED_TO_LEDGER" };
+  }
+  return { handled: false, reason: "NOT_ACTIONABLE" };
+}
+
+/**
+ * The manual retry path. An entry that exhausted its attempts is parked, not
+ * lost, and this is what brings it back once a person has fixed whatever was
+ * wrong with the destination.
+ */
+export async function retryFailedPayouts(input: { organizerId: string; actor: string }) {
+  await ensurePayoutTables();
+  const organizerId = String(input.organizerId || "").trim();
+  if (!organizerId) throw new CampusEngineError("VALIDATION_ERROR", "Choose an organizer.", 400);
+  const result = await turso(
+    "UPDATE organizer_payouts SET status='ACCRUED', payout_attempts=0, last_error='', updated_at=? WHERE organizer_id = ? AND status = 'FAILED'",
+    [new Date().toISOString(), organizerId],
+  );
+  const released = Number(result?.affected_row_count || 0);
+  await consoleAudit({
+    actor: String(input.actor || "system"),
+    action: "ORGANIZER_PAYOUT_RETRY_REQUESTED",
+    targetType: "trip_organizer",
+    targetReference: organizerId,
+    details: { entries: released },
+  });
+  return { entries: released };
 }

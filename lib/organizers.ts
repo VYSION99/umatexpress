@@ -8,6 +8,7 @@ import {
 } from "@/lib/console-auth";
 import { ensureScheduledTripsTable } from "@/lib/dynamic-trips";
 import { lastFour, maskAccountNumber, openSecret, sealSecret } from "@/lib/secret-box";
+import { findPayoutDestination, isPayoutMethod, type PayoutMethod } from "@/lib/paystack-banks";
 import { EMPTY_FLYER_PROMO, normalizeFlyerPromo, type FlyerPromo } from "@/lib/trip-notice";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
@@ -75,7 +76,7 @@ export type ManifestPassenger = {
   createdAt: string;
 };
 
-const ORGANIZER_SCHEMA_VERSION = "2026-09-18.2";
+const ORGANIZER_SCHEMA_VERSION = "2026-09-18.3";
 
 const ORGANIZER_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS trip_organizers (
@@ -89,6 +90,8 @@ const ORGANIZER_SCHEMA_STATEMENTS = [
     payout_method TEXT NOT NULL DEFAULT '',
     payout_account_name TEXT NOT NULL DEFAULT '',
     payout_account_number TEXT NOT NULL DEFAULT '',
+    payout_bank_code TEXT NOT NULL DEFAULT '',
+    payout_bank_name TEXT NOT NULL DEFAULT '',
     paystack_recipient_code TEXT NOT NULL DEFAULT '',
     commission_bps INTEGER NOT NULL DEFAULT 300,
     review_reason TEXT NOT NULL DEFAULT '',
@@ -116,6 +119,10 @@ const ORGANIZER_SCHEMA_STATEMENTS = [
   "ALTER TABLE trip_organizers ADD COLUMN kyc_reviewed_at TEXT",
   "ALTER TABLE trip_organizers ADD COLUMN payout_account_last4 TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE trip_organizers ADD COLUMN payout_updated_at TEXT",
+  // A Paystack transfer is addressed by a bank_code, so the account number
+  // alone was never enough to actually pay anyone.
+  "ALTER TABLE trip_organizers ADD COLUMN payout_bank_code TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trip_organizers ADD COLUMN payout_bank_name TEXT NOT NULL DEFAULT ''",
   "CREATE INDEX IF NOT EXISTS idx_trip_organizers_status ON trip_organizers(status)",
   "CREATE INDEX IF NOT EXISTS idx_trip_organizers_kyc ON trip_organizers(kyc_status, status)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_organizers_phone ON trip_organizers(phone) WHERE phone <> ''",
@@ -524,6 +531,9 @@ export type OrganizerProfile = {
   payoutAccountName: string;
   /** Masked. The full number is only ever returned by an audited reveal. */
   payoutAccountMasked: string;
+  /** Which institution the number belongs to; the label is safe to show. */
+  payoutBankCode: string;
+  payoutBankName: string;
   payoutUpdatedAt: string;
   payoutRecipientReady: boolean;
 };
@@ -533,8 +543,6 @@ export type KycAction = (typeof KYC_ACTIONS)[number];
 export function isKycAction(value: unknown): value is KycAction {
   return typeof value === "string" && (KYC_ACTIONS as readonly string[]).includes(value);
 }
-
-const PAYOUT_METHODS = ["BANK", "MOMO"] as const;
 
 /**
  * The organizer's own KYC and payout record, always masked. Nothing here is
@@ -549,6 +557,7 @@ export async function getOrganizerProfile(organizerId: string): Promise<Organize
        COALESCE(payout_method,'') AS payout_method,COALESCE(payout_account_name,'') AS payout_account_name,
        COALESCE(payout_account_number,'') AS payout_account_number,
        COALESCE(payout_account_last4,'') AS payout_account_last4,COALESCE(payout_updated_at,'') AS payout_updated_at,
+       COALESCE(payout_bank_code,'') AS payout_bank_code,COALESCE(payout_bank_name,'') AS payout_bank_name,
        COALESCE(paystack_recipient_code,'') AS paystack_recipient_code
      FROM trip_organizers WHERE id = ? LIMIT 1`,
     [organizerId],
@@ -572,6 +581,8 @@ export async function getOrganizerProfile(organizerId: string): Promise<Organize
     payoutMethod: String(row.payout_method || ""),
     payoutAccountName: String(row.payout_account_name || ""),
     payoutAccountMasked: maskAccountNumber(last4),
+    payoutBankCode: String(row.payout_bank_code || ""),
+    payoutBankName: String(row.payout_bank_name || ""),
     payoutUpdatedAt: String(row.payout_updated_at || ""),
     payoutRecipientReady: Boolean(String(row.paystack_recipient_code || "")),
   };
@@ -608,23 +619,56 @@ export async function saveOrganizerKyc(organizerId: string, input: { idType?: un
 }
 
 export async function saveOrganizerPayoutAccount(organizerId: string, input: {
-  method?: unknown; accountName?: unknown; accountNumber?: unknown;
+  method?: unknown; accountName?: unknown; accountNumber?: unknown; bankCode?: unknown;
 }) {
   await ensureOrganizerTables();
   const method = String(input.method || "").trim().toUpperCase();
   const accountName = String(input.accountName || "").trim();
   const accountNumber = String(input.accountNumber || "").trim();
-  if (!(PAYOUT_METHODS as readonly string[]).includes(method)) {
+  if (!isPayoutMethod(method)) {
     throw new CampusEngineError("VALIDATION_ERROR", "Choose a bank account or a mobile money account.", 400);
   }
   if (!accountName) throw new CampusEngineError("VALIDATION_ERROR", "Enter the account holder's name.", 400);
   if (accountNumber.length < 5 || accountNumber.length > 40 || !/^[0-9A-Za-z -]+$/.test(accountNumber)) {
     throw new CampusEngineError("VALIDATION_ERROR", "Enter the account or mobile money number.", 400);
   }
+  // The destination is part of the account, not a preference: a transfer
+  // addressed to the wrong bank code reaches the wrong institution. It is
+  // resolved against the catalogue so an unknown code cannot be stored.
+  const destination = await findPayoutDestination(method as PayoutMethod, input.bankCode);
+  if (!destination) {
+    throw new CampusEngineError(
+      "VALIDATION_ERROR",
+      method === "BANK" ? "Choose the bank that holds this account." : "Choose the mobile money network.",
+      400,
+    );
+  }
   const stamp = new Date().toISOString();
+  // A recipient code is an address, and the address just changed. Clearing it
+  // is what stops the next payout from being sent to the previous account.
+  const previous = rowsToObjects(await turso(
+    `SELECT COALESCE(payout_method,'') AS payout_method,COALESCE(payout_bank_code,'') AS payout_bank_code,
+       COALESCE(payout_account_number,'') AS payout_account_number,COALESCE(payout_account_name,'') AS payout_account_name,
+       COALESCE(paystack_recipient_code,'') AS paystack_recipient_code
+     FROM trip_organizers WHERE id = ? LIMIT 1`,
+    [organizerId],
+  ))[0];
+  const sealed = await sealSecret(accountNumber);
+  const changed = !previous
+    || String(previous.payout_method || "") !== method
+    || String(previous.payout_bank_code || "") !== destination.code
+    || String(previous.payout_account_name || "") !== accountName
+    || String(previous.payout_account_number || "") !== sealed;
   await turso(
-    "UPDATE trip_organizers SET payout_method=?,payout_account_name=?,payout_account_number=?,payout_account_last4=?,payout_updated_at=?,updated_at=? WHERE id=?",
-    [method, accountName, await sealSecret(accountNumber), lastFour(accountNumber), stamp, stamp, organizerId],
+    `UPDATE trip_organizers SET payout_method=?,payout_account_name=?,payout_account_number=?,payout_account_last4=?,
+       payout_bank_code=?,payout_bank_name=?,payout_updated_at=?,updated_at=?,paystack_recipient_code=?
+     WHERE id=?`,
+    [
+      method, accountName, sealed, lastFour(accountNumber),
+      destination.code, destination.name, stamp, stamp,
+      changed ? "" : String(previous.paystack_recipient_code || ""),
+      organizerId,
+    ],
   );
   await consoleAudit({
     actor: organizerId,
@@ -633,7 +677,7 @@ export async function saveOrganizerPayoutAccount(organizerId: string, input: {
     targetReference: organizerId,
     // The last four are enough to recognise a change; the number itself is
     // deliberately never written to the audit trail.
-    details: { method, last4: lastFour(accountNumber) },
+    details: { method, last4: lastFour(accountNumber), destination: destination.name, recipientCleared: changed },
   }).catch(() => undefined);
   return getOrganizerProfile(organizerId);
 }

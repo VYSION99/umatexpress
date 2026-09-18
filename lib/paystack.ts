@@ -146,3 +146,197 @@ export async function verifyPaystackTransaction(reference: string) {
     reason: result.data.gateway_response || result.message || "",
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Payouts: recipients, transfers and the balance they draw on.
+ *
+ * Transfers are a separate Paystack permission from collecting payments, and
+ * a recipient is addressed by a `bank_code` rather than by an account number
+ * alone. Everything here is server-only: the secret key is never sent to the
+ * browser, and an account number only ever appears in a request body.
+ * ------------------------------------------------------------------ */
+
+type PaystackTransferRecipient = {
+  recipient_code?: string;
+  type?: string;
+  currency?: string;
+  details?: { account_number?: string; bank_code?: string; bank_name?: string };
+};
+
+type PaystackRecipientResponse = { status?: boolean; message?: string; data?: PaystackTransferRecipient };
+
+type PaystackTransferResponse = {
+  status?: boolean;
+  message?: string;
+  data?: {
+    transfer_code?: string;
+    reference?: string;
+    amount?: number;
+    status?: string;
+    reason?: string;
+    recipient?: string | { recipient_code?: string };
+  };
+};
+
+export type PaystackTransferStatus = "SUCCESS" | "FAILED" | "PENDING" | "REVERSED" | "UNKNOWN";
+
+/** Paystack's transfer webhook calls a completed transfer `success`. */
+export function normalizeTransferStatus(value: unknown): PaystackTransferStatus {
+  switch (String(value || "").toLowerCase()) {
+    case "success":
+    case "successful":
+    case "completed":
+      return "SUCCESS";
+    case "failed":
+    case "reversed":
+      return String(value).toLowerCase() === "reversed" ? "REVERSED" : "FAILED";
+    case "pending":
+    case "processing":
+    case "queued":
+    case "ongoing":
+    case "otp":
+      return "PENDING";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function transferPayload(result: PaystackTransferResponse) {
+  const data = result.data ?? {};
+  const recipient = typeof data.recipient === "string" ? data.recipient : data.recipient?.recipient_code || "";
+  return {
+    transferCode: String(data.transfer_code || ""),
+    reference: String(data.reference || ""),
+    amount: Number(data.amount || 0),
+    status: normalizeTransferStatus(data.status),
+    rawStatus: String(data.status || ""),
+    recipientCode: String(recipient || ""),
+    reason: String(data.reason || result.message || ""),
+  };
+}
+
+export async function createPaystackRecipient(input: {
+  type: string;
+  name: string;
+  accountNumber: string;
+  bankCode: string;
+  currency: string;
+  email?: string;
+  description?: string;
+}) {
+  const { secretKey, baseUrl } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/transferrecipient`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: input.type,
+      name: input.name,
+      account_number: input.accountNumber,
+      bank_code: input.bankCode,
+      currency: input.currency,
+      ...(input.email ? { email: input.email } : {}),
+      ...(input.description ? { description: input.description } : {}),
+    }),
+  });
+  const result = await response.json().catch(() => ({})) as PaystackRecipientResponse;
+  if (!response.ok || !result.status || !result.data?.recipient_code) {
+    // The message is surfaced to an administrator, so it must say what Paystack
+    // said. It never echoes the request body.
+    throw new Error(result.message || `Paystack recipient creation failed (${response.status}).`);
+  }
+  return { recipientCode: String(result.data.recipient_code), type: String(result.data.type || input.type) };
+}
+
+export async function initiatePaystackTransfer(input: {
+  amount: number;
+  recipientCode: string;
+  reference: string;
+  reason: string;
+  currency?: string;
+}) {
+  const { secretKey, baseUrl, currency } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/transfer`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      source: "balance",
+      amount: Math.max(0, Math.round(input.amount)),
+      recipient: input.recipientCode,
+      reference: input.reference,
+      reason: input.reason.slice(0, 100),
+      currency: input.currency || currency,
+    }),
+  });
+  const result = await response.json().catch(() => ({})) as PaystackTransferResponse;
+  if (!response.ok || !result.status || !result.data) {
+    throw new Error(result.message || `Paystack transfer failed (${response.status}).`);
+  }
+  return transferPayload(result);
+}
+
+/** The reference is ours, so this is the lookup that cannot be mistyped. */
+export async function verifyPaystackTransfer(reference: string) {
+  const { secretKey, baseUrl } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/transfer/verify/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` },
+  });
+  const result = await response.json().catch(() => ({})) as PaystackTransferResponse;
+  if (!response.ok || !result.status || !result.data) {
+    throw new Error(result.message || `Paystack transfer verify failed (${response.status}).`);
+  }
+  return transferPayload(result);
+}
+
+type PaystackBankResponse = {
+  status?: boolean;
+  message?: string;
+  data?: Array<{ code?: string; name?: string; type?: string; currency?: string }>;
+};
+
+/**
+ * The institutions a transfer can address, straight from Paystack. Fetching
+ * rather than embedding is what keeps a newly added bank payable without a
+ * deployment; `lib/paystack-banks.ts` holds the offline fallback.
+ */
+export async function listPaystackBanks(currency: string) {
+  const { secretKey, baseUrl } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/bank?currency=${encodeURIComponent(currency)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` },
+  });
+  const result = await response.json().catch(() => ({})) as PaystackBankResponse;
+  if (!response.ok || !result.status || !Array.isArray(result.data)) {
+    throw new Error(result.message || `Paystack bank list failed (${response.status}).`);
+  }
+  return result.data
+    .map((row) => ({ code: String(row.code || "").trim(), name: String(row.name || "").trim(), type: String(row.type || "").trim() }))
+    .filter((row) => row.code && row.name);
+}
+
+/**
+ * What the platform can actually pay out right now. Paystack settles on its own
+ * schedule, so this — not the sum of what has been collected — is the ceiling
+ * for a transfer run.
+ */
+export async function fetchPaystackBalance(currency: string) {
+  const { secretKey, baseUrl } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/balance`, {
+    headers: { Authorization: `Bearer ${secretKey}` },
+  });
+  const result = await response.json().catch(() => ({})) as {
+    status?: boolean;
+    message?: string;
+    data?: Array<{ currency?: string; balance?: number }>;
+  };
+  if (!response.ok || !result.status || !Array.isArray(result.data)) {
+    throw new Error(result.message || `Paystack balance failed (${response.status}).`);
+  }
+  const wanted = currency.toUpperCase();
+  const match = result.data.find((row) => String(row.currency || "").toUpperCase() === wanted);
+  return { currency: wanted, balance: Number(match?.balance || 0), available: result.data.map((row) => ({ currency: String(row.currency || ""), balance: Number(row.balance || 0) })) };
+}

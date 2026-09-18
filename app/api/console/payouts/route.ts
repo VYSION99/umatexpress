@@ -1,7 +1,8 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { listPayoutOrganizers, organizerStatement, recordPayoutBatch } from "@/lib/organizer-payouts";
+import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutTransferFee, platformPayoutBalance, recordPayoutBatch } from "@/lib/organizer-payouts";
 import { getOrganizer, getOrganizerProfile } from "@/lib/organizers";
+import { getPaymentProviderRuntime } from "@/lib/paystack";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -14,7 +15,26 @@ export async function GET(request: Request) {
   try {
     await requireConsoleRole(request, ["ADMIN"]);
     const organizerId = String(new URL(request.url).searchParams.get("organizerId") || "").trim();
-    if (!organizerId) return Response.json({ organizers: await listPayoutOrganizers() }, { headers: NO_STORE });
+    if (!organizerId) {
+      // What the platform can actually pay with, and whether the unattended
+      // job is allowed to spend it. Both are read-only here.
+      const [organizers, balance, autoEnabled, provider, fee] = await Promise.all([
+        listPayoutOrganizers(),
+        platformPayoutBalance(),
+        payoutAutoEnabled(),
+        getPaymentProviderRuntime(),
+        payoutTransferFee(),
+      ]);
+      return Response.json({
+        organizers,
+        automation: {
+          enabled: autoEnabled,
+          provider,
+          transferFee: fee,
+          balance: balance ? { currency: balance.currency, amount: balance.balance } : null,
+        },
+      }, { headers: NO_STORE });
+    }
 
     const organizer = await getOrganizer(organizerId);
     if (!organizer) throw new CampusEngineError("NOT_FOUND", "That organizer was not found.", 404);
@@ -33,6 +53,9 @@ export async function GET(request: Request) {
         payoutMethod: profile?.payoutMethod || "",
         payoutAccountName: profile?.payoutAccountName || "",
         payoutAccountMasked: profile?.payoutAccountMasked || "",
+        payoutBankName: profile?.payoutBankName || "",
+        payoutBankCode: profile?.payoutBankCode || "",
+        recipientReady: profile?.payoutRecipientReady || false,
       },
       statement: await organizerStatement(organizerId),
     }, { headers: NO_STORE });

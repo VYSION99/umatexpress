@@ -70,9 +70,9 @@ test("an empty subrequest limit leaves the plan default alone", async () => {
 });
 
 test("each cron trigger names one job", async () => {
-  const { WORKER_CRONS, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
-  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON]);
-  assert.notEqual(CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON);
+  const { WORKER_CRONS, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
+  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON]);
+  assert.equal(new Set(WORKER_CRONS).size, WORKER_CRONS.length);
   assert.match(CAMPUS_RECONCILE_CRON, /^\*\/\d+ /);
 
   // Cloudflare collapses triggers that fall due in the same minute into a
@@ -85,8 +85,14 @@ test("each cron trigger names one job", async () => {
     if (field.startsWith("*/")) return Array.from({ length: 60 }, (_, minute) => minute).filter((minute) => minute % Number(field.slice(2)) === 0);
     return field.split(",").map(Number);
   };
-  const shared = minutes(CAMPUS_RECONCILE_CRON).filter((minute) => minutes(NOTIFICATION_SWEEP_CRON).includes(minute));
-  assert.deepEqual(shared, []);
+  // Every pair, not just the two that used to collide: adding a trigger is
+  // exactly when a shared minute gets introduced.
+  for (let left = 0; left < WORKER_CRONS.length; left += 1) {
+    for (let right = left + 1; right < WORKER_CRONS.length; right += 1) {
+      const shared = minutes(WORKER_CRONS[left]).filter((minute) => minutes(WORKER_CRONS[right]).includes(minute));
+      assert.deepEqual(shared, [], `${WORKER_CRONS[left]} and ${WORKER_CRONS[right]} share a minute`);
+    }
+  }
 });
 
 test("malformed binding lists are dropped instead of half-configured", async () => {

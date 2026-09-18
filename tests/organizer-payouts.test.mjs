@@ -18,7 +18,7 @@ process.env.ADMIN_SESSION_SECRET = "test-admin-session-secret-at-least-32-chars"
 process.env.PAYSTACK_SECRET_KEY = "sk_test_payout_ledger_key";
 process.env.PAYSTACK_CURRENCY = "GHS";
 
-const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.2", organizerPayouts: "2026-09-18.1" };
+const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
 const ACCOUNT_COLUMNS = ["id", "email", "name", "phone", "role", "status", "profile_id"];
 
 const accounts = [
@@ -229,8 +229,8 @@ function handle(sql, args) {
     const rows = payouts.filter((row) => row.organizer_id === args[1]);
     const now = String(args[0]);
     return ok(table(["accrued", "ready", "released", "reversed", "debt", "entries"], [{
-      accrued: rows.filter((row) => row.status === "ACCRUED").reduce((total, row) => total + row.net_amount, 0),
-      ready: rows.filter((row) => row.status === "ACCRUED" && row.release_after <= now).reduce((total, row) => total + row.net_amount, 0),
+      accrued: rows.filter((row) => ["ACCRUED", "PROCESSING", "FAILED"].includes(row.status)).reduce((total, row) => total + row.net_amount, 0),
+      ready: rows.filter((row) => row.status === "ACCRUED" && !row.batch_id && row.release_after <= now).reduce((total, row) => total + row.net_amount, 0),
       released: rows.filter((row) => row.status === "RELEASED").reduce((total, row) => total + row.net_amount, 0),
       reversed: rows.filter((row) => row.status === "REVERSED").reduce((total, row) => total + row.net_amount, 0),
       debt: rows.filter((row) => row.status === "REVERSED" && row.released_at).reduce((total, row) => total + row.net_amount, 0),
@@ -244,8 +244,8 @@ function handle(sql, args) {
       const rows = payouts.filter((row) => row.organizer_id === id);
       return {
         organizer_id: id,
-        accrued: rows.filter((row) => row.status === "ACCRUED").reduce((total, row) => total + row.net_amount, 0),
-        ready: rows.filter((row) => row.status === "ACCRUED" && row.release_after <= now).reduce((total, row) => total + row.net_amount, 0),
+        accrued: rows.filter((row) => ["ACCRUED", "PROCESSING", "FAILED"].includes(row.status)).reduce((total, row) => total + row.net_amount, 0),
+        ready: rows.filter((row) => row.status === "ACCRUED" && !row.batch_id && row.release_after <= now).reduce((total, row) => total + row.net_amount, 0),
         released: rows.filter((row) => row.status === "RELEASED").reduce((total, row) => total + row.net_amount, 0),
         reversed: rows.filter((row) => row.status === "REVERSED").reduce((total, row) => total + row.net_amount, 0),
         debt: rows.filter((row) => row.status === "REVERSED" && row.released_at).reduce((total, row) => total + row.net_amount, 0),

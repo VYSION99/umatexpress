@@ -298,8 +298,34 @@ rest.
 
 ---
 
-## 7. Phase 5+ endpoints (not yet built)
+## 7. Phase 5 endpoints (built)
 
-Paystack Transfers, the daily 12:00 AM payout job, the transfer reconcile job,
-and the settlement feed that replaces the administrator's judgement with the
-platform balance.
+`GET /api/console/payouts` gained an `automation` block: whether unattended
+runs are enabled, the payment provider, the budgeted per-transfer fee, and the
+settled Paystack balance (or `null` when Paystack cannot be reached). The
+organizer detail gained `payoutBankName` and `recipientReady` so the console can
+say why a payout cannot be addressed.
+
+`POST /api/console/payouts/run` (ADMIN) is the attended path:
+
+```json
+{ "action": "RELEASE" | "RECONCILE" | "RETRY", "organizerId": "required for RETRY" }
+```
+
+- `RELEASE` sends what is due, up to six organizers, in the order the entries
+  were earned, and stops when the settled balance (less the transfer fee) would
+  be exceeded. It is not gated by `PAYOUT_AUTO_ENABLED`, because a person
+  pressing the button is the deliberate act; it is audited to them.
+- `RECONCILE` verifies up to four in-flight transfers and settles the ones
+  Paystack has completed.
+- `RETRY` reopens an organizer's parked `FAILED` entries so the next run tries
+  again.
+
+The cron jobs call the same functions. `PAYOUT_RELEASE_CRON` (`7,22,37,52 * * * *`)
+is gated by `PAYOUT_AUTO_ENABLED`; `PAYOUT_RECONCILE_CRON` (`9,39 * * * *`) is
+not, since it only ever reads and settles what was already sent.
+
+`POST /api/payments/webhook` now also accepts `transfer.success`,
+`transfer.failed` and `transfer.reversed`, matching the batch by our own
+reference and falling back to Paystack's transfer code. A settlement that the
+webhook already applied makes a later reconcile a no-op, and vice versa.

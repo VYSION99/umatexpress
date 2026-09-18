@@ -1,11 +1,12 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { NOTIFICATION_SWEEP_CRON } from "@/lib/campus-engine/crons";
+import { NOTIFICATION_SWEEP_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
 import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
 import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
+import { runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
 
 // Durable Object classes must be exported from the Worker entry point. The
 // binding and its migration live in build/cloudflare-binding-plan.ts.
@@ -88,6 +89,16 @@ const worker = {
       // Ten at a time: each row costs a claim, a send and a status write, and
       // one invocation has fifty subrequests to spend.
       ctx.waitUntil(runNotificationSweep({ limit: 10 }));
+      return;
+    }
+    if (controller?.cron === PAYOUT_RELEASE_CRON) {
+      // Four at a time: each candidate costs a recipient lookup, a claim, a
+      // transfer and two writes, and one invocation has fifty subrequests.
+      ctx.waitUntil(runPayoutReleaseJob());
+      return;
+    }
+    if (controller?.cron === PAYOUT_RECONCILE_CRON) {
+      ctx.waitUntil(runPayoutReconcileJob());
       return;
     }
     ctx.waitUntil(runCampusReconcile());

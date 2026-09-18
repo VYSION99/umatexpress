@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Banknote, LogOut, RefreshCw, ShieldCheck, Undo2 } from "lucide-react";
+import { AlertTriangle, Banknote, LogOut, RefreshCw, Send, ShieldCheck, Undo2, Zap } from "lucide-react";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 
 type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
@@ -16,11 +16,20 @@ type Entry = {
   releaseAfter: string; status: string; transferReference: string; releasedAt: string;
   reversedAt: string; reversedReason: string; createdAt: string;
 };
-type Batch = { id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdAt: string };
+type Batch = {
+  id: string; totalAmount: number; entryCount: number; transferReference: string; note: string;
+  mode: string; status: string; transferCode: string; reason: string; attempts: number;
+  initiatedAt: string; settledAt: string; createdAt: string;
+};
+type Automation = {
+  enabled: boolean; provider: string; transferFee: number;
+  balance: { currency: string; amount: number } | null;
+};
 type Detail = {
   organizer: {
     id: string; name: string; organization: string; status: string; kycStatus: string;
     commissionBps: number; payoutMethod: string; payoutAccountName: string; payoutAccountMasked: string;
+    payoutBankName: string; recipientReady: boolean;
   };
   statement: { totals: Totals; entries: Entry[]; batches: Batch[] };
 };
@@ -38,6 +47,7 @@ export default function PayoutsConsolePage() {
 
 function PayoutsWorkspace() {
   const [organizers, setOrganizers] = useState<Summary[]>([]);
+  const [automation, setAutomation] = useState<Automation | null>(null);
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [form, setForm] = useState({ reference: "", note: "" });
@@ -51,6 +61,7 @@ function PayoutsWorkspace() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Organizer balances could not be loaded.");
       setOrganizers(data.organizers || []);
+      setAutomation(data.automation || null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Organizer balances could not be loaded.");
     }
@@ -112,9 +123,42 @@ function PayoutsWorkspace() {
     }
   }, [detail, loadDetail, loadOverview]);
 
+  const runAutomation = useCallback(async (action: "RELEASE" | "RECONCILE" | "RETRY", organizerId = "") => {
+    setBusy(action); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/console/payouts/run", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, organizerId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "That payout action could not run.");
+      if (action === "RETRY") {
+        setNotice(`${data.entries} parked ${data.entries === 1 ? "entry is" : "entries are"} eligible again. The next run will retry.`);
+      } else if (action === "RECONCILE") {
+        setNotice(`Checked ${data.result.scanned} in-flight transfers: ${data.result.settled} settled, ${data.result.failed} returned to the ledger.`);
+      } else if (data.result.status === "SKIPPED") {
+        setNotice(`Nothing was sent: ${data.result.reason}.`);
+      } else {
+        setNotice(`Considered ${data.result.considered} organizers: ${data.result.transferred} paid, ${data.result.inFlight} in flight, ${data.result.failed.length} failed, ${data.result.skipped.length} skipped.`);
+      }
+      await Promise.all([loadOverview(), detail ? loadDetail(detail.organizer.id) : Promise.resolve()]);
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : "That payout action could not run.");
+    } finally {
+      setBusy("");
+    }
+  }, [detail, loadDetail, loadOverview]);
+
   const totals = detail?.statement.totals;
   const ready = useMemo(() => (totals?.ready || 0) > 0 && (totals?.debt || 0) === 0, [totals]);
   const kycVerified = detail?.organizer.kycStatus === "VERIFIED";
+  const failedEntries = useMemo(
+    () => (detail?.statement.entries || []).filter((entry) => entry.status === "FAILED").length,
+    [detail],
+  );
+  const automationReady = automation?.provider === "PAYSTACK";
 
   return <main className="console-page">
     <header className="console-header">
@@ -129,11 +173,47 @@ function PayoutsWorkspace() {
     <section className="console-hero">
       <p>ORGANIZER PAYOUTS</p>
       <h1>What the platform owes</h1>
-      <span>Make the transfer in your bank or mobile money app, then record the reference here. Nothing pays out before the release date or before KYC is verified.</span>
+      <span>Paystack sends what is due once the release date has passed and KYC is verified. You can also make a transfer yourself and record the reference here.</span>
     </section>
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
+
+    <section className="console-panel">
+      <h2><Zap size={18}/>Automatic payouts</h2>
+      <div className="console-totals">
+        <div>
+          <span>Settled balance</span>
+          <strong>{automation?.balance ? cedis(automation.balance.amount) : "unavailable"}</strong>
+          <small>{automation?.balance?.currency || "—"} available to pay with</small>
+        </div>
+        <div>
+          <span>Unattended runs</span>
+          <strong>{automation?.enabled ? "On" : "Off"}</strong>
+          <small>{automationReady ? "every 15 minutes" : "Paystack is not the payment provider"}</small>
+        </div>
+        <div>
+          <span>Transfer fee budget</span>
+          <strong>{cedis(automation?.transferFee || 0)}</strong>
+          <small>reserved per transfer</small>
+        </div>
+      </div>
+      <p className="console-note">
+        Running this by hand sends real money now. It pays every organizer whose entries have cleared their release date, in the order they were earned,
+        and stops when the settled balance runs out.
+      </p>
+      <div className="console-row-actions">
+        <button disabled={busy === "RELEASE" || !automationReady} onClick={() => void runAutomation("RELEASE")}>
+          <Send size={15}/>{busy === "RELEASE" ? "Sending…" : "Run payouts now"}
+        </button>
+        <button disabled={busy === "RECONCILE" || !automationReady} onClick={() => void runAutomation("RECONCILE")}>
+          <RefreshCw size={15}/>{busy === "RECONCILE" ? "Checking…" : "Check in-flight transfers"}
+        </button>
+      </div>
+      {!automation?.enabled && <p className="console-note">
+        Unattended payouts are off, so the cron never sends. Set <code>PAYOUT_AUTO_ENABLED=true</code> as a Worker secret to turn them on.
+      </p>}
+    </section>
 
     <section className="console-panel">
       <h2><Banknote size={18}/>Balances by organizer</h2>
@@ -163,8 +243,17 @@ function PayoutsWorkspace() {
         <button className="console-panel-close" onClick={() => { setDetail(null); setSelected(""); }}>Close</button>
       </h2>
       <p className="console-note">
-        {detail.organizer.payoutMethod || "No payout method"} · {detail.organizer.payoutAccountName || "no account name"} · {detail.organizer.payoutAccountMasked || "no account saved"} · commission {(detail.organizer.commissionBps / 100).toFixed(2)}%
+        {detail.organizer.payoutMethod || "No payout method"} · {detail.organizer.payoutBankName || "no bank or network"} · {detail.organizer.payoutAccountName || "no account name"} · {detail.organizer.payoutAccountMasked || "no account saved"} · commission {(detail.organizer.commissionBps / 100).toFixed(2)}%
       </p>
+      {detail.organizer.payoutMethod && !detail.organizer.payoutBankName && <div className="console-alert" role="alert">
+        <AlertTriangle size={15}/> This account was saved before banks and networks were recorded, so no transfer can be addressed to it. Ask the organizer to save their payout details again.
+      </div>}
+      {failedEntries > 0 && <div className="console-alert" role="alert">
+        <AlertTriangle size={15}/> {failedEntries} {failedEntries === 1 ? "entry has" : "entries have"} stopped retrying after repeated failures.
+        <button className="console-panel-close" disabled={busy === "RETRY"} onClick={() => void runAutomation("RETRY", detail.organizer.id)}>
+          <RefreshCw size={14}/>{busy === "RETRY" ? "Reopening…" : "Retry these entries"}
+        </button>
+      </div>}
 
       {totals && totals.debt > 0 && <div className="console-alert" role="alert">
         <AlertTriangle size={15}/> {cedis(totals.debt)} was refunded after payout. The debt is carried forward; a batch is refused until it is settled.
@@ -216,10 +305,13 @@ function PayoutsWorkspace() {
             {detail.statement.batches.map((batch) => (
               <tr key={batch.id}>
                 <td>{when(batch.createdAt)}</td>
-                <td>{batch.transferReference || "—"}</td>
+                <td><span>{batch.transferReference || "—"}</span><small>{batch.mode}{batch.transferCode ? ` · ${batch.transferCode}` : ""}</small></td>
                 <td>{batch.entryCount}</td>
                 <td><strong>{cedis(batch.totalAmount)}</strong></td>
-                <td>{batch.note || "—"}</td>
+                <td>
+                  <span className={`console-badge console-badge-${batch.status === "SUCCESS" ? "released" : batch.status === "FAILED" ? "failed" : "accrued"}`}>{batch.status}</span>
+                  <small>{batch.reason || batch.note || "—"}</small>
+                </td>
               </tr>
             ))}
           </tbody>

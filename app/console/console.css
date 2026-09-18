@@ -240,7 +240,9 @@
 .console-badge-approved, .console-badge-verified { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-rejected, .console-badge-suspended { background: #fff0ee; color: #9c3026; }
 .console-badge-accrued { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
+.console-badge-processing { background: var(--ui-cyan-soft, #e6f3f7); color: var(--ui-cyan, #0e7490); }
 .console-badge-released { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
+.console-badge-success { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-reversed, .console-badge-failed { background: #fff0ee; color: #9c3026; }
 
 /* Money totals sit above the ledger tables. Pesewas are formatted for display

@@ -158,7 +158,8 @@ vacationRide will continue to share the platform’s core infrastructure:
 | 2 | Organizer accounts and ownership | Registration + approval, `trip_organizers`, trip ownership and manifest, per-organizer notice |
 | 3 | Self-service publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture |
 | 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, statement, admin-triggered batches |
-| 5 | Scale | Paystack Transfers, daily job + reconcile, disputes, analytics |
+| 5 | Automated payouts | Paystack Transfers, release + reconcile jobs, settlement gate |
+| 6 | Trust and insight | Disputes, route-overlap warnings, analytics, public read rate limits |
 
 ---
 

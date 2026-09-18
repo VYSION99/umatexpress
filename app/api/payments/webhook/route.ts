@@ -2,7 +2,7 @@ import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
 import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
-import { accrueForBooking } from "@/lib/organizer-payouts";
+import { accrueForBooking, applyPaystackTransferEvent } from "@/lib/organizer-payouts";
 import { incrementMetric, logEvent, requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 type PaystackWebhook = {
@@ -13,8 +13,17 @@ type PaystackWebhook = {
     amount?: number;
     status?: string;
     gateway_response?: string;
+    transfer_code?: string;
+    reason?: string;
   };
 };
+
+/** Paystack sends payout results to the same endpoint as payments. */
+const TRANSFER_EVENTS = ["transfer.success", "transfer.failed", "transfer.reversed"] as const;
+
+function isTransferEvent(event: string | undefined): event is (typeof TRANSFER_EVENTS)[number] {
+  return (TRANSFER_EVENTS as readonly string[]).includes(String(event || ""));
+}
 
 function json(message: string, status = 200, requestId = "") {
   const response = Response.json({ message }, { status, headers: { "Cache-Control": "no-store" } });
@@ -122,6 +131,31 @@ export async function POST(request: Request) {
 
   const reference = String(event.data?.reference || "").trim();
   if (!reference) return json("Webhook ignored: missing reference.", 200, requestId);
+
+  // A payout result, not a payment. It is acknowledged before anything else so
+  // a delivery that arrives mid-flight cannot be mistaken for a charge.
+  if (isTransferEvent(event.event)) {
+    const eventId = event.data?.id
+      ? String(event.data.id)
+      : `${event.event}:${event.data?.transfer_code || reference}`;
+    try {
+      if (!(await claimPaymentEvent("PAYSTACK", eventId, reference))) {
+        await incrementMetric("webhook_duplicate");
+        return json("Webhook ignored: event already processed.", 200, requestId);
+      }
+      const result = await applyPaystackTransferEvent({
+        event: event.event,
+        data: (event.data || {}) as Record<string, unknown>,
+      });
+      await incrementMetric(`payout_transfer_${result.handled ? "applied" : "ignored"}`);
+      return noStore(result);
+    } catch (error) {
+      await incrementMetric("webhook_failed");
+      logEvent("error", "payout_webhook_failed", { requestId, reference, reason: error instanceof Error ? error.message : "unknown" });
+      await releasePaymentEvent("PAYSTACK", eventId).catch(() => undefined);
+      return noStore({ error: error instanceof Error ? error.message : "Webhook could not be processed." }, 500);
+    }
+  }
 
   const successful = event.event === "charge.success" && event.data?.status === "success";
   const failed = event.event === "charge.failed" || event.data?.status === "failed";

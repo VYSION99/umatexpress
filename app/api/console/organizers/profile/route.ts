@@ -1,6 +1,7 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { getOrganizerProfile } from "@/lib/organizers";
+import { listPayoutDestinations } from "@/lib/paystack-banks";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -15,7 +16,14 @@ export async function GET(request: Request) {
     if (!account.profileId) {
       throw new CampusEngineError("UNAUTHORIZED", "This account is not linked to an organizer profile.", 401);
     }
-    return Response.json({ ok: true, profile: await getOrganizerProfile(account.profileId) }, { headers: NO_STORE });
+    // The payout form has to offer somewhere to send the money, so the banks
+    // and networks come back with the profile rather than from a second call.
+    const [profile, banks, networks] = await Promise.all([
+      getOrganizerProfile(account.profileId),
+      listPayoutDestinations("BANK"),
+      listPayoutDestinations("MOMO"),
+    ]);
+    return Response.json({ ok: true, profile, destinations: { BANK: banks, MOMO: networks } }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

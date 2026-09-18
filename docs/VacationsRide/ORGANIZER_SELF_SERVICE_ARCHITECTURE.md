@@ -277,8 +277,26 @@ Commission per organizer, `bookings.organizer_id` + `commission_amount`, `organi
 
 **Decided here:** the ledger is append-only (status and timestamps change, never an amount); a reversal of a released entry becomes a debt that blocks the next batch until it is settled, rather than being silently netted; and recording a payout is ADMIN-only, because it is the last human step before money moves.
 
-### Phase 5 — Scale
-Paystack Transfers for automated payouts, suspension and dispute handling, route-overlap warnings, organizer analytics, rate limits on public trip reads.
+### Phase 5 — Automated payouts — **Shipped**
+Paystack Transfers, a release job that drains what is due, a reconcile job for a
+webhook that never arrived, and a settlement gate that reads Paystack's own
+balance instead of assuming the money is there.
+
+**Acceptance:** a due entry with no destination is never sent; the settled
+balance is the ceiling; an in-flight transfer is not sent twice; a failed
+transfer returns its entries to the ledger; an entry is released only when
+Paystack says the money arrived; and a reversal is not a debt. Covered by
+`tests/payout-transfers.test.mjs`, plus the cron-collision test in
+`tests/cloudflare-bindings.test.mjs`.
+
+**Decided here:** unattended transfers are opt-in (`PAYOUT_AUTO_ENABLED`), while
+a run from the console is attended and is audited to the administrator who
+started it; a transfer fee is budgeted per transfer rather than assumed away;
+and a transfer that reverses puts the money back on the ledger instead of
+creating a debt, because the platform still holds it.
+
+### Phase 6 — Trust and insight
+Suspension and dispute handling, route-overlap warnings, organizer analytics, rate limits on public trip reads. Suspension itself exists; the dispute trail around it does not.
 
 ---
 

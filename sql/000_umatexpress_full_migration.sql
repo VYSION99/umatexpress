@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS trip_organizers (
   payout_account_name TEXT NOT NULL DEFAULT '',
   payout_account_number TEXT NOT NULL DEFAULT '',
   payout_account_last4 TEXT NOT NULL DEFAULT '',
+  payout_bank_code TEXT NOT NULL DEFAULT '',
+  payout_bank_name TEXT NOT NULL DEFAULT '',
   payout_updated_at TEXT,
   paystack_recipient_code TEXT NOT NULL DEFAULT '',
   commission_bps INTEGER NOT NULL DEFAULT 300,
@@ -137,6 +139,8 @@ CREATE TABLE IF NOT EXISTS organizer_payouts (
   status TEXT NOT NULL DEFAULT 'ACCRUED',
   batch_id TEXT NOT NULL DEFAULT '',
   transfer_reference TEXT NOT NULL DEFAULT '',
+  payout_attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
   released_at TEXT,
   transferred_at TEXT,
   reversed_at TEXT,
@@ -145,16 +149,27 @@ CREATE TABLE IF NOT EXISTS organizer_payouts (
   updated_at TEXT NOT NULL
 );
 
--- A payout the administrator made by hand, with the transfer reference they
--- were given. Phase 5 records the same rows from the Paystack Transfers API.
+-- One payout attempt. `mode` says whether an administrator made the transfer
+-- by hand and recorded the reference, or the Paystack Transfers API did it;
+-- `status` says how that attempt ended. Entries carry the batch id only while
+-- the money is in flight, so a failed batch leaves the rows owed.
 CREATE TABLE IF NOT EXISTS organizer_payout_batches (
   id TEXT PRIMARY KEY,
   organizer_id TEXT NOT NULL,
   total_amount INTEGER NOT NULL DEFAULT 0,
   entry_count INTEGER NOT NULL DEFAULT 0,
   transfer_reference TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT 'MANUAL',
+  status TEXT NOT NULL DEFAULT 'RECORDED',
+  transfer_code TEXT NOT NULL DEFAULT '',
+  recipient_code TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
   note TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL DEFAULT '',
+  initiated_at TEXT,
+  settled_at TEXT,
+  updated_at TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -413,19 +428,21 @@ CREATE TABLE IF NOT EXISTS campus_schema_meta (
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
 VALUES ('campusRide', '2026-09-18.1', datetime('now'));
 
--- The other two schema passes the application keeps markers for. Each value
--- must match its constant in the source: TRIPS_SCHEMA_VERSION in
--- lib/dynamic-trips.ts and ORGANIZER_SCHEMA_VERSION in lib/organizers.ts.
+-- The other schema passes the application keeps markers for. Each value must
+-- match its constant in the source: TRIPS_SCHEMA_VERSION in
+-- lib/dynamic-trips.ts, ORGANIZER_SCHEMA_VERSION in lib/organizers.ts and
+-- PAYOUTS_SCHEMA_VERSION in lib/organizer-payouts.ts. A mismatch only costs a
+-- replay of the pass, but keeping them equal preserves the one-subrequest
+-- cold start.
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
 VALUES ('scheduledTrips', '2026-09-18.2', datetime('now'));
 
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
-VALUES ('tripOrganizers', '2026-09-18.2', datetime('now'));
+VALUES ('tripOrganizers', '2026-09-18.3', datetime('now'));
 
--- The Phase 4 ledger. Must match PAYOUTS_SCHEMA_VERSION in
--- lib/organizer-payouts.ts.
+-- The organizer payout ledger and its transfer attempts.
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
-VALUES ('organizerPayouts', '2026-09-18.1', datetime('now'));
+VALUES ('organizerPayouts', '2026-09-18.2', datetime('now'));
 
 -- Existing trips predate review and belong to the platform, so they are already
 -- live. Anything created afterwards starts as DRAFT and must be reviewed.
@@ -602,6 +619,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_organizer_payouts_booking ON organizer_pay
 CREATE INDEX IF NOT EXISTS idx_organizer_payouts_organizer ON organizer_payouts(organizer_id, status);
 CREATE INDEX IF NOT EXISTS idx_organizer_payouts_due ON organizer_payouts(status, release_after);
 CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches ON organizer_payout_batches(organizer_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches_status ON organizer_payout_batches(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_organizer_payouts_batch ON organizer_payouts(batch_id);
 
 -- Platform
 CREATE INDEX IF NOT EXISTS idx_payment_events_reference ON payment_events(provider, reference);
@@ -671,6 +690,19 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE trip_organizers          ADD COLUMN kyc_reviewed_at TEXT;
 -- ALTER TABLE trip_organizers          ADD COLUMN payout_account_last4 TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE trip_organizers          ADD COLUMN payout_updated_at TEXT;
+-- ALTER TABLE trip_organizers          ADD COLUMN payout_bank_code TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE trip_organizers          ADD COLUMN payout_bank_name TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE organizer_payouts        ADD COLUMN payout_attempts INTEGER NOT NULL DEFAULT 0;
+-- ALTER TABLE organizer_payouts        ADD COLUMN last_error TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'MANUAL';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN status TEXT NOT NULL DEFAULT 'RECORDED';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN transfer_code TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN recipient_code TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+-- ALTER TABLE organizer_payout_batches ADD COLUMN initiated_at TEXT;
+-- ALTER TABLE organizer_payout_batches ADD COLUMN settled_at TEXT;
+-- ALTER TABLE organizer_payout_batches ADD COLUMN updated_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN booking_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT';
 -- ALTER TABLE bookings                 ADD COLUMN hold_expires_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN confirmed_at TEXT;

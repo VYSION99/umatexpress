@@ -158,14 +158,21 @@ function handle(sql, args) {
     return ok(empty);
   }
   if (/^UPDATE trip_organizers SET payout_method=\?/.test(sql)) {
-    const profile = profiles.get(args[6]);
+    const profile = profiles.get(args[9]);
     if (profile) {
       profile.payout_method = String(args[0]);
       profile.payout_account_name = String(args[1]);
       profile.payout_account_number = String(args[2]);
       profile.payout_account_last4 = String(args[3]);
+      profile.payout_bank_code = String(args[4]);
+      profile.payout_bank_name = String(args[5]);
+      profile.paystack_recipient_code = String(args[8]);
     }
     return ok(empty);
+  }
+  if (/COALESCE\(paystack_recipient_code,''\) AS paystack_recipient_code/.test(sql)) {
+    const profile = profiles.get(args[0]);
+    return ok(profile ? table(Object.keys(profile), [profile]) : empty);
   }
   if (/^UPDATE trip_organizers SET kyc_status=\?,kyc_reason=\?/.test(sql)) {
     const profile = profiles.get(args[4]);
@@ -394,7 +401,7 @@ test("payout details are stored sealed, read masked, and only an admin may revea
   const saved = await payoutRoute.PUT(new Request(`${URL_BASE}/api/console/organizers/profile/payout`, {
     method: "PUT",
     headers: { cookie: owner, "content-type": "application/json" },
-    body: JSON.stringify({ method: "MOMO", accountName: "A Travel", accountNumber: "0244123456" }),
+    body: JSON.stringify({ method: "MOMO", accountName: "A Travel", accountNumber: "0244123456", bankCode: "MTN" }),
   }));
   const body = await saved.json();
   assert.equal(saved.status, 200);
@@ -404,6 +411,7 @@ test("payout details are stored sealed, read masked, and only an admin may revea
   const write = statements.find((entry) => /^UPDATE trip_organizers SET payout_method=\?/.test(entry.sql));
   assert.match(String(write.args[2]), /^v1:/, "the account number must be sealed at rest");
   assert.equal(write.args[3], "3456", "only the last four are stored in the clear");
+  assert.equal(write.args[4], "MTN", "the network is what addresses the transfer, so it is stored with the number");
   const savedAudit = statements.find((entry) => /^INSERT INTO admin_audit_logs/.test(entry.sql));
   assert.equal(JSON.stringify(savedAudit.args).includes("0244123456"), false, "the audit trail must not hold the number");
 

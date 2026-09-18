@@ -9,7 +9,7 @@ type Totals = { accrued: number; ready: number; released: number; reversed: numb
 type Entry = {
   id: string; bookingReference: string; title: string; from: string; to: string;
   grossAmount: number; commissionAmount: number; netAmount: number; commissionBps: number;
-  releaseAfter: string; status: string; transferReference: string; releasedAt: string;
+  releaseAfter: string; status: string; transferReference: string; releasedAt: string; lastError: string;
   reversedAt: string; reversedReason: string; createdAt: string;
 };
 type Batch = { id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdAt: string };
@@ -90,6 +90,7 @@ function EarningsWorkspace() {
                 <td>
                   <span className={`console-badge console-badge-${entry.status.toLowerCase()}`}>{entry.status}</span>
                   {entry.transferReference && <small>Ref {entry.transferReference}</small>}
+                  {entry.status === "FAILED" && <small className="console-reason">{entry.lastError || "The transfer could not be completed. The team has been alerted."}</small>}
                   {entry.reversedReason && <small className="console-reason">{entry.reversedReason}</small>}
                 </td>
               </tr>
@@ -117,7 +118,7 @@ function EarningsWorkspace() {
           </tbody>
         </table>}
       <p className="console-note">
-        Payouts are recorded by the UMaTeXPRESS team once the transfer is made. If a statement looks wrong, contact the team with the booking reference.
+        Payouts go out automatically to the account on your profile once an entry passes its release date. If a statement looks wrong, contact the team with the booking reference.
       </p>
     </section>
   </main>;

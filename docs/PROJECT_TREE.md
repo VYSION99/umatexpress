@@ -53,10 +53,11 @@ uMATeXPRESS/
 │   ├── edge-cache.ts                    # Cloudflare per-colo response cache
 │   ├── mtn-momo.ts                      # MTN MoMo provider
 │   ├── organizer-trips.ts               # organizer trip lifecycle and review state machine
-│   ├── organizer-payouts.ts             # commission split, payout ledger and batches
+│   ├── organizer-payouts.ts             # commission split, payout ledger, transfers and reconcile
 │   ├── organizers.ts                    # organizer records, KYC and payout capture
 │   ├── payment-access.ts                # ticket/payment access cookies
 │   ├── paystack.ts                      # Paystack provider
+│   ├── paystack-banks.ts                # payout destinations (Ghana banks and networks)
 │   ├── rate-limit.ts                    # in-worker request throttling
 │   ├── runtime-env.ts                   # Cloudflare/local env access
 │   ├── secret-box.ts                    # AES-GCM seal/open for payout and KYC values

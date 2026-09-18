@@ -154,7 +154,7 @@ organizer rows.
 | `bookings` → `payments` | 1:N | One booking can have several payment attempts |
 | `bookings` → `seat_holds` | 1:1 | At most one active hold per booking |
 | `bookings` → `organizer_payouts` | 1:1 | A confirmed booking accrues exactly one payout row, enforced by a unique index on `booking_id` |
-| `organizer_payouts` → `organizer_payout_batches` | N:1 | Entries released together share the batch that recorded their transfer reference |
+| `organizer_payouts` → `organizer_payout_batches` | N:1 | Entries sent together share the attempt that carried them; the link is cleared when an attempt fails and the entries return to the ledger |
 | `scheduled_trips` → `trip_notices` | N:1 | A trip uses its organizer's notice, or the platform fallback |
 
 ## 3. Design notes
@@ -176,6 +176,19 @@ organizer rows.
   when a released entry is reversed: that timestamp is the only evidence money
   left the platform, and therefore the only reason a reversal creates a debt
   instead of quietly cancelling a row.
+- **`organizer_payout_batches` records attempts, not intentions.** `mode` says
+  whether an administrator made the transfer by hand (`MANUAL`) or Paystack did
+  (`AUTO`), and `status` says how that attempt ended. An entry carries a
+  `batch_id` only while the money is in flight (`PROCESSING`); a failed or
+  reversed transfer clears it and returns the entry to `ACCRUED`, so the batch
+  row is the record of what was tried and the ledger is the record of what is
+  owed. A debt is created by a refund of an already-paid booking, never by a
+  transfer that did not arrive.
+- **A payout account is an address, not just a number.** Paystack addresses a
+  transfer by `bank_code`, so `trip_organizers.payout_bank_code` and
+  `payout_bank_name` sit beside the sealed account number. Changing any of
+  them clears `paystack_recipient_code`, which is what stops the next payout
+  from being sent to the previous account.
 - **`admin_audit_logs` is the platform audit table**, not an admin-only one:
   driver, moderator, organizer and admin actions all land there with the actor
   and role in `details`. There is no `organizer_audit_logs`.
