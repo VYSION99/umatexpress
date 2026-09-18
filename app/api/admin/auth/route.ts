@@ -1,12 +1,20 @@
-import { adminAuthConfigStatus, adminEmailFromRequest, adminSessionCookie, clearAdminSessionCookie, isSecureRequest, validateAdminCredentials } from "@/lib/admin-auth";
+import { adminAuthConfigStatus, adminSessionCookie, clearAdminSessionCookie, isSecureRequest, validateAdminCredentials } from "@/lib/admin-auth";
 import { adminMustChangePassword, changeAdminPassword } from "@/lib/admin-credentials";
+import { clearConsoleSessionCookie, consoleSessionCookie } from "@/lib/console-auth";
+import { changeConsolePassword } from "@/lib/console-signin";
+import { staffSessionFromRequest } from "@/lib/staff-session";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { authGuardClear, authGuardFailure, authGuardStatus } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
-  const email = await adminEmailFromRequest(request);
-  const mustChangePassword = email ? await adminMustChangePassword(email) : false;
-  return Response.json({ authenticated: Boolean(email), email, mustChangePassword, config: await adminAuthConfigStatus() }, { status: email ? 200 : 401, headers: { "Cache-Control": "no-store" } });
+  // Reports the staff session, whether it came from the console identity or
+  // from the legacy admin cookie, so one gate serves every admin screen.
+  const staff = await staffSessionFromRequest(request);
+  if (staff) {
+    const mustChangePassword = staff.source === "legacy" ? await adminMustChangePassword(staff.email) : staff.mustChangePassword;
+    return Response.json({ authenticated: true, email: staff.email, role: staff.role, source: staff.source, mustChangePassword, config: await adminAuthConfigStatus() }, { headers: { "Cache-Control": "no-store" } });
+  }
+  return Response.json({ authenticated: false, email: null, mustChangePassword: false, config: await adminAuthConfigStatus() }, { status: 401, headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {
@@ -56,8 +64,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const email = await adminEmailFromRequest(request);
-  if (!email) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
+  const staff = await staffSessionFromRequest(request);
+  if (!staff) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
   try {
     const limited = await rateLimit(request, "admin-password-change", { limit: 6, windowMs: 15 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
@@ -65,6 +73,16 @@ export async function PATCH(request: Request) {
     const mode = body.mode === "reset" ? "reset" : "change";
     const currentPassword = String(body.currentPassword || "");
     const newPassword = String(body.newPassword || "");
+
+    if (staff.source === "console" && staff.account) {
+      await changeConsolePassword(staff.account, currentPassword, newPassword);
+      return Response.json(
+        { changed: true, reset: mode === "reset", mustChangePassword: false },
+        { headers: { "Set-Cookie": await consoleSessionCookie(staff.account, request), "Cache-Control": "no-store" } },
+      );
+    }
+
+    const email = staff.email;
 
     if (mode === "reset") {
       await changeAdminPassword(email, currentPassword, newPassword);
@@ -80,5 +98,10 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   const secure = isSecureRequest(request);
-  return Response.json({ authenticated: false }, { headers: { "Set-Cookie": clearAdminSessionCookie(secure), "Cache-Control": "no-store" } });
+  // Clearing both cookies is deliberate: signing out on the console origin must
+  // end whichever of the two sessions is in play.
+  const headers = new Headers({ "Cache-Control": "no-store" });
+  headers.append("Set-Cookie", clearAdminSessionCookie(secure));
+  headers.append("Set-Cookie", clearConsoleSessionCookie(request));
+  return Response.json({ authenticated: false }, { headers });
 }

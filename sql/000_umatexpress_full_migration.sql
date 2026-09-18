@@ -354,6 +354,30 @@ CREATE TABLE IF NOT EXISTS student_accounts (
   last_login_at       TEXT
 );
 
+-- One identity for every console service: admin, moderator, organizer and
+-- driver. The role decides what the account may do, and the role is always
+-- read from the signed session, never from a request body or query string.
+-- A NULL password_hash means the account is bridged to a legacy credential
+-- store (admin_credentials or campus_drivers): the console adopts an identity
+-- that already exists and only owns the password once one is set here.
+-- status: PENDING (waiting for approval) | ACTIVE | SUSPENDED
+CREATE TABLE IF NOT EXISTS console_accounts (
+  id                  TEXT PRIMARY KEY,
+  email               TEXT NOT NULL UNIQUE,
+  name                TEXT NOT NULL,
+  phone               TEXT NOT NULL DEFAULT '',
+  password_hash       TEXT,
+  password_salt       TEXT,
+  password_iterations INTEGER,
+  role                TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'PENDING',
+  profile_id          TEXT NOT NULL DEFAULT '',
+  token_version       INTEGER NOT NULL DEFAULT 0,
+  last_login_at       TEXT,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+
 -- Failed-attempt counters for login and PIN lockouts.
 CREATE TABLE IF NOT EXISTS auth_failures (
   scope TEXT NOT NULL,
@@ -399,6 +423,10 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
 
 -- Platform accounts
 CREATE INDEX IF NOT EXISTS idx_student_accounts_active ON student_accounts(active, created_at);
+
+-- Console identity
+CREATE INDEX IF NOT EXISTS idx_console_accounts_role_status ON console_accounts(role, status);
+CREATE INDEX IF NOT EXISTS idx_console_accounts_profile ON console_accounts(role, profile_id);
 
 -- vacationRide
 CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created_at);

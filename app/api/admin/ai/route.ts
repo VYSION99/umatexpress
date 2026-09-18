@@ -1,4 +1,4 @@
-import { adminEmailFromRequest } from "@/lib/admin-auth";
+import { staffEmailFromRequest } from "@/lib/staff-session";
 import { callCloudflareAi, cloudflareAiConfigStatus, isCloudflareAiConfigured } from "@/lib/cloudflare-ai";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
@@ -11,7 +11,7 @@ function publicAiError(error: unknown) {
 }
 
 export async function POST(request: Request) {
-  const adminEmail = await adminEmailFromRequest(request);
+  const adminEmail = await staffEmailFromRequest(request);
   if (!adminEmail) {
     return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
   }

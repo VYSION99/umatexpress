@@ -2,6 +2,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { runCampusReconcile } from "@/lib/campus-engine/reconcile-job";
+import { consoleBoundaryResponse } from "@/lib/console-hosts";
 
 interface Env {
   ASSETS?: { fetch(request: Request): Promise<Response> };
@@ -12,6 +13,7 @@ interface Env {
       };
     };
   };
+  CONSOLE_HOSTS?: string;
 }
 
 interface ExecutionContext {
@@ -28,6 +30,13 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // The console is a separate origin. When CONSOLE_HOSTS is configured the
+    // console origin serves console surfaces only, and console-native paths are
+    // never reachable from the public host. Unconfigured means no boundary,
+    // which is what local development and preview deployments rely on.
+    const boundary = consoleBoundaryResponse(request, env.CONSOLE_HOSTS ?? process.env.CONSOLE_HOSTS);
+    if (boundary) return boundary;
 
     if (url.pathname === "/_vinext/image") {
       if (!env.ASSETS || !env.IMAGES) return new Response("Image optimization is unavailable locally.", { status: 404 });

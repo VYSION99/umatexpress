@@ -1,6 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { hashPassword, verifyPassword } from "@/lib/campus-engine/crypto";
-import { envList, envValue } from "@/lib/runtime-env";
+import { envValue } from "@/lib/runtime-env";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 /**
@@ -13,6 +13,12 @@ export type ConsoleRole = (typeof CONSOLE_ROLES)[number];
 
 export const CONSOLE_SESSION_COOKIE = "umx_console_session";
 const SESSION_SECONDS = 8 * 60 * 60;
+/**
+ * A bridged account still authenticates against a legacy store that cannot
+ * revoke console sessions, so its session is capped at one hour instead of a
+ * full working day. Setting a console password lifts the cap.
+ */
+const BRIDGED_SESSION_SECONDS = 60 * 60;
 
 export type ConsoleAccount = {
   id: string;
@@ -22,9 +28,11 @@ export type ConsoleAccount = {
   role: ConsoleRole;
   status: string;
   profileId: string;
+  /** True when the account must set a new password before it can work. */
+  mustChangePassword?: boolean;
 };
 
-type ConsoleSessionPayload = { aid: string; role: ConsoleRole; exp: number; ver: number };
+type ConsoleSessionPayload = { aid: string; role: ConsoleRole; exp: number; ver: number; mcp?: boolean };
 
 const ACCOUNT_COLUMNS = "id,email,name,COALESCE(phone,'') AS phone,role,status,COALESCE(profile_id,'') AS profile_id";
 
@@ -119,35 +127,22 @@ function isSecureRequest(request: Request) {
     || Boolean(request.headers.get("cf-visitor")?.includes("https"));
 }
 
-/**
- * The console is expected to be served from its own origin. The host check is
- * defence in depth: the primary control is that every console route requires a
- * session, so an unconfigured host list cannot expose anything on its own.
- */
-export async function consoleHosts() {
-  return envList("CONSOLE_HOSTS");
-}
-
-export async function isConsoleHost(request: Request) {
-  const hosts = await consoleHosts();
-  if (!hosts.length) return false;
-  return hosts.includes(new URL(request.url).host.toLowerCase());
-}
-
 async function accountTokenVersion(accountId: string) {
   if (!(await isTursoConfiguredRuntime())) return 0;
   const row = rowsToObjects(await turso("SELECT COALESCE(token_version,0) AS token_version FROM console_accounts WHERE id = ? LIMIT 1", [accountId]))[0];
   return Number(row?.token_version || 0);
 }
 
-export async function createConsoleSession(account: Pick<ConsoleAccount, "id" | "role">) {
+export async function createConsoleSession(account: Pick<ConsoleAccount, "id" | "role">, options: { mustChangePassword?: boolean; bridged?: boolean } = {}) {
   const secret = await sessionSecret();
   if (!secret) throw new CampusEngineError("CONFIG_REQUIRED", "CONSOLE_SESSION_SECRET must contain at least 32 characters.", 503);
+  const lifetime = options.bridged ? BRIDGED_SESSION_SECONDS : SESSION_SECONDS;
   const payload = encode(JSON.stringify({
     aid: account.id,
     role: account.role,
-    exp: Date.now() + SESSION_SECONDS * 1000,
+    exp: Date.now() + lifetime * 1000,
     ver: await accountTokenVersion(account.id),
+    ...(options.mustChangePassword ? { mcp: true } : {}),
   } satisfies ConsoleSessionPayload));
   return `${payload}.${await signature(payload, secret)}`;
 }
@@ -156,9 +151,10 @@ export async function createConsoleSession(account: Pick<ConsoleAccount, "id" | 
  * Host-only: no Domain attribute, so the console cookie is never attached to a
  * request for the public booking site.
  */
-export async function consoleSessionCookie(account: Pick<ConsoleAccount, "id" | "role">, request: Request) {
-  const value = await createConsoleSession(account);
-  return `${CONSOLE_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly;${isSecureRequest(request) ? " Secure;" : ""} SameSite=Lax; Max-Age=${SESSION_SECONDS}`;
+export async function consoleSessionCookie(account: Pick<ConsoleAccount, "id" | "role">, request: Request, options: { mustChangePassword?: boolean; bridged?: boolean } = {}) {
+  const value = await createConsoleSession(account, options);
+  const lifetime = options.bridged ? BRIDGED_SESSION_SECONDS : SESSION_SECONDS;
+  return `${CONSOLE_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly;${isSecureRequest(request) ? " Secure;" : ""} SameSite=Lax; Max-Age=${lifetime}`;
 }
 
 export function clearConsoleSessionCookie(request: Request) {
@@ -187,6 +183,60 @@ async function storedAccountById(id: string) {
   return rowsToObjects(await turso(`SELECT ${ACCOUNT_COLUMNS} FROM console_accounts WHERE id = ? LIMIT 1`, [id]))[0] || null;
 }
 
+/**
+ * The full row for a sign-in attempt, including the password record. A NULL
+ * password_hash means the account is bridged to a legacy credential store:
+ * the password still lives in admin_credentials or campus_drivers and this
+ * table only carries the identity, role and status.
+ */
+export async function consoleAccountRowByIdentifier(identifier: string) {
+  if (!(await isTursoConfiguredRuntime())) return null;
+  await ensureConsoleAccountsTable();
+  const value = identifier.trim().toLowerCase();
+  return rowsToObjects(await turso(
+    `SELECT ${ACCOUNT_COLUMNS}, password_hash, password_salt, password_iterations FROM console_accounts WHERE lower(email) = ? LIMIT 1`,
+    [value],
+  ))[0] || null;
+}
+
+export function hasStoredPassword(row: Record<string, unknown> | null) {
+  return Boolean(row && String(row.password_hash || "").length);
+}
+
+export async function verifyStoredConsolePassword(row: Record<string, unknown>, password: string) {
+  return verifyPassword(password, String(row.password_hash || ""), String(row.password_salt || ""), Number(row.password_iterations || 0));
+}
+
+/**
+ * Creates the console identity that fronts a legacy account. The row carries no
+ * password of its own, so the credential stays in exactly one place until the
+ * account sets a console password.
+ */
+export async function provisionConsoleAccount(input: {
+  email: string; name: string; phone?: string; role: ConsoleRole; profileId?: string;
+}) {
+  await ensureConsoleAccountsTable();
+  const email = input.email.trim().toLowerCase();
+  const existing = await consoleAccountRowByIdentifier(email);
+  if (existing) return consoleAccountView(existing);
+  const stamp = new Date().toISOString();
+  await turso(
+    "INSERT OR IGNORE INTO console_accounts (id,email,name,phone,password_hash,password_salt,password_iterations,role,status,profile_id,token_version,created_at,updated_at) VALUES (?,?,?,?,NULL,NULL,NULL,?,?,?,0,?,?)",
+    [crypto.randomUUID(), email, input.name.trim() || email, String(input.phone || ""), input.role, "ACTIVE", String(input.profileId || ""), stamp, stamp],
+  );
+  const row = await consoleAccountRowByIdentifier(email);
+  return row ? consoleAccountView(row) : null;
+}
+
+export async function recordConsoleLogin(accountId: string) {
+  if (!(await isTursoConfiguredRuntime())) return;
+  try {
+    await turso("UPDATE console_accounts SET last_login_at = ?, updated_at = ? WHERE id = ?", [new Date().toISOString(), new Date().toISOString(), accountId]);
+  } catch {
+    // A failed bookkeeping write must never block a valid sign-in.
+  }
+}
+
 /** The signed-in console account, or null. */
 export async function consoleAccountFromRequest(request: Request): Promise<ConsoleAccount | null> {
   const session = await consoleSessionFromRequest(request);
@@ -200,7 +250,8 @@ export async function consoleAccountFromRequest(request: Request): Promise<Conso
     const account = consoleAccountView(row);
     // The stored role wins, so a session minted before a role change cannot
     // keep privileges it no longer has.
-    return account.role === session.role ? account : null;
+    if (account.role !== session.role) return null;
+    return { ...account, mustChangePassword: session.mcp === true };
   } catch {
     return null;
   }
@@ -210,23 +261,9 @@ export async function consoleAccountFromRequest(request: Request): Promise<Conso
 export async function requireConsoleRole(request: Request, roles: readonly ConsoleRole[]): Promise<ConsoleAccount> {
   const account = await consoleAccountFromRequest(request);
   if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to the console to continue.", 401);
+  if (account.mustChangePassword) throw new CampusEngineError("PASSWORD_CHANGE_REQUIRED", "Set a new password before using the console.", 403);
   if (!roles.includes(account.role)) throw new CampusEngineError("FORBIDDEN", "Your console role cannot perform this action.", 403);
   return account;
-}
-
-export async function verifyConsoleCredentials(emailInput: unknown, password: string) {
-  const email = String(emailInput || "").trim().toLowerCase();
-  if (!email || !password) return null;
-  if (!(await isTursoConfiguredRuntime())) return null;
-  await ensureConsoleAccountsTable();
-  const row = rowsToObjects(await turso(
-    `SELECT ${ACCOUNT_COLUMNS}, password_hash, password_salt, password_iterations FROM console_accounts WHERE lower(email) = ? LIMIT 1`,
-    [email],
-  ))[0];
-  if (!row) return null;
-  const ok = await verifyPassword(password, String(row.password_hash || ""), String(row.password_salt || ""), Number(row.password_iterations || 0));
-  if (!ok) return null;
-  return consoleAccountView(row);
 }
 
 export async function createConsoleAccount(input: {
@@ -263,4 +300,27 @@ export async function setConsolePassword(accountId: string, password: string) {
     "UPDATE console_accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, token_version = COALESCE(token_version,0) + 1, updated_at = ? WHERE id = ?",
     [hash, salt, iterations, new Date().toISOString(), accountId],
   );
+}
+
+/**
+ * Password policy follows the role: staff accounts match the admin policy,
+ * operational accounts match the driver policy. Keeping the two aligned means
+ * moving an account onto the console never has to weaken it.
+ */
+export function assertConsolePassword(role: ConsoleRole, password: string) {
+  const minimum = role === "ADMIN" || role === "MODERATOR" ? 12 : 10;
+  const strong = password.length >= minimum
+    && /[A-Z]/.test(password)
+    && /[a-z]/.test(password)
+    && /\d/.test(password)
+    && /[^A-Za-z0-9]/.test(password);
+  if (!strong) {
+    throw new CampusEngineError("VALIDATION_ERROR", `Use at least ${minimum} characters with uppercase, lowercase, a number, and a symbol.`, 400);
+  }
+}
+
+/** Where a role starts after signing in. */
+export function consoleLandingPath(role: ConsoleRole) {
+  if (role === "DRIVER") return "/driver";
+  return "/console";
 }

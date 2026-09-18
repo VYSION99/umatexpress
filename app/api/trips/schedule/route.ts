@@ -1,4 +1,4 @@
-import { adminEmailFromRequest } from "@/lib/admin-auth";
+import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { ensureScheduledTripsTable, getDynamicTrips, seedDefaultScheduledTrips } from "@/lib/dynamic-trips";
 
@@ -70,7 +70,7 @@ export async function GET(request: Request) {
 
   try {
     const adminView = new URL(request.url).searchParams.get("admin") === "1";
-    if (adminView && !await adminEmailFromRequest(request)) {
+    if (adminView && !await staffEmailFromRequest(request)) {
       return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
     }
     await seedDefaultScheduledTrips();
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!await adminEmailFromRequest(request)) {
+  if (!await staffEmailFromRequest(request)) {
     return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
   }
 
@@ -129,7 +129,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!await adminEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
+  if (!await staffEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
 
   try {
     if (!(await isTursoConfiguredRuntime())) throw new Error("Configure Turso before updating a trip.");
@@ -155,7 +155,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!await adminEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
+  if (!await staffEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
 
   try {
     if (!(await isTursoConfiguredRuntime())) throw new Error("Configure Turso before deleting a trip.");

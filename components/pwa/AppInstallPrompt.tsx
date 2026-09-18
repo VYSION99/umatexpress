@@ -36,8 +36,15 @@ function rememberDismissal() {
 
 // The shell service worker is cache-backed, so it must not run against the dev
 // server: it would serve yesterday's CSS and JS while the server recompiles.
+// Console pages are staff surfaces: they must never be cached by a worker, and
+// the install prompt belongs to the student app only.
+function isConsoleSurface() {
+  return window.location.pathname === "/console" || window.location.pathname.startsWith("/console/");
+}
+
 function serviceWorkerAllowed() {
   if (process.env.NODE_ENV !== "production") return false;
+  if (isConsoleSurface()) return false;
   const { hostname, protocol } = window.location;
   return protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 }
@@ -68,6 +75,9 @@ export function AppInstallPrompt() {
     if ("serviceWorker" in navigator && serviceWorkerAllowed()) {
       navigator.serviceWorker.register("/sw.js").catch(() => undefined);
     }
+    // The install prompt belongs to the student app: a staff console is never
+    // offered for installation and never cached by the shell worker.
+    if (isConsoleSurface()) return;
 
     const initialStandalone = isStandaloneMode();
     queueMicrotask(() => setStandalone(initialStandalone));
@@ -81,7 +91,7 @@ export function AppInstallPrompt() {
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as BeforeInstallPromptEvent);
-      if (!recentlyDismissed()) setVisible(true);
+      if (!recentlyDismissed() && !isConsoleSurface()) setVisible(true);
     };
     const onInstalled = () => {
       setInstallPrompt(null);

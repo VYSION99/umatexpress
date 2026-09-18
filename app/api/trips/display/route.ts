@@ -1,5 +1,5 @@
 import { DEFAULT_TRIP_SETTINGS, activeTripIds, getTripSettings, isValidTime, normalizeFlyerPromo, type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
-import { adminEmailFromRequest } from "@/lib/admin-auth";
+import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 
 export async function GET() {
@@ -16,7 +16,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  if (!await adminEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
+  if (!await staffEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
   try {
     const current = await getTripSettings();
     const body = await request.json() as Partial<TripSchedule> & { mode?: TripDisplayMode; flyerPromo?: Partial<FlyerPromo> };

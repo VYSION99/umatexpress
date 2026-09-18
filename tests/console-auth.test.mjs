@@ -29,6 +29,8 @@ const {
   isConsoleRole,
 } = await vite.ssrLoadModule("/lib/console-auth.ts");
 
+const sessionRoute = await vite.ssrLoadModule("/app/api/console/session/route.ts");
+
 const SECRET = "test-console-session-secret-at-least-32-chars";
 const account = { id: "console-1", role: "ORGANIZER" };
 
@@ -88,4 +90,36 @@ test("an unknown role in the payload is rejected", async () => {
 
 test("a request with no session cannot reach a console role guard", async () => {
   await assert.rejects(() => requireConsoleRole(requestWith(null), ["ADMIN"]), (error) => error.status === 401);
+});
+
+test("a bridged session is capped at one hour", async () => {
+  const value = await createConsoleSession(account, { bridged: true });
+  const session = await consoleSessionFromRequest(requestWith(value));
+  const remaining = session.exp - Date.now();
+  assert.ok(remaining <= 60 * 60 * 1000, "a bridged session must not exceed an hour");
+  assert.ok(remaining > 55 * 60 * 1000, "a bridged session should still be usable");
+  const cookie = await consoleSessionCookie(account, new Request("https://console.example.test/"), { bridged: true });
+  assert.match(cookie, /Max-Age=3600/);
+});
+
+test("a session that must change its password says so", async () => {
+  const value = await createConsoleSession(account, { mustChangePassword: true });
+  const session = await consoleSessionFromRequest(requestWith(value));
+  assert.equal(session.mcp, true);
+  assert.equal((await consoleSessionFromRequest(requestWith(await createConsoleSession(account)))).mcp, undefined);
+});
+
+test("the console session endpoint refuses an anonymous caller", async () => {
+  const response = await sessionRoute.GET(new Request("https://console.example.test/api/console/session"));
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).authenticated, false);
+  assert.match(response.headers.get("cache-control") || "", /no-store/);
+});
+
+test("signing out clears the host-only console cookie", async () => {
+  const response = await sessionRoute.DELETE(new Request("https://console.example.test/api/console/session", { method: "DELETE" }));
+  const cookie = response.headers.get("set-cookie") || "";
+  assert.match(cookie, new RegExp(`^${CONSOLE_SESSION_COOKIE}=`));
+  assert.match(cookie, /Max-Age=0/);
+  assert.doesNotMatch(cookie, /Domain=/i);
 });

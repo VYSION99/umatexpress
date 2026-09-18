@@ -1,4 +1,5 @@
 import { envValue } from "@/lib/runtime-env";
+import { consoleAccountFromRequest } from "@/lib/console-auth";
 import { ensureCampusRideTables, getCampusData } from "@/lib/campus-ride";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
@@ -98,6 +99,18 @@ export async function driverSessionFromRequest(request: Request): Promise<{ driv
 }
 
 export async function requireDriver(request: Request) {
+  // A driver may sign in at the console origin, in which case the console
+  // session carries the role and the campus driver profile id. The legacy
+  // driver cookie keeps working on the public origin during the migration.
+  const consoleAccount = await consoleAccountFromRequest(request);
+  if (consoleAccount && !consoleAccount.mustChangePassword) {
+    if (consoleAccount.role !== "DRIVER") throw new CampusEngineError("FORBIDDEN", "This console session is not a driver session.", 403);
+    if (!consoleAccount.profileId) throw new CampusEngineError("FORBIDDEN", "This driver account is not linked to a campus driver profile.", 403);
+    const data = await getCampusData();
+    const driver = data.drivers.find((item) => item.id === consoleAccount.profileId);
+    if (!driver || !driver.active) throw new CampusEngineError("FORBIDDEN", "This driver account is inactive.", 403);
+    return driver;
+  }
   const session = await driverSessionFromRequest(request);
   if (!session) throw new CampusEngineError("UNAUTHORIZED", "Driver access is not authorised.", 401);
   const data = await getCampusData();

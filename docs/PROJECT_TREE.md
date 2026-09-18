@@ -14,16 +14,18 @@ uMATeXPRESS/
 │   ├── campus/                          # campusRide student app and ticket
 │   ├── driver/                          # campusRide driver portal
 │   ├── admin/                           # super-admin, vacationRide, campusRide admin
+│   ├── console/                         # console origin: entry, sign-in, password
 │   └── api/
 │       ├── admin/                       # admin auth, AI, bookings, campus management
 │       ├── campus/                      # campusRide student/map/queue APIs
+│       ├── console/                     # unified console session endpoint
 │       ├── driver/                      # driver auth, queue, rides, location APIs
 │       ├── passenger/                   # passenger AI helper
 │       ├── payments/                    # initialize, verify, webhook
 │       ├── trips/                       # vacationRide schedule/display/availability
 │       └── v1/                          # stable campus API aliases
 ├── components/
-│   ├── admin/                           # management console launcher and gate
+│   ├── admin/                           # management console launcher, gates and service list
 │   ├── campusRide/
 │   │   ├── admin/                       # campusRide admin widgets
 │   │   ├── driver/                      # driver portal widgets
@@ -41,6 +43,10 @@ uMATeXPRESS/
 │   ├── campus-ride.ts                   # campusRide data access and setup
 │   ├── campus-route-geometry.ts         # corridor route geometry (no routing service)
 │   ├── cloudflare-ai.ts                 # Workers AI client
+│   ├── console-audit.ts                 # console action audit trail
+│   ├── console-auth.ts                  # console accounts, sessions and role guards
+│   ├── console-hosts.ts                 # console origin boundary policy
+│   ├── console-signin.ts                # console sign-in and password change
 │   ├── dynamic-trips.ts                 # vacationRide dynamic trips
 │   ├── edge-cache.ts                    # Cloudflare per-colo response cache
 │   ├── mtn-momo.ts                      # MTN MoMo provider
@@ -48,6 +54,7 @@ uMATeXPRESS/
 │   ├── paystack.ts                      # Paystack provider
 │   ├── rate-limit.ts                    # in-worker request throttling
 │   ├── runtime-env.ts                   # Cloudflare/local env access
+│   ├── staff-session.ts                 # staff guard bridging console and legacy admin
 │   ├── trip-notice.ts                   # client-safe trip notice shape and merge rules
 │   ├── trip-settings.ts                 # vacationRide display settings
 │   ├── trips.ts                         # shared trip helpers

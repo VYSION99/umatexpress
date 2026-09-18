@@ -1,11 +1,11 @@
-import { adminEmailFromRequest } from "@/lib/admin-auth";
+import { staffEmailFromRequest } from "@/lib/staff-session";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { campusAudit } from "@/lib/campus-engine/audit";
 import { getCampusData, upsertCampusCorridor, upsertCampusDriver, upsertCampusVehicle, upsertCampusZone } from "@/lib/campus-ride";
 import { resetDriverPasswordByAdmin } from "@/lib/campus-engine/driver-auth";
 
 export async function requireSuperAdmin(request: Request) {
-  const email = await adminEmailFromRequest(request);
+  const email = await staffEmailFromRequest(request);
   if (!email) throw new CampusEngineError("UNAUTHORIZED", "Admin access is not authorised.", 401);
   return { email, role: "SUPER_ADMIN" as const };
 }
