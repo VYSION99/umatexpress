@@ -50,7 +50,8 @@ The checked-in `.env.example` documents all required variables. `.env` is ignore
 - `PAYSTACK_CURRENCY`: Currency sent to Paystack. Use `GHS` for Ghana.
 - `PAYSTACK_FEE_PERCENT`: Paystack fee percentage passed to the passenger. Defaults to `1.95` for Ghana.
 - `CLOUDFLARE_ACCOUNT_ID`: Optional Cloudflare account ID for Workers AI.
-- `CLOUDFLARE_AI_TOKEN`: Optional narrow Workers AI token. Do not reuse the deployment API token here.
+- `CLOUDFLARE_AI_BINDING` (default `AI`): binds Workers AI directly, which is the preferred path and needs no token at all. See `docs/CLOUDFLARE_BINDINGS.md`.
+- `CLOUDFLARE_AI_TOKEN`: Optional narrow Workers AI token, used only as the fallback when the AI binding is disabled. Do not reuse the deployment API token here.
 - `CLOUDFLARE_AI_MODEL`: Optional Workers AI model name. Defaults to `@cf/meta/llama-3.1-8b-instruct`.
 - `MTN_MOMO_BASE_URL`: MTN API origin. The sandbox default is included.
 - `MTN_MOMO_TARGET_ENVIRONMENT`: Usually `sandbox` or the configured production environment.

@@ -18,7 +18,7 @@ uMATeXPRESS/
 │   └── api/
 │       ├── admin/                       # admin auth, AI, bookings, campus management
 │       ├── campus/                      # campusRide student/map/queue APIs
-│       ├── console/                     # unified console session endpoint
+│       ├── console/                     # unified console session and bindings endpoints
 │       ├── driver/                      # driver auth, queue, rides, location APIs
 │       ├── passenger/                   # passenger AI helper
 │       ├── payments/                    # initialize, verify, webhook
@@ -43,6 +43,8 @@ uMATeXPRESS/
 │   ├── campus-ride.ts                   # campusRide data access and setup
 │   ├── campus-route-geometry.ts         # corridor route geometry (no routing service)
 │   ├── cloudflare-ai.ts                 # Workers AI client
+│   ├── cloudflare-binding-spec.ts       # binding names and BINDING=value parsers
+│   ├── cloudflare-bindings.ts           # typed access to AI/Images/R2/Queue/DO/mTLS
 │   ├── console-audit.ts                 # console action audit trail
 │   ├── console-auth.ts                  # console accounts, sessions and role guards
 │   ├── console-hosts.ts                 # console origin boundary policy
@@ -69,7 +71,8 @@ uMATeXPRESS/
 ├── sql/                                 # manual production migrations
 ├── scripts/                             # install, audit, build, deploy helpers
 ├── campusRide/                          # planning notes for the campusRide product
-├── build/                               # local framework helper code
+├── build/                               # framework helper code and the Cloudflare binding plan
+├── worker/                              # Worker entry point and the RateLimiter Durable Object
 ├── tests/                               # Node test suite
 ├── docs/                                # project documentation and tree maps
 ├── .env.example                         # safe environment variable template

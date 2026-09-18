@@ -1,18 +1,25 @@
+import { aiBinding } from "@/lib/cloudflare-bindings";
 import { envValue } from "@/lib/runtime-env";
 
 export const DEFAULT_CLOUDFLARE_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 
 export async function isCloudflareAiConfigured() {
+  // The Worker binding is the preferred path: no token travels with the
+  // request, and the model is billed to the account that owns the Worker.
+  if (await aiBinding()) return true;
   const token = await envValue("CLOUDFLARE_AI_TOKEN");
   const accountId = await envValue("CLOUDFLARE_ACCOUNT_ID", ["CLOUDFLARE_ACCOUNT", "ACCOUNT_ID"]);
   return Boolean(token && accountId && !token.startsWith("replace-with") && !accountId.startsWith("replace-with"));
 }
 
 export async function cloudflareAiConfigStatus() {
+  const bindingReady = Boolean(await aiBinding());
   const token = await envValue("CLOUDFLARE_AI_TOKEN");
   const accountId = await envValue("CLOUDFLARE_ACCOUNT_ID", ["CLOUDFLARE_ACCOUNT", "ACCOUNT_ID"]);
   const model = await envValue("CLOUDFLARE_AI_MODEL") || DEFAULT_CLOUDFLARE_AI_MODEL;
   return {
+    bindingReady,
+    mode: bindingReady ? "binding" as const : (token && accountId ? "rest" as const : "none" as const),
     hasAccountId: Boolean(accountId && !accountId.startsWith("replace-with")),
     hasAiToken: Boolean(token && !token.startsWith("replace-with")),
     model,
@@ -50,16 +57,26 @@ function normalizeCloudflareAiText(payload: unknown): string {
 }
 
 export async function callCloudflareAi(systemPrompt: string, userPrompt: string) {
-  if (!(await isCloudflareAiConfigured())) {
-    throw new Error("Cloudflare AI is not configured. Add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN to the environment.");
+  const model = await envValue("CLOUDFLARE_AI_MODEL") || DEFAULT_CLOUDFLARE_AI_MODEL;
+
+  const binding = await aiBinding();
+  if (binding) {
+    const data = await binding.run(model, {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    });
+    const boundText = normalizeCloudflareAiText(data);
+    if (!boundText) throw new Error("Cloudflare AI returned an empty response.");
+    return boundText.trim();
   }
 
   const accountId = await envValue("CLOUDFLARE_ACCOUNT_ID", ["CLOUDFLARE_ACCOUNT", "ACCOUNT_ID"]);
   const token = await envValue("CLOUDFLARE_AI_TOKEN");
   if (!accountId || !token) {
-    throw new Error("Cloudflare AI is not configured. Add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN to the environment.");
+    throw new Error("Cloudflare AI is not configured. Bind Workers AI to the Worker, or set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN.");
   }
-  const model = await envValue("CLOUDFLARE_AI_MODEL") || DEFAULT_CLOUDFLARE_AI_MODEL;
   const modelPath = model.split("/").map((part) => encodeURIComponent(part)).join("/");
 
   const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelPath}`, {

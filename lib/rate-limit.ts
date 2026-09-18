@@ -1,3 +1,5 @@
+import { rateLimiterNamespace } from "@/lib/cloudflare-bindings";
+import { logEvent } from "@/lib/observability";
 import { ensureRateLimitTable, isTursoConfiguredRuntime, turso } from "@/lib/turso";
 
 type RateLimitOptions = {
@@ -92,9 +94,45 @@ function pruneBuckets(now: number) {
   }
 }
 
+/**
+ * Counts one request in the Durable Object limiter, or returns null when the
+ * binding is absent or unhealthy so the caller falls through to the durable
+ * Turso counter. One object per subject means the count is serialised, so two
+ * simultaneous requests can never both read the same stale value.
+ */
+async function consumeDurableRateLimit(scope: string, subject: string, options: RateLimitOptions, now: number) {
+  const namespace = await rateLimiterNamespace();
+  if (!namespace) return null;
+  try {
+    const stub = namespace.get(namespace.idFromName(`${scope}:${subject}`));
+    const response = await stub.fetch("https://rate-limiter/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: options.limit, windowMs: options.windowMs, now }),
+    });
+    if (!response.ok) return null;
+    const decision = await response.json() as { allowed?: unknown; count?: unknown; retryAfter?: unknown };
+    if (typeof decision.allowed !== "boolean") return null;
+    return {
+      ok: decision.allowed,
+      remaining: decision.allowed ? Math.max(0, options.limit - Number(decision.count || 0)) : 0,
+      retryAfter: Number(decision.retryAfter || 0),
+    };
+  } catch (error) {
+    // Never fail a request because the limiter is unavailable, but never hide
+    // it either: without this line a broken binding would silently look like
+    // the fallback limiter working.
+    logEvent("warn", "rate_limit_binding_failed", { scope, reason: error instanceof Error ? error.message : "unknown" });
+    return null;
+  }
+}
+
 export async function rateLimit(request: Request, scope: string, options: RateLimitOptions) {
   const now = Date.now();
   const subject = clientIp(request);
+
+  const durable = await consumeDurableRateLimit(scope, subject, options, now);
+  if (durable) return durable;
 
   if (await isTursoConfiguredRuntime()) {
     await ensureRateLimitTable();

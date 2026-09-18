@@ -1,9 +1,25 @@
+import { MOMO_MTLS_BINDING } from "@/lib/cloudflare-binding-spec";
+import { mtlsFetcher } from "@/lib/cloudflare-bindings";
 import { envValue } from "@/lib/runtime-env";
 
 const DEFAULT_BASE_URL = "https://sandbox.momodeveloper.mtn.com";
 
 type TokenCache = { token: string; expiresAt: number };
 let tokenCache: TokenCache | null = null;
+
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/**
+ * MTN's Collection API expects the client certificate once the account leaves
+ * the sandbox. When the certificate is bound, every MoMo call is routed through
+ * the binding; without it the plain global fetch is used, so the sandbox and
+ * local development keep working unchanged.
+ */
+async function momoFetch(): Promise<FetchLike> {
+  const certificate = await mtlsFetcher(MOMO_MTLS_BINDING);
+  if (!certificate) return (input, init) => fetch(input, init);
+  return (input, init) => certificate.fetch(input, init);
+}
 
 function getConfig() {
   const apiUser = process.env.MTN_MOMO_API_USER;
@@ -56,7 +72,8 @@ export async function getAccessToken() {
 
   const { apiUser, apiKey, collectionKey, baseUrl } = await getRuntimeConfig();
   const basic = btoa(`${apiUser}:${apiKey}`);
-  const response = await fetch(`${baseUrl}/collection/token/`, {
+  const request = await momoFetch();
+  const response = await request(`${baseUrl}/collection/token/`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basic}`,
@@ -86,8 +103,9 @@ export async function requestToPay(input: {
 }) {
   const { collectionKey, baseUrl, targetEnvironment, currency } = await getRuntimeConfig();
   const accessToken = await getAccessToken();
+  const request = await momoFetch();
 
-  const response = await fetch(`${baseUrl}/collection/v1_0/requesttopay`, {
+  const response = await request(`${baseUrl}/collection/v1_0/requesttopay`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -117,8 +135,9 @@ export async function requestToPay(input: {
 export async function getPaymentStatus(referenceId: string) {
   const { collectionKey, baseUrl, targetEnvironment } = await getRuntimeConfig();
   const accessToken = await getAccessToken();
+  const request = await momoFetch();
 
-  const response = await fetch(`${baseUrl}/collection/v1_0/requesttopay/${encodeURIComponent(referenceId)}`, {
+  const response = await request(`${baseUrl}/collection/v1_0/requesttopay/${encodeURIComponent(referenceId)}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Ocp-Apim-Subscription-Key": collectionKey,

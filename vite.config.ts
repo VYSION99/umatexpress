@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig, loadEnv } from "vite";
 import hostingConfig from "./.openai/hosting.json";
+import { bindingPlan, bindingPlanSummary, wranglerBindingConfig } from "./build/cloudflare-binding-plan";
 import { sites } from "./build/sites-vite-plugin";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
@@ -10,30 +11,6 @@ const { d1, r2 } = hostingConfig as { d1?: string; r2?: string };
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
-
-const localBindingConfig = {
-  main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
-  // Cron Trigger for campusRide payment reconciliation. See worker/index.ts.
-  triggers: { crons: ["*/5 * * * *"] },
-  d1_databases: d1
-    ? [
-        {
-          binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
-        },
-      ]
-    : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: "site-creator-r2",
-        },
-      ]
-    : [],
-};
 
 export default defineConfig(async ({ mode }) => {
   const localEnv = loadEnv(mode, process.cwd(), "");
@@ -49,6 +26,38 @@ export default defineConfig(async ({ mode }) => {
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
+
+  // Every Cloudflare binding is described in one place. The plan is generated
+  // from the environment so a deployment can rename or drop a binding without
+  // touching this file, and the effective names are written back into `vars` so
+  // the Worker resolves exactly what was built.
+  const plan = bindingPlan(localEnv);
+  const bindings = wranglerBindingConfig(plan);
+  for (const line of bindingPlanSummary(plan)) console.log(`[bindings] ${line}`);
+
+  const localBindingConfig = {
+    main: "./worker/index.ts",
+    compatibility_flags: ["nodejs_compat"],
+    // Cron Trigger for campusRide payment reconciliation and the notification
+    // retry sweep. See worker/index.ts.
+    triggers: { crons: ["*/5 * * * *"] },
+    ...bindings,
+    // A bucket declared by the hosting template is additive: it never replaces
+    // the application's own R2 binding.
+    r2_buckets: [
+      ...bindings.r2_buckets,
+      ...(r2 ? [{ binding: r2, bucket_name: "site-creator-r2" }] : []),
+    ],
+    d1_databases: d1
+      ? [
+          {
+            binding: d1,
+            database_name: "site-creator-d1",
+            database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          },
+        ]
+      : [],
+  };
 
   return {
     server: {

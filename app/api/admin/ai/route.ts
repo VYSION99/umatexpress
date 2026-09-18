@@ -33,9 +33,9 @@ export async function POST(request: Request) {
       const config = await cloudflareAiConfigStatus();
       return Response.json({
         suggestion: mode === "suggestion"
-          ? "Cloudflare AI is not configured on this deployment yet. Add Cloudflare Worker secrets named CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN, then redeploy. Use a Workers AI API token, not the Paystack key."
-          : "Cloudflare AI is not configured on this deployment yet. Add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN as Worker secrets, then redeploy to enable passenger assistance.",
-        error: `AI config status: accountId=${config.hasAccountId ? "present" : "missing"}, token=${config.hasAiToken ? "present" : "missing"}, model=${config.model}`,
+          ? "Cloudflare AI is not configured on this deployment yet. Bind Workers AI to the Worker (CLOUDFLARE_AI_BINDING=AI) and redeploy; the API-token fallback is CLOUDFLARE_ACCOUNT_ID plus CLOUDFLARE_AI_TOKEN."
+          : "Cloudflare AI is not configured on this deployment yet. Bind Workers AI (CLOUDFLARE_AI_BINDING=AI) or add the CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN secrets, then redeploy to enable passenger assistance.",
+        error: `AI config status: mode=${config.mode}, accountId=${config.hasAccountId ? "present" : "missing"}, token=${config.hasAiToken ? "present" : "missing"}, model=${config.model}`,
       });
     }
 

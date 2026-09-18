@@ -1,5 +1,6 @@
 import type { SqlExecutor } from "@/lib/campus-engine/queue";
 import { ticketUrl } from "@/lib/campus-engine/notify-templates";
+import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { envValue } from "@/lib/runtime-env";
@@ -41,6 +42,33 @@ export function notificationBackoffMs(attempts: number) {
   return Math.min(60 * 60_000, safe * safe * 30_000);
 }
 
+/** The queue payload. It only names a row: the outbox stays the source of truth. */
+export type NotificationQueueMessage = { id: string; reference: string; template: string; queuedAt: string };
+
+/**
+ * Wakes the delivery queue for one queued message.
+ *
+ * A queue message is a nudge, never the record: the row in
+ * `notification_outbox` is what gets delivered, atomically claimed, and
+ * retried. That means a lost, duplicated or late message costs latency at
+ * worst, and the five-minute cron sweep still picks up anything the queue did
+ * not deliver.
+ */
+async function wakeNotificationQueue(message: NotificationQueueMessage) {
+  const queue = await notificationQueue();
+  if (!queue) return false;
+  try {
+    await queue.send(message, { contentType: "json" });
+    return true;
+  } catch (error) {
+    logEvent("warn", "notification_queue_send_failed", {
+      id: message.id,
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return false;
+  }
+}
+
 /**
  * Enqueues one passenger message.
  *
@@ -59,13 +87,18 @@ export async function queueNotification(exec: SqlExecutor, input: {
 }) {
   const recipient = String(input.recipient || "").trim();
   if (!recipient) return false;
+  const id = crypto.randomUUID();
   const result = await exec(
     `INSERT INTO notification_outbox (id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at)
      VALUES (?,?,?,?,?,?,?,'PENDING',0,'',?,?)
      ON CONFLICT(reference, template) DO NOTHING`,
-    [crypto.randomUUID(), NOTIFICATION_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso],
+    [id, NOTIFICATION_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso],
   );
-  return Number(result?.affected_row_count ?? 0) > 0;
+  const inserted = Number(result?.affected_row_count ?? 0) > 0;
+  if (inserted) {
+    await wakeNotificationQueue({ id, reference: input.reference, template: input.template, queuedAt: input.nowIso });
+  }
+  return inserted;
 }
 
 /**
@@ -166,19 +199,23 @@ export async function notificationQueueHealth() {
  * rows left over from the retired SMS providers (no `@` in the recipient) are
  * simply never attempted.
  */
-export async function dispatchPendingNotifications(input: { limit?: number } = {}) {
+export async function dispatchPendingNotifications(input: { limit?: number; ids?: string[] } = {}) {
   if (!(await isTursoConfiguredRuntime())) return { configured: false, sent: 0, failed: 0, considered: 0, pruned: 0 };
   await ensureNotificationsTable();
   await reclaimStaleNotifications(turso, { nowIso: new Date().toISOString() });
-  const pruned = await pruneNotifications(turso);
+  // A queue-driven dispatch names its rows, so it skips the retention scan; the
+  // cron sweep owns pruning.
+  const ids = (input.ids ?? []).map((id) => String(id || "").trim()).filter(Boolean).slice(0, 100);
+  const pruned = ids.length ? 0 : await pruneNotifications(turso);
 
   const config = await mailerConfig();
   if (!resendReady(config)) return { configured: false, sent: 0, failed: 0, considered: 0, pruned };
 
-  const limit = Math.max(1, Math.min(100, Math.round(input.limit || DEFAULT_BATCH)));
+  const limit = Math.max(1, Math.min(100, Math.round(input.limit || ids.length || DEFAULT_BATCH)));
+  const idFilter = ids.length ? ` AND id IN (${ids.map(() => "?").join(",")})` : "";
   const due = rowsToObjects(await turso(
-    "SELECT id,recipient,subject,template,message,reference FROM notification_outbox WHERE status = 'PENDING' AND available_at <= ? AND recipient LIKE '%@%' ORDER BY created_at ASC LIMIT ?",
-    [new Date().toISOString(), limit],
+    `SELECT id,recipient,subject,template,message,reference FROM notification_outbox WHERE status = 'PENDING' AND available_at <= ? AND recipient LIKE '%@%'${idFilter} ORDER BY created_at ASC LIMIT ?`,
+    [new Date().toISOString(), ...ids, limit],
   ));
   // Only the email carries the ticket link: the feed shows the message alone.
   const appUrl = await envValue("CAMPUS_APP_URL");
