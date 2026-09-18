@@ -5,6 +5,16 @@
 
 ---
 
+## 0. Decisions recorded
+
+| # | Decision | Consequence |
+|---|----------|-------------|
+| D1 | **One console identity system covering every console service** | A single sign-in for admin, organizer and driver. Roles, not separate auth stacks. |
+| D2 | **The console lives on its own origin**, e.g. `console.umatexpress.com` | Console code and console cookies never share an origin with the public site. |
+| D3 | **Organizers can see passenger phone numbers** | Manifests expose contact details to the owning organizer. Auditing and read controls carry more weight as a result. |
+
+---
+
 ## 1. Why this is a tenancy change, not a UI change
 
 Today exactly one group organizes every trip. The code reflects that:
@@ -13,27 +23,59 @@ Today exactly one group organizes every trip. The code reflects that:
 |------|---------------|--------------------------------|
 | Trip ownership | `scheduled_trips` has no owner column | Nothing distinguishes one organizer's coach from another's |
 | Public notice | `trip_settings` is a single row (`id = 1`) | Every organizer would overwrite the same notice |
-| Identity | Only `admin_credentials` + `ADMIN_EMAILS` | There is no account that means "organizer" |
-| Console | `/admin/vacation` behind admin auth | Giving organizers access grants full platform admin |
+| Identity | `admin_credentials` + `campus_drivers` + `ADMIN_EMAILS` | Three credential stores, no account that means "organizer" |
+| Console | `/admin/vacation` and `/driver` on the public origin | Console sessions ride on the same origin as the booking site |
 | Bookings | `bookings.trip_id` → `scheduled_trips` | Revenue cannot be attributed to an organizer |
 | Legacy trips | Seeded ids `"1"`/`"2"` still bookable | Two trip systems must both carry ownership |
 
-The public booking page, seat availability, holds and Paystack flow are already trip-shaped and need no redesign. What is missing is **ownership** and **isolation**.
+The booking page, seat availability, holds and Paystack flow are already trip-shaped and need no redesign. What is missing is **ownership**, **isolation**, and **one console identity**.
 
 ---
 
-## 2. Target model
+## 2. Console architecture (D1 + D2)
 
-| Dimension | Decision | Rationale |
-|-----------|----------|-----------|
-| Tenant | One organizer account owns many trips | Matches how buses are actually organized |
-| Platform role | Merchant of record: Paystack settles to the platform, platform pays organizers | Keeps refunds and disputes controllable, same decision as Hostel Finder |
-| Commission | Percentage, stored per booking at sale time | Rate changes stay historical-safe |
-| Organizer onboarding | `PENDING → APPROVED → SUSPENDED` | Self-service signup without letting anyone publish instantly |
-| Trip publishing | Organizer drafts, admin approves before it is publicly bookable | A coach that does not exist is a real-world failure |
-| Notice | Per organizer | Each organizer advertises their own departures |
-| Payouts (v1) | Admin-triggered, recorded as ledger entries | Same v1 posture as Hostel Finder refunds |
-| Identity | Separate `trip_organizers` table | Never conflate a tenant with a platform admin |
+### One Worker, two hostnames
+
+The Worker entry already owns `fetch(request)` outright, so host-based branching is a small change:
+
+```
+public host  → booking, tickets, student account, public APIs
+console host → /console/*, /api/console/*, nothing else
+```
+
+Requests to console paths on the public host, or public paths on the console host, are rejected rather than redirected. A console route must never be reachable at a public URL, because that is where an attacker can get a victim's browser to issue a request.
+
+### One identity, many roles
+
+```sql
+console_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  password_hash TEXT, password_salt TEXT, password_iterations INTEGER,
+  role TEXT NOT NULL,                      -- ADMIN | MODERATOR | ORGANIZER | DRIVER
+  status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING | ACTIVE | SUSPENDED
+  profile_id TEXT NOT NULL DEFAULT '',     -- organizer id or campus driver id
+  token_version INTEGER NOT NULL DEFAULT 0,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+```
+
+- **ADMIN / MODERATOR** — platform staff. Moderators review trips and organizer applications but do not touch money.
+- **ORGANIZER** — `profile_id` → `trip_organizers.id`.
+- **DRIVER** — `profile_id` → `campus_drivers.id`. Replaces the campus driver password entirely.
+
+Guards are role-based: `requireConsoleRole(request, ["ADMIN"])`. An organizer session must never satisfy an admin check, and the check reads the role from the **session**, never from a header, body or query parameter.
+
+### Sessions
+
+One cookie, `umx_console_session`, **host-only on the console origin** so it is never attached to public-site requests. It reuses the primitives already proven in `lib/student-auth.ts` and `lib/admin-auth.ts`: PBKDF2 hashing, HMAC-signed payload, `token_version` revocation, and the `auth_failures` lockout.
+
+### Migration
+
+Admin and driver auth do not vanish on day one. Both keep working, and the console accounts are introduced alongside, then the old paths are removed once every console surface runs on the new identity. `TRUST_PLATFORM_IDENTITY` stays opt-in as it is today.
 
 ---
 
@@ -44,15 +86,13 @@ trip_organizers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
-  email TEXT UNIQUE NOT NULL,              -- login identity
-  password_hash TEXT, password_salt TEXT, password_iterations INTEGER,
+  email TEXT UNIQUE NOT NULL,
+  organization TEXT,                       -- public display name
   status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING | APPROVED | SUSPENDED
-  organization TEXT,                       -- display name on the public site
   payout_method TEXT, payout_account_name TEXT,
   payout_account_number TEXT,              -- masked by default, audited on read
-  paystack_recipient_code TEXT,            -- set once transfers are automated
-  commission_bps INTEGER NOT NULL DEFAULT 0, -- platform cut, basis points
-  token_version INTEGER NOT NULL DEFAULT 0,  -- revokes live sessions
+  paystack_recipient_code TEXT,
+  commission_bps INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 
@@ -67,10 +107,8 @@ trip_notices (
   enabled INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL DEFAULT '', route TEXT NOT NULL DEFAULT '',
   fare TEXT NOT NULL DEFAULT '', night_bus TEXT NOT NULL DEFAULT '',
-  day_buses TEXT NOT NULL DEFAULT '',      -- JSON arrays, as today
-  drop_off_points TEXT NOT NULL DEFAULT '',
-  amenities TEXT NOT NULL DEFAULT '',
-  contacts TEXT NOT NULL DEFAULT '',
+  day_buses TEXT NOT NULL DEFAULT '', drop_off_points TEXT NOT NULL DEFAULT '',
+  amenities TEXT NOT NULL DEFAULT '', contacts TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 
@@ -78,7 +116,7 @@ organizer_payout_ledger (
   id TEXT PRIMARY KEY,
   organizer_id TEXT NOT NULL,
   booking_reference TEXT NOT NULL,
-  gross_amount INTEGER NOT NULL,           -- kobo/cents
+  gross_amount INTEGER NOT NULL,
   commission_amount INTEGER NOT NULL,
   net_amount INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'ACCRUED',  -- ACCRUED | RELEASED | REVERSED
@@ -86,71 +124,93 @@ organizer_payout_ledger (
 );
 ```
 
-`bookings` gains `organizer_id` and `commission_amount`, both written at booking time so historical revenue never has to be recomputed from a rate that may since have changed.
+`bookings` gains `organizer_id` and `commission_amount`, both written at booking time so historical revenue never has to be recomputed from a rate that has since changed.
 
 ---
 
 ## 4. Isolation rules (the part that must not be got wrong)
 
-1. **Every organizer query is scoped by `organizer_id` taken from the session cookie**, never from a request body, query string or path.
+1. **Every organizer query is scoped by `organizer_id` taken from the session**, never from a request body, query string or path.
 2. A missing or unknown `organizer_id` on an organizer route is a `401`, not an empty list.
-3. Trip mutations verify ownership with a single `UPDATE ... WHERE id = ? AND organizer_id = ?` and treat a zero-row result as `404`, so a probe cannot distinguish "not yours" from "does not exist".
-4. Admin routes keep their own auth; an organizer session must never satisfy `adminEmailFromRequest`.
-5. Manifests expose passenger PII only to the owning organizer, and every read is written to `admin_audit_logs` with the organizer as actor.
-6. Reuse the existing session primitives rather than inventing new ones: PBKDF2 hashing, HMAC-signed cookie, `token_version` revocation and the `auth_failures` lockout already used by `student_accounts` and `campus_drivers`.
+3. Trip mutations verify ownership with `UPDATE ... WHERE id = ? AND organizer_id = ?` and treat a zero-row result as `404`, so a probe cannot distinguish "not yours" from "does not exist".
+4. Console routes are only mounted on the console host, and `/api/console/*` requires a console session even there.
+5. **Passenger phone numbers (D3) are returned only to the owning organizer and to admin/moderator roles.** Every manifest read is written to `admin_audit_logs` with the console account as actor.
+6. Role checks read from the signed session; a role claim in a request body is ignored.
 
 ---
 
-## 5. What changes in existing code
+## 5. Prerequisite: the console hostname does not exist yet
+
+`scripts/deploy-cloudflare.sh` rewrites the generated config and sets only `name`, `main` and `assets`. There is **no `routes` entry**, so the Worker is reachable on `workers.dev` and nowhere else. Before any console work is reachable:
+
+1. Bind a custom domain (or route) for `console.umatexpress.com` to the same Worker in Cloudflare.
+2. Add that route in `scripts/deploy-cloudflare.sh` so a redeploy does not drop it.
+3. Add the public origin to `CAMPUS_APP_URL`-style configuration so links resolve per host.
+
+Until step 1 is done, host-based branching is untestable in production.
+
+---
+
+## 6. What changes in existing code
 
 | File | Change |
 |------|--------|
-| `lib/trip-settings.ts` | Notice becomes per organizer; `flyerPromoFromEnv()` remains the platform fallback |
-| `app/api/trips/display/route.ts` | `GET` returns the organizer's notice; `PATCH` moves to the organizer console |
+| `worker/index.ts` | Host-based branching: console host serves console surfaces only |
+| `lib/console-auth.ts` | New: one identity, role guards, console session cookie |
+| `lib/trip-settings.ts` | Notice becomes per organizer; `flyerPromoFromEnv()` stays as the platform fallback |
+| `app/api/trips/display/route.ts` | `GET` returns the organizer's notice; `PATCH` moves to the console |
 | `app/api/trips/schedule/route.ts` | Public reads return approved trips only |
 | `app/admin/vacation/page.tsx` | Flyer editor leaves; gains organizer approval and trip moderation |
 | `lib/trips.ts` | Trip reads gain an optional `organizerId` filter |
-| `sql/000_...` | New tables and additive columns, idempotent, with self-healing at read time |
+| `sql/000_...` | New tables and additive columns, idempotent, self-healing at read time |
+| `scripts/deploy-cloudflare.sh` | Preserve the console route on deploy |
 
 Legacy seeded trips keep working: `organizer_id` stays `NULL` and they belong to the platform until an admin assigns them.
 
 ---
 
-## 6. Phases
+## 7. Phases
 
-### Phase 1 — Foundation (no money)
-Organizer registration and login, `PENDING → APPROVED` via admin, `scheduled_trips.organizer_id`, `/organizer` console listing **only** the organizer's own trips and manifest, per-organizer notice, admin approval screen.
-**Acceptance:** an organizer registers, is approved, signs in, sees only their own trips and passengers, and edits only their own notice. A second organizer cannot see or mutate the first organizer's data by any request. No money moves.
+### Phase 1 — Console identity (no money)
+`console_accounts`, `lib/console-auth.ts`, host-based branching, console sign-in, and migration of the existing admin and driver sign-ins onto the unified identity. No organizer features yet.
+**Acceptance:** admin and driver both sign in at the console origin; a public-host request to a console route is rejected; an organizer session cannot satisfy an admin guard; the old sign-in paths still work.
 
-### Phase 2 — Self-service trip publishing
-Organizer creates and edits trips (route, date, times, capacity, price, coach type, amenities), submits for review, admin approves or rejects with a reason. Public page lists approved trips grouped by organizer.
-**Acceptance:** an organizer can publish a bookable trip without admin data entry; an unapproved trip is never publicly bookable.
+### Phase 2 — Organizer accounts and ownership (no money)
+Organizer registration, `PENDING → APPROVED` by admin/moderator, `scheduled_trips.organizer_id`, `/console/trips` listing **only** the organizer's own trips and manifest with phone numbers, per-organizer notice.
+**Acceptance:** an organizer registers, is approved, signs in, sees only their own trips and passenger contacts, and edits only their own notice. A second organizer cannot see or mutate the first organizer's data by any request. No money moves.
 
-### Phase 3 — Money and attribution
+### Phase 3 — Self-service trip publishing
+Organizers create and edit trips (route, date, times, capacity, price, coach type, amenities), submit for review, admin or moderator approves or rejects with a reason. The public page lists approved trips grouped by organizer.
+**Acceptance:** an organizer publishes a bookable trip without admin data entry; an unapproved trip is never publicly bookable.
+
+### Phase 4 — Money and attribution
 Commission per organizer, `bookings.organizer_id` + `commission_amount`, payout ledger accrued on confirmed payment, admin-triggered payout batches, organizer statement view.
-**Acceptance:** every confirmed booking produces exactly one ledger entry; an organizer statement reconciles to the bookings behind it; refunds reverse the correct entry.
+**Acceptance:** every confirmed booking produces exactly one ledger entry; a statement reconciles to the bookings behind it; refunds reverse the correct entry.
 
-### Phase 4 — Scale
-Paystack Transfers for automated payouts, organizer suspension and dispute handling, per-route overlap warnings, organizer-level analytics, and rate limits on public trip reads.
+### Phase 5 — Scale
+Paystack Transfers for automated payouts, suspension and dispute handling, route-overlap warnings, organizer analytics, rate limits on public trip reads.
 
 ---
 
-## 7. Risks
+## 8. Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Cross-tenant data leak | Session-derived scoping, ownership checked in the `WHERE` clause, tests that assert organizer B gets `404` for organizer A's ids |
-| Unapproved or fraudulent trips | `PENDING_REVIEW` gate plus admin approval before public listing |
-| Payout disputes | Ledger is append-only; releases are recorded, never edited |
-| Two organizers, same route and time | Warn on overlap; do not block, since duplicate departures are legitimate |
-| Seat inventory races | Existing hold and confirmation path already serialises per trip; keep it trip-scoped, never organizer-scoped |
-| Legacy trips orphaned | `organizer_id NULL` = platform-owned; admin assignment is a Phase 1 screen |
+| Cross-tenant data leak | Session-derived scoping; ownership in the `WHERE` clause; tests asserting organizer B gets `404` for organizer A's ids |
+| Phone-number exposure (D3) | Owning organizer plus admin/moderator only; every manifest read audited |
+| Console reachable on the public host | Host check rejects tenant routes outright; test both hosts |
+| Role escalation | Role read from the signed session only; one guard helper; tests that an organizer session fails every admin endpoint |
+| Session cookie leaking to the public site | Host-only cookie on the console origin; verify it is absent from public requests |
+| Payout disputes | Append-only ledger; releases recorded, never edited |
+| Two organizers, same route and time | Warn on overlap; do not block, duplicate departures are legitimate |
+| Seat inventory races | Existing hold path is trip-scoped; keep it that way, never organizer-scoped |
+| Legacy trips orphaned | `organizer_id NULL` = platform-owned; admin assignment screen in Phase 2 |
 
 ---
 
-## 8. Open questions
+## 9. Open questions
 
 1. Should organizers sign up freely, or be invite-only until trust is established?
-2. Is the commission per organizer, per trip, or a platform default an admin can override?
+2. Is commission per organizer, per trip, or a platform default an admin can override?
 3. Do students book one trip at a time, or can a single payment cover seats on two organizers' coaches?
-4. Should an organizer be able to run trips on the campusRide side too, or is vacationRide the only surface?
+4. Should an organizer also run campusRide trips, or is vacationRide the only surface?
