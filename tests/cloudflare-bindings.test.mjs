@@ -74,7 +74,19 @@ test("each cron trigger names one job", async () => {
   assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON]);
   assert.notEqual(CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON);
   assert.match(CAMPUS_RECONCILE_CRON, /^\*\/\d+ /);
-  assert.match(NOTIFICATION_SWEEP_CRON, /^\*\/\d+ /);
+
+  // Cloudflare collapses triggers that fall due in the same minute into a
+  // single invocation, so a shared minute silently deletes a job. This caught
+  // a quarter-hourly sweep that never ran because every :00, :15, :30 and :45
+  // already belonged to the five-minute reconcile.
+  const minutes = (expression) => {
+    const field = expression.split(" ")[0];
+    if (field === "*") return Array.from({ length: 60 }, (_, minute) => minute);
+    if (field.startsWith("*/")) return Array.from({ length: 60 }, (_, minute) => minute).filter((minute) => minute % Number(field.slice(2)) === 0);
+    return field.split(",").map(Number);
+  };
+  const shared = minutes(CAMPUS_RECONCILE_CRON).filter((minute) => minutes(NOTIFICATION_SWEEP_CRON).includes(minute));
+  assert.deepEqual(shared, []);
 });
 
 test("malformed binding lists are dropped instead of half-configured", async () => {

@@ -15,7 +15,12 @@ export const CAMPUS_RECONCILE_CRON = "*/5 * * * *";
  * Notification safety net. The queue delivers in milliseconds, so this sweep
  * only covers retries, rows queued while the queue was unavailable, and
  * deployments that run without the queue binding.
+ *
+ * The minutes are deliberately off the five-minute grid. Cloudflare collapses
+ * two triggers that fall due at the same minute into one invocation, so a
+ * quarter-hourly sweep would never run at all: every :00, :15, :30 and :45 also
+ * belongs to the reconcile trigger, and only that one was ever delivered.
  */
-export const NOTIFICATION_SWEEP_CRON = "*/15 * * * *";
+export const NOTIFICATION_SWEEP_CRON = "2,17,32,47 * * * *";
 
 export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON];
