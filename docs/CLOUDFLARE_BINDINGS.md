@@ -26,6 +26,7 @@ point, assets and console route). There is no second place to remember.
 | Durable Object | `CLOUDFLARE_RATE_LIMITER_BINDING` | `RATE_LIMITER` | none (migration `v1`) | `worker/rate-limiter.ts`, `lib/rate-limit.ts` |
 | Service binding | `CLOUDFLARE_SERVICE_BINDINGS` | empty | the other Worker must exist | `lib/cloudflare-bindings.ts` |
 | mTLS certificate | `CLOUDFLARE_MTLS_CERTIFICATES` | empty | an uploaded certificate | `lib/mtn-momo.ts` |
+| Subrequest limit | `CLOUDFLARE_SUBREQUEST_LIMIT` | empty | none | `limits.subrequests` in the generated config |
 
 Set a binding variable to the empty string to deploy without that binding.
 Leaving it unset keeps the default, so a deployment that never touches these
@@ -50,8 +51,10 @@ writes the row and then sends `{ id, reference, template, queuedAt }` to
 `NOTIFICATION_QUEUE`; the `queue()` handler in `worker/index.ts` calls
 `dispatchPendingNotifications({ ids })`, which claims each row atomically
 before sending. A lost, duplicated or late message costs latency and nothing
-else, and the `*/5 * * * *` cron still sweeps retries and backoff. The queue
-turns a five-minute delivery wait into milliseconds.
+else, and the `*/15 * * * *` sweep still covers retries and backoff. The queue
+turns a five-minute delivery wait into milliseconds. A deployment that disables
+the queue should move the sweep to `*/5 * * * *` in
+`lib/campus-engine/crons.ts`, because the sweep is then the only delivery path.
 
 **Durable Objects.** `RateLimiter` holds one fixed-window counter per
 `(scope, subject)`, in one object per subject, so counts are serialised and
@@ -77,6 +80,27 @@ the sandbox. Upload one with
 routes every MoMo request through the binding when it is present and falls back
 to plain `fetch` when it is not. mTLS is a property of a custom domain, so a
 workers.dev host can never terminate client certificates.
+
+**Subrequest limit.** The Turso client spends one subrequest per SQL statement,
+and the Workers free plan allows fifty per invocation — a ceiling that a sweep
+walking every active ride used to spend before it ever reached the outbox. So
+every job is sized to fit: the sweep takes ten messages, the queue consumer
+takes batches of ten, and a queue-driven dispatch skips the lease and retention
+scans that belong to the cron. Two jobs never share one invocation:
+
+- `*/5 * * * *` — payment reconciliation (`runCampusReconcile`).
+- `*/15 * * * *` — notification sweep (`runNotificationSweep`).
+
+The triggers are declared from `lib/campus-engine/crons.ts` and routed in
+`worker/index.ts`; adding a third job means adding a third trigger. On a paid
+plan, set `CLOUDFLARE_SUBREQUEST_LIMIT=1000` to buy headroom for a bigger batch;
+the free plan rejects the field outright, which is why it is empty here.
+
+One known ceiling remains: `ensureCampusRideTables()` re-runs its whole schema
+probe (about thirty-seven statements) on every cold isolate because nothing
+records that the schema is already current. On the free plan that is most of an
+invocation's budget before any real work starts. A durable "schema is ready"
+marker is the fix, and it should land before campusRide traffic grows.
 
 ## Deploying
 

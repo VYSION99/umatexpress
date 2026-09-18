@@ -15,6 +15,8 @@ import {
   RESOURCE_DEFAULTS,
   RESOURCE_VARS,
   SERVICE_BINDINGS_VAR,
+  SUBREQUEST_LIMIT_VAR,
+  DEFAULT_SUBREQUEST_LIMIT,
   bindingName,
   parseBindingPairs,
   resourceName,
@@ -31,6 +33,7 @@ export type BindingPlan = {
   queue: string;
   deadLetterQueue: string;
   rateLimiterBinding: string;
+  subrequestLimit: number;
   services: Array<{ binding: string; service: string }>;
   mtlsCertificates: Array<{ binding: string; certificate_id: string }>;
   vars: Record<string, string>;
@@ -44,6 +47,14 @@ export function bindingPlan(env: Record<string, unknown>): BindingPlan {
   const queueBinding = bindingName(env[BINDING_VARS.queue], BINDING_NAMES.queue);
   const queue = queueBinding ? resourceName(env[RESOURCE_VARS.notificationQueue], RESOURCE_DEFAULTS.notificationQueue) : "";
   const rateLimiterBinding = bindingName(env[BINDING_VARS.rateLimiter], BINDING_NAMES.rateLimiter);
+  const subrequestLimit = (() => {
+    const raw = env[SUBREQUEST_LIMIT_VAR];
+    if (raw === undefined || raw === null) return DEFAULT_SUBREQUEST_LIMIT;
+    const trimmed = String(raw).trim();
+    if (!trimmed) return 0;
+    const value = Math.round(Number(trimmed));
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_SUBREQUEST_LIMIT;
+  })();
 
   const services = parseBindingPairs(env[SERVICE_BINDINGS_VAR])
     .map(({ binding, value }) => ({ binding, service: value }));
@@ -59,6 +70,7 @@ export function bindingPlan(env: Record<string, unknown>): BindingPlan {
     queue,
     deadLetterQueue: queue ? `${queue}-dlq` : "",
     rateLimiterBinding,
+    subrequestLimit,
     services,
     mtlsCertificates,
     vars: {
@@ -69,6 +81,7 @@ export function bindingPlan(env: Record<string, unknown>): BindingPlan {
       [BINDING_VARS.rateLimiter]: rateLimiterBinding,
       [RESOURCE_VARS.privateBucket]: privateBucket,
       [RESOURCE_VARS.notificationQueue]: queue,
+      [SUBREQUEST_LIMIT_VAR]: subrequestLimit ? String(subrequestLimit) : "",
       [MTLS_CERTIFICATES_VAR]: mtlsCertificates.map((item) => `${item.binding}=${item.certificate_id}`).join(","),
       [SERVICE_BINDINGS_VAR]: services.map((item) => `${item.binding}=${item.service}`).join(","),
     },
@@ -86,6 +99,7 @@ export type WranglerBindingConfig = {
   };
   durable_objects: { bindings: Array<{ name: string; class_name: string }> };
   migrations: Array<{ tag: string; new_sqlite_classes: string[] }>;
+  limits: { subrequests: number } | Record<string, never>;
   services: Array<{ binding: string; service: string }>;
   mtls_certificates: Array<{ binding: string; certificate_id: string }>;
 };
@@ -103,7 +117,10 @@ export function wranglerBindingConfig(plan: BindingPlan): WranglerBindingConfig 
           consumers: [
             {
               queue: plan.queue,
-              max_batch_size: 20,
+              // Ten messages is about thirty Turso statements once each row is
+              // claimed and marked, which stays inside the free plan's
+              // fifty-subrequest budget for a single consumer invocation.
+              max_batch_size: 10,
               max_batch_timeout: 5,
               max_retries: 5,
               dead_letter_queue: plan.deadLetterQueue,
@@ -117,6 +134,7 @@ export function wranglerBindingConfig(plan: BindingPlan): WranglerBindingConfig 
     migrations: plan.rateLimiterBinding
       ? [{ tag: "v1", new_sqlite_classes: ["RateLimiter"] }]
       : [],
+    limits: plan.subrequestLimit ? { subrequests: plan.subrequestLimit } : {},
     services: plan.services,
     mtls_certificates: plan.mtlsCertificates,
   };
@@ -130,6 +148,7 @@ export function bindingPlanSummary(plan: BindingPlan) {
     plan.privateBucket ? `R2 -> ${plan.privateBucketBinding} (${plan.privateBucket})` : "R2 -> disabled",
     plan.queue ? `Queue -> ${plan.queueBinding} (${plan.queue}, dlq ${plan.deadLetterQueue})` : "Queue -> disabled",
     plan.rateLimiterBinding ? `Durable Object -> ${plan.rateLimiterBinding} (RateLimiter)` : "Durable Object -> disabled",
+    plan.subrequestLimit ? `Subrequest limit -> ${plan.subrequestLimit}` : "Subrequest limit -> plan default",
     plan.services.length ? `Service bindings -> ${plan.services.map((item) => `${item.binding}=${item.service}`).join(", ")}` : "Service bindings -> none",
     plan.mtlsCertificates.length
       ? `mTLS certificates -> ${plan.mtlsCertificates.map((item) => `${item.binding}=${item.certificate_id}`).join(", ")}`

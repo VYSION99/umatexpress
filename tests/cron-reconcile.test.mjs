@@ -23,3 +23,20 @@ test("the cron reconcile job degrades safely when Turso is not configured", asyn
     if (previousToken === undefined) delete process.env.TURSO_AUTH_TOKEN; else process.env.TURSO_AUTH_TOKEN = previousToken;
   }
 });
+
+test("the notification sweep reports an unconfigured outbox instead of throwing", async () => {
+  const previousUrl = process.env.TURSO_DATABASE_URL;
+  const previousToken = process.env.TURSO_AUTH_TOKEN;
+  delete process.env.TURSO_DATABASE_URL;
+  delete process.env.TURSO_AUTH_TOKEN;
+  try {
+    const { runNotificationSweep } = await vite.ssrLoadModule("/lib/campus-engine/reconcile-job.ts");
+    const result = await runNotificationSweep();
+    assert.equal(result.configured, false);
+    assert.equal(result.sent, 0);
+    assert.equal(result.considered, 0);
+  } finally {
+    if (previousUrl === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.TURSO_AUTH_TOKEN; else process.env.TURSO_AUTH_TOKEN = previousToken;
+  }
+});

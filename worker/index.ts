@@ -1,7 +1,8 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { runCampusReconcile } from "@/lib/campus-engine/reconcile-job";
+import { NOTIFICATION_SWEEP_CRON } from "@/lib/campus-engine/crons";
+import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
 import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
@@ -76,7 +77,19 @@ const worker = {
     return handler.fetch(request, bindings, ctx);
   },
 
-  async scheduled(_controller: { cron?: string }, _env: Env, ctx: ExecutionContext): Promise<void> {
+  /**
+   * One trigger, one job. Payment reconciliation and notification delivery both
+   * spend subrequests against Turso, and sharing an invocation starved the
+   * outbox. The notification sweep is the queue's retry net, not its
+   * replacement. See lib/campus-engine/crons.ts.
+   */
+  async scheduled(controller: { cron?: string }, _env: Env, ctx: ExecutionContext): Promise<void> {
+    if (controller?.cron === NOTIFICATION_SWEEP_CRON) {
+      // Ten at a time: each row costs a claim, a send and a status write, and
+      // one invocation has fifty subrequests to spend.
+      ctx.waitUntil(runNotificationSweep({ limit: 10 }));
+      return;
+    }
     ctx.waitUntil(runCampusReconcile());
   },
 

@@ -3,6 +3,7 @@ import { defineConfig, loadEnv } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { bindingPlan, bindingPlanSummary, wranglerBindingConfig } from "./build/cloudflare-binding-plan";
 import { sites } from "./build/sites-vite-plugin";
+import { WORKER_CRONS } from "./lib/campus-engine/crons";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -38,9 +39,8 @@ export default defineConfig(async ({ mode }) => {
   const localBindingConfig = {
     main: "./worker/index.ts",
     compatibility_flags: ["nodejs_compat"],
-    // Cron Trigger for campusRide payment reconciliation and the notification
-    // retry sweep. See worker/index.ts.
-    triggers: { crons: ["*/5 * * * *"] },
+    // One trigger per job: see lib/campus-engine/crons.ts for why.
+    triggers: { crons: WORKER_CRONS },
     ...bindings,
     // A bucket declared by the hosting template is additive: it never replaces
     // the application's own R2 binding.

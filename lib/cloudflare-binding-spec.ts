@@ -40,6 +40,15 @@ export const RESOURCE_VARS = {
   notificationQueue: "CLOUDFLARE_QUEUE",
 } as const;
 
+/**
+ * Subrequests one invocation may make. The Turso client spends one subrequest
+ * per SQL statement. The free plan caps this at 50 and rejects any other value,
+ * so the default is to send nothing and keep the plan's own limit; a paid plan
+ * can raise it to 1000.
+ */
+export const SUBREQUEST_LIMIT_VAR = "CLOUDFLARE_SUBREQUEST_LIMIT";
+export const DEFAULT_SUBREQUEST_LIMIT = 0;
+
 /** `BINDING=value` lists for bindings that point at another Cloudflare object. */
 export const SERVICE_BINDINGS_VAR = "CLOUDFLARE_SERVICE_BINDINGS";
 export const MTLS_CERTIFICATES_VAR = "CLOUDFLARE_MTLS_CERTIFICATES";

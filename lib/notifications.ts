@@ -202,11 +202,15 @@ export async function notificationQueueHealth() {
 export async function dispatchPendingNotifications(input: { limit?: number; ids?: string[] } = {}) {
   if (!(await isTursoConfiguredRuntime())) return { configured: false, sent: 0, failed: 0, considered: 0, pruned: 0 };
   await ensureNotificationsTable();
-  await reclaimStaleNotifications(turso, { nowIso: new Date().toISOString() });
-  // A queue-driven dispatch names its rows, so it skips the retention scan; the
-  // cron sweep owns pruning.
+  // A queue-driven dispatch names its rows and delivers them immediately, so it
+  // skips lease recovery and pruning: both belong to the cron sweep, and each
+  // statement it skips is a subrequest the delivery keeps.
   const ids = (input.ids ?? []).map((id) => String(id || "").trim()).filter(Boolean).slice(0, 100);
-  const pruned = ids.length ? 0 : await pruneNotifications(turso);
+  let pruned = 0;
+  if (!ids.length) {
+    await reclaimStaleNotifications(turso, { nowIso: new Date().toISOString() });
+    pruned = await pruneNotifications(turso);
+  }
 
   const config = await mailerConfig();
   if (!resendReady(config)) return { configured: false, sent: 0, failed: 0, considered: 0, pruned };

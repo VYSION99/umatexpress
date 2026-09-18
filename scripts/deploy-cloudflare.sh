@@ -54,7 +54,9 @@ ensure_queue() {
   local queue="$1" output
   if output="$(wrangler queues create "$queue" 2>&1)"; then
     echo "Created queue '$queue'."
-  elif grep -qiE "already exists" <<<"$output"; then
+  # Cloudflare answers an existing queue with "already taken" (code 11009),
+  # which is not the wording it uses for buckets, so match both.
+  elif grep -qiE "already exists|already taken|code: 11009" <<<"$output"; then
     echo "Queue '$queue' already exists."
   else
     echo "$output" >&2

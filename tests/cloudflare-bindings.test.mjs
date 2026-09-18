@@ -23,6 +23,10 @@ test("the binding plan declares every binding by default", async () => {
   assert.deepEqual(config.migrations, [{ tag: "v1", new_sqlite_classes: ["RateLimiter"] }]);
   assert.deepEqual(config.services, []);
   assert.deepEqual(config.mtls_certificates, []);
+  // The free plan rejects any explicit limit, so the default sends none and
+  // each job is sized to fit inside fifty subrequests instead.
+  assert.deepEqual(config.limits, {});
+  assert.equal(config.queues.consumers[0].max_batch_size, 10);
 
   // The effective names are mirrored into vars so the Worker resolves exactly
   // what was deployed, even after a rename or a binding being switched off.
@@ -56,6 +60,21 @@ test("an empty value disables a binding and a value renames it", async () => {
   assert.deepEqual(config.mtls_certificates, [{ binding: "MTN_MOMO_CERT", certificate_id: "abc-123" }]);
   assert.equal(config.vars.CLOUDFLARE_AI_BINDING, "");
   assert.equal(plan.vars.CLOUDFLARE_MTLS_CERTIFICATES, "MTN_MOMO_CERT=abc-123");
+});
+
+test("an empty subrequest limit leaves the plan default alone", async () => {
+  const { bindingPlan, wranglerBindingConfig } = await vite.ssrLoadModule("/build/cloudflare-binding-plan.ts");
+  assert.deepEqual(wranglerBindingConfig(bindingPlan({ CLOUDFLARE_SUBREQUEST_LIMIT: "" })).limits, {});
+  assert.deepEqual(wranglerBindingConfig(bindingPlan({ CLOUDFLARE_SUBREQUEST_LIMIT: "250" })).limits, { subrequests: 250 });
+  assert.deepEqual(wranglerBindingConfig(bindingPlan({ CLOUDFLARE_SUBREQUEST_LIMIT: "not-a-number" })).limits, {});
+});
+
+test("each cron trigger names one job", async () => {
+  const { WORKER_CRONS, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
+  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON]);
+  assert.notEqual(CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON);
+  assert.match(CAMPUS_RECONCILE_CRON, /^\*\/\d+ /);
+  assert.match(NOTIFICATION_SWEEP_CRON, /^\*\/\d+ /);
 });
 
 test("malformed binding lists are dropped instead of half-configured", async () => {
