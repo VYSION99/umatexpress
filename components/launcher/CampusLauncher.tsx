@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Bell, BusFront, CarFront, Check, Compass, Grid2X2, House, MapPin, Pin, Search, Settings2, Ticket, User, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Bell, BusFront, CarFront, Check, Compass, ExternalLink, Grid2X2, House, MapPin, Pin, Search, Settings2, Ticket, User, X } from "lucide-react";
 import { defaultPreferences, services, type LauncherPreference, type Service } from "./services";
 import { useLauncherLayout } from "./useLauncherLayout";
 import { ProfilePanel } from "./ProfilePanel";
@@ -14,14 +14,27 @@ import "./home.css";
 
 type Panel = "services" | "customise" | "profile" | "notifications" | "support" | null;
 
+/** Partner services run on their own origin, so the card must leave the app. */
+function isExternal(service: Service) {
+  return "external" in service && service.external === true;
+}
+
 function ServiceCard({ service, pinned }: { service: Service; pinned: boolean }) {
   const Icon = service.icon;
+  const external = isExternal(service);
   return <article className={`home-card is-${service.accent}`}>
     <span className="home-card-icon"><Icon size={22} aria-hidden /></span>
     <h3>{service.title}{pinned && <Pin size={13} aria-label="Pinned" />}</h3>
     <p>{service.description}</p>
     {service.destination
-      ? <Link className="home-card-link" href={service.destination}>{service.action}<ArrowRight size={15} aria-hidden /></Link>
+      ? <Link
+          className="home-card-link"
+          href={service.destination}
+          aria-label={external ? `${service.action}: ${service.title} (opens in a new tab)` : undefined}
+          {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
+        >
+          {service.action}{external ? <ExternalLink size={15} aria-hidden /> : <ArrowRight size={15} aria-hidden />}
+        </Link>
       : <span className="home-card-soon">Coming soon</span>}
   </article>;
 }
@@ -48,7 +61,7 @@ export default function CampusLauncher() {
     [next[index], next[target]] = [next[target], next[index]]; save(next);
   }
   const visible = preferences.filter(item => !item.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  const matches = services.filter(service => `${service.title} ${service.description} ${service.category}`.toLowerCase().includes(query.toLowerCase().trim()));
+  const matches = services.filter(service => `${service.title} ${service.description} ${service.detail} ${service.category}`.toLowerCase().includes(query.toLowerCase().trim()));
   return <div className="launcher home">
     <a href="#home-main" className="launch-skip">Skip to services</a>
     <header className="home-bar">
@@ -109,7 +122,11 @@ export default function CampusLauncher() {
     </nav>
     <dialog ref={dialog} className="launch-dialog" onCancel={() => setPanel(null)} onClick={event => { if (event.target === event.currentTarget) setPanel(null); }} aria-labelledby="launch-dialog-title">
       <div className="launch-dialog-inner"><div className="launch-dialog-heading"><h2 id="launch-dialog-title">{panel === "services" ? "All services" : panel === "customise" ? "Make it yours" : panel === "profile" ? "Your profile" : panel === "notifications" ? "Notifications" : "Here to help"}</h2><button className="home-icon-button" aria-label="Close" onClick={() => setPanel(null)}><X size={20} aria-hidden /></button></div>
-      {panel === "services" && <><label className="launch-search"><Search size={18} aria-hidden /><input aria-label="Filter all services" placeholder="Search rides, food, hostels…" value={query} onChange={event => setQuery(event.target.value)} /></label><div className="launch-directory">{matches.map(service => { const item = preferences.find(row => row.id === service.id)!; const Icon = service.icon; return <article key={service.id}><Icon size={24} aria-hidden /><div><h3>{service.title}</h3><p>{service.available ? service.description : "Coming soon"}</p>{service.destination && <Link href={service.destination}>{service.action} →</Link>}</div><button aria-label={`${item.hidden ? "Show" : "Hide"} ${service.title}`} onClick={() => toggle(service.id, "hidden")}>{item.hidden ? "Add" : <><Check size={16} aria-hidden /> Added</>}</button></article>; })}{!matches.length && <p role="status">No services match “{query}”. Try “ride” or clear your search.</p>}</div><button className="launch-reset" onClick={() => setPanel("customise")}><Settings2 size={16} aria-hidden /> Customise layout</button></>}
+      {panel === "services" && <><label className="launch-search"><Search size={18} aria-hidden /><input aria-label="Filter all services" placeholder="Search rides, food, hostels…" value={query} onChange={event => setQuery(event.target.value)} /></label><div className="launch-directory">{matches.map(service => { const item = preferences.find(row => row.id === service.id)!; const Icon = service.icon; return <article key={service.id}><Icon size={24} aria-hidden /><div><h3>{service.title}</h3><p>{service.available ? service.description : "Coming soon"}</p>{service.destination && <Link
+  href={service.destination}
+  aria-label={isExternal(service) ? `${service.action}: ${service.title} (opens in a new tab)` : undefined}
+  {...(isExternal(service) ? { target: "_blank", rel: "noreferrer noopener" } : {})}
+>{service.action} →</Link>}</div><button aria-label={`${item.hidden ? "Show" : "Hide"} ${service.title}`} onClick={() => toggle(service.id, "hidden")}>{item.hidden ? "Add" : <><Check size={16} aria-hidden /> Added</>}</button></article>; })}{!matches.length && <p role="status">No services match “{query}”. Try “ride” or clear your search.</p>}</div><button className="launch-reset" onClick={() => setPanel("customise")}><Settings2 size={16} aria-hidden /> Customise layout</button></>}
       {panel === "customise" && <><p>Pin favourites to the top, hide widgets, or move them with the arrows. Your choices stay on this device.</p><div className="launch-customise">{preferences.map((item, index) => <article key={item.id}><strong>{services.find(service => service.id === item.id)!.title}</strong><div><button aria-label={`Pin ${item.id}`} aria-pressed={item.pinned} onClick={() => toggle(item.id, "pinned")}><Pin size={17} aria-hidden /></button><button aria-label={`Move ${item.id} earlier`} disabled={index === 0} onClick={() => move(item.id, -1)}><ArrowUp size={17} aria-hidden /></button><button aria-label={`Move ${item.id} later`} disabled={index === preferences.length - 1} onClick={() => move(item.id, 1)}><ArrowDown size={17} aria-hidden /></button><button aria-pressed={!item.hidden} onClick={() => toggle(item.id, "hidden")}>{item.hidden ? "Show" : "Hide"}</button></div></article>)}</div><button className="launch-reset" onClick={() => save(defaultPreferences())}>Restore default layout</button></>}
       {panel === "profile" && <ProfilePanel />}
       {panel === "notifications" && <NotificationFeed />}

@@ -32,7 +32,7 @@ uMATeXPRESS/
 │   │   ├── driver/                      # driver portal widgets
 │   │   ├── shared/                      # map, shell, AI assistant
 │   │   └── student/                     # nearest ride and queue UI
-│   ├── launcher/                        # public app launcher widgets
+│   ├── launcher/                        # public app launcher widgets and the service registry
 │   ├── pwa/                             # home-screen install engine
 │   └── vacation/                        # vacationRide flyer carousel
 ├── lib/
@@ -81,11 +81,15 @@ uMATeXPRESS/
 │   ├── logo.png                         # brand master (1080x858)
 │   ├── logo-web.png                     # optimised wide logo the app loads
 │   ├── logo-mark.png                    # square mark for rail, launcher and ticket badges
-│   ├── icon-192.png                     # install icon
-│   ├── icon-512.png                     # install icon
+│   ├── icon-192.png                     # installer icon (from the logo master)
+│   ├── icon-512.png                     # installer icon
+│   ├── icon-maskable-192.png            # maskable installer icon, safe-zone padded
+│   ├── icon-maskable-512.png            # maskable installer icon
+│   ├── apple-touch-icon.png             # iOS home-screen icon
 │   └── vip-coach.png                    # vacationRide hero image
 ├── sql/                                 # manual production migrations
 ├── scripts/                             # install, audit, build, deploy helpers
+│   └── build-icons.py                   # regenerate installer icons from logo.png (needs Pillow)
 ├── campusRide/                          # planning notes for the campusRide product
 ├── build/                               # framework helper code and the Cloudflare binding plan
 ├── worker/                              # Worker entry point and the RateLimiter Durable Object

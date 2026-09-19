@@ -1,4 +1,4 @@
-import { BedDouble, BusFront, CarFront, Clapperboard, Utensils } from "lucide-react";
+import { BedDouble, BrainCircuit, BusFront, CarFront, Clapperboard, FlaskConical, Utensils } from "lucide-react";
 
 // The launcher registry is deliberately independent of server-only business logic.
 // `accent` is the homepage card tint: the three brand colours, rotated so no two
@@ -9,6 +9,11 @@ export const services = [
   { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "yellow", available: false, destination: null, action: "Explore hostels", description: "Find your own corner of campus.", detail: "Places to settle in", category: "Make yourself at home" },
   { id: "food", title: "Food", icon: Utensils, accent: "cyan", available: false, destination: null, action: "Explore food", description: "Good food. Better study breaks.", detail: "Your next favourite bite", category: "A little refuel" },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "green", available: false, destination: null, action: "Explore cinema", description: "Make room for movie night.", detail: "Stories worth sharing", category: "After the lectures" },
+  // Partner services that already run outside this app. `external` makes the
+  // card open a new tab instead of routing inside the platform, and the accent
+  // rotation keeps two neighbours from sharing a hue.
+  { id: "research", title: "ACMD Research", icon: FlaskConical, accent: "yellow", available: true, external: true, destination: "https://acmdresearch.com", action: "Open the hub", description: "Research, mentorship and innovation.", detail: "Projects with mentors and industry, in AI, biotech and cybersecurity", category: "Research & innovation" },
+  { id: "clipad", title: "CliPad", icon: BrainCircuit, accent: "cyan", available: true, external: true, destination: "https://clipad.optavel.com", action: "Open CliPad", description: "Meetings and team memory, in one place.", detail: "Team spaces, async video and AI meeting summaries", category: "Work & collaboration" },
 ] as const;
 export type Service = typeof services[number];
 export type LauncherPreference = { id: string; hidden: boolean; pinned: boolean };

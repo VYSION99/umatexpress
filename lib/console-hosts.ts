@@ -44,7 +44,8 @@ const CONSOLE_SURFACE_EXACT = new Set(["/api/campus/ai"]);
 const ASSET_PREFIXES = ["/assets", "/_next", "/_vinext", "/.well-known"];
 const ASSET_FILES = new Set([
   "/favicon.ico", "/favicon.svg", "/logo.png", "/logo-web.png", "/logo-mark.png",
-  "/icon-192.png", "/icon-512.png", "/vip-coach.png",
+  "/icon-192.png", "/icon-512.png", "/icon-maskable-192.png", "/icon-maskable-512.png",
+  "/apple-touch-icon.png", "/vip-coach.png",
   "/manifest.webmanifest", "/robots.txt",
 ]);
 

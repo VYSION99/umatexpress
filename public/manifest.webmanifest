@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
-  "background_color": "#4A0904",
-  "theme_color": "#4A0904",
+  "background_color": "#010c04",
+  "theme_color": "#0d694d",
   "orientation": "portrait-primary",
   "categories": ["travel", "education", "utilities"],
   "icons": [
@@ -15,13 +15,25 @@
       "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
@@ -51,6 +63,20 @@
       "short_name": "Admin",
       "description": "Open the admin console.",
       "url": "/admin",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "ACMD Research",
+      "short_name": "ACMD",
+      "description": "Open the research and innovation hub.",
+      "url": "https://acmdresearch.com",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "CliPad",
+      "short_name": "CliPad",
+      "description": "Open meetings, spaces and team memory.",
+      "url": "https://clipad.optavel.com",
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
