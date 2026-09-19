@@ -156,6 +156,12 @@ confirm one booking, and whichever arrives first queues the single confirmation
 the passenger receives. The `vacation_` template prefix selects the vacation
 ticket link (`/payment/callback`) at send time.
 
+Because those messages link straight to the ticket, ticket access cannot rest
+on the one-hour payment cookie alone. `GET /api/payments/verify` accepts the
+payments access token or a signed-in passenger whose account email matches the
+booking's. Guests keep the token as their key; a signed-in student keeps their
+own ticket on any device, even after the cookie expires.
+
 `vacation_booking_confirmed` is queued on confirmation, and
 `vacation_booking_cancelled` when an administrator cancels a booking the
 passenger actually paid for. Both are written on the payment path, so they log

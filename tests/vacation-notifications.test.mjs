@@ -18,6 +18,7 @@ process.env.PAYSTACK_SECRET_KEY = "sk_test_vacation_notifications";
 process.env.PAYSTACK_CURRENCY = "GHS";
 process.env.ADMIN_SESSION_SECRET = "test-admin-session-secret-at-least-32-chars";
 process.env.ADMIN_EMAILS = "admin@example.com";
+process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
 const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
 
@@ -33,6 +34,14 @@ const bookings = [
 
 const payments = [
   { id: "pay-vac1", booking_id: "bk-pending", provider: "PAYSTACK", reference_id: "ref-vac1", amount: 18360, status: "PENDING", access_token_hash: "" },
+  { id: "pay-vac2", booking_id: "bk-paid", provider: "PAYSTACK", reference_id: "ref-vac2", amount: 18360, status: "SUCCESSFUL", access_token_hash: "" },
+];
+
+// Two accounts so the ownership rule can be tested with a real second party:
+// Ama's booking must open for Ama and stay shut for Kofi.
+const students = [
+  { id: "stu-ama", email: "ama@st.umat.edu.gh", name: "Ama", phone: "0244000002", token_version: 0, active: 1 },
+  { id: "stu-kofi", email: "kofi@st.umat.edu.gh", name: "Kofi", phone: "0244000003", token_version: 0, active: 1 },
 ];
 
 const seatHolds = [{ id: "hold-vac1", booking_id: "bk-pending", trip_id: "trip-a", travel_date: "2026-10-03", seat: 8, status: "HELD", expires_at: "2099-01-01T00:00:00.000Z" }];
@@ -58,6 +67,11 @@ function handle(sql, args) {
   if (/^CREATE |^ALTER |^INSERT OR REPLACE INTO campus_schema_meta|^INSERT INTO admin_audit_logs/.test(sql)) return ok(empty);
   const version = sql.match(/SELECT version FROM campus_schema_meta WHERE id = '([^']+)'/);
   if (version) return ok(table(["version"], [{ version: SCHEMA_VERSIONS[version[1]] || "0" }]));
+
+  if (/FROM student_accounts WHERE id = \? LIMIT 1/.test(sql)) {
+    const student = students.find((item) => item.id === args[0]);
+    return ok(student ? table(["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"], [{ ...student, created_at: "", last_login_at: "" }]) : empty);
+  }
 
   if (/^SELECT id, booking_id, provider, reference_id, amount, status, access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
@@ -89,6 +103,10 @@ function handle(sql, args) {
   if (/^SELECT reference, passenger_name, seat, trip_id, travel_date, departure_time, amount FROM bookings WHERE id = \?/.test(sql)) {
     const booking = bookings.find((item) => item.id === args[0]);
     return ok(booking ? table(["reference", "passenger_name", "seat", "trip_id", "travel_date", "departure_time", "amount"], [booking]) : empty);
+  }
+  if (/^SELECT email FROM bookings WHERE id = \? LIMIT 1/.test(sql)) {
+    const booking = bookings.find((item) => item.id === args[0]);
+    return ok(booking ? table(["email"], [booking]) : empty);
   }
   if (/FROM scheduled_trips WHERE 1 = 1/.test(sql)) {
     return ok(table(
@@ -222,4 +240,36 @@ test("cancelling a paid booking tells the passenger; an unpaid hold is not news"
   const unpaid = await cancel("UMX-VAC3");
   assert.equal(unpaid.status, 200);
   assert.equal(outbox.filter((row) => row.template === "vacation_booking_cancelled").length, 1, "a booking that was never paid for gets no message");
+});
+
+test("a signed-in passenger can open their own ticket without the payment cookie", async () => {
+  const { STUDENT_SESSION_COOKIE, createStudentSession } = await vite.ssrLoadModule("/lib/student-auth.ts");
+  const { GET } = await vite.ssrLoadModule("/app/api/payments/verify/route.ts");
+
+  // No payment access cookie: the session is the only credential here.
+  const cookie = `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(await createStudentSession("stu-ama"))}`;
+  const response = await GET(new Request(`${URL_BASE}/api/payments/verify?reference=ref-vac2`, { headers: { cookie } }));
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.paid, true);
+  assert.equal(body.ticket.reference, "UMX-VAC2");
+  assert.equal(String(body.ticket.seat), "3", "the same seat the booking carries");
+});
+
+test("another signed-in student cannot open a ticket that is not theirs", async () => {
+  const { STUDENT_SESSION_COOKIE, createStudentSession } = await vite.ssrLoadModule("/lib/student-auth.ts");
+  const { GET } = await vite.ssrLoadModule("/app/api/payments/verify/route.ts");
+
+  // Kofi knows Ama's reference and has a valid account; the booking's address
+  // is what refuses him, not the secrecy of the reference.
+  const cookie = `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(await createStudentSession("stu-kofi"))}`;
+  const response = await GET(new Request(`${URL_BASE}/api/payments/verify?reference=ref-vac2`, { headers: { cookie } }));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).ticket, undefined);
+});
+
+test("a guest without a payment token is still refused", async () => {
+  const { GET } = await vite.ssrLoadModule("/app/api/payments/verify/route.ts");
+  const response = await GET(new Request(`${URL_BASE}/api/payments/verify?reference=ref-vac2`));
+  assert.equal(response.status, 403);
 });

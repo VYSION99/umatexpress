@@ -121,13 +121,18 @@ is stored, so a booking can never be made under someone else's email.
 }
 ```
 
-A `Set-Cookie` payment-access token accompanies the response; the ticket cannot
-be read without it. A live hold exists from this moment and expires in 10
-minutes.
+A `Set-Cookie` payment-access token accompanies the response. The token is the
+guest's key to the ticket and expires after one hour; a passenger who is signed
+in keeps access to their own booking without it (see below). A live hold exists
+from this moment and expires in 10 minutes.
 
 ### `GET /api/payments/verify?reference=`
 
-Returns the payment state, and the ticket once paid. Requires the access cookie.
+Returns the payment state, and the ticket once paid. Authorised by the payment
+access cookie, or by a signed-in student whose account email matches the
+booking's email — booking forces the receipt address to be the account's own,
+so a signed-in passenger can reopen their ticket on any device after the
+one-hour cookie expires. Everyone else is refused.
 
 ### `POST /api/payments/webhook`
 

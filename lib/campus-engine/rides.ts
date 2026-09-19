@@ -9,6 +9,7 @@ import { applyCampusQueueTransition, campusHoldExpiry, campusQueueEntryState, cl
 import { hashPaymentToken, paymentAccessCookie, paymentTokenFromRequest } from "@/lib/payment-access";
 import { getPaymentProviderRuntime, getPaystackCurrencyRuntime, getPaystackFeePercentRuntime, initializePaystackTransaction, verifyPaystackTransaction } from "@/lib/paystack";
 import { incrementMetric, requestIdFromRequest } from "@/lib/observability";
+import { studentOwnsEmail } from "@/lib/student-auth";
 
 function ref() {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
@@ -153,8 +154,20 @@ export async function verifyCampusRidePayment(request: Request, reference: strin
   const payment = rowsToObjects(await turso("SELECT id,queue_entry_id,reference,provider,amount,currency,status,access_token_hash FROM campus_payments WHERE reference = ? LIMIT 1", [reference]))[0];
   if (!payment) throw new CampusEngineError("NOT_FOUND", "campusRide payment was not found.", 404);
   const token = paymentTokenFromRequest(request, reference);
-  if (!token || !payment.access_token_hash || await hashPaymentToken(token) !== String(payment.access_token_hash)) {
-    throw new CampusEngineError("FORBIDDEN", "campusRide payment access is not authorised.", 403);
+  let authorised = false;
+  if (token && payment.access_token_hash) {
+    authorised = await hashPaymentToken(token) === String(payment.access_token_hash);
+  }
+  // The token is the guest's key and lasts an hour; a student who signed in
+  // keeps access to their own ticket without it, because the queue entry was
+  // created under their account's address. That is what lets a emailed ticket
+  // link, or the profile's saved-ticket link, work on another device or later
+  // in the week. The lookup only runs when the token is missing or stale.
+  if (!authorised) {
+    const owner = rowsToObjects(await turso("SELECT email FROM campus_queue_entries WHERE id = ? LIMIT 1", [String(payment.queue_entry_id)]))[0];
+    if (!(await studentOwnsEmail(request, owner?.email))) {
+      throw new CampusEngineError("FORBIDDEN", "campusRide payment access is not authorised.", 403);
+    }
   }
   let status = String(payment.status || "PENDING").toUpperCase();
   const stamp = new Date().toISOString();

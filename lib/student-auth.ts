@@ -239,6 +239,23 @@ export async function studentAccountFromRequest(request: Request): Promise<Stude
   catch { return null; }
 }
 
+/**
+ * True when the request carries a signed-in student whose account email is
+ * `email`.
+ *
+ * Booking paths force the receipt address to be the account's own, so this is
+ * what makes a booking the student's to reopen on any device: the payment
+ * access token is a guest's key that lives in one browser for an hour, and a
+ * passenger who signed in does not lose their ticket when it expires.
+ */
+export async function studentOwnsEmail(request: Request, email: unknown): Promise<boolean> {
+  const target = String(email || "").trim().toLowerCase();
+  if (!target) return false;
+  const student = await studentAccountFromRequest(request);
+  if (!student) return false;
+  return String(student.email || "").trim().toLowerCase() === target;
+}
+
 /** For the booking/payment routes: a student session is required to spend money. */
 export async function requireStudent(request: Request): Promise<StudentAccount> {
   const session = await studentSessionFromRequest(request);

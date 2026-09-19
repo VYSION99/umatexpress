@@ -1,5 +1,7 @@
 const COOKIE_PREFIX = "umx_payment_access_";
 
+// The cookie is the guest's key and expires after an hour; a signed-in
+// passenger's own account email is the durable fallback on the verify routes.
 export async function hashPaymentToken(token: string) {
   const bytes = new TextEncoder().encode(token);
   const digest = await crypto.subtle.digest("SHA-256", bytes);

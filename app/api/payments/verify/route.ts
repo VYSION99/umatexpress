@@ -4,6 +4,7 @@ import { verifyPaystackTransaction } from "@/lib/paystack";
 import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
 import { accrueForBooking } from "@/lib/organizer-payouts";
+import { studentOwnsEmail } from "@/lib/student-auth";
 import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 
@@ -34,8 +35,21 @@ export async function GET(request: Request) {
     if (!payment) return respond({ error: "Payment was not found." }, { status: 404 });
 
     const token = paymentTokenFromRequest(request, reference);
-    if (!token || !payment.access_token_hash || await hashPaymentToken(token) !== String(payment.access_token_hash)) {
-      return respond({ error: "Payment access is not authorised." }, { status: 403 });
+    let authorised = false;
+    if (token && payment.access_token_hash) {
+      authorised = await hashPaymentToken(token) === String(payment.access_token_hash);
+    }
+    // The token is the guest's key: minted at checkout and good for an hour.
+    // A student who signed in keeps access to their own booking without it,
+    // because the booking was made under their account's address — that is what
+    // lets an emailed ticket link work on another device, or next week. The
+    // lookup only runs when the token is missing or stale, so the paid path
+    // stays one query deep.
+    if (!authorised) {
+      const owner = rowsToObjects(await turso("SELECT email FROM bookings WHERE id = ? LIMIT 1", [String(payment.booking_id)]))[0];
+      if (!(await studentOwnsEmail(request, owner?.email))) {
+        return respond({ error: "Payment access is not authorised." }, { status: 403 });
+      }
     }
 
     let status = String(payment.status || "PENDING").toUpperCase();
