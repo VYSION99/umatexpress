@@ -108,6 +108,16 @@ try {
   const groups = await evaluate(`[...document.querySelectorAll(".console-group-heading")].map(node => node.textContent)`);
   assert.deepEqual(groups, ["Self-service trips", "Money", "Trust & safety", "Account"], "the directory must group services in the declared order");
   console.log("PASS the home page is a grouped service directory");
+  await until(`document.querySelector(".console-brief-strip") !== null`, "the daily brief strip on the home page");
+  assert.match(await evaluate(`document.querySelector(".console-brief-strip").textContent`), /One thing needs your attention/, "the home strip must carry the brief summary");
+  const stripLinks = await evaluate(`[...document.querySelectorAll(".console-brief-strip li a")].map(node => node.getAttribute("href"))`);
+  assert.ok(stripLinks.length > 0 && stripLinks.every((href) => href.startsWith("/console/")), "every brief chip must stay inside the console");
+  assert.equal(await evaluate(`document.querySelectorAll(".console-brief-strip li.tone-action").length > 0`), true, "the strip must mark what needs attention");
+  await click(`document.querySelector(".console-brief-ask")`);
+  await until(`document.querySelector(".console-assistant-panel") !== null`, "the strip to open the assistant panel");
+  await click(`document.querySelector(".console-assistant-toggle")`);
+  await until(`document.querySelector(".console-assistant-panel") === null`, "the assistant panel to close again");
+  console.log("PASS the console home opens with the daily brief");
 
   // 4. A service page opens the service's own sub-navigation in the rail, and
   //    the rail marks the page the person is actually on.

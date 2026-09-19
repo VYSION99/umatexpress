@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole } from "@/components/admin/console-services";
+import { ConsoleBriefStrip } from "@/components/console/ConsoleBriefStrip";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 const ROLE_COPY: Record<string, { title: string; blurb: string }> = {
@@ -27,6 +28,7 @@ function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
     title={copy.title}
     blurb={copy.blurb}
   >
+    <ConsoleBriefStrip />
     {groups.map((group) => <section className="console-group" key={group.group} aria-label={group.group}>
       <h2 className="console-group-heading">{group.group}</h2>
       <div className="console-group-grid">

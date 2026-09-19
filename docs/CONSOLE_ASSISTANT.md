@@ -30,6 +30,12 @@ the console page that handles it. A badge on the Assistant button shows the
 same count without opening the panel, so signing in at `/console` answers
 "what needs me today" at a glance.
 
+The console home carries the same brief as a compact strip above the service
+directory (`components/console/ConsoleBriefStrip.tsx`): the summary, up to five
+linked chips with attention items first, and a button that opens the assistant
+panel. It renders nothing while it loads or when it cannot be read, so the
+directory is never delayed by it.
+
 The brief is composed by `consoleBriefFor()` in `lib/console-assistant.ts`
 from the same library reads the console pages use, and is served by
 `GET /api/console/assistant/brief` (60 reads / 10 minutes per caller). It never

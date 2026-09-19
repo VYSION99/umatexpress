@@ -106,3 +106,25 @@
 .console-assistant-brief-item small { color: var(--ui-muted, #57675f); font-size: 11.5px; line-height: 1.5; }
 .console-assistant-brief-note { margin: 0; color: var(--ui-muted, #57675f); font-size: 11.5px; }
 .console-assistant-badge { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #ffffff; color: var(--ui-cyan, #0e7490); font-size: 11px; font-weight: 900; }
+
+/* The daily brief on the console home: compact, never in the way */
+.console-brief-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 22px; padding: 14px 16px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 18px; background: #ffffff; box-shadow: 0 10px 26px rgba(18, 38, 31, .06); }
+.console-brief-lead { display: flex; flex-direction: column; gap: 2px; min-width: 168px; }
+.console-brief-kicker { display: inline-flex; align-items: center; gap: 7px; color: var(--ui-cyan, #0e7490); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.console-brief-lead p { margin: 0; color: var(--ui-muted, #57675f); font-size: 12.5px; }
+.console-brief-strip ul { display: flex; flex: 1 1 240px; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.console-brief-strip li { display: flex; max-width: 100%; }
+.console-brief-strip li a, .console-brief-strip li .console-brief-plain { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-height: 44px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 999px; background: #f7faf8; color: var(--ui-ink, #12261f); font-size: 12px; font-weight: 700; text-decoration: none; }
+.console-brief-strip li a:hover { border-color: var(--ui-green, #0d694d); }
+.console-brief-value { flex: 0 0 auto; padding: 2px 7px; border-radius: 999px; background: #eef4f1; font-size: 11px; font-weight: 800; }
+.console-brief-strip li.tone-action a, .console-brief-strip li.tone-action .console-brief-plain { background: var(--ui-yellow-soft, #fdf6df); border-color: #f0dcae; }
+.console-brief-strip li.tone-action .console-brief-value { background: #ffffff; color: #8a5a00; }
+.console-brief-strip li.tone-good .console-brief-value { background: #e7f5ee; color: var(--ui-green, #0d694d); }
+.console-brief-note { flex-basis: 100%; margin: 0; color: var(--ui-muted, #57675f); font-size: 11.5px; }
+.console-brief-ask { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--ui-cyan, #0e7490); color: #ffffff; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.console-brief-ask:hover { background: #0b5f75; }
+@media (max-width: 700px) {
+  .console-brief-strip { align-items: stretch; }
+  .console-brief-strip ul { flex-basis: 100%; }
+  .console-brief-ask { width: 100%; justify-content: center; }
+}

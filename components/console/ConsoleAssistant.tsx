@@ -107,6 +107,14 @@ export function ConsoleAssistant({ session, service }: { session: ConsoleSession
     }
   }
 
+  // The home page's brief strip opens the panel without threading state
+  // through the shell.
+  useEffect(() => {
+    const openPanel = () => setOpen(true);
+    window.addEventListener("console-assistant:open", openPanel);
+    return () => window.removeEventListener("console-assistant:open", openPanel);
+  }, []);
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     void ask(message);

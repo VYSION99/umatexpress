@@ -159,7 +159,10 @@ action for the top bar.
 
 The shell adds the parts that must not differ between services: the rail, the
 breadcrumb, the service finder, the account cluster, sign-out, the mobile bar,
-and the hero. On a phone the rail steps aside for a fixed bottom bar
+and the hero. It also mounts the console assistant.
+The home page adds `ConsoleBriefStrip` above the directory: the role's daily
+brief, read from `/api/console/assistant/brief`, with the assistant panel one
+tap away. On a phone the rail steps aside for a fixed bottom bar
 (Home / Services / Security / Sign out), so a service is never more than two
 taps away.
 
