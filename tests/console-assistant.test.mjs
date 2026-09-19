@@ -20,10 +20,12 @@ process.env.CONSOLE_SESSION_SECRET = "test-console-assistant-secret-32-chars-lon
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true } });
 after(async () => vite.close());
-const { signAssistantAction, verifyAssistantAction, executeConsoleAssistantAction, describeAssistantAction, consoleAssistantReply } = await vite.ssrLoadModule("/lib/console-assistant.ts");
+const { signAssistantAction, verifyAssistantAction, executeConsoleAssistantAction, describeAssistantAction, consoleAssistantReply, consoleBriefFor } = await vite.ssrLoadModule("/lib/console-assistant.ts");
 
 const adminAccount = { id: "admin_acct", email: "admin@umatexpress.example", name: "Admin", phone: "", role: "ADMIN", status: "ACTIVE", profileId: "" };
 const organizerAccount = { id: "org_acct", email: "organiser@example.com", name: "Organiser", phone: "", role: "ORGANIZER", status: "ACTIVE", profileId: "org_1" };
+const moderatorAccount = { id: "mod_acct", email: "moderator@umatexpress.example", name: "Moderator", phone: "", role: "MODERATOR", status: "ACTIVE", profileId: "" };
+const driverAccount = { id: "drv_acct", email: "driver@umatexpress.example", name: "Driver", phone: "", role: "DRIVER", status: "ACTIVE", profileId: "drv_1" };
 const request = new Request("https://console.example/api/console/assistant");
 
 test("every tool is well formed", () => {
@@ -62,7 +64,7 @@ test("a role only holds the tools it could use by hand", () => {
   }
 
   const driver = consoleAssistantToolsForRole("DRIVER").map((tool) => tool.name).sort();
-  assert.deepEqual(driver, ["console_guide", "driver_queue", "driver_shift"], "a driver only reaches their own shift");
+  assert.deepEqual(driver, ["console_guide", "daily_brief", "driver_queue", "driver_shift"], "a driver only reaches their own shift");
   const organizer = consoleAssistantToolsForRole("ORGANIZER");
   assert.deepEqual(organizer.filter((tool) => tool.kind === "action").map((tool) => tool.name), ["notice_update"], "an organizer's only action is their own notice");
   const moderator = consoleAssistantToolsForRole("MODERATOR").map((tool) => tool.name);
@@ -119,6 +121,50 @@ test("the loop runs a read tool and answers from its result", async () => {
   const toolMessage = seen[1].find((message) => message.role === "tool");
   assert.ok(toolMessage, "the tool result must be handed back to the model");
   assert.match(toolMessage.content, /Organizer workspaces?"?:|Organizer workspace/i);
+});
+
+test("the daily brief is role-shaped and survives a service it cannot read", async () => {
+  const expectations = [
+    { account: adminAccount, hrefs: ["/console/organizers", "/console/disputes", "/console/payouts", "/console/campus"] },
+    { account: moderatorAccount, hrefs: ["/console/organizers", "/console/disputes"] },
+    { account: organizerAccount, hrefs: ["/console/trips", "/console/earnings", "/console/disputes"] },
+    { account: driverAccount, hrefs: ["/console/driver", "/console/change-password"] },
+  ];
+  for (const { account, hrefs } of expectations) {
+    const brief = await consoleBriefFor({ request, account });
+    assert.equal(brief.role, account.role);
+    assert.ok(brief.headline.trim(), `${account.role} needs a greeting`);
+    assert.ok(brief.summary.trim(), `${account.role} needs a one-line summary`);
+    assert.ok(!Number.isNaN(Date.parse(brief.generatedAt)), `${account.role} needs a readable timestamp`);
+    assert.ok(Array.isArray(brief.items), `${account.role} needs an item list`);
+    for (const item of brief.items) {
+      assert.ok(item.key && item.label && item.value, `${account.role} brief items must be readable`);
+      assert.ok(["action", "info", "good"].includes(item.tone), `${account.role} brief item has an unknown tone`);
+      if (item.href) {
+        assert.ok(item.href.startsWith("/console/"), `${item.href} must stay inside the console`);
+        assert.ok(hrefs.includes(item.href), `${account.role} must not be pointed at ${item.href}`);
+      }
+    }
+    // A service that cannot be read is reported, never hidden: either the
+    // section appears or the note says it is missing. Silence is the bug.
+    assert.ok(brief.items.length || brief.note.trim(), `${account.role} brief must say when it read nothing`);
+  }
+});
+
+test("the loop runs the daily brief and answers from its result", async () => {
+  const seen = [];
+  const run = async (model, payload) => {
+    seen.push(payload.messages);
+    if (seen.length === 1) return { tool_calls: [{ id: "call_1", function: { name: "daily_brief", arguments: "{}" } }] };
+    return { choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Start with the review queue, then the disputes." } }] };
+  };
+  const result = await consoleAssistantReply({ request, account: adminAccount, message: "What needs my attention today?", run });
+  assert.equal(result.reply, "Start with the review queue, then the disputes.");
+  assert.deepEqual(result.toolRuns, ["Daily brief"]);
+  assert.equal(result.pendingAction, undefined);
+  const toolMessage = seen[1].find((message) => message.role === "tool");
+  assert.ok(toolMessage, "the brief must be handed back to the model");
+  assert.match(toolMessage.content, /"summary"/);
 });
 
 test("an action tool is proposed, never executed", async () => {

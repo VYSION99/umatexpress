@@ -67,6 +67,14 @@ export const consoleAssistantTools: readonly ConsoleAssistantTool[] = [
     ],
   },
   {
+    name: "daily_brief",
+    title: "Daily brief",
+    description: "What needs this person's attention right now: the counts and items waiting on them, ordered by urgency, each with the page that handles it. Use it first for open questions like what needs attention or where to start.",
+    kind: "read",
+    roles: ["ADMIN", "MODERATOR", "ORGANIZER", "DRIVER"],
+    parameters: [],
+  },
+  {
     name: "organizers_list",
     title: "Organizer applications",
     description: "Organizer applications and their review status. Use it to answer who applied, who is waiting, and who is active or suspended.",

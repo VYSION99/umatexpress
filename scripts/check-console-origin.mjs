@@ -74,6 +74,7 @@ try {
       if (url.startsWith("/api/driver/me")) return json({ driver: { id: "check-driver", name: "Check Driver", active: true, vehicleId: "", currentZoneId: "", mustChangePassword: false }, ride: null, zones: [], corridors: [], vehicles: [] });
       if (url.startsWith("/api/driver/queue")) return json({ queue: [] });
       if (url.startsWith("/api/driver/summary")) return json({ day: "Today", completed: 0, boarded: 0, grossFares: 0, activeQueue: 0, nextPickup: null });
+      if (url.startsWith("/api/console/assistant/brief") && method === "GET") return json({ ok: true, role: "ORGANIZER", headline: "Good morning, Console", summary: "One thing needs your attention today.", generatedAt: new Date().toISOString(), items: [{ key: "trips-fix", label: "Trips needing a fix", value: "1", detail: "Reason: coach photo missing.", href: "/console/trips", tone: "action" }, { key: "next-departure", label: "Next departure", value: "2026-10-04", detail: "Accra → Kumasi · 12 of 45 seats confirmed.", href: "/console/trips", tone: "info" }], note: "" });
       if (url.startsWith("/api/console/assistant/confirm") && method === "POST") return json({ ok: true, tool: "trips_review", title: "Review an organizer trip", result: { done: true } });
       if (url.startsWith("/api/console/assistant") && method === "POST") return json({ ok: true, reply: "Three organizer applications are waiting for review.", toolRuns: ["Organizer applications"], pendingAction: { token: "stub-token", title: "Review an organizer application", summary: "Organizer id: org_1 · Decision: APPROVE" } });
       return realFetch(input, init);
@@ -198,9 +199,16 @@ try {
 
   // 10. The assistant sits on every page: it answers with the tools the role
   //     holds, and an action it proposes only runs after the person confirms.
+  await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
   await visit("/console?role=ORGANIZER", `document.querySelector(".console-assistant-toggle") !== null`);
+  await until(`document.querySelector(".console-assistant-badge")?.textContent === "1"`, "the brief badge on the console home");
   await click(`document.querySelector(".console-assistant-toggle")`);
   await until(`document.querySelector(".console-assistant-panel") !== null`, "the assistant panel to open");
+  await until(`document.querySelector(".console-assistant-brief") !== null`, "the daily brief card");
+  assert.match(await evaluate(`document.querySelector(".console-assistant-brief").textContent`), /Trips needing a fix/, "the brief must name what needs attention");
+  assert.match(await evaluate(`document.querySelector(".console-assistant-brief").textContent`), /One thing needs your attention/, "the brief must summarise the day");
+  const briefShot = await call("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile("/tmp/umatexpress-console-assistant-390.png", Buffer.from(briefShot.data, "base64"));
   await click(`document.querySelector(".console-assistant-suggestions button")`);
   await until(`document.querySelector(".console-assistant-assistant")?.textContent.includes("Three organizer applications")`, "the assistant reply");
   const proposed = await evaluate(`document.querySelector(".console-assistant-confirm strong")?.textContent`);

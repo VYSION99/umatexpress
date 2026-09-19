@@ -1,6 +1,6 @@
 # Console Assistant
 
-**Status:** Phase 1 implemented (read tools, confirmed actions, in-shell UI)
+**Status:** Phase 2 implemented (daily brief, read tools, confirmed actions, in-shell UI)
 **Applies to:** every console service and every console role
 
 ---
@@ -21,7 +21,35 @@ does two things well:
 It never invents numbers, never sees a password or PIN, and never changes data
 on its own.
 
-## 2. Two rules that make it safe
+## 2. The daily brief
+
+Opening the assistant shows the **daily brief** before the conversation starts:
+a greeting, one line saying how many things need a decision, and a short list
+of what is waiting — each row carrying the number, the name of the thing and
+the console page that handles it. A badge on the Assistant button shows the
+same count without opening the panel, so signing in at `/console` answers
+"what needs me today" at a glance.
+
+The brief is composed by `consoleBriefFor()` in `lib/console-assistant.ts`
+from the same library reads the console pages use, and is served by
+`GET /api/console/assistant/brief` (60 reads / 10 minutes per caller). It never
+calls a model, so the card on screen and the assistant's `daily_brief` tool
+hold identical numbers.
+
+What each role is shown:
+
+| Role | The brief reads |
+|------|-----------------|
+| ADMIN | pending organizer applications, the trip review queue, open disputes, cleared payout balances, live CampusRide rides |
+| MODERATOR | pending organizer applications, the trip review queue, open disputes |
+| ORGANIZER | trips rejected or suspended (with the review reason), drafts, trips in review, the next departure, trips with open seats, ready earnings, disputes about their trips |
+| DRIVER | a required password change, the current ride, the boarding queue with the next passenger, preview-mode data |
+
+A section that cannot be read is named in the brief's note instead of failing
+the whole card, and a role never sees another role's data: every read takes the
+id from the signed session, exactly as the panel tools do.
+
+## 3. Two rules that make it safe
 
 1. **The role decides what exists.** The tool list sent to the model is built
    from the signed session's role, and the confirm endpoint re-reads the role
@@ -37,7 +65,7 @@ on its own.
 Tool results are treated as data, never instructions: a passenger name or a
 dispute note that says "ignore your rules" is text inside a result.
 
-## 3. The catalogue
+## 4. The catalogue
 
 `lib/console-assistant-catalog.ts` is the single description of what the
 assistant may know and do. Each tool declares:
@@ -69,7 +97,7 @@ assistant inherits exactly the permissions the page would have had.
    replayed by another account, and that an action proposal cannot be executed
    by a role that does not hold the tool.
 
-## 4. The model
+## 5. The model
 
 The assistant runs on Workers AI through the same binding as the rest of the
 AI surfaces (`env.AI`). It prefers `CONSOLE_ASSISTANT_MODEL` and falls back to
@@ -82,7 +110,7 @@ clipped at 4,000 characters, replies clipped at 4,000 characters and asked for
 in under 90 words. If the model answers without a tool, that text is returned
 as-is; if it proposes an action, the loop stops there.
 
-## 5. Limits and privacy
+## 6. Limits and privacy
 
 | Limit | Value |
 |-------|-------|
@@ -95,14 +123,15 @@ details stay behind the audited staff surfaces (decision D3), drivers never see
 boarding PINs, and an organizer only ever reaches their own rows — every
 handler takes the id from the session, never from the model.
 
-## 6. Verification
+## 7. Verification
 
 | Check | Command |
 |-------|---------|
 | Catalogue, role scoping, proposal signing | `node --test tests/console-assistant.test.mjs` |
-| The assistant in the shell (stubbed model) | `node scripts/check-console-origin.mjs` |
+| The daily brief's shape and role bounds | `node --test tests/console-assistant.test.mjs` |
+| The brief card and the assistant in the shell (stubbed model) | `node scripts/check-console-origin.mjs` |
 | Types and lint | `npm run typecheck`, `npm run lint` |
 
-The browser check stubs both assistant endpoints, so it verifies the panel,
-the tool chips, the confirmation card and the confirm round-trip without
-calling a model.
+The browser check stubs the assistant endpoints, so it verifies the brief
+card and badge, the panel, the tool chips, the confirmation card and the
+confirm round-trip without calling a model.
