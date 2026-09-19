@@ -121,6 +121,15 @@ Until the move, the same dashboard page can fix today's lockout: Worker → Acce
 `kwesivy@gmail.com`) to the policy. Decide deliberately whether the client
 should stay behind Access at all — public browsing was the stated rule.
 
+Worker Access may be disabled without losing the student rule: the domain is
+enforced by the app, not the edge. `lib/student-email.ts` owns
+`STUDENT_EMAIL_DOMAIN = "st.umat.edu.gh"`, and `registerStudent` rejects any
+other address before a row is written, so no amount of edge traffic can create
+a student account outside the domain. Disabling the gate costs nothing except
+the Cloudflare PIN that was blocking admins, organizers, drivers and every
+public visitor. What it does not do is prove the mailbox exists — the domain
+check filters who may register, not who owns the address behind it.
+
 ### 6.3 Create the application, per path prefix
 
 The path is part of the application, so repeat this for each gated prefix in
