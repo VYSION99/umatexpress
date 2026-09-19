@@ -45,8 +45,8 @@ QUEUE_NAME="$(env_or_default CLOUDFLARE_QUEUE umatexpress-notifications)"
 # public. Opt in with CLOUDFLARE_CONSOLE_WORKER_NAME plus the hostname that
 # Worker will answer on; both are required together, because a console Worker
 # without a boundary would serve the public client too.
-CONSOLE_WORKER_NAME="${CLOUDFLARE_CONSOLE_WORKER_NAME:-}"
-CONSOLE_HOSTS="${CLOUDFLARE_CONSOLE_HOSTS:-$(env_or_default CONSOLE_HOSTS "")}"
+CONSOLE_WORKER_NAME="${CLOUDFLARE_CONSOLE_WORKER_NAME:-$(env_or_default CLOUDFLARE_CONSOLE_WORKER_NAME "")}"
+CONSOLE_HOSTS="${CLOUDFLARE_CONSOLE_HOSTS:-$(env_or_default CLOUDFLARE_CONSOLE_HOSTS "")}"
 ROLE="single"
 if [[ -n "$CONSOLE_WORKER_NAME" ]]; then
   if [[ -z "$CONSOLE_HOSTS" ]]; then
