@@ -594,3 +594,14 @@
    on the white surfaces instead of a black rectangle. */
 .logo-brand img, .status-logo, .login-logo, .coach-logo-badge img { border-radius: 16px; }
 .campus-logo img { border-radius: 10px; }
+
+/* Ask AI to find the trip: same width as the search card, one line on desktop */
+.search-ai{width:min(1180px,calc(100% - 48px));margin:14px auto 0;border:1px solid #d9ddd8;border-radius:16px;background:white;padding:12px 14px;box-shadow:0 12px 30px #182e240f}
+.search-ai form{display:flex;align-items:center;gap:10px}
+.search-ai form>svg{flex:none;color:var(--green)}
+.search-ai input{flex:1;min-width:0;min-height:44px;border:0;background:transparent;outline:0;color:var(--ink);font-weight:650}
+.search-ai button{flex:none;min-height:44px;border:0;border-radius:12px;padding:0 18px;background:var(--green);color:white;font-weight:800;cursor:pointer}
+.search-ai button:disabled{opacity:.6;cursor:default}
+.search-ai-note{margin:10px 2px 2px;color:#2a4338;font-size:13px;line-height:1.6}
+.search-ai-error{margin:10px 2px 2px;color:#9c3026;font-size:13px}
+@media(max-width:560px){.search-ai{width:calc(100% - 28px)}.search-ai form{flex-wrap:wrap}.search-ai input{flex-basis:calc(100% - 30px)}.search-ai button{width:100%}}

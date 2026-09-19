@@ -278,6 +278,24 @@
   box-shadow: 0 10px 25px rgba(18, 38, 31, .3);
 }
 
+.vacation .search-ai {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-card-shadow-lg);
+}
+
+.vacation .search-ai form > svg {
+  color: var(--ui-green);
+}
+
+.vacation .search-ai button {
+  background: var(--ui-green);
+}
+
+.vacation .search-ai-note {
+  color: var(--ui-ink);
+}
+
 .vacation .search-card {
   border-color: var(--ui-line);
   background: var(--ui-surface);

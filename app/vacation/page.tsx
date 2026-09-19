@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { formatTime, TRAVEL_DATE } from "@/lib/trips";
 import { ArrowRight, Bot, BusFront, CalendarDays, Check, Clock3, MapPin, Megaphone, Phone, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { EMPTY_FLYER_PROMO, hasNoticeContent, type FlyerPromo } from "@/lib/trip-notice";
@@ -46,6 +46,11 @@ export default function Home() {
   const [availabilityError, setAvailabilityError] = useState("");
   const [passengerHelp, setPassengerHelp] = useState("");
   const [passengerHelpLoading, setPassengerHelpLoading] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState("");
+  const [aiError, setAiError] = useState("");
+
   const trip = useMemo(() => visibleTrips.find((item) => item.id === selectedTrip) ?? visibleTrips[0], [selectedTrip, visibleTrips]);
   /**
    * Coaches are grouped by who runs them. The platform's own trips share one
@@ -111,6 +116,41 @@ export default function Home() {
     });
   }, []);
   useEffect(() => { queueMicrotask(loadAvailability); }, [loadAvailability]);
+  /**
+   * The student describes the trip; the assistant chooses from the coaches
+   * already on this page. When it finds one, it is selected here and the page
+   * scrolls to the list, so the explanation and the result are in one place.
+   */
+  const searchWithAi = async (event: FormEvent) => {
+    event.preventDefault();
+    const prompt = aiPrompt.trim();
+    if (!prompt || aiBusy) return;
+    setAiBusy(true);
+    setAiNote("");
+    setAiError("");
+    try {
+      const response = await fetch("/api/trips/ai-search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: prompt }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Trip search is unavailable right now.");
+      const reply = String(data.reply || "").trim();
+      setAiNote(reply || "I could not match that to a coach. Try naming the destination or the date.");
+      if (data.tripId && visibleTrips.some((item) => item.id === String(data.tripId))) {
+        setSelectedTrip(String(data.tripId));
+        setPaymentError("");
+        setPaymentMessage("");
+        document.getElementById("trips")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "Trip search is unavailable right now.");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const fetchPassengerHelp = async () => {
     if (!trip) return;
     setPassengerHelpLoading(true);
@@ -174,6 +214,21 @@ export default function Home() {
         <label><span>Going to</span><div><MapPin size={18} /><strong>{routeTo}</strong></div></label>
         <label><span>Travel date</span><div><CalendarDays size={18} /><input type="date" value={trip?.travelDate || date} readOnly /></div></label>
         <a className="primary-button" href="#trips">Find trips <ArrowRight size={18} /></a>
+      </section>
+
+      <section className="search-ai" aria-label="Ask AI to find your trip">
+        <form onSubmit={searchWithAi}>
+          <Sparkles size={17} aria-hidden />
+          <input
+            aria-label="Describe the trip you want"
+            placeholder={'Ask in your own words — “Accra next Friday”, “the early bus”'}
+            value={aiPrompt}
+            onChange={(event) => setAiPrompt(event.target.value)}
+          />
+          <button type="submit" disabled={aiBusy || !aiPrompt.trim()}>{aiBusy ? "Searching…" : "Find with AI"}</button>
+        </form>
+        {aiNote && <p className="search-ai-note" role="status">{aiNote}</p>}
+        {aiError && <p className="search-ai-error" role="alert">{aiError}</p>}
       </section>
 
       {flyerPromo.enabled && hasNoticeContent(flyerPromo) && <section className="flyer-promo" aria-label="UMaT Express flyer information">

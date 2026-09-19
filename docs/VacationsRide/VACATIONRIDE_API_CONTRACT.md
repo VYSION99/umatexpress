@@ -83,6 +83,30 @@ Display settings for the public page: `mode`, `morningDeparture`,
 **Phase 2 change:** the notice becomes per organizer (`trip_notices`), with the
 platform notice as the fallback for trips that have no organizer.
 
+### `POST /api/trips/ai-search`
+
+"Find my trip" in the student's own words. The endpoint reads the same public,
+approved trips the page shows (including the legacy morning/evening visibility
+filter), then either the model or the deterministic matcher chooses one id.
+
+**Request**
+```json
+{ "message": "I want to go to Accra next Friday" }
+```
+
+**Response (200)**
+```json
+{ "ok": true, "tripId": "3", "reply": "Found the 07:00 coach from UMaT Main Campus to Accra on Fri 25 Sep. Fare GH₵ 45 per student. ..." }
+```
+
+`tripId` is always an id from the list the caller can see, and `reply` is always
+composed from the real trip row — the model only chooses the id, so it cannot
+invent a fare, a date or a coach. A hallucinated id, an unusable answer or a
+missing model falls back to the deterministic matcher (route words plus a
+parsed travel date), and a destination with no coach that day is reported
+honestly instead of quietly choosing another day. 20 requests / 10 minutes per
+address; empty messages are a `400`.
+
 ---
 
 ## 2. Booking and payment
@@ -397,4 +421,5 @@ paths remain the only writers of the ledger.
   trip is never blocked by one.
 - `GET /api/trips/schedule` (240/min), `GET /api/trips/display` (240/min) and
   `GET /api/trips/availability` (300/min) are rate limited per address; the
+  AI search is 20/10 min because it can call Workers AI; the
   schedule's limit does not apply to the signed-in `?admin=1` view.

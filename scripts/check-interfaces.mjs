@@ -45,6 +45,10 @@ try {
     const mobile = await evaluate(`({page:document.documentElement.scrollWidth,viewport:innerWidth,fields:[...document.querySelectorAll('input,select,textarea')].filter(element=>element.getClientRects().length&&element.getBoundingClientRect().height<40).length})`);
     assert.ok(mobile.page <= mobile.viewport, `${route} overflows at 390px: ${mobile.page}px`);
     assert.equal(mobile.fields, 0, `${route} has undersized form fields`);
+    if (route === "/vacation") {
+      assert.ok(await evaluate(`document.querySelector(".search-ai input") !== null`), "vacation must offer the AI trip search");
+      assert.equal(await evaluate(`document.querySelector(".search-ai form button")?.textContent.trim()`), "Find with AI");
+    }
     const image = await call("Page.captureScreenshot", { format:"png", captureBeyondViewport:true });
     const name = route === "/" ? "home" : route.slice(1).replaceAll("/", "-");
     await writeFile(`/tmp/umx-${name}-390.png`, Buffer.from(image.data, "base64"));
