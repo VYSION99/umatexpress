@@ -15,16 +15,16 @@ export const CONSOLE_SIGN_IN_PATH = "/console/login";
 const CONSOLE_NATIVE_PATHS = ["/console", "/api/console"];
 
 /**
- * Surfaces the console origin serves while the older admin and driver screens
- * still live under their existing paths. Phase 2 moves them to /console/*,
- * after which they are removed from this list.
+ * The console origin serves the console itself and the APIs its pages call.
+ * The old /admin and /driver pages are gone: their paths redirect to the
+ * console (see LEGACY_CONSOLE_PATHS). The one legacy page still standing is
+ * the administrator password reset, which the console does not replace yet.
  */
 const CONSOLE_SURFACE_PREFIXES = [
   "/console",
   "/api/console",
   "/admin",
   "/api/admin",
-  "/driver",
   "/api/driver",
   // Only the two admin trip endpoints: the public trip reads stay public, so a
   // future /api/trips/* route never becomes reachable from the console by
@@ -72,6 +72,36 @@ function matchesPrefix(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
+/**
+ * Where each legacy console path now lives. The console is one console, and
+ * these are the addresses it used to answer on: a bookmark, a shared link or a
+ * driver's saved home screen must land on the surface, not on a 404.
+ */
+export const LEGACY_CONSOLE_PATHS: Readonly<Record<string, string>> = {
+  "/admin": "/console",
+  "/admin/login": "/console/login",
+  "/admin/change-password": "/console/change-password",
+  "/admin/campus": "/console/campus",
+  "/admin/vacation": "/console/vacation",
+  "/driver": "/console/driver",
+  "/driver/login": "/console/login",
+};
+
+/**
+ * The redirect for a legacy path, or null when the path still stands on its
+ * own. On the console origin — and anywhere the boundary is not in force, such
+ * as local development — the console is a sibling path, so the redirect stays
+ * relative. On any other host the browser is sent to the console origin, which
+ * is the only origin that answers for it.
+ */
+export function legacyConsoleRedirect(host: string, pathname: string, hosts: readonly string[]): string | null {
+  const target = LEGACY_CONSOLE_PATHS[pathname];
+  if (!target) return null;
+  const configured = hosts.map((item) => item.toLowerCase());
+  if (!configured.length || isLoopbackHost(host) || configured.includes(host.toLowerCase())) return target;
+  return `https://${configured[0]}${target}`;
+}
+
 /** Console-native paths are refused on every host that is not the console. */
 export function isConsoleNativePath(pathname: string) {
   return CONSOLE_NATIVE_PATHS.some((prefix) => matchesPrefix(pathname, prefix));
@@ -93,6 +123,7 @@ export function isFrameworkAssetPath(pathname: string) {
 export type ConsoleHostAction =
   | { action: "serve" }
   | { action: "redirect"; location: string }
+  | { action: "legacy"; location: string }
   | { action: "not-found" };
 
 /**
@@ -103,6 +134,11 @@ export type ConsoleHostAction =
  */
 export function consoleHostAction(host: string, pathname: string, hosts: readonly string[]): ConsoleHostAction {
   const configured = hosts.map((item) => item.toLowerCase());
+  // An address the console used to answer on is answered for on every host,
+  // before any boundary decision, so it keeps working wherever it is opened.
+  const legacy = legacyConsoleRedirect(host, pathname, configured);
+  if (legacy) return { action: "legacy", location: legacy };
+
   // Unconfigured deployments and local development are boundary-free: every
   // path keeps working, and the session guard is what protects the console.
   if (!configured.length || isLoopbackHost(host)) return { action: "serve" };
@@ -126,6 +162,13 @@ export function consoleHostAction(host: string, pathname: string, hosts: readonl
 export function consoleBoundaryResponse(request: Request, configuredHosts: unknown): Response | null {
   const url = new URL(request.url);
   const decision = consoleHostAction(url.host, url.pathname, parseConsoleHosts(configuredHosts));
+  if (decision.action === "legacy") {
+    // A legacy address can carry a query string (a filter, a shared link); the
+    // redirect keeps it instead of dropping it on the way to the console.
+    const location = new URL(decision.location, request.url);
+    location.search = url.search;
+    return Response.redirect(location.toString(), 302);
+  }
   if (decision.action === "redirect") return Response.redirect(new URL(decision.location, request.url).toString(), 302);
   if (decision.action === "not-found") return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   return null;

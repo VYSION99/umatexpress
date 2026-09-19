@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Banknote, RefreshCw, Send, ShieldCheck, Undo2, Zap } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
+import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 
 type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
 type Summary = {
@@ -41,7 +42,7 @@ export default function PayoutsConsolePage() {
   return <ConsoleSessionGate label="organizer payouts">
     {(session) => session.account.role === "ADMIN"
       ? <PayoutsWorkspace session={session} />
-      : <ConsoleShell session={session} service="payouts" label="ORGANIZER PAYOUTS" title="Not available" blurb="Recording payouts is an administrator action.">{null}</ConsoleShell>}
+      : <ConsoleUnavailable session={session} service="payouts" label="ORGANIZER PAYOUTS" blurb="Recording payouts is an administrator action." />}
   </ConsoleSessionGate>;
 }
 

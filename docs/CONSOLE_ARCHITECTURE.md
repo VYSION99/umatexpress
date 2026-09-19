@@ -50,11 +50,14 @@ Rules that make the role meaningful:
 The console is served from `console.umatexpress.com`. `CONSOLE_HOSTS` lists the
 hosts allowed to serve it.
 
-* On the console host: `/console*`, `/api/console/*`, the admin and driver
-  surfaces that have not moved yet, and framework assets. `/` redirects to
-  `/console`. Everything else is a `404`.
-* On every other host: `/console*` and `/api/console/*` are `404`. The public
-  site is untouched.
+* On the console host: `/console*`, `/api/console/*`, the APIs the console
+  screens call (`/api/admin/*`, `/api/driver/*`, the two admin trip reads),
+  `/admin/reset-password` while that page waits for a console-native version,
+  and framework assets. `/` redirects to `/console`. Everything else is a
+  `404`.
+* On every other host: `/console*` and `/api/console/*` are `404`, and the
+  legacy staff addresses redirect to the console (table below). The public site
+  is untouched.
 * Unconfigured (`CONSOLE_HOSTS` empty) and loopback hosts are boundary-free, so
   local development and a preview deployment cannot lock anyone out.
 
@@ -65,6 +68,27 @@ host list cannot expose anything on its own.
 The console cookie carries no `Domain` attribute, so it is never attached to a
 request for the public site, and the public shell service worker is never
 registered on console pages.
+
+### Legacy addresses
+
+The console is the only staff surface. The addresses it used to answer on
+survive as redirects, so a bookmark, a shared link or a driver's saved home
+screen keeps working; the query string travels with the redirect.
+
+| Used to be | Now |
+|------------|-----|
+| `/admin` | `/console` |
+| `/admin/login`, `/driver/login` | `/console/login` |
+| `/admin/change-password` | `/console/change-password` |
+| `/admin/campus` | `/console/campus` |
+| `/admin/vacation` | `/console/vacation` |
+| `/driver` | `/console/driver` |
+
+`LEGACY_CONSOLE_PATHS` in `lib/console-hosts.ts` is the single description of
+that map. On the console host — and wherever the boundary is not in force, such
+as local development — the redirect is a sibling path; on any other host it is
+an absolute redirect to the console origin. A path that is not in the map stays
+where it is, which is what keeps `/admin/reset-password` working.
 
 ## 4. Adding a new console service
 
@@ -126,9 +150,10 @@ Bridged sessions live **one hour**, not eight, because a legacy store cannot tel
 the console that a password changed. Setting a console password stores a real
 hash and detaches the account from the legacy credential for console sign-in.
 
-The legacy admin and driver sign-ins keep working on the public origin during
-the transition. They are removed once every console surface runs on the console
-identity.
+Every staff surface now runs on the console origin: `/admin` and `/driver` are
+redirects, and the only legacy address still standing is the administrator
+password reset at `/admin/reset-password`. It authenticates against the same
+`admin_credentials` store until it too moves behind `console_accounts`.
 
 ## 7. Operating the console
 
@@ -175,6 +200,7 @@ requires the zone to be in the same Cloudflare account; if it is not, remove
 The browser check stubs the session endpoint by role, so it needs no
 credentials. It asserts the shell frames every page, the rail lists only what
 the role may use, the home page groups services in the declared order, a
-service page opens its own sub-navigation, the finder searches every service,
-and nothing overflows or drops below a 44px touch target at 320, 390, 768 and
-1440 pixels. It writes screenshots to `/tmp/umatexpress-console-*.png`.
+service page opens its own sub-navigation, CampusRide, VacationRide and the
+driver portal render inside the shell, the legacy addresses redirect into the
+console with their query string, the finder searches every service, and nothing
+overflows or drops below a 44px touch target at 320, 390, 768 and 1440 pixels. It writes screenshots to `/tmp/umatexpress-console-*.png`.

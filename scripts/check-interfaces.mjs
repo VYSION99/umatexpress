@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 
 const origin = process.env.INTERFACE_TEST_URL || "http://127.0.0.1:5173";
 const port = process.env.INTERFACE_DEBUG_PORT || "9231";
-const routes = ["/", "/vacation", "/campus", "/driver/login", "/admin/login", "/admin/reset-password", "/payment/callback", "/campus/ticket"];
+const routes = ["/", "/vacation", "/campus", "/console/login", "/admin/reset-password", "/payment/callback", "/campus/ticket"];
 const tabs = await fetch(`http://127.0.0.1:${port}/json`).then(response => response.json());
 const socket = new WebSocket(tabs.find(tab => tab.type === "page").webSocketDebuggerUrl);
 await new Promise(resolve => socket.addEventListener("open", resolve, { once:true }));

@@ -12,8 +12,7 @@ uMATeXPRESS/
 │   ├── palette.css                      # shared colour tokens (white surface, yellow/green/dark cyan)
 │   ├── vacation/                        # vacationRide passenger app
 │   ├── campus/                          # campusRide student app and ticket
-│   ├── driver/                          # campusRide driver portal
-│   ├── admin/                           # super-admin, vacationRide, campusRide admin
+│   ├── admin/                           # administrator password reset (the one address the console still borrows)
 │   ├── console/                         # console origin: entry, sign-in, password, disputes and workspaces
 │   └── api/
 │       ├── admin/                       # admin auth, AI, bookings, campus management
@@ -26,8 +25,8 @@ uMATeXPRESS/
 │       ├── trips/                       # vacationRide schedule/display/availability
 │       └── v1/                          # stable campus API aliases
 ├── components/
-│   ├── admin/                           # legacy admin launcher, session gate and console service registry
-│   ├── console/                         # the one console shell every service is framed by
+│   ├── admin/                           # console session gate, service registry and vacationRide admin console
+│   ├── console/                         # the one shell every service is framed by, plus the unavailable-service frame
 │   ├── campusRide/
 │   │   ├── admin/                       # campusRide admin widgets
 │   │   ├── driver/                      # driver portal widgets

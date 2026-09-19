@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, Banknote, BusFront, CalendarClock, Clock3, TrendingUp, Users, Wallet } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
+import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 
 type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
 type Entry = {
@@ -34,7 +35,7 @@ export default function OrganizerEarningsPage() {
   return <ConsoleSessionGate label="your earnings">
     {(session) => session.account.role === "ORGANIZER"
       ? <EarningsWorkspace session={session} />
-      : <ConsoleShell session={session} service="earnings" label="EARNINGS" title="Not available" blurb="This page belongs to an organizer account.">{null}</ConsoleShell>}
+      : <ConsoleUnavailable session={session} service="earnings" label="EARNINGS" blurb="This page belongs to an organizer account." />}
   </ConsoleSessionGate>;
 }
 

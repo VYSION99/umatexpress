@@ -46,7 +46,7 @@ Today exactly one group organizes every trip. The code reflects that:
 | Trip ownership | `scheduled_trips` has no owner column | Nothing distinguishes one organizer's coach from another's |
 | Public notice | `trip_settings` is a single row (`id = 1`) | Every organizer would overwrite the same notice |
 | Identity | `admin_credentials` + `campus_drivers` + `ADMIN_EMAILS` | Three credential stores, no account that means "organizer" |
-| Console | `/admin/vacation` and `/driver` on the public origin | Console sessions ride on the same origin as the booking site |
+| Console | `/console/*` on the console origin; `/admin/vacation` and `/driver` redirect there | Console sessions ride on their own origin, apart from the booking site |
 | Bookings | `bookings.trip_id` → `scheduled_trips` | Revenue cannot be attributed to an organizer |
 | Legacy trips | Seeded ids `"1"`/`"2"` still bookable | Two trip systems must both carry ownership |
 
@@ -202,7 +202,7 @@ Until the DNS record exists, run the console on the workers.dev host or locally.
 | `lib/trip-settings.ts` | Notice becomes per organizer; `flyerPromoFromEnv()` stays as the platform fallback |
 | `app/api/trips/display/route.ts` | `GET` returns the organizer's notice; `PATCH` moves to the console |
 | `app/api/trips/schedule/route.ts` | Public reads return approved trips only |
-| `app/admin/vacation/page.tsx` | Flyer editor leaves; gains organizer approval and trip moderation |
+| `app/console/vacation/page.tsx` | The console's trip overview: schedules, fares, passenger records and bookings |
 | `lib/trips.ts` | Trip reads gain an optional `organizerId` filter |
 | `sql/000_...` | New tables and additive columns, idempotent, self-healing at read time |
 | `scripts/deploy-cloudflare.sh` | Preserve the console route on deploy |

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LocateFixed } from "lucide-react";
 import { CampusAiAssistant } from "@/components/campusRide/shared/CampusAiAssistant";
 import { CampusMap } from "@/components/campusRide/shared/CampusMap";
+import { CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";
 import type { CampusCorridor, CampusDriver, CampusQueueEntry, CampusRide, CampusVehicle, CampusZone } from "@/lib/campus-ride";
 
 type DriverState = { driver: CampusDriver; ride?: CampusRide; zones: CampusZone[]; corridors: CampusCorridor[]; vehicles: CampusVehicle[] };
@@ -44,7 +45,11 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
     const response = await fetch("/api/driver/me", { credentials:"same-origin", cache:"no-store" });
     const json = await response.json();
     if (!response.ok) {
-      window.location.assign("/driver/login");
+      // The console shell already guarantees a signed-in driver, so only an
+      // ended session goes back to sign-in. An account that is not linked to an
+      // active campus driver stays here and says so.
+      if (response.status === 401) { window.location.assign("/console/login"); return; }
+      setError(json.error || "This driver account is not linked to an active campus driver profile.");
       return;
     }
     setData(json);
@@ -73,11 +78,6 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
 
   const queueAction = async (entry: CampusQueueEntry, action: string) => {
     await mutate("/api/driver/queue", "PATCH", { reference:entry.reference, action, pin:pins[entry.reference] || "" }, action);
-  };
-
-  const signOut = async () => {
-    await fetch("/api/driver/auth", { method:"DELETE", credentials:"same-origin" });
-    window.location.assign("/driver/login");
   };
 
   const changePassword = async (formData: FormData) => {
@@ -119,7 +119,7 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
     }, { enableHighAccuracy: true, timeout: 9000, maximumAge: 10000 });
   };
 
-  if (!data) return <main className="admin-auth-check"><span className="spin">◌</span><p>Checking driver access…</p></main>;
+  if (!data) return <CampusStatusBanner title="Loading driver workspace" message="Checking your driver profile and today's queue." />;
   const vehicle = data.vehicles.find((item) => item.id === data.driver.vehicleId);
   const currentZone = data.zones.find((item) => item.id === data.driver.currentZoneId);
 
@@ -130,7 +130,7 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
         <h2>{data.driver.name}</h2>
         <span>{data.driver.active ? "Active" : "Inactive"} · {vehicle?.label || "No vehicle"} · {currentZone?.name || "No zone"}</span>
         {data.driver.mustChangePassword && <small className="campus-warning">Temporary password active. Please change it before operating live rides.</small>}
-        <div className="campus-button-row"><button onClick={signOut}>Sign out</button><button onClick={load}>Refresh</button></div>
+        <div className="campus-button-row"><button onClick={load}>Refresh</button></div>
       </section>
 
       <section className="campus-widget-card driver-summary-card">

@@ -321,6 +321,6 @@ export function assertConsolePassword(role: ConsoleRole, password: string) {
 
 /** Where a role starts after signing in. */
 export function consoleLandingPath(role: ConsoleRole) {
-  if (role === "DRIVER") return "/driver";
+  if (role === "DRIVER") return "/console/driver";
   return "/console";
 }

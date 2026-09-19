@@ -1,5 +1,4 @@
 import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Scale, Store, Utensils, Wallet } from "lucide-react";
-import type { LauncherPreference } from "@/components/launcher/services";
 
 /**
  * The console is one console for every UMaTeXPRESS service, the way a cloud
@@ -20,9 +19,9 @@ export const CONSOLE_GROUP_ORDER: ConsoleServiceGroup[] = [
 ];
 
 export const consoleServices = [
-  { id: "campus", title: "CampusRide", icon: CarFront, accent: "blue", group: "Mobility", href: "/admin/campus", label: "CAMPUS OPERATIONS", description: "Keep campus moving.", detail: "Zones, routes, drivers, vehicles and ride queues.", action: "Open CampusRide", tags: ["Drivers & vehicles", "Zones & fares"], nav: [{ label: "Zones, drivers & queues", href: "/admin/campus" }] },
-  { id: "vacation", title: "VacationRide", icon: BusFront, accent: "orange", group: "Mobility", href: "/admin/vacation", label: "TRIPS & PASSENGERS", description: "Every journey, organised.", detail: "Schedules, fares, passenger records and bookings.", action: "Manage trips", tags: ["Trip scheduler", "Passenger records"], nav: [{ label: "Schedules & bookings", href: "/admin/vacation" }] },
-  { id: "driver", title: "Driver portal", icon: MapPinned, accent: "green", group: "Mobility", href: "/driver", label: "BOARDING & QUEUES", description: "From pickup to arrival.", detail: "The driver workspace for today's queue and boarding.", action: "Open driver portal", tags: ["Driver access"], nav: [{ label: "Today's queue", href: "/driver" }] },
+  { id: "campus", title: "CampusRide", icon: CarFront, accent: "blue", group: "Mobility", href: "/console/campus", label: "CAMPUS OPERATIONS", description: "Keep campus moving.", detail: "Zones, routes, drivers, vehicles and ride queues.", action: "Open CampusRide", tags: ["Drivers & vehicles", "Zones & fares"], nav: [{ label: "Zones, drivers & queues", href: "/console/campus" }] },
+  { id: "vacation", title: "VacationRide", icon: BusFront, accent: "orange", group: "Mobility", href: "/console/vacation", label: "TRIPS & PASSENGERS", description: "Every journey, organised.", detail: "Schedules, fares, passenger records and bookings.", action: "Manage trips", tags: ["Trip scheduler", "Passenger records"], nav: [{ label: "Schedules & bookings", href: "/console/vacation" }] },
+  { id: "driver", title: "Driver portal", icon: MapPinned, accent: "green", group: "Mobility", href: "/console/driver", label: "BOARDING & QUEUES", description: "From pickup to arrival.", detail: "The driver workspace for today's queue and boarding.", action: "Open driver portal", tags: ["Driver access"], nav: [{ label: "Today's queue", href: "/console/driver" }] },
   { id: "organizers", title: "Organizer applications", icon: Store, accent: "orange", group: "Self-service trips", href: "/console/organizers", label: "SELF-SERVICE TRIPS", description: "Approve who publishes coaches.", detail: "Review applications, activate or suspend organizers, and assign trips to them.", action: "Review applications", tags: ["Applications", "Trip ownership"], nav: [{ label: "Applications", href: "/console/organizers" }] },
   { id: "organizer", title: "Organizer workspace", icon: BusFront, accent: "orange", group: "Self-service trips", href: "/console/trips", label: "MY TRIPS", description: "Your coaches and passengers.", detail: "The trips you own, their passenger manifests and your trip notice.", action: "Open workspace", tags: ["Trips", "Manifests"], nav: [{ label: "My trips", href: "/console/trips" }, { label: "Business profile", href: "/console/profile" }, { label: "Earnings", href: "/console/earnings" }] },
   { id: "profile", title: "Business profile", icon: IdCard, accent: "cyan", group: "Money", href: "/console/profile", label: "VERIFICATION & PAYOUTS", description: "Get verified, get paid.", detail: "Submit identity verification and the account your payouts should reach.", action: "Open profile", tags: ["KYC", "Payout account"], nav: [{ label: "Verification & payout account", href: "/console/profile" }] },
@@ -35,17 +34,6 @@ export const consoleServices = [
   { id: "security", title: "Account security", icon: LockKeyhole, accent: "purple", group: "Account", href: "/console/change-password", label: "YOUR ACCESS", description: "Look after your access.", detail: "Change the password that opens this console.", action: "Change password", tags: ["Password settings"], nav: [{ label: "Password", href: "/console/change-password" }] },
 ] as const;
 
-export type ConsoleService = (typeof consoleServices)[number];
-export const consoleDefaults = (): LauncherPreference[] => consoleServices.map(service => ({ id: service.id, pinned: false, hidden: !service.href }));
-export function normalizeConsoleLayout(value: unknown): LauncherPreference[] {
-  if (!Array.isArray(value)) return consoleDefaults();
-  const rows: LauncherPreference[] = [];
-  for (const item of value) {
-    if (item && consoleServices.some(service => service.id === item.id) && !rows.some(row => row.id === item.id)) rows.push({ id: item.id, hidden: item.hidden === true, pinned: item.pinned === true });
-  }
-  return [...rows, ...consoleDefaults().filter(item => !rows.some(row => row.id === item.id))];
-}
-
 /**
  * One console, four roles. A service is only offered to the roles that may use
  * it, and this list is presentation only: the matching API re-checks the role
@@ -56,7 +44,7 @@ export function consoleServicesForRole(role: string) {
   // Role order matters: the role's own workspace leads and account security is
   // always last, so the first card is the one the person signed in to use.
   const order: Record<string, string[]> = {
-    MODERATOR: ["organizers", "disputes", "vacation", "hostels", "security"],
+    MODERATOR: ["organizers", "disputes", "hostels", "security"],
     DRIVER: ["driver", "security"],
     ORGANIZER: ["organizer", "profile", "earnings", "disputes", "security"],
   };

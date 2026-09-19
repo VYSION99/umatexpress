@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Bot, CircleDollarSign, Copy, Edit3, Megaphone, RefreshCw, Save, Sparkles, TicketCheck, Trash2, Users } from "lucide-react";
 import { formatTime, TRAVEL_DATE } from "@/lib/trips";
 import { type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
@@ -75,8 +73,13 @@ function AiSuggestionCard({ suggestion }: { suggestion: string }) {
   </div>;
 }
 
-export default function AdminPage() {
-  const router=useRouter();
+/**
+ * The VacationRide operations console: the trip scheduler, the booking page
+ * settings, the flyer and the passenger list. It renders inside ConsoleShell,
+ * which owns the header, the account and the sign-out, so this component only
+ * owns what an administrator came here to do.
+ */
+export function VacationAdminConsole() {
   const [bookings,setBookings]=useState<Booking[]>([]);
   const [displayMode,setDisplayMode]=useState<TripDisplayMode>("BOTH");
   const [schedule,setSchedule]=useState<TripSchedule>(defaultSchedule);
@@ -86,8 +89,6 @@ export default function AdminPage() {
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
   const [tripSaving,setTripSaving]=useState(false);
-  const [authorized,setAuthorized]=useState(false);
-  const [mustChangePassword,setMustChangePassword]=useState(false);
   const [scheduledTrips,setScheduledTrips]=useState<ScheduledTrip[]>([]);
   const [editingTripId,setEditingTripId]=useState("");
   const [aiSuggestion,setAiSuggestion]=useState("");
@@ -97,12 +98,6 @@ export default function AdminPage() {
   const load=useCallback(async()=>{
     setLoading(true);
     try {
-      const authResponse=await fetch("/api/admin/auth", { cache:"no-store", credentials:"same-origin" });
-      if (!authResponse.ok) { router.replace("/admin/login"); return; }
-      const authData=await authResponse.json();
-      if (authData.mustChangePassword) { router.replace("/admin/change-password"); return; }
-      setMustChangePassword(Boolean(authData.mustChangePassword));
-      setAuthorized(true);
       const [bookingsResponse, displayResponse, scheduledResponse] = await Promise.all([
         fetch("/api/admin/bookings", { cache:"no-store", credentials:"same-origin" }),
         fetch("/api/trips/display", { cache:"no-store", credentials:"same-origin" }),
@@ -123,7 +118,7 @@ export default function AdminPage() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Admin data could not be loaded.");
     } finally { setLoading(false); }
-  },[router]);
+  },[]);
 
   useEffect(()=>{ queueMicrotask(load); },[load]);
 
@@ -157,7 +152,6 @@ export default function AdminPage() {
     } finally { setSaving(false); }
   };
 
-  const logout=async()=>{ await fetch("/api/admin/auth",{method:"DELETE",credentials:"same-origin"}); window.location.assign("/admin/login"); };
   const resetTripForm=()=>{ setEditingTripId(""); setNewTrip(defaultTripForm()); setAiSuggestion(""); };
   const editTrip=(trip:ScheduledTrip, duplicate=false)=>{
     setEditingTripId(duplicate ? "" : trip.id);
@@ -252,16 +246,11 @@ export default function AdminPage() {
   const confirmed=bookings.filter((booking)=>booking.booking_status==="CONFIRMED");
   const revenue=useMemo(()=>paid.reduce((sum,booking)=>sum+Number(booking.amount||0),0)/100,[paid]);
 
-  if(!authorized) return <main className="admin-auth-check"><span className="spin">◌</span><p>Checking administrator access…</p></main>;
-
-  return <main className="admin-page">
-    <aside className="admin-sidebar">
-      <Link href="/admin" className="admin-logo" aria-label="UMaTeXPRESS admin home"><img src="/logo.svg" alt="UMaTeXPRESS Student Transport" /></Link>
-      <nav className="admin-nav"><strong>ADMIN CONSOLE</strong><Link href="/admin">Super admin home</Link><Link className="active" href="/admin/vacation">vacationRide</Link><Link href="/admin/campus">campusRide</Link><Link href="/">Client home</Link><Link href="/vacation">Booking site</Link></nav>
-    </aside>
-    <section className="admin-main">
-      <header><div><p>VACATIONRIDE TRANSPORT</p><h1>Booking overview</h1></div><div className="admin-header-actions"><button onClick={load}><RefreshCw size={16} className={loading?"spin":""}/> Refresh</button><Link className="admin-action-link" href="/admin/change-password">Change password</Link><button onClick={logout}>Sign out</button></div></header>
-      {mustChangePassword&&<div className="password-notice"><strong>Temporary password in use.</strong><span>Change it from the security page when your Turso database is connected.</span><Link href="/admin/change-password">Change password</Link></div>}
+  return <div className="console-body admin-page">
+    <div className="console-panel-toolbar">
+      <p>VACATIONRIDE OPERATIONS</p>
+      <button className="console-panel-close" onClick={load}><RefreshCw size={14} className={loading?"spin":""}/>{loading?"Refreshing…":"Refresh"}</button>
+    </div>
       <section className="trip-scheduler-card" id="trip-editor">
         <div className="trip-scheduler-header"><div><p>TRIP SCHEDULER</p><h2>{editingTripId ? "Edit vacationRide trip" : "Schedule a vacationRide trip"}</h2></div><span>Create multiple departures, routes, dates, fares, and coach setups.</span></div>
         <div className="trip-scheduler-grid">
@@ -335,6 +324,5 @@ export default function AdminPage() {
       <section className="admin-table-card"><div><h2>Recent passengers</h2><span>Latest bookings across vacationRide trips</span></div>
       {error?<div className="admin-empty"><strong>Admin services need attention</strong><p>{error}</p><small>Check Turso, Paystack, AI, and admin environment values.</small></div>:
       <div className="table-wrap"><table><thead><tr><th>Passenger</th><th>Seat</th><th>Travel date</th><th>Departure</th><th>Reference</th><th>Payment</th><th>Amount</th><th>Action</th></tr></thead><tbody>{bookings.map((booking)=>{ const isCancelled=booking.booking_status==="CANCELLED"||booking.payment_status==="CANCELLED"; return <tr key={booking.reference}><td><strong>{booking.passenger_name}</strong><span>{booking.phone}</span></td><td>{booking.seat}</td><td>{booking.travel_date}</td><td><strong>{booking.departure_time?formatTime(booking.departure_time):(booking.trip_id==="2"?"1:00 PM":"6:30 AM")}</strong></td><td>{booking.reference}</td><td><span className={`payment-state ${booking.booking_status === "PAYMENT_RECEIVED_REVIEW" ? "PENDING" : booking.payment_status}`}>{booking.booking_status === "PAYMENT_RECEIVED_REVIEW" ? "PAID · REVIEW" : booking.payment_status}</span></td><td>GH₵ {(Number(booking.amount)/100).toFixed(2)}</td><td>{isCancelled?<button className="admin-cancel-button delete" onClick={() => deleteCancelledBooking(booking.reference)}>Delete</button>:<button className="admin-cancel-button" onClick={() => cancelBooking(booking.reference)}>Cancel</button>}</td></tr>; })}</tbody></table>{!loading&&!bookings.length&&<div className="admin-empty">No bookings yet.</div>}</div>}</section>
-    </section>
-  </main>;
+  </div>;
 }

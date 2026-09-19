@@ -1,9 +1,10 @@
-const CACHE_NAME = "umatexpress-shell-v3";
+const CACHE_NAME = "umatexpress-shell-v4";
+// Staff surfaces live on the console origin and are never precached here: a
+// cross-origin redirect is not a cacheable shell response.
 const APP_SHELL = [
   "/",
   "/campus",
   "/vacation",
-  "/driver",
   "/logo.svg",
   "/icon-192.png",
   "/icon-512.png",

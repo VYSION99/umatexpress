@@ -47,23 +47,33 @@ const click = (expression) => evaluate(`(() => { const node = ${expression}; nod
 try {
   await call("Runtime.enable");
   await call("Page.enable");
-  // The endpoint is stubbed so the browser check never needs development
+  // The endpoints are stubbed so the browser check never needs development
   // credentials: ?role=DRIVER answers with a driver session, no role at all
-  // answers 401 and must land on the sign-in screen.
+  // answers 401 and must land on the sign-in screen, and the empty service
+  // payloads let CampusRide, VacationRide and the driver portal render their
+  // real screens instead of their error banners.
   await call("Page.addScriptToEvaluateOnNewDocument", { source: `
     const realFetch = window.fetch.bind(window);
+    const json = (body) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
     window.fetch = (input, init) => {
       const url = typeof input === "string" ? input : input.url;
       const method = (init && init.method) || "GET";
       if (url.startsWith("/api/console/session") && method === "GET") {
         const role = new URL(location.href).searchParams.get("role");
         if (!role) return Promise.resolve(new Response(JSON.stringify({authenticated:false}),{status:401,headers:{"Content-Type":"application/json"}}));
-        return Promise.resolve(new Response(JSON.stringify({
+        return json({
           authenticated: true,
-          account: { id: "check-account", email: "check@example.com", name: "Console Check", role, status: "ACTIVE", profileId: "" },
+          account: { id: "check-account", email: "check@example.com", name: "Console Check", role, status: "ACTIVE", profileId: "check-driver" },
           mustChangePassword: false,
-        }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        });
       }
+      if (url.startsWith("/api/admin/campus/overview")) return json({ zones: [], corridors: [], vehicles: [], drivers: [], rides: [] });
+      if (url.startsWith("/api/admin/bookings")) return json({ bookings: [] });
+      if (url.startsWith("/api/trips/display")) return json({ mode: "BOTH", morningDeparture: "06:30", morningArrival: "11:30", eveningDeparture: "13:00", eveningArrival: "18:00", flyerPromo: null });
+      if (url.startsWith("/api/trips/schedule")) return json({ trips: [] });
+      if (url.startsWith("/api/driver/me")) return json({ driver: { id: "check-driver", name: "Check Driver", active: true, vehicleId: "", currentZoneId: "", mustChangePassword: false }, ride: null, zones: [], corridors: [], vehicles: [] });
+      if (url.startsWith("/api/driver/queue")) return json({ queue: [] });
+      if (url.startsWith("/api/driver/summary")) return json({ day: "Today", completed: 0, boarded: 0, grossFares: 0, activeQueue: 0, nextPickup: null });
       return realFetch(input, init);
     };
   ` });
@@ -106,7 +116,35 @@ try {
   assert.equal(await evaluate(`document.querySelector(".console-service a[aria-current]").textContent`), "Organizer workspace", "the rail must mark the open service");
   console.log("PASS service pages open their own sub-navigation");
 
-  // 5. An administrator sees every service, including the ones that are not
+  // 5. The services the console absorbed render inside the same shell:
+  //    CampusRide operations, the VacationRide trip console and the driver
+  //    portal, each behind the role that may use it.
+  await visit("/console/campus?role=ADMIN", `document.querySelector(".console-hero h1")?.textContent === "CampusRide control center"`);
+  assert.ok(await evaluate(`document.querySelector(".console-body .campus-status-banner") !== null`), "CampusRide operations must render inside the console");
+  assert.equal(await evaluate(`document.querySelector(".console-service a[aria-current]").textContent`), "CampusRide", "the rail must mark CampusRide while it is open");
+  await visit("/console/vacation?role=ADMIN", `document.querySelector(".console-hero h1")?.textContent === "Booking overview"`);
+  assert.ok(await evaluate(`document.querySelector(".console-body .trip-scheduler-card") !== null`), "the trip scheduler must render inside the console");
+  await visit("/console/driver?role=DRIVER", `document.querySelector(".console-hero h1")?.textContent === "Campus driver dashboard"`);
+  assert.equal(await evaluate(`document.querySelector(".console-body .campus-widget-card h2")?.textContent`), "Check Driver", "the driver workspace must render inside the console");
+  await visit("/console/vacation?role=DRIVER", `document.querySelector(".console-hero h1")?.textContent === "Not available"`);
+  assert.ok(await evaluate(`document.querySelector(".console-body") === null`), "a refused service must not render its body");
+  console.log("PASS CampusRide, VacationRide and the driver portal render inside the shell");
+
+  // 6. The addresses the console used to answer on now land on the console,
+  //    query string and all, wherever they are opened from.
+  await call("Page.navigate", { url: `${origin}/admin` });
+  await until(`location.pathname === "/console/login"`, "the legacy console entry to redirect");
+  await call("Page.navigate", { url: `${origin}/admin/campus?role=ADMIN` });
+  await until(`location.pathname === "/console/campus" && location.search === "?role=ADMIN"`, "the legacy campus path to redirect with its query");
+  await call("Page.navigate", { url: `${origin}/driver?role=DRIVER` });
+  await until(`location.pathname === "/console/driver" && location.search === "?role=DRIVER"`, "the legacy driver path to redirect with its query");
+  await until(`document.querySelector(".console-hero h1")?.textContent === "Campus driver dashboard"`, "the console driver portal to render after the redirect");
+  assert.ok(await evaluate(`document.querySelector(".console-body .campus-widget-card h2")?.textContent === "Check Driver"`), "the legacy driver portal must land on the console driver portal");
+  await call("Page.navigate", { url: `${origin}/driver/login` });
+  await until(`location.pathname === "/console/login"`, "the legacy driver sign-in to redirect");
+  console.log("PASS legacy admin and driver addresses redirect into the console");
+
+  // 7. An administrator sees every service, including the ones that are not
   //    ready: those are named and marked, never linkable.
   await visit("/console?role=ADMIN", `document.querySelectorAll(".console-card").length > 0`);
   const admin = await evaluate(`[...document.querySelectorAll(".console-card h2")].map(node => node.textContent)`);
@@ -115,7 +153,7 @@ try {
   assert.deepEqual(soon, ["Soon", "Soon", "Soon"], "the services that are not ready must be marked in the rail");
   assert.equal(await evaluate(`document.querySelectorAll(".console-service-soon a").length`), 0, "a coming-soon service must not be linkable");
 
-  // 6. The service finder opens over any page and filters the directory.
+  // 8. The service finder opens over any page and filters the directory.
   await click(`document.querySelector('.console-sidebar button')`);
   await until(`document.querySelector("dialog").open`, "the service finder to open");
   assert.ok(await evaluate(`document.querySelectorAll(".launch-directory article").length > 5`), "the finder must list the directory");
@@ -132,7 +170,7 @@ try {
   await until(`!document.querySelector("dialog").open`, "the finder to close");
   console.log("PASS the service finder searches every service");
 
-  // 7. No sideways scroll at any supported width, the rail is replaced by the
+  // 9. No sideways scroll at any supported width, the rail is replaced by the
   //    mobile bar on a phone, and every control keeps its touch target.
   for (const width of [320, 390, 768, 1440]) {
     await call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });

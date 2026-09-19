@@ -68,7 +68,7 @@ export default function ResetAdminPasswordPage() {
       {error && <div className="login-error">{error}</div>}
       {success && <div className="login-success">{success}</div>}
       <button disabled={submitting}>{submitting ? "Resetting…" : "Reset password"}</button>
-      <Link href="/admin/login">Back to admin sign in</Link>
+      <Link href="/console/login">Back to sign in</Link>
     </form>
   </main>;
 }

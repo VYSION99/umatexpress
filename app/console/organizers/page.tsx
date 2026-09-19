@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BadgeCheck, BusFront, Check, Clock, Eye, UserX } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
+import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 
 type Organizer = {
   id: string; name: string; email: string; phone: string; organization: string;
@@ -27,7 +28,7 @@ export default function ConsoleOrganizersPage() {
   return <ConsoleSessionGate label="organizer applications">
     {(session) => session.account.role === "ADMIN" || session.account.role === "MODERATOR"
       ? <ApplicationQueue session={session} />
-      : <ConsoleShell session={session} service="organizers" label="TRIP ORGANIZERS" title="Not available" blurb="Your console role does not review organizer applications.">{null}</ConsoleShell>}
+      : <ConsoleUnavailable session={session} service="organizers" label="TRIP ORGANIZERS" blurb="Your console role does not review organizer applications." />}
   </ConsoleSessionGate>;
 }
 

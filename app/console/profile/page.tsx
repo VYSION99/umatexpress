@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BadgeCheck, CreditCard, IdCard, ShieldAlert } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
+import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 
 const ID_TYPES = [
   { value: "GHANA_CARD", label: "Ghana Card" },
@@ -32,7 +33,7 @@ export default function OrganizerProfilePage() {
   return <ConsoleSessionGate label="your business profile">
     {(session) => session.account.role === "ORGANIZER"
       ? <ProfileWorkspace session={session} />
-      : <ConsoleShell session={session} service="profile" label="BUSINESS PROFILE" title="Not available" blurb="This page belongs to an organizer account.">{null}</ConsoleShell>}
+      : <ConsoleUnavailable session={session} service="profile" label="BUSINESS PROFILE" blurb="This page belongs to an organizer account." />}
   </ConsoleSessionGate>;
 }
 

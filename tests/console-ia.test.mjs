@@ -65,6 +65,22 @@ test("the grouped directory is a re-grouping of exactly what the role was offere
   }
 });
 
+test("every openable service lives on the console origin", () => {
+  for (const service of consoleServicesForRole("ADMIN")) {
+    if (!service.href) continue;
+    assert.match(service.href, /^\/console(\/|$)/, `${service.id} must be served by the console`);
+    for (const entry of service.nav) assert.match(entry.href, /^\/console(\/|$)/, `${service.id} navigation must stay on the console origin`);
+  }
+});
+
+test("a role is only offered the services its work belongs to", () => {
+  assert.deepEqual(consoleServicesForRole("DRIVER").map((service) => service.id), ["driver", "security"], "a driver only works the driver portal and their own account");
+  for (const role of ["MODERATOR", "ORGANIZER"]) {
+    const ids = consoleServicesForRole(role).map((service) => service.id);
+    assert.ok(!ids.includes("campus") && !ids.includes("vacation"), `${role} was offered operations services: ${ids.join(", ")}`);
+  }
+});
+
 test("the shell can resolve the service a page names", () => {
   for (const service of consoleServices) assert.equal(consoleServiceById(service.id)?.id, service.id);
   assert.equal(consoleServiceById("nope"), null);

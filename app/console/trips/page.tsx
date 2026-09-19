@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, BusFront, DoorOpen, Megaphone, PencilLine, Plus, Send, Trash2 } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
+import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 import type { FlyerPromo } from "@/lib/trip-notice";
 
 type Trip = {
@@ -55,7 +56,7 @@ export default function OrganizerTripsPage() {
   return <ConsoleSessionGate label="your trips">
     {(session) => session.account.role === "ORGANIZER"
       ? <OrganizerWorkspace session={session} />
-      : <ConsoleShell session={session} service="organizer" label="YOUR TRIPS" title="Not available" blurb="This workspace belongs to an organizer account.">{null}</ConsoleShell>}
+      : <ConsoleUnavailable session={session} service="organizer" label="YOUR TRIPS" blurb="This workspace belongs to an organizer account." />}
   </ConsoleSessionGate>;
 }
 
