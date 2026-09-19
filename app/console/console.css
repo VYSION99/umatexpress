@@ -242,6 +242,25 @@
 
 .console-alert-ok { border-color: #bfe0cf; background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 
+/* Getting access: one page for every application, one account for every service */
+.console-apply-page { place-items: start center; }
+.console-apply-shell { width: min(100%, 920px); display: flex; flex-direction: column; gap: 22px; }
+.console-apply-head img { width: 132px; height: auto; }
+.console-apply-head > p { margin: 8px 0 0; font-size: 11px; font-weight: 800; letter-spacing: .16em; color: var(--ui-cyan, #0e7490); }
+.console-apply-head h1 { margin: 8px 0 10px; font-size: clamp(28px, 5vw, 38px); letter-spacing: -.03em; }
+.console-apply-head span { display: block; max-width: 640px; color: var(--ui-muted, #57675f); font-size: 15px; line-height: 1.65; }
+.console-apply-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+.console-apply-invited { display: flex; flex-direction: column; gap: 16px; padding: 24px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 20px; background: #ffffff; box-shadow: var(--ui-card-shadow, 0 1px 2px rgba(18,38,31,.05), 0 10px 26px rgba(18,38,31,.08)); }
+.console-apply-invited h2 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+.console-apply-invited > p { margin: 0; color: var(--ui-muted, #57675f); font-size: 14px; line-height: 1.6; }
+.console-apply-invited article { display: flex; gap: 14px; align-items: flex-start; }
+.console-apply-invited strong { display: block; font-size: 14px; }
+.console-apply-invited article div > span { display: block; color: var(--ui-muted, #57675f); font-size: 13px; line-height: 1.6; }
+.console-apply-invited article div > small { display: block; margin-top: 4px; color: var(--ui-cyan, #0e7490); font-size: 12px; font-weight: 700; }
+.console-apply-foot { display: flex; justify-content: center; }
+.console-apply-foot a { color: var(--ui-cyan, #0e7490); font-size: 13px; font-weight: 700; }
+.console-auth-card label small.console-field-hint { font-weight: 600; letter-spacing: 0; color: var(--ui-muted, #57675f); font-size: 11.5px; }
+
 @media (max-width: 620px) {
   .console-account-email { display: none; }
   .console-footer { flex-direction: column; }

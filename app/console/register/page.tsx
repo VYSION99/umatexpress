@@ -1,93 +1,66 @@
-"use client";
-
-import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { Store } from "lucide-react";
+import { BedDouble, BusFront, Clapperboard, Store, UserRoundCheck, Utensils } from "lucide-react";
+import { consoleApplications, consoleInvitedAccess } from "@/lib/console-applications";
+import { consoleServiceById } from "@/components/admin/console-services";
 
-const FIELDS = [
-  { key: "name", label: "Full name", type: "text", autoComplete: "name", required: true },
-  { key: "organization", label: "Organisation (shown to students)", type: "text", autoComplete: "organization", required: false },
-  { key: "phone", label: "Phone number", type: "tel", autoComplete: "tel", required: true },
-  { key: "email", label: "Email address", type: "email", autoComplete: "email", required: true },
-] as const;
+const APPLICATION_ICONS = {
+  organizer: Store,
+  landlord: BedDouble,
+  vendor: Utensils,
+  cinema: Clapperboard,
+} as const;
 
 /**
- * Organizer self-registration (decision D4). Anyone may apply; a reviewer has
- * to approve the application before the account can sign in, so this page
- * promises a review and never an account.
+ * The door into the console. One page for every service, because the console is
+ * one account for every service: what changes between them is the application
+ * the person fills in, not the place they start.
+ *
+ * Operational roles are named here but never applied for. A public form that
+ * could mint a driver or a moderator would be a way to promote yourself, so
+ * those roles are set up by the team that runs them.
  */
-export default function OrganizerRegisterPage() {
-  const [form, setForm] = useState({ name: "", organization: "", phone: "", email: "", password: "" });
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState("");
-
-  const update = (key: string) => (event: { target: { value: string } }) => setForm((current) => ({ ...current, [key]: event.target.value }));
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSubmitting(true);
-    setError("");
-    try {
-      const response = await fetch("/api/console/organizers/register", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "The application could not be submitted.");
-      setSubmitted(data.message || "Application received.");
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "The application could not be submitted.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (submitted) {
-    return <main className="console-auth-page">
-      <section className="console-auth-card">
+export default function ConsoleAccessPage() {
+  return <main className="console-auth-page console-apply-page">
+    <div className="console-apply-shell">
+      <header className="console-apply-head">
         <img src="/logo.svg" alt="UMaTeXPRESS" />
         <p>UMATEXPRESS CONSOLE</p>
-        <h1>Application received</h1>
-        <span>{submitted}</span>
-        <Link href="/console/login">Back to sign in</Link>
-      </section>
-    </main>;
-  }
+        <h1>Get access</h1>
+        <span>One account for every UMaTeXPRESS service. Apply for the service you want to run, or sign in if the team already set you up.</span>
+      </header>
 
-  return <main className="console-auth-page">
-    <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo.svg" alt="UMaTeXPRESS" />
-      <p>UMATEXPRESS CONSOLE</p>
-      <h1>Organise your coach</h1>
-      <span>Apply to publish trips on vacationRide. An administrator reviews every application before an account is activated.</span>
-      {FIELDS.map((field) => (
-        <label key={field.key}>
-          {field.label}
-          <input
-            type={field.type}
-            autoComplete={field.autoComplete}
-            required={field.required}
-            value={form[field.key]}
-            onChange={update(field.key)}
-          />
-        </label>
-      ))}
-      <label>
-        Password
-        <input
-          type="password"
-          autoComplete="new-password"
-          required
-          value={form.password}
-          onChange={update("password")}
-        />
-      </label>
-      <small>Use at least 10 characters with an uppercase letter, a lowercase letter, a number and a symbol.</small>
-      {error && <div className="console-auth-error" role="alert">{error}</div>}
-      <button disabled={submitting}><Store size={17} />{submitting ? "Submitting…" : "Apply to organise"}</button>
-      <Link href="/console/login">Already approved? Sign in</Link>
-    </form>
+      <section className="console-apply-grid" aria-label="Applications">
+        {consoleApplications.map((application) => {
+          const Icon = APPLICATION_ICONS[application.id as keyof typeof APPLICATION_ICONS] || BusFront;
+          const service = consoleServiceById(application.reviewService);
+          return <article className="console-card" key={application.id}>
+            <span className="console-card-icon"><Icon size={21} /></span>
+            <p className="console-card-label">{application.status === "OPEN" ? "OPEN FOR APPLICATIONS" : "COMING SOON"}</p>
+            <h2>{application.short}</h2>
+            <p className="console-card-detail">{application.blurb}</p>
+            {application.status === "OPEN"
+              ? <Link className="console-card-action" href={`/console/register/${application.id}`}>{application.applyLabel}</Link>
+              : <span className="console-card-soon">Opens with {service?.title || application.reviewService}</span>}
+          </article>;
+        })}
+      </section>
+
+      <section className="console-apply-invited" aria-label="Set up by the team">
+        <h2>Set up by the team</h2>
+        <p>These roles are never self-service: someone already responsible for the work adds you.</p>
+        {consoleInvitedAccess.map((entry) => <article key={entry.id}>
+          <span className="console-card-icon"><UserRoundCheck size={19} /></span>
+          <div>
+            <strong>{entry.title}</strong>
+            <span>{entry.detail}</span>
+            <small>{entry.contact}</small>
+          </div>
+        </article>)}
+      </section>
+
+      <div className="console-apply-foot">
+        <Link href="/console/login">Already have access? Sign in</Link>
+      </div>
+    </div>
   </main>;
 }

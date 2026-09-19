@@ -47,6 +47,7 @@ uMATeXPRESS/
 │   ├── cloudflare-binding-spec.ts       # binding names and BINDING=value parsers
 │   ├── cloudflare-bindings.ts           # typed access to AI/Images/R2/Queue/DO/mTLS
 │   ├── console-audit.ts                 # console action audit trail
+│   ├── console-applications.ts          # every way into the console: applications and invited access
 │   ├── console-auth.ts                  # console accounts, sessions and role guards
 │   ├── console-hosts.ts                 # console origin boundary policy
 │   ├── console-signin.ts                # console sign-in and password change

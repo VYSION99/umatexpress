@@ -45,6 +45,33 @@ Rules that make the role meaningful:
 4. `staffSessionFromRequest(request, roles)` defaults to `["ADMIN"]`, so a new
    endpoint is admin-only until somebody widens it on purpose.
 
+### Ways in
+
+The console is one account for every service, but there is not one door for
+every role. `lib/console-applications.ts` is the single description of both
+ways in:
+
+* **Apply** — a service a stranger may run adds an entry to
+  `consoleApplications`. The entry carries the role it creates, the fields the
+  form collects, the endpoint it posts to, the service that reviews it, and the
+  activation policy: `REVIEW` means the account cannot sign in until a reviewer
+  approves it (organizers), `DIRECT` means the account signs in at once while
+  publishing, payouts and visibility stay gated (landlords and vendors when
+  their services open). `implementedConsoleApplicationIds` lists the
+  programmes the API can actually process, so a programme may be `OPEN` only
+  when it is on that list.
+* **Invited** — `consoleInvitedAccess` names the roles that are never
+  self-service: drivers are added by CampusRide operations with their vehicle
+  and zone, administrator and moderator accounts by an administrator. A test
+  pins that no open application can mint an operational role.
+
+`/console/register` is the picker; `/console/register/<programme>` renders the
+form from the registry entry, and every form posts to the one endpoint,
+`/api/console/applications/<programme>`, which looks the programme up before it
+reads a body. The first programme is the organizer application: it writes the
+`trip_organizers` row plus a `PENDING` console account, and its review queue is
+the Organizer applications service.
+
 ## 3. Origin boundary
 
 The console is served from `console.umatexpress.com`. `CONSOLE_HOSTS` lists the
@@ -195,6 +222,7 @@ requires the zone to be in the same Cloudflare account; if it is not, remove
 | Boundary, session and role rules | `node --test tests/console-host.test.mjs tests/console-auth.test.mjs` |
 | Type and lint | `npm run typecheck`, `npm run lint` |
 | The service directory contract | `node --test tests/console-ia.test.mjs` |
+| Applications and invited access | `node --test tests/console-applications.test.mjs` |
 | Console pages in a real browser | `node scripts/check-console-origin.mjs` (dev server on 5190, Chrome debug port 9231) |
 
 The browser check stubs the session endpoint by role, so it needs no
@@ -203,4 +231,7 @@ the role may use, the home page groups services in the declared order, a
 service page opens its own sub-navigation, CampusRide, VacationRide and the
 driver portal render inside the shell, the legacy addresses redirect into the
 console with their query string, the finder searches every service, and nothing
-overflows or drops below a 44px touch target at 320, 390, 768 and 1440 pixels. It writes screenshots to `/tmp/umatexpress-console-*.png`.
+overflows or drops below a 44px touch target at 320, 390, 768 and 1440 pixels.
+It also checks that the access page offers every service, that an unopened
+service cannot be applied for, and that the organizer form collects the agreed
+fields. It writes screenshots to `/tmp/umatexpress-console-*.png`.

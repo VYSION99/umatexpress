@@ -40,8 +40,8 @@ export default function ConsoleLoginPage() {
       <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       {error && <div className="console-auth-error" role="alert">{error}</div>}
       <button disabled={submitting}><LockKeyhole size={17} />{submitting ? "Signing in…" : "Sign in"}</button>
-      <small>Organizers apply from this page and sign in once an administrator approves the application.</small>
-      <Link href="/console/register">Want to organise coaches? Apply here</Link>
+      <small>Every service starts here. Apply for the service you want to run, or sign in with the account your team set up.</small>
+      <Link href="/console/register">Apply or request access</Link>
       <Link href="/console">Already signed in? Open the console</Link>
     </form>
   </main>;

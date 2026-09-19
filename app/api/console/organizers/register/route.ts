@@ -14,7 +14,9 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function POST(request: Request) {
   try {
-    const limited = await rateLimit(request, "organizer-register", { limit: 5, windowMs: 60 * 60_000 });
+    // Same bucket as /api/console/applications/organizer, so alternating
+    // between the two routes cannot buy extra attempts.
+    const limited = await rateLimit(request, "console-apply-organizer", { limit: 5, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
     const body = await request.json() as Record<string, unknown>;

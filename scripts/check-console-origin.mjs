@@ -125,6 +125,7 @@ try {
   await visit("/console/vacation?role=ADMIN", `document.querySelector(".console-hero h1")?.textContent === "Booking overview"`);
   assert.ok(await evaluate(`document.querySelector(".console-body .trip-scheduler-card") !== null`), "the trip scheduler must render inside the console");
   await visit("/console/driver?role=DRIVER", `document.querySelector(".console-hero h1")?.textContent === "Campus driver dashboard"`);
+  await until(`document.querySelector(".console-body .campus-widget-card h2")?.textContent === "Check Driver"`, "the driver workspace to load");
   assert.equal(await evaluate(`document.querySelector(".console-body .campus-widget-card h2")?.textContent`), "Check Driver", "the driver workspace must render inside the console");
   await visit("/console/vacation?role=DRIVER", `document.querySelector(".console-hero h1")?.textContent === "Not available"`);
   assert.ok(await evaluate(`document.querySelector(".console-body") === null`), "a refused service must not render its body");
@@ -170,8 +171,32 @@ try {
   await until(`!document.querySelector("dialog").open`, "the finder to close");
   console.log("PASS the service finder searches every service");
 
-  // 9. No sideways scroll at any supported width, the rail is replaced by the
+  // 9. Getting access is one page for every service: the services that take
+  //    applications, the ones that are still coming, and the roles that are
+  //    only ever set up by the team that runs them.
+  await visit("/console/register", `document.querySelectorAll(".console-apply-grid .console-card").length > 0`);
+  await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 1000, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const accessShot = await call("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile("/tmp/umatexpress-console-access-390.png", Buffer.from(accessShot.data, "base64"));
+  const applications = await evaluate(`[...document.querySelectorAll(".console-apply-grid .console-card")].map(node => ({ title: node.querySelector("h2").textContent, label: node.querySelector(".console-card-label").textContent }))`);
+  assert.deepEqual(applications.map((application) => application.title), ["Trip organizer", "Hostel landlord", "Food vendor", "Cinema partner"], "the picker must cover every service");
+  assert.equal(applications[0].label, "OPEN FOR APPLICATIONS", "the service that takes applications must say so");
+  assert.deepEqual(applications.slice(1).map((application) => application.label), ["COMING SOON", "COMING SOON", "COMING SOON"], "a service that is not built cannot accept applications");
+  const invited = await evaluate(`[...document.querySelectorAll(".console-apply-invited article strong")].map(node => node.textContent)`);
+  assert.deepEqual(invited, ["CampusRide driver", "Platform staff"], "the roles that are set up by the team must be named");
+  await visit("/console/register/organizer", `document.querySelector(".console-auth-card h1")?.textContent === "Organise your coach"`);
+  const formShot = await call("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile("/tmp/umatexpress-console-apply-organizer-390.png", Buffer.from(formShot.data, "base64"));
+  const applicationFields = await evaluate(`[...document.querySelectorAll(".console-auth-card input")].map(node => node.type)`);
+  assert.deepEqual(applicationFields, ["text", "text", "tel", "email", "password"], "the organizer form must collect the agreed fields");
+  await visit("/console/register/landlord", `document.querySelector(".console-auth-card h1")?.textContent === "Hostel landlord is not open yet"`);
+  await visit("/console/register/nonsense", `document.querySelector(".console-auth-card h1")?.textContent === "Application not found"`);
+  console.log("PASS access applications cover every service");
+
+  // 10. No sideways scroll at any supported width, the rail is replaced by the
   //    mobile bar on a phone, and every control keeps its touch target.
+  await visit("/console?role=ADMIN", `document.querySelector(".console-sidebar") !== null`);
   for (const width of [320, 390, 768, 1440]) {
     await call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });
     await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
