@@ -91,12 +91,12 @@ export default function PaymentCallback() {
     }
   };
 
-  return <main className="status-page"><div className={`status-card ${state==="success"?"ticket-status":""}`}><img className="status-logo" src="/logo.svg" alt="UMaTeXPRESS" />
+  return <main className="status-page"><div className={`status-card ${state==="success"?"ticket-status":""}`}><img className="status-logo" src="/logo-web.png" alt="UMaTeXPRESS" />
     {state==="checking"?<><LoaderCircle className="spin"/><h1>Generating your ticket</h1><p>Confirming your payment and preparing your ticket.</p></>:
     state==="success"&&ticket?<><CheckCircle2 className="status-icon success"/><h1>Trip confirmed!</h1><p>Your official UmateXPRESS ticket is ready.</p>
       <article className="travel-ticket image-ticket" ref={ticketRef}>
         <div className="ticket-watermark">UMaTeXPRESS</div>
-        <div className="ticket-head"><div className="ticket-brand"><img src="/logo.svg" alt="" /><div><strong>vacationRide</strong><small>{ticket.trip_title || "vacationRide ticket"}</small></div></div><span><ShieldCheck size={14}/> PAID</span></div>
+        <div className="ticket-head"><div className="ticket-brand"><img src="/logo-mark.png" alt="" /><div><strong>vacationRide</strong><small>{ticket.trip_title || "vacationRide ticket"}</small></div></div><span><ShieldCheck size={14}/> PAID</span></div>
         <div className="ticket-hero"><div><small>BOARDING PASS</small><h2>{hasRoute ? <>{routeFrom} <em>to</em> {routeTo}</> : "Route details unavailable"}</h2><p>Present this image before boarding. Arrive 30 minutes early.</p></div><div className="ticket-seat-card"><small>SEAT</small><strong>{filled(ticket.seat)}</strong></div></div>
         <div className="ticket-route"><div><small>FROM</small><strong>{routeFrom}</strong><span>Departure point</span></div><BusFront/><div><small>TO</small><strong>{routeTo}</strong><span>Destination</span></div></div>
         <div className="ticket-details"><div><small>PASSENGER</small><strong>{filled(ticket.passenger_name)}</strong></div><div><small>TRAVEL DATE</small><strong>{date||"—"}</strong></div><div><small>DEPARTURE</small><strong>{departureLabel}</strong></div>{arrival&&<div><small>ARRIVAL</small><strong>{arrival}</strong></div>}<div><small>COACH</small><strong>{filled(ticket.coach_type)}</strong></div><div><small>TICKET PRICE</small><strong>GH₵{(Number(ticket.amount)/100).toFixed(2)}</strong></div></div>

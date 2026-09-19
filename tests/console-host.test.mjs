@@ -93,7 +93,7 @@ test("local development and an unconfigured deployment are not locked out", () =
 });
 
 test("static assets are allowed on the console and the service worker is not", () => {
-  for (const path of ["/assets/main.js", "/favicon.svg", "/logo.svg", "/manifest.webmanifest", "/.well-known/security.txt"]) {
+  for (const path of ["/assets/main.js", "/favicon.svg", "/logo-web.png", "/manifest.webmanifest", "/.well-known/security.txt"]) {
     assert.equal(isFrameworkAssetPath(path), true, `${path} should be an asset`);
     assert.deepEqual(consoleHostAction("console.umatexpress.com", path, CONSOLE), { action: "serve" });
   }

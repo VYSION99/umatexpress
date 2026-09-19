@@ -23,7 +23,7 @@ export default function ConsoleAccessPage() {
   return <main className="console-auth-page console-apply-page">
     <div className="console-apply-shell">
       <header className="console-apply-head">
-        <img src="/logo.svg" alt="UMaTeXPRESS" />
+        <img src="/logo-web.png" alt="UMaTeXPRESS" />
         <p>UMATEXPRESS CONSOLE</p>
         <h1>Get access</h1>
         <span>One account for every UMaTeXPRESS service. Apply for the service you want to run, or sign in if the team already set you up.</span>

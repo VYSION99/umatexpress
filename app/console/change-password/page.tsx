@@ -40,7 +40,7 @@ function ChangePasswordForm({ session }: { session: ConsoleSessionInfo }) {
 
   return <main className="console-auth-page">
     <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo.svg" alt="UMaTeXPRESS" />
+      <img src="/logo-web.png" alt="UMaTeXPRESS" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{session.mustChangePassword ? "Set your password" : "Change your password"}</h1>
       <span>

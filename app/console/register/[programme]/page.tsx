@@ -9,7 +9,7 @@ import { consoleApplicationById, type ConsoleApplication } from "@/lib/console-a
 function ApplicationNotice({ title, message }: { title: string; message: string }) {
   return <main className="console-auth-page">
     <section className="console-auth-card">
-      <img src="/logo.svg" alt="UMaTeXPRESS" />
+      <img src="/logo-web.png" alt="UMaTeXPRESS" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{title}</h1>
       <span>{message}</span>
@@ -55,7 +55,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
   if (submitted) {
     return <main className="console-auth-page">
       <section className="console-auth-card">
-        <img src="/logo.svg" alt="UMaTeXPRESS" />
+        <img src="/logo-web.png" alt="UMaTeXPRESS" />
         <p>UMATEXPRESS CONSOLE</p>
         <h1>Application received</h1>
         <span>{submitted}</span>
@@ -66,7 +66,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
 
   return <main className="console-auth-page">
     <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo.svg" alt="UMaTeXPRESS" />
+      <img src="/logo-web.png" alt="UMaTeXPRESS" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{application.title}</h1>
       <span>{application.detail}</span>

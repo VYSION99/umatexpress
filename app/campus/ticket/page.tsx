@@ -196,7 +196,7 @@ export default function CampusTicketPage() {
         </p> : null}
       </section>
       <div className="ticket-card campus-ticket-card">
-        <div className="ticket-head"><div className="ticket-brand"><img src="/logo.svg" alt="" /><div><strong>campusRide</strong><small>{ticket.corridor_name || "Campus ride ticket"}</small></div></div><span>PAID</span></div>
+        <div className="ticket-head"><div className="ticket-brand"><img src="/logo-mark.png" alt="" /><div><strong>campusRide</strong><small>{ticket.corridor_name || "Campus ride ticket"}</small></div></div><span>PAID</span></div>
         <div className="ticket-route"><strong>{ticket.pickup_zone}</strong><i>→</i><strong>{ticket.destination_zone}</strong></div>
         <div className="ticket-grid">
           <span>Passenger<strong>{ticket.passenger_name}</strong></span>

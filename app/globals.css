@@ -589,3 +589,8 @@
 @media(max-width:650px){
   .campus-shell .nearest-ride-fields{grid-template-columns:minmax(0,1fr)}
 }
+
+/* The brand logo is a wide, dark emblem: a rounded plate keeps it deliberate
+   on the white surfaces instead of a black rectangle. */
+.logo-brand img, .status-logo, .login-logo, .coach-logo-badge img { border-radius: 16px; }
+.campus-logo img { border-radius: 10px; }

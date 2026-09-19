@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   themeColor: "#0d694d",
   other: { "codex-preview": "development", "mobile-web-app-capable": "yes" },
   icons: {
-    icon: "/logo.svg",
-    shortcut: "/logo.svg",
+    icon: "/logo-mark.png",
+    shortcut: "/logo-mark.png",
     apple: "/icon-192.png",
   },
 };

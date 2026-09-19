@@ -146,7 +146,7 @@ export default function Home() {
   return (
     <main className="vacation">
       <header className="topbar">
-        <Link className="brand logo-brand" href="/" aria-label="UMaTeXPRESS home"><img src="/logo.svg" alt="UMaTeXPRESS" /></Link>
+        <Link className="brand logo-brand" href="/" aria-label="UMaTeXPRESS home"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></Link>
         {/* Client navigation only. The management console lives on /admin and is
             deliberately not linked from the student-facing site. */}
         <nav aria-label="Main navigation"><Link href="/">Home</Link><a href="#trips">Trips</a><a href="#booking">Book a seat</a><Link href="/campus">campusRide</Link></nav>
@@ -161,7 +161,7 @@ export default function Home() {
         </div>
         <div className="route-art" aria-label="UmateXPRESS 50-seat VIP coach">
           <div className="route-visual">
-            <div className="coach-logo-badge"><img src="/logo.svg" alt="UMaTeXPRESS" /></div>
+            <div className="coach-logo-badge"><img src="/logo-web.png" alt="UMaTeXPRESS" /></div>
             <div className="bus-photo-frame"><img src="/vip-coach.png" alt="Red VIP coach used as the UmateXPRESS bus reference" /><div className="coach-capacity"><strong>{trip?.capacity || 50}</strong><span>VIP seats</span></div></div>
           </div>
           <div className="art-card"><strong>{routeFrom} → {routeTo}</strong><span>Comfortable vacation travel</span></div>
@@ -284,7 +284,7 @@ export default function Home() {
           </aside>
         </div>
       </section>}
-      <footer id="support"><div className="brand logo-brand"><img src="/logo.svg" alt="UMaTeXPRESS" /></div><p>{routeFrom} → {routeTo}</p><span>Student vacation transport</span></footer>
+      <footer id="support"><div className="brand logo-brand"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></div><p>{routeFrom} → {routeTo}</p><span>Student vacation transport</span></footer>
     </main>
   );
 }

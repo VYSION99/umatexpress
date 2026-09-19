@@ -52,7 +52,7 @@ export default function CampusLauncher() {
   return <div className="launcher home">
     <a href="#home-main" className="launch-skip">Skip to services</a>
     <header className="home-bar">
-      <Link href="/" className="home-brand"><img className="home-mark" src="/logo.svg" width="40" height="40" alt="" /><span><span className="home-wordmark">UMaTe<em>X</em>PRESS</span><p className="home-tagline">Your campus companion</p></span></Link>
+      <Link href="/" className="home-brand"><img className="home-mark" src="/logo-mark.png" width="40" height="40" alt="" /><span><span className="home-wordmark">UMaTe<em>X</em>PRESS</span><p className="home-tagline">Your campus companion</p></span></Link>
       <nav className="home-nav-desktop" aria-label="campusRide areas"><Link href="/campus"><CarFront size={16} aria-hidden />campusRide</Link><Link href="/vacation"><BusFront size={16} aria-hidden />vacationRide</Link></nav>
       <div className="home-bar-actions">
         <button className="home-icon-button" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} onClick={() => setPanel("notifications")}><Bell size={20} aria-hidden />{unread > 0 && <span className="home-dot" aria-hidden />}</button>

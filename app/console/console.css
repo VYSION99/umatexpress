@@ -144,7 +144,7 @@
   box-shadow: var(--ui-card-shadow-lg, 0 2px 4px rgba(18,38,31,.05), 0 20px 44px rgba(18,38,31,.11));
 }
 
-.console-auth-card img { width: 132px; height: auto; }
+.console-auth-card img { width: 132px; height: auto; border-radius: 14px; }
 .console-auth-card > p { margin: 8px 0 0; font-size: 11px; font-weight: 800; letter-spacing: .16em; color: var(--ui-cyan, #0e7490); }
 .console-auth-card h1 { margin: 0; font-size: 30px; letter-spacing: -.03em; }
 .console-auth-card > span { color: var(--ui-muted, #57675f); font-size: 14px; line-height: 1.6; }

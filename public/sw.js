@@ -5,7 +5,7 @@ const APP_SHELL = [
   "/",
   "/campus",
   "/vacation",
-  "/logo.svg",
+  "/logo-mark.png",
   "/icon-192.png",
   "/icon-512.png",
   "/vip-coach.png",

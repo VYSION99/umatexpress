@@ -83,7 +83,7 @@ export function ConsoleShell({
     <a href="#console-main" className="launch-skip">Skip to the console</a>
     <aside className="console-sidebar">
       <Link href="/console" className="launch-brand">
-        <img src="/logo.svg" width="44" height="44" alt=""/>
+        <img src="/logo-mark.png" width="44" height="44" alt=""/>
         <span>UMaTe<span>XPRESS</span><small>Console</small></span>
       </Link>
       <span className="console-sidebar-label">CONSOLE</span>
@@ -116,7 +116,7 @@ export function ConsoleShell({
 
     <div className="console-workspace">
       <header className="console-topbar">
-        <Link href="/console" className="console-mobile-brand" aria-label="Console home"><img src="/logo.svg" width="40" height="40" alt=""/><span>Console</span></Link>
+        <Link href="/console" className="console-mobile-brand" aria-label="Console home"><img src="/logo-mark.png" width="40" height="40" alt=""/><span>Console</span></Link>
         <span className="console-breadcrumb">Console <span>/</span> {current ? current.title : "Home"}</span>
         <form className="launch-search" onSubmit={(event) => { event.preventDefault(); setPanel(true); }}>
           <Search size={18}/>

@@ -48,7 +48,7 @@ uMATeXPRESS/
 │   ├── cloudflare-bindings.ts           # typed access to AI/Images/R2/Queue/DO/mTLS
 │   ├── console-audit.ts                 # console action audit trail
 │   ├── console-applications.ts          # every way into the console: applications and invited access
-│   ├── console-assistant.ts             # assistant runtime: tool loop, handlers, signed confirmations
+│   ├── console-assistant.ts             # assistant runtime: tool loop, handlers, daily brief, signed confirmations
 │   ├── console-assistant-catalog.ts     # what the assistant may read and propose, per role
 │   ├── console-auth.ts                  # console accounts, sessions and role guards
 │   ├── console-hosts.ts                 # console origin boundary policy
@@ -76,7 +76,9 @@ uMATeXPRESS/
 ├── public/
 │   ├── manifest.webmanifest             # installable app manifest
 │   ├── sw.js                            # service worker shell cache
-│   ├── logo.svg                         # shared brand logo
+│   ├── logo.png                         # brand master (1080x858)
+│   ├── logo-web.png                     # optimised wide logo the app loads
+│   ├── logo-mark.png                    # square mark for rail, launcher and ticket badges
 │   ├── icon-192.png                     # install icon
 │   ├── icon-512.png                     # install icon
 │   └── vip-coach.png                    # vacationRide hero image

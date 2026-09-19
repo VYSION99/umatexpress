@@ -6,7 +6,7 @@ export function CampusShell({ area, title, subtitle, children }: { area: string;
   const interfaceClass = area === "CAMPUSRIDE" ? "campus-student-shell" : area.includes("DRIVER") ? "campus-driver-shell" : area.includes("ADMIN") ? "campus-admin-shell" : "";
   return <main className={`campus-shell ${interfaceClass}`}>
     <header className="campus-hero">
-      <Link href="/" className="campus-logo" aria-label="UMaTeXPRESS home"><img src="/logo.svg" alt="UMaTeXPRESS" /></Link>
+      <Link href="/" className="campus-logo" aria-label="UMaTeXPRESS home"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></Link>
       <div className="campus-hero-copy">
         <p>{area}</p>
         <h1>{title}</h1>

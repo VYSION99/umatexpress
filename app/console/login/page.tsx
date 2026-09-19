@@ -32,7 +32,7 @@ export default function ConsoleLoginPage() {
 
   return <main className="console-auth-page">
     <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo.svg" alt="UMaTeXPRESS" />
+      <img src="/logo-web.png" alt="UMaTeXPRESS" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>Sign in</h1>
       <span>One account for admin, moderator, organizer and driver services.</span>
