@@ -9,3 +9,45 @@
 .console-mobile-brand{display:none}
 @media(max-width:800px){.console-mobile-brand{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:750;white-space:nowrap}.console-mobile-brand img{border-radius:10px}}
 @media(max-width:540px){.console-topbar{flex-wrap:wrap;gap:10px;padding:14px 16px}.console-topbar .launch-search{order:3;flex-basis:100%}.console-signout{margin-left:auto}}
+
+/* Console service directory: the sidebar lists one row per service, and the
+   service you are inside opens its own sub-navigation underneath it, the way a
+   cloud console expands the product you are working in. "Soon" services are
+   shown but cannot be opened, so they read as unavailable rather than broken. */
+.console-sidebar .console-service{display:flex;flex-direction:column;gap:4px}
+.console-sidebar nav .console-service-soon{display:flex;align-items:center;gap:12px;min-height:46px;padding:10px 12px;border-radius:12px;color:#8b98aa;font-size:13px;font-weight:550}
+.console-sidebar nav .console-service-soon small{margin-left:auto;padding:2px 8px;border:1px solid #3c4c62;border-radius:999px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a9b7c9}
+.console-sidebar .console-subnav{display:flex;flex-direction:column;gap:2px;margin:2px 0 6px;padding-left:14px;border-left:1px solid #2c3e56}
+.console-sidebar .console-subnav a{min-height:38px;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;color:#b8c4d4}
+.console-sidebar .console-subnav a:hover{background:#ffffff12;color:#fff}
+.console-sidebar .console-subnav a[aria-current]{background:#ffffff1a;color:#fff;font-weight:700}
+.console-directory-group{margin-left:8px;padding:3px 8px;border-radius:999px;background:#eef1ef;color:#5c697b;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle}
+
+/* The console home is a directory, so it is grouped like one. Every group is
+   the same width as the hero and the panels, and the shell's own surfaces line
+   up with them instead of each carrying its own gutter. */
+.console-group{padding:14px 0 8px}
+.console-group-heading{display:flex;align-items:center;gap:12px;margin:0;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--ui-muted,#57675f)}
+.console-group-heading:after{content:"";flex:1;height:1px;background:var(--ui-line,#e3eae5)}
+.console-group-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;margin-top:14px}
+
+.console-launcher .console-hero{max-width:1080px;padding:clamp(30px,4.5vw,52px) 0 20px}
+.console-launcher .console-panel,
+.console-launcher .console-group,
+.console-launcher .console-totals,
+.console-launcher .console-alert,
+.console-launcher .console-footer{max-width:1080px;margin-inline:auto}
+.console-launcher .console-footer{padding-inline:0}
+.console-topbar .console-account a{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border:1px solid var(--ui-line,#e3eae5);border-radius:12px;background:#fff;color:inherit;font-size:12px;font-weight:700}
+.console-topbar .console-account a:hover{border-color:var(--ui-green,#0d694d);color:var(--ui-green,#0d694d)}
+@media(max-width:800px){.console-launcher .console-hero{padding-top:26px}.console-group-grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}}
+@media(max-width:620px){.console-group-grid{grid-template-columns:minmax(0,1fr);gap:14px}.console-launcher .console-panel{margin-inline:0}}
+
+/* An administrator sees every service, so the rail scrolls inside its own
+   column instead of clipping the last group on a short screen. */
+.console-sidebar{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+@media(max-width:620px){.console-topbar{flex-wrap:wrap}.console-topbar .console-account{width:auto;justify-content:flex-start}}
+
+/* The compact brand link is a real destination on a phone, so it keeps the
+   same 44px touch target as every other control in the bar. */
+.console-mobile-brand{min-height:44px}

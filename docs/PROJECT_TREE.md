@@ -26,7 +26,8 @@ uMATeXPRESS/
 │       ├── trips/                       # vacationRide schedule/display/availability
 │       └── v1/                          # stable campus API aliases
 ├── components/
-│   ├── admin/                           # management console launcher, gates and service list
+│   ├── admin/                           # legacy admin launcher, session gate and console service registry
+│   ├── console/                         # the one console shell every service is framed by
 │   ├── campusRide/
 │   │   ├── admin/                       # campusRide admin widgets
 │   │   ├── driver/                      # driver portal widgets

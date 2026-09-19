@@ -1,40 +1,14 @@
 /* ========================================
    CONSOLE SURFACES
-   One white page, white cards with real elevation, and the shared
-   yellow / green / dark-cyan accents. Every rule is scoped under the console
-   page or the console auth screen so nothing here can reach the public site.
+   One shell, white cards with real elevation, and the shared yellow / green /
+   dark-cyan accents. These class names are only used by the console shell and
+   its pages, so none of it can reach the public site.
    ======================================== */
 
-.console-page {
-  min-height: 100vh;
-  background: #ffffff;
-  color: var(--ui-ink, #12261f);
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-.console-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 20px clamp(18px, 5vw, 64px);
-  border-bottom: 1px solid var(--ui-line, #e3eae5);
-  background: #ffffff;
-}
-
-.console-brand {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  font-weight: 800;
-  letter-spacing: -.4px;
-  font-size: 18px;
-}
-
-.console-brand span { display: flex; flex-direction: column; line-height: 1.05; }
-.console-brand em { font-style: normal; color: var(--ui-green, #0d694d); }
-.console-brand small { font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--ui-muted, #57675f); margin-top: 3px; }
+/* The shell owns the header now (components/console/ConsoleShell.tsx), so the
+   old per-page header, brand and card-grid rules are gone. What remains here is
+   the vocabulary every console surface shares: the account cluster, the hero,
+   the cards and the panels. */
 
 .console-account { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .console-account-email { font-size: 13px; color: var(--ui-muted, #57675f); }
@@ -80,15 +54,6 @@
 .console-hero p { margin: 0 0 12px; font-size: 12px; font-weight: 800; letter-spacing: .14em; color: var(--ui-cyan, #0e7490); }
 .console-hero h1 { margin: 0 0 12px; font-size: clamp(30px, 4.6vw, 46px); letter-spacing: -.035em; line-height: 1.03; }
 .console-hero span { color: var(--ui-muted, #57675f); font-size: 16px; }
-
-.console-services {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: clamp(24px, 4vw, 40px) clamp(18px, 5vw, 40px) 24px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 18px;
-}
 
 .console-card {
   display: flex;
@@ -278,10 +243,7 @@
 .console-alert-ok { border-color: #bfe0cf; background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 
 @media (max-width: 620px) {
-  .console-header { padding: 16px; }
-  .console-account { width: 100%; justify-content: space-between; }
   .console-account-email { display: none; }
-  .console-services { grid-template-columns: minmax(0, 1fr); }
   .console-footer { flex-direction: column; }
   .console-panel { margin-inline: 16px; padding: 16px; border-radius: 18px; }
   .console-form { grid-template-columns: minmax(0, 1fr); }

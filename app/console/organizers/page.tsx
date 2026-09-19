@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { BadgeCheck, BusFront, Check, Clock, Eye, LogOut, ShieldCheck, UserX } from "lucide-react";
+import { BadgeCheck, BusFront, Check, Clock, Eye, UserX } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 type Organizer = {
   id: string; name: string; email: string; phone: string; organization: string;
@@ -27,7 +27,7 @@ export default function ConsoleOrganizersPage() {
   return <ConsoleSessionGate label="organizer applications">
     {(session) => session.account.role === "ADMIN" || session.account.role === "MODERATOR"
       ? <ApplicationQueue session={session} />
-      : <main className="console-page"><section className="console-hero"><h1>Not available</h1><span>Your console role does not review organizer applications.</span></section></main>}
+      : <ConsoleShell session={session} service="organizers" label="TRIP ORGANIZERS" title="Not available" blurb="Your console role does not review organizer applications.">{null}</ConsoleShell>}
   </ConsoleSessionGate>;
 }
 
@@ -133,21 +133,13 @@ function ApplicationQueue({ session }: { session: ConsoleSessionInfo }) {
     }
   }
 
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><ShieldCheck size={15}/>{session.account.role === "ADMIN" ? "Administrator" : "Moderator"}</span>
-        <span className="console-account-email">{session.account.email}</span>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>TRIP ORGANIZERS</p>
-      <h1>Applications</h1>
-      <span>Approve an organizer to activate their account. Nobody can publish a trip until this decision is made.</span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="organizers"
+    label="TRIP ORGANIZERS"
+    title="Applications"
+    blurb="Approve an organizer to activate their account. Nobody can publish a trip until this decision is made."
+  >
 
     <section className="console-panel">
       <div className="console-toolbar">
@@ -196,7 +188,7 @@ function ApplicationQueue({ session }: { session: ConsoleSessionInfo }) {
 
     {session.account.role === "ADMIN" && <AssignmentPanel organizers={organizers} />}
     <TripReviewPanel />
-  </main>;
+  </ConsoleShell>;
 }
 
 /**

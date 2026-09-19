@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { AlertTriangle, Banknote, LogOut, RefreshCw, Send, ShieldCheck, Undo2, Zap } from "lucide-react";
-import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
+import { AlertTriangle, Banknote, RefreshCw, Send, ShieldCheck, Undo2, Zap } from "lucide-react";
+import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
 type Summary = {
@@ -40,12 +40,12 @@ const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", {
 export default function PayoutsConsolePage() {
   return <ConsoleSessionGate label="organizer payouts">
     {(session) => session.account.role === "ADMIN"
-      ? <PayoutsWorkspace />
-      : <main className="console-page"><section className="console-hero"><h1>Not available</h1><span>Recording payouts is an administrator action.</span></section></main>}
+      ? <PayoutsWorkspace session={session} />
+      : <ConsoleShell session={session} service="payouts" label="ORGANIZER PAYOUTS" title="Not available" blurb="Recording payouts is an administrator action.">{null}</ConsoleShell>}
   </ConsoleSessionGate>;
 }
 
-function PayoutsWorkspace() {
+function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [organizers, setOrganizers] = useState<Summary[]>([]);
   const [automation, setAutomation] = useState<Automation | null>(null);
   const [selected, setSelected] = useState("");
@@ -160,21 +160,14 @@ function PayoutsWorkspace() {
   );
   const automationReady = automation?.provider === "PAYSTACK";
 
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><ShieldCheck size={15}/>Administrator</span>
-        <button className="console-panel-close" disabled={busy === "backfill"} onClick={backfill}><RefreshCw size={14}/>{busy === "backfill" ? "Rebuilding…" : "Rebuild missing entries"}</button>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>ORGANIZER PAYOUTS</p>
-      <h1>What the platform owes</h1>
-      <span>Paystack sends what is due once the release date has passed and KYC is verified. You can also make a transfer yourself and record the reference here.</span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="payouts"
+    label="ORGANIZER PAYOUTS"
+    title="What the platform owes"
+    blurb="Paystack sends what is due once the release date has passed and KYC is verified. You can also make a transfer yourself and record the reference here."
+    actions={<button className="console-panel-close" disabled={busy === "backfill"} onClick={backfill}><RefreshCw size={14}/>{busy === "backfill" ? "Rebuilding…" : "Rebuild missing entries"}</button>}
+  >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -318,5 +311,5 @@ function PayoutsWorkspace() {
         </table>}
       <p className="console-note"><Undo2 size={13}/> A cancelled booking reverses its entry. If it had already been paid out, the reversal becomes a debt on the next batch.</p>
     </section>}
-  </main>;
+  </ConsoleShell>;
 }

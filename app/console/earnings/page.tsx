@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Banknote, BusFront, CalendarClock, Clock3, LogOut, Store, TrendingUp, Users, Wallet } from "lucide-react";
-import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
+import { AlertTriangle, Banknote, BusFront, CalendarClock, Clock3, TrendingUp, Users, Wallet } from "lucide-react";
+import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
 type Entry = {
@@ -32,12 +33,12 @@ const percent = (value: number) => `${Math.round(Number(value || 0) * 100)}%`;
 export default function OrganizerEarningsPage() {
   return <ConsoleSessionGate label="your earnings">
     {(session) => session.account.role === "ORGANIZER"
-      ? <EarningsWorkspace />
-      : <main className="console-page"><section className="console-hero"><h1>Not available</h1><span>This page belongs to an organizer account.</span></section></main>}
+      ? <EarningsWorkspace session={session} />
+      : <ConsoleShell session={session} service="earnings" label="EARNINGS" title="Not available" blurb="This page belongs to an organizer account.">{null}</ConsoleShell>}
   </ConsoleSessionGate>;
 }
 
-function EarningsWorkspace() {
+function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [statement, setStatement] = useState<Statement | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [trips, setTrips] = useState<TripPerformance[]>([]);
@@ -59,21 +60,14 @@ function EarningsWorkspace() {
   useEffect(() => { queueMicrotask(load); }, [load]);
 
   const totals = statement?.totals;
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><Store size={15}/>Organizer</span>
-        <Link href="/console/trips"><BusFront size={16}/>My trips</Link>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>EARNINGS</p>
-      <h1>What you have earned</h1>
-      <span>Each fare is split into the platform commission and your share. A payout releases after midnight following the trip.</span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="earnings"
+    label="EARNINGS"
+    title="What you have earned"
+    blurb="Each fare is split into the platform commission and your share. A payout releases after midnight following the trip."
+    actions={<Link href="/console/trips">My trips</Link>}
+  >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
 
@@ -172,5 +166,5 @@ function EarningsWorkspace() {
         Payouts go out automatically to the account on your profile once an entry passes its release date. If a statement looks wrong, contact the team with the booking reference.
       </p>
     </section>
-  </main>;
+  </ConsoleShell>;
 }

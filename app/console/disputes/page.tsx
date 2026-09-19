@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Gavel, LogOut, MessageSquareWarning, Scale, Store } from "lucide-react";
-import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
+import { AlertTriangle, Gavel, MessageSquareWarning, Scale } from "lucide-react";
+import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 type Dispute = {
   id: string; organizerId: string; organizerName: string; tripId: string; bookingReference: string;
@@ -35,12 +36,12 @@ const when = (iso: string) => (iso ? new Date(iso).toLocaleString("en-GB", { day
 export default function DisputesConsolePage() {
   return <ConsoleSessionGate label="disputes">
     {(session) => session.account.role === "ORGANIZER"
-      ? <OrganizerDisputes />
-      : <TriageWorkspace readOnly={session.account.role !== "ADMIN"} />}
+      ? <OrganizerDisputes session={session} />
+      : <TriageWorkspace session={session} readOnly={session.account.role !== "ADMIN"} />}
   </ConsoleSessionGate>;
 }
 
-function TriageWorkspace({ readOnly }: { readOnly: boolean }) {
+function TriageWorkspace({ session, readOnly }: { session: ConsoleSessionInfo; readOnly: boolean }) {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState("");
@@ -89,22 +90,13 @@ function TriageWorkspace({ readOnly }: { readOnly: boolean }) {
     }
   }, [selected, form, filter, load]);
 
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><Scale size={15}/>{readOnly ? "Moderator" : "Administrator"}</span>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>DISPUTES</p>
-      <h1>What passengers and organizers have raised</h1>
-      <span>
-        A decision is recorded here, with who made it and why. Moving the money it implies — cancelling a booking, reversing a payout — stays a separate, audited action.
-      </span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="disputes"
+    label="DISPUTES"
+    title="What passengers and organizers have raised"
+    blurb="A decision is recorded here, with who made it and why. Moving the money it implies — cancelling a booking, reversing a payout — stays a separate, audited action."
+  >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -192,10 +184,10 @@ function TriageWorkspace({ readOnly }: { readOnly: boolean }) {
         <AlertTriangle size={13}/> A refund decision is a judgement, not a payment. Cancel the booking in the vacation console to reverse its ledger entry, and repay the passenger where refunds are processed.
       </p>
     </section>}
-  </main>;
+  </ConsoleShell>;
 }
 
-function OrganizerDisputes() {
+function OrganizerDisputes({ session }: { session: ConsoleSessionInfo }) {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [form, setForm] = useState({ bookingReference: "", category: "BOOKING", subject: "", details: "" });
   const [error, setError] = useState("");
@@ -236,21 +228,14 @@ function OrganizerDisputes() {
     }
   }, [form, load]);
 
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><Store size={15}/>Organizer</span>
-        <Link href="/console/trips"><Scale size={16}/>My trips</Link>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>DISPUTES</p>
-      <h1>Problems with a booking</h1>
-      <span>Raise what went wrong on one of your trips. The platform decides, and you can see the outcome here.</span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="disputes"
+    label="DISPUTES"
+    title="Problems with a booking"
+    blurb="Raise what went wrong on one of your trips. The platform decides, and you can see the outcome here."
+    actions={<Link href="/console/trips">My trips</Link>}
+  >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -298,5 +283,5 @@ function OrganizerDisputes() {
           </tbody>
         </table>}
     </section>
-  </main>;
+  </ConsoleShell>;
 }

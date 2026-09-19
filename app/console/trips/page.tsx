@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BusFront, DoorOpen, LogOut, Megaphone, PencilLine, Plus, Send, Store, Trash2 } from "lucide-react";
-import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
+import { AlertTriangle, BusFront, DoorOpen, Megaphone, PencilLine, Plus, Send, Trash2 } from "lucide-react";
+import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConsoleShell } from "@/components/console/ConsoleShell";
 import type { FlyerPromo } from "@/lib/trip-notice";
 
 type Trip = {
@@ -53,12 +54,12 @@ const NOTICE_LISTS = [
 export default function OrganizerTripsPage() {
   return <ConsoleSessionGate label="your trips">
     {(session) => session.account.role === "ORGANIZER"
-      ? <OrganizerWorkspace />
-      : <main className="console-page"><section className="console-hero"><h1>Not available</h1><span>This workspace belongs to an organizer account.</span></section></main>}
+      ? <OrganizerWorkspace session={session} />
+      : <ConsoleShell session={session} service="organizer" label="YOUR TRIPS" title="Not available" blurb="This workspace belongs to an organizer account.">{null}</ConsoleShell>}
   </ConsoleSessionGate>;
 }
 
-function OrganizerWorkspace() {
+function OrganizerWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [notice, setNotice] = useState<FlyerPromo | null>(null);
   const [manifest, setManifest] = useState<{ trip: Trip; passengers: Passenger[] } | null>(null);
@@ -213,21 +214,14 @@ function OrganizerWorkspace() {
     ? { ...current, [key]: raw.split(",").map((item) => item.trim()).filter(Boolean) }
     : current);
 
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><Store size={15}/>Organizer</span>
-        <Link href="/console/profile">Business profile</Link>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>YOUR TRIPS</p>
-      <h1>Coaches you organise</h1>
-      <span>A trip becomes bookable only after a reviewer approves it. Editing a live trip sends it back for review.</span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="organizer"
+    label="YOUR TRIPS"
+    title="Coaches you organise"
+    blurb="A trip becomes bookable only after a reviewer approves it. Editing a live trip sends it back for review."
+    actions={<Link href="/console/profile">Business profile</Link>}
+  >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
@@ -335,5 +329,5 @@ function OrganizerWorkspace() {
       </form>
       <p className="console-note">Trips with no organizer notice keep the platform notice, so nothing disappears from the public page.</p>
     </section>}
-  </main>;
+  </ConsoleShell>;
 }

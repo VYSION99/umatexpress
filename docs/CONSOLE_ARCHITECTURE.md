@@ -1,6 +1,6 @@
 # Console Architecture
 
-**Status:** Phase 1 implemented (identity, origin boundary, sign-in)
+**Status:** Phase 1 implemented (identity, origin boundary, sign-in), one shell for every service
 **Applies to:** every UMaTeXPRESS management surface, present and future
 
 ---
@@ -19,7 +19,9 @@ way for one service's console to be reached from the student site.
 | Library | `lib/console-auth.ts` (accounts, sessions, role guards) |
 | Sign-in | `lib/console-signin.ts` + `POST /api/console/session` |
 | Boundary | `lib/console-hosts.ts`, applied in `worker/index.ts` |
-| Screens | `app/console/*` (entry, sign-in, password) |
+| Screens | `app/console/*` (entry, sign-in, password, services) |
+| Shell | `components/console/ConsoleShell.tsx` — one frame for every service |
+| Service directory | `components/admin/console-services.ts` — what exists, its group and its navigation |
 
 ## 2. Roles
 
@@ -76,13 +78,43 @@ registered on console pages.
    Scope every query by the account's own id — never by an id from the request.
 4. **Audit the sensitive reads** with `consoleAudit()`. Passenger contact
    details (decision D3) are read-audited without exception.
-5. **Add the card** to `components/admin/console-services.ts` and list the role
-   in `consoleServicesForRole`. The launcher is presentation only; the API guard
-   is the access control.
+5. **Add the service** to `components/admin/console-services.ts`: its `group`
+   (one of `CONSOLE_GROUP_ORDER`), its `nav` (the pages inside it) and its role
+   in `consoleServicesForRole`. The shell renders whatever the directory says;
+   the API guard is the access control, and a service with `href: null` is
+   listed as "coming soon" instead of linking somewhere unfinished.
 6. **Test the negative case**: another role, and another tenant, must get `401`,
    `403` or `404` — never data.
 
-## 5. Bridged accounts (migration state)
+## 5. One shell for every service
+
+The console is one console, the way a cloud console is one console for every
+product. A page never draws its own header: it renders `ConsoleShell` and
+supplies a label, a title, a one-line blurb, its own body, and optionally an
+action for the top bar.
+
+`components/admin/console-services.ts` is the single description of what exists:
+
+* **A service** is a product area — CampusRide, VacationRide, the organizer
+  workspace, payouts, disputes, the services that are still coming — with a
+  `group`, an `icon`, an `accent`, display copy and a `nav` list of the pages
+  inside it.
+* **A group** is a shelf in the directory (`Mobility`, `Money`, `Trust &
+  safety`, …). `CONSOLE_GROUP_ORDER` is the display order and the only place to
+  add a new shelf.
+* **A role** decides what is on the shelf. `consoleServicesForRole` is
+  presentation only: every API re-reads the role from the signed session.
+
+The shell adds the parts that must not differ between services: the rail, the
+breadcrumb, the service finder, the account cluster, sign-out, the mobile bar,
+and the hero. On a phone the rail steps aside for a fixed bottom bar
+(Home / Services / Security / Sign out), so a service is never more than two
+taps away.
+
+Adding a service to the sidebar is therefore one registry entry, and no page
+copies navigation markup.
+
+## 6. Bridged accounts (migration state)
 
 An account with `password_hash IS NULL` is bridged to a legacy credential store:
 it authenticates against `admin_credentials` (ADMIN) or `campus_drivers`
@@ -98,7 +130,7 @@ The legacy admin and driver sign-ins keep working on the public origin during
 the transition. They are removed once every console surface runs on the console
 identity.
 
-## 6. Operating the console
+## 7. Operating the console
 
 | Requirement | Where |
 |-------------|-------|
@@ -131,10 +163,18 @@ Wrangler config, so a redeploy cannot drop the domain. Binding a custom domain
 requires the zone to be in the same Cloudflare account; if it is not, remove
 `CLOUDFLARE_CONSOLE_HOST` for that deploy and the console stays on workers.dev.
 
-## 7. Verification
+## 8. Verification
 
 | Check | Command |
 |-------|---------|
 | Boundary, session and role rules | `node --test tests/console-host.test.mjs tests/console-auth.test.mjs` |
 | Type and lint | `npm run typecheck`, `npm run lint` |
+| The service directory contract | `node --test tests/console-ia.test.mjs` |
 | Console pages in a real browser | `node scripts/check-console-origin.mjs` (dev server on 5190, Chrome debug port 9231) |
+
+The browser check stubs the session endpoint by role, so it needs no
+credentials. It asserts the shell frames every page, the rail lists only what
+the role may use, the home page groups services in the declared order, a
+service page opens its own sub-navigation, the finder searches every service,
+and nothing overflows or drops below a 44px touch target at 320, 390, 768 and
+1440 pixels. It writes screenshots to `/tmp/umatexpress-console-*.png`.

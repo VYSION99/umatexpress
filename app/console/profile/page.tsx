@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { BadgeCheck, CreditCard, IdCard, LogOut, ShieldAlert, Store } from "lucide-react";
-import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
+import { BadgeCheck, CreditCard, IdCard, ShieldAlert } from "lucide-react";
+import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 const ID_TYPES = [
   { value: "GHANA_CARD", label: "Ghana Card" },
@@ -31,12 +31,12 @@ type Profile = {
 export default function OrganizerProfilePage() {
   return <ConsoleSessionGate label="your business profile">
     {(session) => session.account.role === "ORGANIZER"
-      ? <ProfileWorkspace />
-      : <main className="console-page"><section className="console-hero"><h1>Not available</h1><span>This page belongs to an organizer account.</span></section></main>}
+      ? <ProfileWorkspace session={session} />
+      : <ConsoleShell session={session} service="profile" label="BUSINESS PROFILE" title="Not available" blurb="This page belongs to an organizer account.">{null}</ConsoleShell>}
   </ConsoleSessionGate>;
 }
 
-function ProfileWorkspace() {
+function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [kyc, setKyc] = useState({ idType: "GHANA_CARD", idNumber: "" });
   const [payout, setPayout] = useState({ method: "MOMO", accountName: "", accountNumber: "", bankCode: "" });
@@ -90,20 +90,13 @@ function ProfileWorkspace() {
     }
   }
 
-  return <main className="console-page">
-    <header className="console-header">
-      <Link href="/console" className="console-brand"><img src="/logo.svg" width="40" height="40" alt=""/><span>UMaTe<em>XPRESS</em><small>Console</small></span></Link>
-      <div className="console-account">
-        <span className="console-role-chip"><Store size={15}/>Organizer</span>
-        <Link href="/console"><LogOut size={16}/>Back to console</Link>
-      </div>
-    </header>
-
-    <section className="console-hero">
-      <p>BUSINESS PROFILE</p>
-      <h1>Verification and payouts</h1>
-      <span>Verification decides whether money may be paid out. It never changes whether you can sign in or publish a trip.</span>
-    </section>
+  return <ConsoleShell
+    session={session}
+    service="profile"
+    label="BUSINESS PROFILE"
+    title="Verification and payouts"
+    blurb="Verification decides whether money may be paid out. It never changes whether you can sign in or publish a trip."
+  >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
@@ -158,5 +151,5 @@ function ProfileWorkspace() {
         Payouts are addressed to this exact account, so changing any detail here retires the saved payee and the next payout is addressed again.
       </p>
     </section>
-  </main>;
+  </ConsoleShell>;
 }
