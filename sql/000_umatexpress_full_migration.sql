@@ -715,6 +715,7 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE scheduled_trips          ADD COLUMN submitted_at TEXT;
 -- ALTER TABLE scheduled_trips          ADD COLUMN reviewed_at TEXT;
 -- ALTER TABLE scheduled_trips          ADD COLUMN reviewed_by TEXT;
+-- ALTER TABLE trip_organizers          ADD COLUMN review_reason TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE trip_organizers          ADD COLUMN kyc_id_type TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE trip_organizers          ADD COLUMN kyc_id_number TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE trip_organizers          ADD COLUMN kyc_reason TEXT NOT NULL DEFAULT '';

@@ -311,6 +311,18 @@ export async function setOrganizerStatus(input: {
       await turso("UPDATE console_accounts SET status = 'SUSPENDED', updated_at = ? WHERE id = ?", [stamp, organizer.accountId]);
       await revokeConsoleSessions(organizer.accountId);
     }
+    // Suspension covers the business, not only the sign-in. A live trip left
+    // on sale would keep taking passenger money for an organizer the platform
+    // has just stopped doing business with, and the payout gate would hold that
+    // money instead of paying it. Every live trip makes the same
+    // APPROVED -> SUSPENDED move an administrator can make by hand; a
+    // reinstated organizer resubmits them for review rather than having them
+    // silently return to sale.
+    await ensureScheduledTripsTable();
+    await turso(
+      "UPDATE scheduled_trips SET review_status = 'SUSPENDED', review_reason = ?, reviewed_at = ?, reviewed_by = ?, active = 0, updated_at = ? WHERE organizer_id = ? AND review_status = 'APPROVED'",
+      [reason, stamp, input.actor, stamp, organizer.id],
+    );
   }
 
   await consoleAudit({
@@ -324,8 +336,9 @@ export async function setOrganizerStatus(input: {
 }
 
 /**
- * Phase 2 has no organizer-created trips, so an admin hands over an existing
- * one. Only an approved organizer may own a trip, and an empty `organizerId`
+ * Hands an existing platform trip to an organizer. Organizers publish their
+ * own trips from Phase 3 on; this is the admin path for the trips that predate
+ * them. Only an approved organizer may own a trip, and an empty `organizerId`
  * returns the trip to the platform.
  */
 export async function assignTripToOrganizer(input: { tripId: string; organizerId: string; actor: string }) {

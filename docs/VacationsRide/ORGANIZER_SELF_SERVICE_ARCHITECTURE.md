@@ -255,13 +255,13 @@ Concrete scope, so the phase has no missing half:
 |---|-------------|-------|
 | 1 | Organizer application (name, phone, email, password, organization) creating a `console_accounts` row with role `ORGANIZER` and status `PENDING` plus a `trip_organizers` row | `POST /api/console/organizers/register`, `/console/register` |
 | 2 | Application queue: approve, reject with a reason, suspend | `GET/PATCH /api/console/organizers`, `/console/organizers` (ADMIN + MODERATOR) |
-| 3 | Account and business record kept in step: approval sets `console_accounts.status = ACTIVE` and `trip_organizers.status = APPROVED`; suspension sets both to `SUSPENDED` and bumps `token_version` so live sessions die | `lib/organizers.ts` |
+| 3 | Account and business record kept in step: approval sets `console_accounts.status = ACTIVE` and `trip_organizers.status = APPROVED`; suspension sets both to `SUSPENDED`, bumps `token_version` so live sessions die, and pulls every live trip (`APPROVED -> SUSPENDED`, `active = 0`) so nothing stays on sale for an organizer the platform has stopped paying | `lib/organizers.ts` |
 | 4 | Admin assigns an existing trip to an organizer (`scheduled_trips.organizer_id`), because Phase 2 has no trip creation | `PATCH /api/console/trips`, admin-only |
 | 5 | Organizer trip list + passenger manifest with phone numbers, every read audited | `GET /api/console/trips`, `GET /api/console/trips/[id]/manifest` |
 | 6 | Per-organizer trip notice replacing the global notice for their trips | `PUT /api/console/trips/notice`, `trip_notices` |
 | 7 | Console service cards split so a moderator reviews applications and an organizer works on their own trips | `components/admin/console-services.ts` |
 
-**Acceptance:** an organizer registers, is approved, signs in, sees only their own trips and passenger contacts, and edits only their own notice. A second organizer cannot see or mutate the first organizer's data by any request. A `PENDING` organizer cannot sign in. A suspended organizer's live session stops working on the next request. No money moves.
+**Acceptance:** an organizer registers, is approved, signs in, sees only their own trips and passenger contacts, and edits only their own notice. A second organizer cannot see or mutate the first organizer's data by any request. A `PENDING` organizer cannot sign in. A suspended organizer's live session stops working on the next request and their live trips leave the public list in the same action. No money moves.
 
 **Test requirements:** organizer B gets `404` for organizer A's trip id, booking reference and notice; a forged `organizer_id` in a body or query string changes nothing; a moderator session can approve an application but is refused every admin-only trip mutation; every manifest read writes one audit row.
 

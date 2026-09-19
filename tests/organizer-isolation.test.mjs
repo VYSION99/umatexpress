@@ -127,6 +127,7 @@ after(async () => vite.close());
 const { CONSOLE_SESSION_COOKIE, createConsoleSession } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const tripsRoute = await vite.ssrLoadModule("/app/api/console/trips/route.ts");
 const manifestRoute = await vite.ssrLoadModule("/app/api/console/trips/[tripId]/manifest/route.ts");
+const organizersRoute = await vite.ssrLoadModule("/app/api/console/organizers/route.ts");
 
 async function cookieFor(accountId) {
   const account = accounts.find((item) => item.id === accountId);
@@ -201,6 +202,31 @@ test("a pending or suspended organizer cannot reach the workspace", async () => 
     const response = await tripsRoute.GET(request);
     assert.equal(response.status, 401, `${accountId} must not reach organizer data`);
   }
+});
+
+test("suspending an organizer pulls their live trips and revokes the sign-in", async () => {
+  statements.length = 0;
+  const response = await organizersRoute.PATCH(new Request(`${URL_BASE}/api/console/organizers`, {
+    method: "PATCH",
+    headers: { cookie: await cookieFor("acc-admin"), "content-type": "application/json" },
+    body: JSON.stringify({ organizerId: "org-a", action: "SUSPEND", reason: "Passengers reported the coach did not run." }),
+  }));
+  assert.equal(response.status, 200);
+
+  const business = statements.find((entry) => /UPDATE trip_organizers SET status = 'SUSPENDED'/.test(entry.sql));
+  assert.equal(business.args[2], "org-a");
+  const account = statements.find((entry) => /UPDATE console_accounts SET status = 'SUSPENDED'/.test(entry.sql));
+  assert.equal(account.args[1], "acc-a", "the console account follows the business record");
+  assert.ok(statements.some((entry) => /token_version = COALESCE\(token_version,0\) \+ 1/.test(entry.sql)), "live sessions are retired");
+
+  // The trips leave the public list in the same action: a live trip still on
+  // sale would keep taking money the payout gate will not pay out.
+  const pulled = statements.find((entry) => /UPDATE scheduled_trips SET review_status = 'SUSPENDED'/.test(entry.sql));
+  assert.ok(pulled, "a suspended organizer's live trips must leave the public list");
+  assert.match(pulled.sql, /review_status = 'APPROVED'/, "only trips that are live are pulled");
+  assert.equal(pulled.args[2], "admin@example.com");
+  assert.equal(pulled.args[4], "org-a");
+  assert.ok(statements.some((entry) => entry.args[2] === "ORGANIZER_SUSPEND"), "the decision is audited");
 });
 
 test("an admin may assign a trip, but never to an unapproved organizer", async () => {

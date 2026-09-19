@@ -106,6 +106,15 @@ All actions are logged in the platform audit table (`admin_audit_logs`) with the
 console account, its role and the target as columns. There is one audit history,
 not one per role.
 
+Suspending an organizer is one action with three effects: the business record
+and the console account both move to `SUSPENDED`, live sessions are retired by
+bumping `token_version`, and every `APPROVED` trip they own is pulled to
+`SUSPENDED` with `active = 0`. The trip cascade matters because a trip left on
+sale would keep taking passenger money that the payout gate — which refuses any
+organizer who is not `APPROVED` and KYC-`VERIFIED` — would hold rather than pay.
+Reinstating an organizer does not return the trips to sale: the organizer
+resubmits them through review.
+
 ## 5.1 Passenger contact data
 
 Decision D3 lets an organizer see the phone number of the student who booked a
