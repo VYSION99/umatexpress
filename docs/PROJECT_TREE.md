@@ -17,7 +17,7 @@ uMATeXPRESS/
 │   └── api/
 │       ├── admin/                       # admin auth, AI, bookings, campus management
 │       ├── campus/                      # campusRide student/map/queue APIs
-│       ├── console/                     # unified console session and bindings endpoints
+│       ├── console/                     # console session, bindings, assistant and service endpoints
 │       ├── disputes/                    # passenger dispute filing and list
 │       ├── driver/                      # driver auth, queue, rides, location APIs
 │       ├── passenger/                   # passenger AI helper
@@ -26,7 +26,7 @@ uMATeXPRESS/
 │       └── v1/                          # stable campus API aliases
 ├── components/
 │   ├── admin/                           # console session gate, service registry and vacationRide admin console
-│   ├── console/                         # the one shell every service is framed by, plus the unavailable-service frame
+│   ├── console/                         # the one shell every service is framed by, the assistant and the unavailable-service frame
 │   ├── campusRide/
 │   │   ├── admin/                       # campusRide admin widgets
 │   │   ├── driver/                      # driver portal widgets
@@ -48,6 +48,8 @@ uMATeXPRESS/
 │   ├── cloudflare-bindings.ts           # typed access to AI/Images/R2/Queue/DO/mTLS
 │   ├── console-audit.ts                 # console action audit trail
 │   ├── console-applications.ts          # every way into the console: applications and invited access
+│   ├── console-assistant.ts             # assistant runtime: tool loop, handlers, signed confirmations
+│   ├── console-assistant-catalog.ts     # what the assistant may read and propose, per role
 │   ├── console-auth.ts                  # console accounts, sessions and role guards
 │   ├── console-hosts.ts                 # console origin boundary policy
 │   ├── console-signin.ts                # console sign-in and password change

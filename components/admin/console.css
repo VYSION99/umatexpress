@@ -54,3 +54,38 @@
 .console-launcher .console-body{display:block;min-height:0;background:none;padding:0}
 .console-panel-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .console-panel-toolbar p{margin:0;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--ui-muted,#57675f)}
+
+/* Console assistant: on every page, scoped to the role, writes need a confirm */
+.console-assistant { position: fixed; right: 22px; bottom: 22px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.console-assistant-toggle { display: inline-flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--ui-cyan, #0e7490); color: #ffffff; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 20px rgba(14,116,144,.28); }
+.console-assistant-toggle:hover { background: #0b5f75; }
+.console-assistant-panel { width: min(100vw - 32px, 392px); max-height: min(76vh, 620px); display: flex; flex-direction: column; overflow: hidden; background: #ffffff; border: 1px solid var(--ui-line, #e3eae5); border-radius: 20px; box-shadow: 0 18px 50px rgba(18,38,31,.22); }
+.console-assistant-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 17px; border-bottom: 1px solid var(--ui-line, #e3eae5); }
+.console-assistant-panel > header span { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; color: var(--ui-cyan, #0e7490); }
+.console-assistant-panel > header button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 10px; background: #f2f6f4; color: var(--ui-muted, #57675f); cursor: pointer; }
+.console-assistant-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 17px; }
+.console-assistant-hint { margin: 0; color: var(--ui-muted, #57675f); font-size: 13px; line-height: 1.6; }
+.console-assistant-turn { margin: 0; padding: 11px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.6; }
+.console-assistant-turn p { margin: 0; white-space: pre-wrap; }
+.console-assistant-turn small { display: block; margin-top: 6px; color: var(--ui-muted, #57675f); font-size: 11px; font-weight: 700; }
+.console-assistant-assistant { background: #f4f8f6; border: 1px solid var(--ui-line, #e3eae5); color: var(--ui-ink, #12261f); }
+.console-assistant-user { align-self: flex-end; max-width: 86%; background: var(--ui-green, #0d694d); color: #ffffff; }
+.console-assistant-suggestions { display: flex; flex-direction: column; gap: 8px; }
+.console-assistant-suggestions button { min-height: 40px; padding: 9px 12px; border: 1px dashed var(--ui-line, #e3eae5); border-radius: 12px; background: #ffffff; color: var(--ui-cyan, #0e7490); font-size: 12.5px; font-weight: 700; text-align: left; cursor: pointer; }
+.console-assistant-suggestions button:hover { border-style: solid; background: #f7fbfa; }
+.console-assistant-confirm { display: flex; flex-direction: column; gap: 7px; margin: 0 17px 12px; padding: 13px; border: 1px solid #f0dcae; border-radius: 14px; background: var(--ui-yellow-soft, #fdf6df); }
+.console-assistant-confirm strong { font-size: 13.5px; }
+.console-assistant-confirm span { color: var(--ui-muted, #57675f); font-size: 12.5px; line-height: 1.55; }
+.console-assistant-confirm div { display: flex; gap: 8px; margin-top: 3px; }
+.console-assistant-confirm button { min-height: 40px; padding: 0 16px; border: 0; border-radius: 11px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 13px; font-weight: 800; cursor: pointer; }
+.console-assistant-confirm button.console-secondary { background: #ffffff; border: 1px solid var(--ui-line, #e3eae5); color: var(--ui-ink, #12261f); }
+.console-assistant-error { margin: 0 17px 10px; padding: 10px 12px; border-radius: 12px; background: #fff0ee; color: #9c3026; font-size: 12.5px; }
+.console-assistant-panel > form { display: flex; gap: 9px; padding: 13px 17px 15px; border-top: 1px solid var(--ui-line, #e3eae5); }
+.console-assistant-panel > form textarea { flex: 1; min-height: 46px; max-height: 120px; padding: 11px 12px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 12px; color: var(--ui-ink, #12261f); font-size: 13.5px; font-family: inherit; resize: none; }
+.console-assistant-panel > form textarea:focus { outline: 2px solid var(--ui-green, #0d694d); outline-offset: 1px; border-color: transparent; }
+.console-assistant-panel > form button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 46px; padding: 0 15px; border: 0; border-radius: 12px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 13.5px; font-weight: 800; cursor: pointer; }
+.console-assistant-panel > form button:disabled { opacity: .6; cursor: default; }
+
+@media (max-width: 800px) {
+  .console-assistant { right: 14px; bottom: calc(78px + env(safe-area-inset-bottom)); }
+}

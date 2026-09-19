@@ -22,6 +22,7 @@ way for one service's console to be reached from the student site.
 | Screens | `app/console/*` (entry, sign-in, password, services) |
 | Shell | `components/console/ConsoleShell.tsx` — one frame for every service |
 | Service directory | `components/admin/console-services.ts` — what exists, its group and its navigation |
+| Assistant | `lib/console-assistant.ts` + `components/console/ConsoleAssistant.tsx` — role-scoped reads and confirmed actions (see `docs/CONSOLE_ASSISTANT.md`) |
 
 ## 2. Roles
 
@@ -223,6 +224,7 @@ requires the zone to be in the same Cloudflare account; if it is not, remove
 | Type and lint | `npm run typecheck`, `npm run lint` |
 | The service directory contract | `node --test tests/console-ia.test.mjs` |
 | Applications and invited access | `node --test tests/console-applications.test.mjs` |
+| The assistant's tools, roles and proposals | `node --test tests/console-assistant.test.mjs` |
 | Console pages in a real browser | `node scripts/check-console-origin.mjs` (dev server on 5190, Chrome debug port 9231) |
 
 The browser check stubs the session endpoint by role, so it needs no

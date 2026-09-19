@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, ExternalLink, Grid2X2, Home, LockKeyhole, LogOut, Search, ShieldCheck, X } from "lucide-react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole, consoleServicesForRole, consoleServiceById } from "@/components/admin/console-services";
+import { ConsoleAssistant } from "@/components/console/ConsoleAssistant";
 import "@/components/launcher/launcher.css";
 import "@/components/admin/console.css";
 
@@ -176,5 +177,6 @@ export function ConsoleShell({
         </div>
       </div>
     </dialog>
+    <ConsoleAssistant session={session} service={service} />
   </div>;
 }

@@ -74,6 +74,8 @@ try {
       if (url.startsWith("/api/driver/me")) return json({ driver: { id: "check-driver", name: "Check Driver", active: true, vehicleId: "", currentZoneId: "", mustChangePassword: false }, ride: null, zones: [], corridors: [], vehicles: [] });
       if (url.startsWith("/api/driver/queue")) return json({ queue: [] });
       if (url.startsWith("/api/driver/summary")) return json({ day: "Today", completed: 0, boarded: 0, grossFares: 0, activeQueue: 0, nextPickup: null });
+      if (url.startsWith("/api/console/assistant/confirm") && method === "POST") return json({ ok: true, tool: "trips_review", title: "Review an organizer trip", result: { done: true } });
+      if (url.startsWith("/api/console/assistant") && method === "POST") return json({ ok: true, reply: "Three organizer applications are waiting for review.", toolRuns: ["Organizer applications"], pendingAction: { token: "stub-token", title: "Review an organizer application", summary: "Organizer id: org_1 · Decision: APPROVE" } });
       return realFetch(input, init);
     };
   ` });
@@ -194,7 +196,23 @@ try {
   await visit("/console/register/nonsense", `document.querySelector(".console-auth-card h1")?.textContent === "Application not found"`);
   console.log("PASS access applications cover every service");
 
-  // 10. No sideways scroll at any supported width, the rail is replaced by the
+  // 10. The assistant sits on every page: it answers with the tools the role
+  //     holds, and an action it proposes only runs after the person confirms.
+  await visit("/console?role=ORGANIZER", `document.querySelector(".console-assistant-toggle") !== null`);
+  await click(`document.querySelector(".console-assistant-toggle")`);
+  await until(`document.querySelector(".console-assistant-panel") !== null`, "the assistant panel to open");
+  await click(`document.querySelector(".console-assistant-suggestions button")`);
+  await until(`document.querySelector(".console-assistant-assistant")?.textContent.includes("Three organizer applications")`, "the assistant reply");
+  const proposed = await evaluate(`document.querySelector(".console-assistant-confirm strong")?.textContent`);
+  assert.equal(proposed, "Review an organizer application", "a proposed action must be shown for confirmation");
+  const confirmed = await click(`[...document.querySelectorAll(".console-assistant-confirm button")].find(node => node.textContent === "Confirm")`);
+  assert.ok(confirmed, "the confirmation card must offer a confirm button");
+  await until(`document.querySelector(".console-assistant-log").textContent.includes("Done: Review an organizer trip.")`, "the confirmed action to report back");
+  await click(`document.querySelector(".console-assistant-toggle")`);
+  await until(`document.querySelector(".console-assistant-panel") === null`, "the assistant panel to close");
+  console.log("PASS the assistant answers in the shell and waits for confirmation");
+
+  // 11. No sideways scroll at any supported width, the rail is replaced by the
   //    mobile bar on a phone, and every control keeps its touch target.
   await visit("/console?role=ADMIN", `document.querySelector(".console-sidebar") !== null`);
   for (const width of [320, 390, 768, 1440]) {
