@@ -106,11 +106,24 @@ identity.
 | Console hosts | `CONSOLE_HOSTS`, comma-separated |
 | Custom domain bound on deploy | `CLOUDFLARE_CONSOLE_HOST` |
 
-Until the custom domain resolves, list the workers.dev host in `CONSOLE_HOSTS`
-as well, otherwise the console has no reachable origin:
+Until the custom domain resolves, deploy the console as its own workers.dev
+Worker. That is what gives it a hostname of its own while the client stays
+public:
 
 ```
-CONSOLE_HOSTS=console.umatexpress.com,umatexpress.acmdevelopers2020.workers.dev
+CLOUDFLARE_CONSOLE_WORKER_NAME=console-umatexpress
+CLOUDFLARE_CONSOLE_HOSTS=console-umatexpress.acmdevelopers2020.workers.dev
+```
+
+`scripts/deploy-cloudflare.sh` then builds once and deploys twice: the client
+Worker keeps the cron triggers and the notification queue consumer; the console
+Worker gets neither — a second of either would run every job and send every
+message twice — but does get `CONSOLE_HOSTS`, so it serves console surfaces
+only while the client refuses `/console*` and `/api/console/*`. Push the
+runtime secrets to both Workers:
+
+```
+CLOUDFLARE_WORKER_NAME=console-umatexpress scripts/push-secrets.sh
 ```
 
 `scripts/deploy-cloudflare.sh` writes the console route into the generated
@@ -125,4 +138,3 @@ requires the zone to be in the same Cloudflare account; if it is not, remove
 | Boundary, session and role rules | `node --test tests/console-host.test.mjs tests/console-auth.test.mjs` |
 | Type and lint | `npm run typecheck`, `npm run lint` |
 | Console pages in a real browser | `node scripts/check-console-origin.mjs` (dev server on 5190, Chrome debug port 9231) |
-
