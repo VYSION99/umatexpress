@@ -549,3 +549,69 @@ test("a signed-in rider can open their own campusRide ticket without the payment
     if (previousSecret === undefined) delete process.env.STUDENT_SESSION_SECRET; else process.env.STUDENT_SESSION_SECRET = previousSecret;
   }
 });
+
+test("a signed-in rider can track their own campusRide queue without the payment cookie", async () => {
+  const previousUrl = process.env.TURSO_DATABASE_URL;
+  const previousToken = process.env.TURSO_AUTH_TOKEN;
+  const previousSecret = process.env.STUDENT_SESSION_SECRET;
+  process.env.TURSO_DATABASE_URL = "libsql://example.test";
+  process.env.TURSO_AUTH_TOKEN = "test-token";
+  process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const riders = [
+    { id: "stu-rider", email: "rider@st.umat.edu.gh", name: "Rider", phone: "0244000000", token_version: 0, active: 1 },
+    { id: "stu-other", email: "other@st.umat.edu.gh", name: "Other", phone: "0244000001", token_version: 0, active: 1 },
+  ];
+
+  globalThis.fetch = async (url, options = {}) => {
+    const body = options && typeof options.body === "string" ? JSON.parse(options.body) : {};
+    const sql = body.requests?.[0]?.stmt?.sql || "";
+    const args = (body.requests?.[0]?.stmt?.args || []).map((arg) => (arg.type === "null" ? null : arg.value));
+    calls.push(sql);
+    const rows = (names, values) => Response.json({ results: [{ type: "ok", response: { result: { rows: [values.map((value) => ({ value }))], cols: names.map((name) => ({ name })) } } }] });
+    const none = Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [] } } }] });
+    if (!String(url).includes("/v2/pipeline")) return Response.json({});
+    if (sql.includes("FROM campus_queue_entries q")) {
+      const names = ["id", "reference", "ride_id", "queue_position", "payment_status", "queue_status", "created_at", "accepted_at", "arrived_at", "boarded_at", "completed_at", "cancelled_at", "email", "pickup_zone", "destination_zone", "corridor_name", "estimated_minutes", "capacity", "ride_status", "accepting_queue", "current_latitude", "current_longitude", "last_location_at", "driver_name", "vehicle_label", "plate_number", "driver_zone", "payment_status_db", "access_token_hash"];
+      const values = ["q-1", "pay-ref-1", "", 3, "SUCCESSFUL", "PAID_WAITING", "", "", "", "", "", "", "rider@st.umat.edu.gh", "Main Gate", "Lecture Area", "Main Corridor", 8, 0, "", 0, 0, 0, "", "", "", "", "", "SUCCESSFUL", ""];
+      return rows(names, values);
+    }
+    if (sql.includes("FROM student_accounts WHERE id = ?")) {
+      const rider = riders.find((item) => item.id === args[0]);
+      return rider
+        ? rows(["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"], [rider.id, rider.email, rider.name, rider.phone, "", "", rider.token_version, rider.active])
+        : none;
+    }
+    return none;
+  };
+
+  try {
+    const { createStudentSession, STUDENT_SESSION_COOKIE } = await vite.ssrLoadModule("/lib/student-auth.ts");
+    const { campusQueueStatus } = await vite.ssrLoadModule("/lib/campus-engine/queue-status.ts");
+
+    const matching = `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(await createStudentSession("stu-rider"))}`;
+    const status = await campusQueueStatus(new Request("https://umatexpress.test/api/campus/queue/status?reference=pay-ref-1", { headers: { cookie: matching } }), "pay-ref-1");
+    assert.equal(status.reference, "pay-ref-1");
+    assert.equal(status.queuePosition, 3);
+    // The boarding PIN never leaves this endpoint, signed in or not.
+    assert.equal("ridePin" in status, false);
+    assert.ok(calls.some((sql) => sql.includes("FROM campus_queue_entries q")), "the queue entry carries the owner email");
+
+    const stranger = `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(await createStudentSession("stu-other"))}`;
+    await assert.rejects(
+      () => campusQueueStatus(new Request("https://umatexpress.test/api/campus/queue/status?reference=pay-ref-1", { headers: { cookie: stranger } }), "pay-ref-1"),
+      /not authorised/,
+    );
+    await assert.rejects(
+      () => campusQueueStatus(new Request("https://umatexpress.test/api/campus/queue/status?reference=pay-ref-1"), "pay-ref-1"),
+      /not authorised/,
+      "a guest without the payment token stays refused",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.TURSO_AUTH_TOKEN; else process.env.TURSO_AUTH_TOKEN = previousToken;
+    if (previousSecret === undefined) delete process.env.STUDENT_SESSION_SECRET; else process.env.STUDENT_SESSION_SECRET = previousSecret;
+  }
+});

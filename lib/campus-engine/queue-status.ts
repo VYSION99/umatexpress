@@ -3,6 +3,7 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { estimateWaitMinutes, queueProgress, waitLabel } from "@/lib/campus-engine/progress";
 import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
 import { incrementMetric } from "@/lib/observability";
+import { studentOwnsEmail } from "@/lib/student-auth";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 const ACTIVE_STATUSES = new Set(["PAID_WAITING", "ACCEPTED_BY_DRIVER", "DRIVER_ARRIVED", "BOARDED"]);
@@ -10,8 +11,9 @@ const ACTIVE_SQL = "'PAID_WAITING','ACCEPTED_BY_DRIVER','DRIVER_ARRIVED','BOARDE
 
 /**
  * Live progress for one paid queue entry, for the passenger's ticket page.
- * Authorised by the same per-payment token as `verifyCampusRidePayment`; the
- * boarding PIN is deliberately not returned here.
+ * Authorised like `verifyCampusRidePayment`: the per-payment token, or the
+ * signed-in account the entry was made under. The boarding PIN is deliberately
+ * not returned here.
  */
 export async function campusQueueStatus(request: Request, reference: string) {
   if (!reference) throw new CampusEngineError("VALIDATION_ERROR", "Missing campusRide payment reference.", 400);
@@ -20,7 +22,7 @@ export async function campusQueueStatus(request: Request, reference: string) {
 
   const row = rowsToObjects(await turso(
     `SELECT q.id, q.reference, q.ride_id, q.queue_position, q.payment_status, q.queue_status,
-        q.created_at, q.accepted_at, q.arrived_at, q.boarded_at, q.completed_at, q.cancelled_at,
+        q.created_at, q.accepted_at, q.arrived_at, q.boarded_at, q.completed_at, q.cancelled_at, q.email,
         COALESCE(oz.name,'') AS pickup_zone, COALESCE(dz.name,'') AS destination_zone,
         COALESCE(c.name,'') AS corridor_name, COALESCE(c.estimated_minutes,0) AS estimated_minutes,
         COALESCE(r.capacity,0) AS capacity, COALESCE(r.status,'') AS ride_status, COALESCE(r.accepting_queue,0) AS accepting_queue,
@@ -43,7 +45,13 @@ export async function campusQueueStatus(request: Request, reference: string) {
   if (!row) throw new CampusEngineError("NOT_FOUND", "campusRide payment was not found.", 404);
 
   const token = paymentTokenFromRequest(request, reference);
-  if (!token || !row.access_token_hash || await hashPaymentToken(token) !== String(row.access_token_hash)) {
+  let authorised = false;
+  if (token && row.access_token_hash) {
+    authorised = await hashPaymentToken(token) === String(row.access_token_hash);
+  }
+  // A signed-in passenger tracks their own ride without the one-hour cookie,
+  // so a deep link to the ticket keeps its live status after the cookie dies.
+  if (!authorised && !(await studentOwnsEmail(request, row.email))) {
     throw new CampusEngineError("FORBIDDEN", "campusRide payment access is not authorised.", 403);
   }
 

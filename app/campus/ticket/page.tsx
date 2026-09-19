@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Circle, Clock, ImageDown, Loader2, MapPin, Share2, Trash2, WifiOff, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, Clock, ImageDown, Loader2, MapPin, Share2, ShieldCheck, Trash2, WifiOff, XCircle } from "lucide-react";
 import { queueProgress } from "@/lib/campus-engine/progress";
 import { forgetTicket, rememberTicket } from "@/lib/passenger-profile";
 
@@ -50,13 +50,14 @@ function readCachedTicket(reference: string) {
 }
 
 export default function CampusTicketPage() {
-  const [state, setState] = useState<"loading" | "paid" | "pending" | "failed">("loading");
+  const [state, setState] = useState<"loading" | "paid" | "pending" | "failed" | "signin">("loading");
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [status, setStatus] = useState<QueueStatus | null>(null);
   const [offline, setOffline] = useState(false);
   const [cachedAt, setCachedAt] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [signInHref, setSignInHref] = useState("/account");
   const referenceRef = useRef("");
 
   // Progress is derived from the last poll, falling back to the ticket's own
@@ -78,6 +79,9 @@ export default function CampusTicketPage() {
     try {
       const response = await fetch(`/api/campus/queue/verify?reference=${encodeURIComponent(reference)}`, { credentials: "same-origin", cache: "no-store" });
       const data = await response.json();
+      // A deep link opened by someone who is not signed in as the queue
+      // entry's owner: offer the account handoff instead of a dead end.
+      if (response.status === 403) { setState("signin"); return; }
       if (!response.ok) throw new Error(data.error || "campusRide payment verification failed.");
       applyVerified(reference, data);
     } catch (verifyError) {
@@ -111,6 +115,8 @@ export default function CampusTicketPage() {
       const reference = new URLSearchParams(window.location.search).get("reference") || "";
       referenceRef.current = reference;
       if (!reference) { setState("failed"); setError("Missing campusRide payment reference."); return; }
+      // After signing in, the student lands back on this exact ticket.
+      setSignInHref(`/account?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`);
       void verify(reference, true);
     });
   }, [verify]);
@@ -213,6 +219,7 @@ export default function CampusTicketPage() {
       </div>
     </> :
     state === "pending" ? <><Loader2 className="status-icon spin"/><h1>Payment pending</h1><p>Your campusRide payment is not confirmed yet. Refresh this page after approval.</p><Link href="/campus">Return to campusRide</Link></> :
+    state === "signin" ? <><ShieldCheck className="status-icon"/><h1>Sign in to open this ticket</h1><p>This ticket belongs to the UMaT account its queue entry was made under, not to this browser. Sign in with that account and the ticket opens right here.</p><Link href={signInHref}>Sign in to view ticket</Link></> :
     <><XCircle className="status-icon fail"/><h1>Payment not completed</h1><p>{error || "No confirmed campusRide payment was found."}</p><Link href="/campus">Try again</Link></>}
   </main>;
 }

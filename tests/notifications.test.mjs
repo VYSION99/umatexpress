@@ -154,7 +154,13 @@ test("only the email carries the ticket link", async () => {
 
 test("a vacation template links to the vacation ticket, a campus one to the queue ticket", async () => {
   const { emailBody } = await vite.ssrLoadModule("/lib/notifications.ts");
-  const { ticketLinkForTemplate, ticketUrl } = await vite.ssrLoadModule("/lib/campus-engine/notify-templates.ts");
+  const { ticketKindForTemplate, ticketLinkForTemplate, ticketUrl } = await vite.ssrLoadModule("/lib/campus-engine/notify-templates.ts");
+
+  // The in-app feed picks the ticket page from the same prefix rule, so a
+  // vacation message never opens the campus queue ticket (and vice versa).
+  assert.equal(ticketKindForTemplate("vacation_booking_confirmed"), "vacation");
+  assert.equal(ticketKindForTemplate("driver_accepted"), "campus");
+  assert.equal(ticketKindForTemplate(""), "campus");
 
   const vacation = ticketLinkForTemplate("vacation_booking_confirmed");
   assert.equal(vacation.path, "/payment/callback");

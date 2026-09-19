@@ -28,9 +28,14 @@ export function ticketUrl(reference: string, origin?: string, path = "/campus/ti
   return `${base}${path}?reference=${encodeURIComponent(reference)}`;
 }
 
+/** Which product's ticket a template points at: the prefix decides. */
+export function ticketKindForTemplate(template: string): "vacation" | "campus" {
+  return String(template || "").startsWith("vacation_") ? "vacation" : "campus";
+}
+
 /** The ticket page and link wording for a notification template. */
 export function ticketLinkForTemplate(template: string): { path: string; cta: string } {
-  return String(template || "").startsWith("vacation_")
+  return ticketKindForTemplate(template) === "vacation"
     ? { path: "/payment/callback", cta: "View your ticket" }
     : { path: "/campus/ticket", cta: "Track your ride" };
 }

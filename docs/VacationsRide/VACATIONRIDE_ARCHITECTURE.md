@@ -162,6 +162,12 @@ payments access token or a signed-in passenger whose account email matches the
 booking's. Guests keep the token as their key; a signed-in student keeps their
 own ticket on any device, even after the cookie expires.
 
+The in-app feed resolves its "Open ticket" link from the message's template
+prefix, so a vacationRide message opens the boarding pass and a campusRide
+message opens the queue ticket. A link opened by a guest or by the wrong
+account shows a sign-in handoff that returns to the same ticket instead of
+reporting a payment failure.
+
 `vacation_booking_confirmed` is queued on confirmation, and
 `vacation_booking_cancelled` when an administrator cancels a booking the
 passenger actually paid for. Both are written on the payment path, so they log

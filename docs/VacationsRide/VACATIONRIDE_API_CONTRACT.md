@@ -134,6 +134,10 @@ booking's email — booking forces the receipt address to be the account's own,
 so a signed-in passenger can reopen their ticket on any device after the
 one-hour cookie expires. Everyone else is refused.
 
+A ticket link opened without either gets a sign-in handoff rather than a dead
+end: the page points at `/account?next=<the ticket URL>`, and the student lands
+back on the ticket once signed in.
+
 ### `POST /api/payments/webhook`
 
 Paystack calls this. `x-paystack-signature` is verified, `payment_events`
