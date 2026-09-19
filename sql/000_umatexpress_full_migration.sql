@@ -173,6 +173,31 @@ CREATE TABLE IF NOT EXISTS organizer_payout_batches (
   created_at TEXT NOT NULL
 );
 
+-- What a passenger or an organizer said went wrong, and what the platform
+-- decided. This records decisions; it does not move money, because a refund is
+-- made where every other money movement is made. `raised_by` is an account
+-- email for a student and an organizer id for an organizer; the ownership check
+-- happens before the row is written, never after.
+CREATE TABLE IF NOT EXISTS trip_disputes (
+  id TEXT PRIMARY KEY,
+  organizer_id TEXT NOT NULL DEFAULT '',
+  trip_id TEXT NOT NULL DEFAULT '',
+  booking_reference TEXT NOT NULL DEFAULT '',
+  raised_by_role TEXT NOT NULL DEFAULT '',
+  raised_by TEXT NOT NULL DEFAULT '',
+  raised_by_contact TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'OTHER',
+  subject TEXT NOT NULL DEFAULT '',
+  details TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'OPEN',
+  resolution TEXT NOT NULL DEFAULT '',
+  resolution_note TEXT NOT NULL DEFAULT '',
+  resolved_by TEXT NOT NULL DEFAULT '',
+  resolved_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS seat_holds (
   id TEXT PRIMARY KEY,
   booking_id TEXT UNIQUE NOT NULL,
@@ -444,6 +469,10 @@ VALUES ('tripOrganizers', '2026-09-18.3', datetime('now'));
 INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
 VALUES ('organizerPayouts', '2026-09-18.2', datetime('now'));
 
+-- Disputes. Must match DISPUTES_SCHEMA_VERSION in lib/disputes.ts.
+INSERT OR REPLACE INTO campus_schema_meta (id, version, applied_at)
+VALUES ('tripDisputes', '2026-09-18.1', datetime('now'));
+
 -- Existing trips predate review and belong to the platform, so they are already
 -- live. Anything created afterwards starts as DRAFT and must be reviewed.
 UPDATE scheduled_trips SET review_status = 'APPROVED'
@@ -621,6 +650,9 @@ CREATE INDEX IF NOT EXISTS idx_organizer_payouts_due ON organizer_payouts(status
 CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches ON organizer_payout_batches(organizer_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_organizer_payout_batches_status ON organizer_payout_batches(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_organizer_payouts_batch ON organizer_payouts(batch_id);
+CREATE INDEX IF NOT EXISTS idx_trip_disputes_status ON trip_disputes(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_trip_disputes_organizer ON trip_disputes(organizer_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_trip_disputes_reference ON trip_disputes(booking_reference);
 
 -- Platform
 CREATE INDEX IF NOT EXISTS idx_payment_events_reference ON payment_events(provider, reference);

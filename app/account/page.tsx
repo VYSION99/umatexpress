@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CampusShell, CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";
 import { StudentAuthCard } from "@/components/account/StudentAuthCard";
+import { PassengerSupportCard } from "@/components/account/PassengerSupportCard";
 
 /**
  * The platform sign-in. campusRide and vacationRide both send passengers here,
@@ -12,6 +13,7 @@ export default async function AccountPage({ searchParams }: { searchParams?: Pro
     <section className="student-auth-interface">
       <CampusStatusBanner title="Only booking needs an account" message="Search rides, compare fares and check a ticket without signing in. Holding a seat or joining a queue needs your student account." />
       <StudentAuthCard next={params?.next} />
+      <PassengerSupportCard />
       <Link href="/">Back to UMaTeXPRESS home</Link>
     </section>
   </CampusShell>;

@@ -1,7 +1,12 @@
 import { ensurePaymentsTable, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
+  // The seat map is re-read after a lost hold, so this is the read a stuck
+  // client repeats; the ceiling is the highest of the three.
+  const limited = await rateLimit(request, "trips-availability-read", { limit: 300, windowMs: 60_000 });
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
   const url = new URL(request.url);
   const tripId = String(url.searchParams.get("tripId") || "");
   const travelDate = url.searchParams.get("travelDate");

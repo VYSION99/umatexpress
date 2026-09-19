@@ -137,6 +137,26 @@
 │ amenities, contacts  │        │ details               │
 │ updated_at           │        │ created_at            │
 └──────────────────────┘        └──────────────────────┘
+
+┌──────────────────────┐
+│     trip_disputes    │  Phase 6 ✓
+│──────────────────────│
+│ id (PK)              │
+│ organizer_id (FK)    │  copied from the booking, never the request
+│ trip_id (FK)         │  copied from the booking
+│ booking_reference    │
+│ raised_by_role       │  STUDENT | ORGANIZER
+│ raised_by            │  account email, or organizer id
+│ raised_by_contact    │  reply address; the account's own email
+│ category             │  BOOKING | REFUND | TRIP_CANCELLED | DELAY | CONDUCT | PAYMENT | OTHER
+│ subject, details     │
+│ status               │  OPEN | REVIEWING | RESOLVED | DISMISSED
+│ resolution           │  REFUND | PARTIAL_REFUND | RELEASE_PAYOUT | NO_ACTION | OTHER
+│ resolution_note      │  required once the status is RESOLVED
+│ resolved_by          │  the administrator who decided it
+│ resolved_at          │
+│ created_at, updated_at│
+└──────────────────────┘
 ```
 
 The platform-wide notice stays in `trip_settings` (single row, `id = 1`) and is
@@ -155,6 +175,7 @@ organizer rows.
 | `bookings` → `seat_holds` | 1:1 | At most one active hold per booking |
 | `bookings` → `organizer_payouts` | 1:1 | A confirmed booking accrues exactly one payout row, enforced by a unique index on `booking_id` |
 | `organizer_payouts` → `organizer_payout_batches` | N:1 | Entries sent together share the attempt that carried them; the link is cleared when an attempt fails and the entries return to the ledger |
+| `bookings` → `trip_disputes` | 1:N | A dispute names a booking by reference, and the trip and organizer are copied from it at open time, so a dispute can never be pointed at another organizer's row |
 | `scheduled_trips` → `trip_notices` | N:1 | A trip uses its organizer's notice, or the platform fallback |
 
 ## 3. Design notes
@@ -201,3 +222,10 @@ organizer rows.
   account `PENDING`, which is already a state that cannot sign in, so the
   console vocabulary stays three-valued. `kyc_status` is a separate, later gate
   that only decides whether money may be paid out.
+- **`trip_disputes` records decisions, not money.** The resolution labels
+  (`REFUND`, `PARTIAL_REFUND`, `RELEASE_PAYOUT`) say what an administrator
+  decided; the ledger rows that move money are still written by the
+  booking-cancel and payout paths alone. Keeping the two apart means a dispute
+  can never claim a refund that no ledger row supports, and an organizer's
+  dispute list never exposes the passenger's contact — the reply address is
+  the account email the dispute was filed from.

@@ -3,6 +3,7 @@ import { organizerNoticeForTrip } from "@/lib/organizers";
 import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { hasNoticeContent } from "@/lib/trip-notice";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 /**
  * `?tripId=` makes the notice that trip's organizer's, so one organizer's fare
@@ -11,6 +12,8 @@ import { hasNoticeContent } from "@/lib/trip-notice";
  * notice that existed before organizers did.
  */
 export async function GET(request: Request) {
+  const limited = await rateLimit(request, "trips-display-read", { limit: 240, windowMs: 60_000 });
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
   const tripId = new URL(request.url).searchParams.get("tripId") || "";
   async function noticeFor(fallback: FlyerPromo) {
     if (!tripId) return fallback;

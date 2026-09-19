@@ -2,6 +2,7 @@ import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { ensureScheduledTripsTable, getDynamicTrips, seedDefaultScheduledTrips } from "@/lib/dynamic-trips";
 import { organizerDisplayNames } from "@/lib/organizers";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 export type ScheduledTripInput = {
   title: string;
@@ -65,12 +66,21 @@ function normalizeTripBody(body: Partial<ScheduledTripInput>) {
 }
 
 export async function GET(request: Request) {
+  const adminView = new URL(request.url).searchParams.get("admin") === "1";
+  // The public read is the cheapest way to scrape the whole schedule, and it
+  // hits the database on every call. The admin view is a signed-in console
+  // read and is not limited here. The ceiling is generous on purpose: a campus
+  // network puts many students behind one address, so the limit is there to
+  // stop a flood, not to meter a person.
+  if (!adminView) {
+    const limited = await rateLimit(request, "trips-schedule-read", { limit: 240, windowMs: 60_000 });
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+  }
   if (!(await isTursoConfiguredRuntime())) {
     return Response.json({ trips: await getDynamicTrips(), configured: false });
   }
 
   try {
-    const adminView = new URL(request.url).searchParams.get("admin") === "1";
     if (adminView && !await staffEmailFromRequest(request)) {
       return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
     }

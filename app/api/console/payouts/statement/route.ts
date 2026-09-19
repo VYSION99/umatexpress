@@ -1,5 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
+import { organizerInsights, organizerTripPerformance } from "@/lib/organizer-insights";
 import { organizerStatement } from "@/lib/organizer-payouts";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -15,7 +16,15 @@ export async function GET(request: Request) {
     if (!account.profileId) {
       throw new CampusEngineError("UNAUTHORIZED", "This account is not linked to an organizer profile.", 401);
     }
-    return Response.json({ ok: true, statement: await organizerStatement(account.profileId) }, { headers: NO_STORE });
+    // The statement answers "what am I owed"; the insights answer "which trips
+    // earned it". They read the same ledger, so the numbers agree by
+    // construction rather than by being computed twice.
+    const [statement, insights, trips] = await Promise.all([
+      organizerStatement(account.profileId),
+      organizerInsights(account.profileId),
+      organizerTripPerformance(account.profileId),
+    ]);
+    return Response.json({ ok: true, statement, insights, trips }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

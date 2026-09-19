@@ -1,4 +1,4 @@
-import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Store, Utensils, Wallet } from "lucide-react";
+import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Scale, Store, Utensils, Wallet } from "lucide-react";
 import type { LauncherPreference } from "@/components/launcher/services";
 
 export const consoleServices = [
@@ -12,6 +12,7 @@ export const consoleServices = [
   { id: "profile", title: "Business profile", icon: IdCard, accent: "cyan", href: "/console/profile", label: "VERIFICATION & PAYOUTS", description: "Get verified, get paid.", detail: "Submit identity verification and the account your payouts should reach.", action: "Open profile", tags: ["KYC", "Payout account"] },
   { id: "earnings", title: "Earnings", icon: Wallet, accent: "cyan", href: "/console/earnings", label: "MY STATEMENT", description: "Every fare you earned.", detail: "See what each booking earned, what is ready to pay, and the payouts already recorded.", action: "Open statement", tags: ["Statement", "Payouts"] },
   { id: "payouts", title: "Organizer payouts", icon: Banknote, accent: "green", href: "/console/payouts", label: "MONEY OUT", description: "Pay what the platform owes.", detail: "Balances per organizer, the accrual ledger, and recording a payout by transfer reference.", action: "Open payouts", tags: ["Ledger", "Batch payouts"] },
+  { id: "disputes", title: "Disputes", icon: Scale, accent: "purple", href: "/console/disputes", label: "TRUST & RESOLUTION", description: "Decide what went wrong.", detail: "What passengers and organizers raised, and the record of what was decided and why.", action: "Open disputes", tags: ["Complaints", "Decisions"] },
   { id: "food", title: "Food", icon: Utensils, accent: "peach", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [] },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "purple", href: null, label: "ENTERTAINMENT", description: "A place for movie nights.", detail: "Cinema management is not available yet.", action: "Coming soon", tags: [] },
 ] as const;
@@ -35,9 +36,9 @@ export function consoleServicesForRole(role: string) {
   // Role order matters: the role's own workspace leads and account security is
   // always last, so the first card is the one the person signed in to use.
   const order: Record<string, string[]> = {
-    MODERATOR: ["organizers", "vacation", "hostels", "security"],
+    MODERATOR: ["organizers", "disputes", "vacation", "hostels", "security"],
     DRIVER: ["driver", "security"],
-    ORGANIZER: ["organizer", "profile", "earnings", "security"],
+    ORGANIZER: ["organizer", "profile", "earnings", "disputes", "security"],
   };
   return (order[role] || ["security"]).flatMap((id) => consoleServices.filter((service) => service.id === id));
 }

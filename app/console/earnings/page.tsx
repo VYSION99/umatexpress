@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Banknote, BusFront, Clock3, LogOut, Store, Wallet } from "lucide-react";
+import { AlertTriangle, Banknote, BusFront, CalendarClock, Clock3, LogOut, Store, TrendingUp, Users, Wallet } from "lucide-react";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 
 type Totals = { accrued: number; ready: number; released: number; reversed: number; debt: number; balance: number; entries: number };
@@ -13,10 +13,21 @@ type Entry = {
   reversedAt: string; reversedReason: string; createdAt: string;
 };
 type Batch = { id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdAt: string };
+type TripPerformance = {
+  tripId: string; title: string; from: string; to: string; travelDate: string; departureTime: string;
+  reviewStatus: string; active: boolean; capacity: number; booked: number; sellThrough: number;
+  gross: number; commission: number; net: number; accrued: number; released: number;
+};
+type Insights = {
+  trips: number; liveTrips: number; seatsOffered: number; seatsSold: number; sellThrough: number;
+  gross: number; net: number; accrued: number; released: number;
+  nextDeparture: { tripId: string; title: string; travelDate: string; departureTime: string; from: string; to: string } | null;
+};
 type Statement = { totals: Totals; entries: Entry[]; batches: Batch[] };
 
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
+const percent = (value: number) => `${Math.round(Number(value || 0) * 100)}%`;
 
 export default function OrganizerEarningsPage() {
   return <ConsoleSessionGate label="your earnings">
@@ -28,6 +39,8 @@ export default function OrganizerEarningsPage() {
 
 function EarningsWorkspace() {
   const [statement, setStatement] = useState<Statement | null>(null);
+  const [insights, setInsights] = useState<Insights | null>(null);
+  const [trips, setTrips] = useState<TripPerformance[]>([]);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -36,6 +49,8 @@ function EarningsWorkspace() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Your statement could not be loaded.");
       setStatement(data.statement);
+      setInsights(data.insights || null);
+      setTrips(data.trips || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Your statement could not be loaded.");
     }
@@ -72,6 +87,42 @@ function EarningsWorkspace() {
     {totals && totals.debt > 0 && <div className="console-alert" role="alert">
       <AlertTriangle size={15}/> A booking was refunded after its payout, so {cedis(totals.debt)} is carried against your next earnings.
     </div>}
+
+    {insights && insights.trips > 0 && <section className="console-totals">
+      <article><span><TrendingUp size={13}/> Seats sold</span><strong>{insights.seatsSold} / {insights.seatsOffered}</strong><small>{percent(insights.sellThrough)} of everything you published</small></article>
+      <article><span><BusFront size={13}/> Live trips</span><strong>{insights.liveTrips}</strong><small>{insights.trips} published in total</small></article>
+      <article><span><Wallet size={13}/> Fares earned</span><strong>{cedis(insights.gross)}</strong><small>{cedis(insights.net)} after commission</small></article>
+      <article><span><CalendarClock size={13}/> Next departure</span><strong>{insights.nextDeparture ? when(insights.nextDeparture.travelDate) : "—"}</strong><small>{insights.nextDeparture ? `${insights.nextDeparture.from} → ${insights.nextDeparture.to} · ${insights.nextDeparture.departureTime}` : "Nothing scheduled ahead"}</small></article>
+    </section>}
+
+    {trips.length > 0 && <section className="console-panel">
+      <h2><Users size={18}/>How each trip is selling</h2>
+      <table className="console-table">
+        <thead><tr><th>Trip</th><th>Departs</th><th>Seats</th><th>Sold</th><th>Fares</th><th>Your share</th></tr></thead>
+        <tbody>
+          {trips.map((trip) => (
+            <tr key={trip.tripId}>
+              <td>
+                <span>{trip.from && trip.to ? `${trip.from} → ${trip.to}` : trip.title || "Trip"}</span>
+                <small>{trip.reviewStatus}{trip.active ? " · live" : ""}</small>
+              </td>
+              <td><span>{when(trip.travelDate)}</span><small>{trip.departureTime || "—"}</small></td>
+              <td>{trip.capacity}</td>
+              <td>
+                <strong>{trip.booked}</strong>
+                <small>{trip.capacity > 0 ? percent(trip.sellThrough) : "no capacity set"}</small>
+              </td>
+              <td>{cedis(trip.gross)}</td>
+              <td><strong>{cedis(trip.net)}</strong><small>{cedis(trip.released)} paid</small></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="console-note">
+        Seats are confirmed bookings, and fares are what the ledger recorded for those bookings, so this table and your statement always agree.
+        A trip with no capacity set shows no sell-through rather than a false 100%.
+      </p>
+    </section>}
 
     <section className="console-panel">
       <h2><Banknote size={18}/>Booking by booking</h2>

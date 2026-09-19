@@ -14,11 +14,12 @@ uMATeXPRESS/
 │   ├── campus/                          # campusRide student app and ticket
 │   ├── driver/                          # campusRide driver portal
 │   ├── admin/                           # super-admin, vacationRide, campusRide admin
-│   ├── console/                         # console origin: entry, sign-in, password
+│   ├── console/                         # console origin: entry, sign-in, password, disputes and workspaces
 │   └── api/
 │       ├── admin/                       # admin auth, AI, bookings, campus management
 │       ├── campus/                      # campusRide student/map/queue APIs
 │       ├── console/                     # unified console session and bindings endpoints
+│       ├── disputes/                    # passenger dispute filing and list
 │       ├── driver/                      # driver auth, queue, rides, location APIs
 │       ├── passenger/                   # passenger AI helper
 │       ├── payments/                    # initialize, verify, webhook
@@ -50,8 +51,10 @@ uMATeXPRESS/
 │   ├── console-hosts.ts                 # console origin boundary policy
 │   ├── console-signin.ts                # console sign-in and password change
 │   ├── dynamic-trips.ts                 # vacationRide dynamic trips
+│   ├── disputes.ts                      # trip disputes: open, list, resolve, audit
 │   ├── edge-cache.ts                    # Cloudflare per-colo response cache
 │   ├── mtn-momo.ts                      # MTN MoMo provider
+│   ├── organizer-insights.ts            # route-overlap warnings and per-trip analytics
 │   ├── organizer-trips.ts               # organizer trip lifecycle and review state machine
 │   ├── organizer-payouts.ts             # commission split, payout ledger, transfers and reconcile
 │   ├── organizers.ts                    # organizer records, KYC and payout capture

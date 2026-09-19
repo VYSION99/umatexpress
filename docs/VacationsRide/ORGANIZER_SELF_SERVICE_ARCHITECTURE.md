@@ -295,8 +295,26 @@ started it; a transfer fee is budgeted per transfer rather than assumed away;
 and a transfer that reverses puts the money back on the ledger instead of
 creating a debt, because the platform still holds it.
 
-### Phase 6 — Trust and insight
-Suspension and dispute handling, route-overlap warnings, organizer analytics, rate limits on public trip reads. Suspension itself exists; the dispute trail around it does not.
+### Phase 6 — Trust and insight — **Shipped**
+Dispute records that both a passenger and an organizer can raise and only an
+administrator can decide, route-overlap warnings on trip save, per-trip
+analytics read from the ledger, and rate limits on the three public trip reads.
+Suspension already existed; the dispute trail around it now does too.
+
+**Acceptance:** a student may dispute only a booking made with their own account
+and an organizer only a booking on their own trip (`403` otherwise, and nothing
+is written); a moderator reads the queue but cannot resolve it; a resolution
+without a note is refused; the insight totals equal the statement they sit
+beside; a zero-capacity trip reports no sell-through; and a trip being edited is
+not reported as clashing with itself. Covered by
+`tests/phase6-trust.test.mjs`.
+
+**Decided here:** a dispute records a decision and never moves money itself —
+the refund and release paths own the ledger — so `REFUND` on a dispute is what
+was decided, with the booking-cancel or payout run as the act that carries it
+out. Overlaps warn and never block, because two departures on one route are
+legitimate. Analytics read the ledger rather than recomputing the fare, so the
+per-trip numbers and the statement reconcile by construction.
 
 ---
 

@@ -123,17 +123,27 @@ following rules travel with the data:
 
 ---
 
-## 6. Dispute Resolution
+## 6. Dispute Resolution (as built)
 
-1. Student or organizer raises a dispute.
-2. Admin reviews:
-   - Booking details
-   - Payment records
-   - Chat history (if available)
-3. Admin decides:
-   - Refund to student (from held funds or organizer balance)
-   - Release payout to organizer
-   - Partial resolution
+1. A student raises a dispute against a booking made with their own account
+   (`POST /api/disputes`), or an organizer against a booking on one of their
+   own trips (`POST /api/console/disputes`, `action: "OPEN"`).
+2. The record copies the trip and organizer from the booking rather than from
+   the request, and the ownership check runs before anything is written, so a
+   dispute cannot be filed against someone else's row.
+3. An administrator reviews the record and decides it, with the note required
+   whenever the status becomes `RESOLVED`. A moderator reads the queue and
+   cannot decide it.
+
+Categories are `BOOKING`, `REFUND`, `TRIP_CANCELLED`, `DELAY`, `CONDUCT`,
+`PAYMENT` and `OTHER`; statuses are `OPEN`, `REVIEWING`, `RESOLVED` and
+`DISMISSED`; resolutions are `REFUND`, `PARTIAL_REFUND`, `RELEASE_PAYOUT`,
+`NO_ACTION` and `OTHER`.
+
+**A decision is not a payment.** The resolution records what was decided, and
+money is still moved by the paths that own the ledger — cancelling the booking
+for a refund, a payout run for a release. Keeping the two apart means the
+dispute trail can never claim a refund that no ledger row supports.
 
 ---
 

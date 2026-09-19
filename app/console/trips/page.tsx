@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { BusFront, DoorOpen, LogOut, Megaphone, PencilLine, Plus, Send, Store, Trash2 } from "lucide-react";
+import { AlertTriangle, BusFront, DoorOpen, LogOut, Megaphone, PencilLine, Plus, Send, Store, Trash2 } from "lucide-react";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import type { FlyerPromo } from "@/lib/trip-notice";
 
@@ -15,6 +15,11 @@ type Trip = {
 };
 
 type Passenger = { reference: string; name: string; seat: number; phone: string; bookingStatus: string };
+
+type TripOverlap = {
+  id: string; title: string; organizerName: string; own: boolean;
+  travelDate: string; departureTime: string;
+};
 
 type TripDraft = {
   title: string; from: string; to: string; travelDate: string; departureTime: string;
@@ -61,6 +66,7 @@ function OrganizerWorkspace() {
   const [draft, setDraft] = useState<TripDraft | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const [overlaps, setOverlaps] = useState<TripOverlap[]>([]);
   const [busy, setBusy] = useState("");
 
   const loadTrips = useCallback(async () => {
@@ -129,6 +135,9 @@ function OrganizerWorkspace() {
       setSaved(editingId
         ? "Trip saved. A live trip goes back for review before it is bookable again."
         : "Trip saved as a draft. Submit it for review when it is ready.");
+      // Reported, never a refusal: the trip is already saved. An organizer who
+      // knows they are the second coach on a route can price or time around it.
+      setOverlaps((data.trip?.overlaps || []) as TripOverlap[]);
       setDraft(null);
       setEditingId(null);
       await loadTrips();
@@ -222,6 +231,12 @@ function OrganizerWorkspace() {
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
+    {overlaps.length > 0 && <div className="console-alert" role="status">
+      <AlertTriangle size={15}/> {overlaps.length === 1 ? "Another departure is" : `${overlaps.length} other departures are`} already scheduled on this route around the same time:
+      {" "}{overlaps.slice(0, 3).map((overlap) => `${overlap.own ? "your" : overlap.organizerName || "another organizer's"} ${overlap.departureTime}${overlap.title ? ` (${overlap.title})` : ""}`).join(", ")}
+      {overlaps.length > 3 ? `, and ${overlaps.length - 3} more` : ""}.
+      {" "}That is allowed — two coaches on one route is a real service — but it splits the same passengers.
+    </div>}
 
     <section className="console-panel">
       <h2><BusFront size={18}/>Trips

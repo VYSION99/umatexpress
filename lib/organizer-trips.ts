@@ -1,6 +1,7 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureScheduledTripsTable } from "@/lib/dynamic-trips";
+import { findRouteOverlaps } from "@/lib/organizer-insights";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 /**
@@ -141,7 +142,18 @@ export async function createOrganizerTrip(organizerId: string, input: OrganizerT
   }).catch(() => undefined);
   // A new trip starts inactive: `active` is only turned on at approval, so a
   // forgotten column can never publish one.
-  return { id, reviewStatus: "DRAFT" as ReviewStatus };
+  // Clashes are reported, never enforced: two departures on the same route at
+  // the same hour are legitimate, but an organizer who does not know they are
+  // second is being set up to run an empty coach.
+  const overlaps = await findRouteOverlaps({
+    organizerId,
+    routeFrom: trip.routeFrom,
+    routeTo: trip.routeTo,
+    travelDate: trip.travelDate,
+    departureTime: trip.departureTime,
+    excludeTripId: id,
+  }).catch(() => []);
+  return { id, reviewStatus: "DRAFT" as ReviewStatus, overlaps };
 }
 
 export async function updateOrganizerTrip(organizerId: string, tripId: string, input: OrganizerTripInput) {
@@ -166,9 +178,17 @@ export async function updateOrganizerTrip(organizerId: string, tripId: string, i
     action: "ORGANIZER_TRIP_UPDATED",
     targetType: "scheduled_trip",
     targetReference: tripId,
-    details: { from: String(existing.review_status || "DRAFT"), to: nextStatus, resubmitted: wasLive },
+   details: { from: String(existing.review_status || "DRAFT"), to: nextStatus, resubmitted: wasLive },
   }).catch(() => undefined);
-  return { id: tripId, reviewStatus: nextStatus as ReviewStatus, resubmitted: wasLive };
+  const overlaps = await findRouteOverlaps({
+    organizerId,
+    routeFrom: trip.routeFrom,
+    routeTo: trip.routeTo,
+    travelDate: trip.travelDate,
+    departureTime: trip.departureTime,
+    excludeTripId: tripId,
+  }).catch(() => []);
+  return { id: tripId, reviewStatus: nextStatus as ReviewStatus, resubmitted: wasLive, overlaps };
 }
 
 export async function archiveOrganizerTrip(organizerId: string, tripId: string) {

@@ -111,3 +111,34 @@
   background: var(--ui-green);
   color: #fff;
 }
+
+/* Passenger support: only rendered for a signed-in account, so it reads as a
+   continuation of the auth card rather than a second, competing panel. */
+.passenger-support { display: grid; gap: 12px; }
+.passenger-support form { display: grid; gap: 10px; }
+.passenger-support label { display: grid; gap: 5px; font-size: 12.5px; font-weight: 700; }
+.passenger-support input, .passenger-support select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font-size: 14px;
+}
+.passenger-support button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: var(--ui-green);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.passenger-support-list { width: 100%; }
+.passenger-support-list th, .passenger-support-list td { text-align: left; font-size: 12.5px; }

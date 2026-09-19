@@ -31,7 +31,7 @@ this file numbered the phases differently, which made "Phase 2" mean two things.
 | 3 | Self-service trip publishing | Organizer trip create/edit, review workflow, KYC and payout-account capture, public listing by organizer | **Shipped** |
 | 4 | Money and attribution | Commission at booking time, `organizer_payouts` ledger, organizer statement, admin-triggered payout batches | **Shipped** |
 | 5 | Scale | Paystack Transfers, release + reconcile jobs, settlement gate | **Shipped** |
-| 6 | Reach | Suspension and dispute handling, route-overlap warnings, analytics, rate limits on public trip reads | Planned |
+| 6 | Reach | Suspension and dispute handling, route-overlap warnings, analytics, rate limits on public trip reads | **Shipped** |
 
 Phase 5 shipped the money-moving half of the original phase and the rest moved
 to a new Phase 6, because "automate the transfers" and "build the trust and
@@ -89,18 +89,43 @@ capture one: `trip_organizers.payout_bank_code` and `payout_bank_name`, chosen
 from Paystack's own catalogue with an offline fallback, and saving a different
 account now retires the stored recipient so the next payout is re-addressed.
 
-**Still to do (Phase 6).** Dispute handling, route-overlap warnings, organizer
-analytics and rate limits on public trip reads. Suspension already exists; what
-it lacks is a dispute trail around it.
+**Phase 6, as built.** Disputes now have a record of their own. A passenger may
+open one against a booking made with their own account, an organizer against a
+booking on one of their own trips, and only an administrator may resolve one —
+a moderator reads the queue, because deciding it is a money-shaped judgement.
+The route, the organizer and the trip are copied from the booking rather than
+taken from the request, so a dispute cannot be pointed at someone else's row.
+
+A decision records a decision, not a payment: `REFUND`, `PARTIAL_REFUND`,
+`RELEASE_PAYOUT`, `NO_ACTION` and `OTHER` are resolution labels on the record,
+and the money is still moved by the booking-cancel or payout paths, which own
+the ledger. The console therefore never claims a refund happened; it says what
+was decided and who decided it, with the note required whenever the dispute is
+resolved.
+
+Route overlaps are a warning, never a refusal. An organizer saving a trip is
+shown every other live or pending departure on the same route and date within
+three hours, their own included and marked as theirs, because a second coach on
+a route is a real service but an organizer who does not know they are second is
+being set up to run an empty one. The comparison is done on a normalised route
+name in SQL, and a departure time that cannot be parsed produces no warning.
+
+Analytics read the same ledger as the statement, so the numbers agree by
+construction: seats sold against seats offered, and gross, net, accrued and
+released money per trip. A trip with no recorded capacity reports no
+sell-through rather than 100% sold. Finally, the three public trip reads carry
+their own rate limits — 240/min for the schedule and display reads, 300/min for
+the seat map — chosen so a campus address full of students is never metered,
+only a flood is.
 
 ---
 
 ## 3. Dependencies Between Phases
 
 ```
-Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5
-(shipped)   accounts   publish     money       automation
-            ownership  + KYC       ledger
+Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──► Phase 6
+(shipped)   accounts   publish     money       automation  trust
+            ownership  + KYC       ledger                  & insight
 ```
 
 The order is a safety property, not a preference: money must not be attributed

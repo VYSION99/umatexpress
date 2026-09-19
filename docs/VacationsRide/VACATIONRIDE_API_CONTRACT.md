@@ -1,8 +1,8 @@
 # vacationRide — API Contract
 
-**Version:** 2.1  
+**Version:** 2.2  
 **Status:** Draft for Review — corrected against the implementation  
-**Scope:** the public booking flow as built, plus the Phase 2 and Phase 3 console endpoints
+**Scope:** the public booking flow as built, plus the Phase 2–6 console endpoints
 
 ---
 
@@ -329,3 +329,63 @@ not, since it only ever reads and settles what was already sent.
 `transfer.failed` and `transfer.reversed`, matching the batch by our own
 reference and falling back to Paystack's transfer code. A settlement that the
 webhook already applied makes a later reconcile a no-op, and vice versa.
+
+---
+
+## 8. Phase 6 endpoints (built)
+
+### `GET /api/disputes` — student session required
+
+Returns `{ ok: true, disputes: [...] }` for the signed-in student's own
+disputes, newest first. The account comes from the session, never the request,
+so one student cannot read another's.
+
+### `POST /api/disputes` — student session required
+
+```json
+{ "bookingReference": "UMX-AB12CD", "category": "DELAY", "subject": "Coach left early", "details": "..." }
+```
+
+`subject` is 4–120 characters and `details` at least 20; `category` defaults to
+`OTHER`. The booking must have been made with the signed-in account's email
+(`403` otherwise) and the trip and organizer are copied from that booking. The
+reply contact is the account email, never a field in the request. Rate limited
+to 5 per hour. Returns `201` with the created dispute.
+
+### `GET /api/console/disputes` — ADMIN, MODERATOR, ORGANIZER
+
+An organizer receives only the disputes about their own trips. An administrator
+receives the queue with per-status `counts`, optionally filtered by
+`?status=OPEN`; a moderator receives the same list with `readOnly: true`,
+because a moderator may read the queue but not decide it.
+
+### `POST /api/console/disputes`
+
+```json
+{ "action": "OPEN" | "RESOLVE" }
+```
+
+- `OPEN` — ADMIN or ORGANIZER. An organizer must supply a `bookingReference` on
+  one of their own trips (or a `tripId` they own); an administrator may open on
+  any of them. Rate limited to 10 per hour.
+- `RESOLVE` — ADMIN only. Body: `{ "disputeId", "status", "resolution", "note" }`,
+  where `status` is `REVIEWING`, `RESOLVED` or `DISMISSED` and `note` is
+  required once the status is `RESOLVED`. The action is audited as
+  `DISPUTE_RESOLVED` with the administrator's email.
+
+A resolution records a decision; it does not move money. The refund and payout
+paths remain the only writers of the ledger.
+
+### Changed in Phase 6
+
+- `GET /api/console/payouts/statement` now returns `insights` and `trips` beside
+  the statement: seats sold over seats offered and gross/net/accrued/released
+  per trip, all read from the same ledger as the statement. A trip with no
+  recorded capacity reports `sellThrough: 0`.
+- `POST /api/console/trips` and `PATCH /api/console/trips/[tripId]` return an
+  `overlaps` array in the response: other live or pending departures on the same
+  route and date within three hours, `own` marking the organizer's own. Saving a
+  trip is never blocked by one.
+- `GET /api/trips/schedule` (240/min), `GET /api/trips/display` (240/min) and
+  `GET /api/trips/availability` (300/min) are rate limited per address; the
+  schedule's limit does not apply to the signed-in `?admin=1` view.
