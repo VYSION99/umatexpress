@@ -25,6 +25,22 @@ What moves: the Worker, its R2 bucket, notification queue, rate-limiter Durable
 Object, and the Worker secrets. What does not move: the Turso database, Resend,
 Paystack, and the domain — they are external services and keep working.
 
+The current guard shows the trap in one screen. Worker → Access → **Manage
+access** requires login on every URL, production and previews alike, and its
+only rule allows `@st.umat.edu.gh`:
+
+- the admins cannot reach the console — neither `admin@umatexpress.com` nor
+  `kwesivy@gmail.com` is on the list;
+- every browsing visitor is stopped by a Cloudflare one-time PIN before the
+  client even loads, which contradicts "browsing stays open";
+- organizers cannot reach `/console/register`, because applicants are not
+  students;
+- drivers without a student address cannot reach `/driver`.
+
+The AUD tag and JWKS on that page point at `acmdresearch.cloudflareaccess.com`,
+which is also why the account-level Access API shows nothing: the guard is a
+Worker-level policy on the other team.
+
 ## 2. Phase 0 — decide once
 
 1. The account email. It owns billing and recovery; pick something the team can
@@ -83,14 +99,43 @@ until the switch is verified.
 
 This is the policy that actually decides who reaches UMaTeXPRESS.
 
+### 6.1 What is gated, and what stays public
+
+| Path | Gate |
+|------|------|
+| `/`, `/campus`, `/vacation`, `/account`, ticket pages, public `/api/*` | Public. Browsing stays open; the student session already protects booking in the app. |
+| `/console*` | Access: staff and organizer emails, One-time PIN. |
+| `/api/console/*` | The same policy. It needs its own application entry, because the path prefix differs. |
+| `/console/register*` and `/api/console/organizers/register*` | Bypass. The application funnel is public by design; a pending application can do nothing until an admin approves it. |
+| `/admin*` | Access: staff emails. |
+| `/driver*` | Keeps the driver's own phone + password login; add driver emails to the policy when every driver has one. |
+
+Access evaluates the most specific path first, so the register bypass wins over
+the `/console*` rule. The in-app console session remains the inner lock: the
+edge policy decides who may knock, the console login decides who gets in.
+
+### 6.2 Immediate unblock on the current host
+
+Until the move, the same dashboard page can fix today's lockout: Worker → Access
+→ **Manage access** → add the admin addresses (`admin@umatexpress.com`,
+`kwesivy@gmail.com`) to the policy. Decide deliberately whether the client
+should stay behind Access at all — public browsing was the stated rule.
+
+### 6.3 Create the application, per path prefix
+
+The path is part of the application, so repeat this for each gated prefix in
+6.1: `/console`, `/api/console` and `/admin`:
+
 1. Zero Trust → **Access → Applications → Add an application → Self-hosted**.
-2. Application domain: `umatexpress.<new-subdomain>.workers.dev` (add
-   `console.umatexpress.com` later, once the domain is wired).
+2. Application domain: the host, with the path scoped, e.g. `umatexpress.<new-subdomain>.workers.dev`
+   and path `/console`. Add `console.umatexpress.com` later, once the domain is wired.
 3. Session duration `8h`, and pick the identity provider (One-time PIN works
    with no IdP setup).
 4. Policy: **Allow** for the staff and organizer emails, or an email-domain rule
    if the organization has one. Anyone not matched is refused before the Worker
    runs — it is the outermost gate, in front of the console login.
+5. Finish with the register prefix carrying a **Bypass** policy, so the
+   organizer funnel stays reachable while everything else is gated.
 
 The same thing through the documented API, with the new account's token:
 
@@ -101,8 +146,10 @@ TOKEN=<new api token>
 # 1. The application.
 APP=$(curl -s -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
   -X POST "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/access/apps" \
-  -d '{"name":"UMaTeXPRESS","domain":"umatexpress.<sub>.workers.dev","type":"self_hosted","session_duration":"8h","skip_interstitial":true,"auto_redirect_to_identity":true,"http_only_cookie_attribute":true}' \
+  -d '{"name":"UMaTeXPRESS console","domain":"umatexpress.<sub>.workers.dev","type":"self_hosted","session_duration":"8h","skip_interstitial":true,"auto_redirect_to_identity":true,"http_only_cookie_attribute":true}' \
   | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).result.id))")
+# Scope the application to its path prefix ("path": "/console") and repeat per
+# prefix; the register funnel gets its own application with decision "bypass".
 
 # 2. The allow policy (one entry per email).
 curl -s -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
@@ -121,6 +168,7 @@ dashboard work; assign the customized page inside the application.
 - [ ] Console sign-in works at `https://<new-host>/console/login` (first sign-in adopts the legacy admin credential).
 - [ ] A ticket deep link opens for its owner and offers sign-in for everyone else.
 - [ ] Access policy verified with a second email that should be refused.
+- [ ] The public origin needs no Access login; only console and admin paths are gated.
 - [ ] After a quiet week, delete the old Worker; leave the `acmdresearch` team and its applications untouched.
 
 ## 8. Rollback
