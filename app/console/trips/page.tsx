@@ -30,7 +30,7 @@ type TripDraft = {
 };
 
 const EMPTY_DRAFT: TripDraft = {
-  title: "", from: "UMaT Main Campus", to: "Accra", travelDate: "", departureTime: "06:30",
+  title: "", from: "", to: "", travelDate: "", departureTime: "06:30",
   arrivalTime: "11:30", price: "180", capacity: "50", coachType: "VIP Coach", tag: "",
   amenities: "AC, Wi-Fi, USB power", notes: "",
 };
@@ -328,7 +328,7 @@ function OrganizerWorkspace({ session }: { session: ConsoleSessionInfo }) {
         ))}
         <button disabled={busy === "notice"}><Megaphone size={16}/>{busy === "notice" ? "Saving…" : "Save notice"}</button>
       </form>
-      <p className="console-note">Trips with no organizer notice keep the platform notice, so nothing disappears from the public page.</p>
+      <p className="console-note">Your notice joins the public carousel next to the platform notice and other organizers while you have an approved trip on sale. The route line and drop-off points are read from your live trips, not from a typed list.</p>
     </section>}
   </ConsoleShell>;
 }

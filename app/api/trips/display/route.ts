@@ -1,15 +1,16 @@
 import { DEFAULT_TRIP_SETTINGS, activeTripIds, getTripSettings, isValidTime, normalizeFlyerPromo, type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
 import { organizerNoticeForTrip } from "@/lib/organizers";
+import { listPublicNotices } from "@/lib/public-notices";
 import { staffEmailFromRequest } from "@/lib/staff-session";
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { hasNoticeContent } from "@/lib/trip-notice";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 /**
- * `?tripId=` makes the notice that trip's organizer's, so one organizer's fare
- * and contacts never appear on another organizer's coach. A trip with no
- * organizer, or an organizer who has not filled a notice in, keeps the platform
- * notice that existed before organizers did.
+ * `?tripId=` makes `flyerPromo` that trip's organizer's, so one organizer's fare
+ * and contacts never appear on another organizer's coach. The public carousel
+ * instead reads `notices`, which carries every enabled notice (platform first,
+ * then organizers by name) with the live routes each notice belongs to.
  */
 export async function GET(request: Request) {
   const limited = await rateLimit(request, "trips-display-read", { limit: 240, windowMs: 60_000 });
@@ -22,12 +23,16 @@ export async function GET(request: Request) {
   }
   if (!(await isTursoConfiguredRuntime())) {
     const settings = { ...DEFAULT_TRIP_SETTINGS };
-    return Response.json({ ...settings, activeTripIds: activeTripIds(settings.mode), configured: false }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json(
+      { ...settings, activeTripIds: activeTripIds(settings.mode), configured: false, notices: await listPublicNotices() },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
   try {
     const settings = await getTripSettings();
+    const [flyerPromo, notices] = await Promise.all([noticeFor(settings.flyerPromo), listPublicNotices()]);
     return Response.json(
-      { ...settings, flyerPromo: await noticeFor(settings.flyerPromo), activeTripIds: activeTripIds(settings.mode) },
+      { ...settings, flyerPromo, activeTripIds: activeTripIds(settings.mode), notices },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

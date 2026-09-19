@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { formatTime, TRAVEL_DATE } from "@/lib/trips";
-import { ArrowRight, Bot, BusFront, CalendarDays, Check, Clock3, MapPin, Megaphone, Phone, ShieldCheck, Sparkles, Users } from "lucide-react";
-import { EMPTY_FLYER_PROMO, hasNoticeContent, type FlyerPromo } from "@/lib/trip-notice";
+import { formatTime } from "@/lib/trips";
+import { ArrowRight, Bot, BusFront, CalendarDays, Check, Clock3, MapPin, ShieldCheck, Sparkles, Users } from "lucide-react";
+import type { PublicNotice } from "@/lib/trip-notice";
+import FlyerCarousel from "@/components/vacation/FlyerCarousel";
 import { readProfile, writeProfile } from "@/lib/passenger-profile";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 
@@ -27,12 +28,14 @@ type PublicTrip = {
 };
 
 export default function Home() {
-  const [from] = useState("UMaT Main Campus");
-  const [to] = useState("Accra");
-  const [date] = useState(TRAVEL_DATE);
   const [selectedTrip, setSelectedTrip] = useState("1");
   const [visibleTrips, setVisibleTrips] = useState<PublicTrip[]>([]);
-  const [flyerPromo, setFlyerPromo] = useState<FlyerPromo>(EMPTY_FLYER_PROMO);
+  const [notices, setNotices] = useState<PublicNotice[]>([]);
+  // The route pickers are filled from the coaches on sale, never from a typed
+  // list, so a destination appears the moment an organizer publishes it.
+  const [fromFilter, setFromFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
   const [selectedSeat, setSelectedSeat] = useState(6);
   const [passenger, setPassenger] = useState({ name: "", email: "", phone: "" });
   const { ready: accountReady, account } = useStudentAccount();
@@ -51,7 +54,19 @@ export default function Home() {
   const [aiNote, setAiNote] = useState("");
   const [aiError, setAiError] = useState("");
 
-  const trip = useMemo(() => visibleTrips.find((item) => item.id === selectedTrip) ?? visibleTrips[0], [selectedTrip, visibleTrips]);
+  const routeChoices = useMemo(() => ({
+    from: [...new Set(visibleTrips.map((item) => item.from.trim()).filter(Boolean))].sort(),
+    to: [...new Set(visibleTrips.map((item) => item.to.trim()).filter(Boolean))].sort(),
+    dates: [...new Set(visibleTrips.map((item) => item.travelDate).filter(Boolean))].sort(),
+  }), [visibleTrips]);
+  const matchingTrips = useMemo(() => visibleTrips.filter((item) => (
+    (!fromFilter || item.from === fromFilter)
+    && (!toFilter || item.to === toFilter)
+    && (!dateFilter || item.travelDate === dateFilter)
+  )), [visibleTrips, fromFilter, toFilter, dateFilter]);
+  const trip = useMemo(() => matchingTrips.find((item) => item.id === selectedTrip) ?? matchingTrips[0], [matchingTrips, selectedTrip]);
+  const activeTripId = trip?.id || "";
+  const hasFilters = Boolean(fromFilter || toFilter || dateFilter);
   /**
    * Coaches are grouped by who runs them. The platform's own trips share one
    * group, and a list from a single organizer keeps the flat grid it had before
@@ -59,14 +74,15 @@ export default function Home() {
    */
   const tripGroups = useMemo(() => {
     const groups = new Map<string, PublicTrip[]>();
-    for (const item of visibleTrips) {
+    for (const item of matchingTrips) {
       const key = item.organizerName?.trim() || "UMaTeXPRESS";
       groups.set(key, [...(groups.get(key) || []), item]);
     }
     return [...groups.entries()];
-  }, [visibleTrips]);
-  const routeFrom = trip?.from || from;
-  const routeTo = trip?.to || to;
+  }, [matchingTrips]);
+  const routeFrom = fromFilter || trip?.from || "";
+  const routeTo = toFilter || trip?.to || "";
+  const headingDate = dateFilter || (matchingTrips.length > 0 && matchingTrips.every((item) => item.travelDate === matchingTrips[0].travelDate) ? matchingTrips[0].travelDate : "");
   const seatNumbers = useMemo(() => Array.from({ length: trip?.capacity || 50 }, (_, i) => i + 1), [trip?.capacity]);
   const loadTripDisplay = useCallback(async () => {
     try {
@@ -85,7 +101,7 @@ export default function Home() {
       });
       setVisibleTrips(trips);
       setSelectedTrip((current) => trips.some((item) => item.id === current) ? current : (trips[0]?.id || "1"));
-      if (displayResponse.ok) setFlyerPromo(displayData.flyerPromo || EMPTY_FLYER_PROMO);
+      if (displayResponse.ok) setNotices(Array.isArray(displayData.notices) ? displayData.notices : []);
     } catch (error) {
       setAvailabilityError(error instanceof Error ? error.message : "Trips could not be loaded.");
     }
@@ -93,7 +109,7 @@ export default function Home() {
   const loadAvailability = useCallback(async () => {
     try {
       if (!trip) return;
-      const response = await fetch(`/api/trips/availability?tripId=${encodeURIComponent(selectedTrip)}&travelDate=${trip.travelDate}`, { cache: "no-store" });
+      const response = await fetch(`/api/trips/availability?tripId=${encodeURIComponent(trip.id)}&travelDate=${trip.travelDate}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Availability could not be loaded.");
       setUnavailable(data.unavailableSeats || []);
@@ -105,7 +121,7 @@ export default function Home() {
     } catch (error) {
       setAvailabilityError(error instanceof Error ? error.message : "Live availability could not be loaded.");
     }
-  }, [selectedTrip, trip, seatNumbers]);
+  }, [trip, seatNumbers]);
   useEffect(() => { queueMicrotask(loadTripDisplay); }, [loadTripDisplay]);
   // Repeat passengers should not retype the same three fields. Read after mount so
   // the server-rendered form never ships someone else's saved details.
@@ -139,6 +155,9 @@ export default function Home() {
       const reply = String(data.reply || "").trim();
       setAiNote(reply || "I could not match that to a coach. Try naming the destination or the date.");
       if (data.tripId && visibleTrips.some((item) => item.id === String(data.tripId))) {
+        setFromFilter("");
+        setToFilter("");
+        setDateFilter("");
         setSelectedTrip(String(data.tripId));
         setPaymentError("");
         setPaymentMessage("");
@@ -175,11 +194,11 @@ export default function Home() {
   };
 
   const tripCard = (item: PublicTrip) => (
-    <button className={`trip-card ${selectedTrip === item.id ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedTrip(item.id); setPaymentError(""); setPaymentMessage(""); }}>
-      <div className="trip-top"><span className="pill">{item.tag}</span><span className="radio">{selectedTrip === item.id && <Check size={14} />}</span></div>
+    <button className={`trip-card ${activeTripId === item.id ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedTrip(item.id); setPaymentError(""); setPaymentMessage(""); }}>
+      <div className="trip-top"><span className="pill">{item.tag}</span><span className="radio">{activeTripId === item.id && <Check size={14} />}</span></div>
       <div className="times"><div><strong>{formatTime(item.time)}</strong><span>{item.from}</span></div><div className="duration"><span>Direct trip</span><i /><small>{item.coachType}</small></div><div><strong>{formatTime(item.arrival)}</strong><span>{item.to}</span></div></div>
       <div className="amenities">{item.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div>
-      <div className="fare"><span><Clock3 size={15} /> {selectedTrip === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
+      <div className="fare"><span><Clock3 size={15} /> {activeTripId === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
     </button>
   );
 
@@ -196,7 +215,7 @@ export default function Home() {
         <div className="hero-copy">
           <div className="eyebrow"><Sparkles size={14} /></div>
           <h1>Go home in comfort.<br /><em>Arrive with ease.</em></h1>
-          <p>Direct VIP vacation transport from {routeFrom} to {routeTo}. Reserve your preferred seat and pay securely.</p>
+          <p>{routeFrom && routeTo ? `Direct VIP vacation transport from ${routeFrom} to ${routeTo}. Reserve your preferred seat and pay securely.` : "Direct VIP vacation transport for UMaT students. Reserve your preferred seat and pay securely."}</p>
           <div className="trust-row"><span><ShieldCheck size={18} /> Verified drivers</span><span><Users size={18} /> {trip?.capacity || 50}-seat coach</span><span><BusFront size={18} /> Premium VIP bus</span></div>
         </div>
         <div className="route-art" aria-label="UmateXPRESS 50-seat VIP coach">
@@ -204,15 +223,24 @@ export default function Home() {
             <div className="coach-logo-badge"><img src="/logo-web.png" alt="UMaTeXPRESS" /></div>
             <div className="bus-photo-frame"><img src="/vip-coach.png" alt="Red VIP coach used as the UmateXPRESS bus reference" /><div className="coach-capacity"><strong>{trip?.capacity || 50}</strong><span>VIP seats</span></div></div>
           </div>
-          <div className="art-card"><strong>{routeFrom} → {routeTo}</strong><span>Comfortable vacation travel</span></div>
+          {routeFrom && routeTo && <div className="art-card"><strong>{routeFrom} → {routeTo}</strong><span>Comfortable vacation travel</span></div>}
         </div>
       </section>
 
       <section className="search-card" aria-label="Search trips">
-        <label><span>Leaving from</span><div><MapPin size={18} /><strong>{routeFrom}</strong></div></label>
-        <span className="swap">→</span>
-        <label><span>Going to</span><div><MapPin size={18} /><strong>{routeTo}</strong></div></label>
-        <label><span>Travel date</span><div><CalendarDays size={18} /><input type="date" value={trip?.travelDate || date} readOnly /></div></label>
+        <label><span>Leaving from</span><div><MapPin size={18} /><select aria-label="Leaving from" value={fromFilter} disabled={!routeChoices.from.length} onChange={(event) => setFromFilter(event.target.value)}>
+          <option value="">{routeChoices.from.length ? "Any location" : "No trips yet"}</option>
+          {routeChoices.from.map((place) => <option key={place} value={place}>{place}</option>)}
+        </select></div></label>
+        <button type="button" className="swap" aria-label="Swap locations" onClick={() => { setFromFilter(toFilter); setToFilter(fromFilter); }}>→</button>
+        <label><span>Going to</span><div><MapPin size={18} /><select aria-label="Going to" value={toFilter} disabled={!routeChoices.to.length} onChange={(event) => setToFilter(event.target.value)}>
+          <option value="">{routeChoices.to.length ? "Any destination" : "No trips yet"}</option>
+          {routeChoices.to.map((place) => <option key={place} value={place}>{place}</option>)}
+        </select></div></label>
+        <label><span>Travel date</span><div><CalendarDays size={18} /><select aria-label="Travel date" value={dateFilter} disabled={!routeChoices.dates.length} onChange={(event) => setDateFilter(event.target.value)}>
+          <option value="">Any date</option>
+          {routeChoices.dates.map((day) => <option key={day} value={day}>{new Date(`${day}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</option>)}
+        </select></div></label>
         <a className="primary-button" href="#trips">Find trips <ArrowRight size={18} /></a>
       </section>
 
@@ -231,31 +259,19 @@ export default function Home() {
         {aiError && <p className="search-ai-error" role="alert">{aiError}</p>}
       </section>
 
-      {flyerPromo.enabled && hasNoticeContent(flyerPromo) && <section className="flyer-promo" aria-label="UMaT Express flyer information">
-        <div className="flyer-main">
-          <span><Megaphone size={15} /> Official trip notice</span>
-          <h2>{flyerPromo.title}</h2>
-          <p>{flyerPromo.route}</p>
-          <strong>{flyerPromo.fare}</strong>
-        </div>
-        <div className="flyer-times">
-          <article><span>Night bus</span><strong>{flyerPromo.nightBus}</strong></article>
-          <article><span>Day bus</span>{flyerPromo.dayBuses.map((line) => <strong key={line}>{line}</strong>)}</article>
-        </div>
-        <div className="flyer-details">
-          <div><span>Drop-off points</span><p>{flyerPromo.dropOffPoints.join(" · ")}</p></div>
-          <div><span>Features and amenities</span><p>{flyerPromo.amenities.join(" · ")}</p></div>
-        </div>
-        <div className="flyer-contacts">
-          {flyerPromo.contacts.map((contact) => {
-            const phone = contact.match(/[+\d][\d\s-]{7,}/)?.[0]?.replace(/\s|-/g, "");
-            return phone ? <a key={contact} href={`tel:${phone}`}><Phone size={14} /> {contact}</a> : <span key={contact}>{contact}</span>;
-          })}
-        </div>
-      </section>}
+      <FlyerCarousel notices={notices} />
 
       <section className="content" id="trips">
-        <div className="section-heading"><div><span className="step">01</span><h2>Choose your trip</h2><p>{new Date(`${trip?.travelDate || date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} · {routeFrom} to {routeTo}</p></div><span className="results">{visibleTrips.length} {visibleTrips.length === 1 ? "coach" : "coaches"} available</span></div>
+        <div className="section-heading"><div><span className="step">01</span><h2>Choose your trip</h2><p>{headingDate ? `${new Date(`${headingDate}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} · ` : ""}{routeFrom && routeTo ? `${routeFrom} to ${routeTo}` : "All routes"}</p></div><span className="results">{matchingTrips.length} {matchingTrips.length === 1 ? "coach" : "coaches"} available</span></div>
+        {hasFilters && <div className="trip-filter-row">
+          <span>{[fromFilter, toFilter, dateFilter ? new Date(`${dateFilter}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""].filter(Boolean).join(" · ")}</span>
+          <button type="button" onClick={() => { setFromFilter(""); setToFilter(""); setDateFilter(""); }}>Show all coaches</button>
+        </div>}
+        {!matchingTrips.length && <div className="trip-empty">
+          <strong>{visibleTrips.length ? "No coach matches that route yet" : "No coaches on sale yet"}</strong>
+          <p>{visibleTrips.length ? "Try another destination or date; new coaches appear here as soon as organizers publish them." : "Coaches appear here as soon as organizers publish their trips."}</p>
+          {hasFilters && <button type="button" onClick={() => { setFromFilter(""); setToFilter(""); setDateFilter(""); }}>Show all coaches</button>}
+        </div>}
         {tripGroups.length > 1
           ? tripGroups.map(([organizerName, items]) => (
             <div className="trip-group" key={organizerName}>
@@ -265,8 +281,8 @@ export default function Home() {
               </div>
             </div>
           ))
-          : <div className={`trip-grid ${visibleTrips.length > 1 ? "trip-carousel" : ""}`}>
-            {visibleTrips.map((item) => tripCard(item))}
+          : <div className={`trip-grid ${matchingTrips.length > 1 ? "trip-carousel" : ""}`}>
+            {matchingTrips.map((item) => tripCard(item))}
           </div>}
       </section>
 
@@ -304,7 +320,7 @@ export default function Home() {
               if(!passenger.name || !passenger.phone){setPaymentError("Enter your name and MTN MoMo number.");return;}
               setPaying(true);
               try {
-                const response=await fetch("/api/payments/initialize",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({ ...passenger,email:bookingEmail,seat:selectedSeat,tripId:selectedTrip,travelDate:trip.travelDate })});
+                const response=await fetch("/api/payments/initialize",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({ ...passenger,email:bookingEmail,seat:selectedSeat,tripId:trip.id,travelDate:trip.travelDate })});
                 const data=await response.json();
                 if(!response.ok){ if(response.status===409) void loadAvailability(); throw new Error(data.error || "Payment could not start."); }
                 const paymentReference=String(data.reference || "");
@@ -339,7 +355,7 @@ export default function Home() {
           </aside>
         </div>
       </section>}
-      <footer id="support"><div className="brand logo-brand"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></div><p>{routeFrom} → {routeTo}</p><span>Student vacation transport</span></footer>
+      <footer id="support"><div className="brand logo-brand"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></div>{routeFrom && routeTo && <p>{routeFrom} → {routeTo}</p>}<span>Student vacation transport</span></footer>
     </main>
   );
 }

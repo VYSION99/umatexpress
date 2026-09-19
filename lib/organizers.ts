@@ -468,12 +468,8 @@ function parseList(value: unknown) {
   return [] as string[];
 }
 
-export async function getOrganizerNotice(organizerId: string): Promise<FlyerPromo> {
-  await ensureOrganizerTables();
-  const row = rowsToObjects(await turso(
-    "SELECT enabled,title,route,fare,night_bus,day_buses,drop_off_points,amenities,contacts FROM trip_notices WHERE organizer_id = ? LIMIT 1",
-    [organizerId],
-  ))[0];
+/** The public facing shape of a `trip_notices` row; shared with the carousel feed. */
+export function noticeRowToPromo(row: Record<string, unknown> | undefined): FlyerPromo {
   if (!row) return EMPTY_FLYER_PROMO;
   return {
     enabled: Number(row.enabled ?? 0) === 1,
@@ -486,6 +482,15 @@ export async function getOrganizerNotice(organizerId: string): Promise<FlyerProm
     amenities: parseList(row.amenities),
     contacts: parseList(row.contacts),
   };
+}
+
+export async function getOrganizerNotice(organizerId: string): Promise<FlyerPromo> {
+  await ensureOrganizerTables();
+  const row = rowsToObjects(await turso(
+    "SELECT enabled,title,route,fare,night_bus,day_buses,drop_off_points,amenities,contacts FROM trip_notices WHERE organizer_id = ? LIMIT 1",
+    [organizerId],
+  ))[0];
+  return noticeRowToPromo(row);
 }
 
 /** Partial updates merge onto the stored notice so an omitted field keeps its value. */

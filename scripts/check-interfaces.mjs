@@ -48,6 +48,8 @@ try {
     if (route === "/vacation") {
       assert.ok(await evaluate(`document.querySelector(".search-ai input") !== null`), "vacation must offer the AI trip search");
       assert.equal(await evaluate(`document.querySelector(".search-ai form button")?.textContent.trim()`), "Find with AI");
+      assert.equal(await evaluate(`document.querySelectorAll(".search-card select").length`), 3, "vacation route pickers are select, not typed-in text");
+      assert.equal(await evaluate(`document.querySelectorAll(".search-card input").length`), 0, "no hidden typed-in location fields remain");
     }
     const image = await call("Page.captureScreenshot", { format:"png", captureBeyondViewport:true });
     const name = route === "/" ? "home" : route.slice(1).replaceAll("/", "-");

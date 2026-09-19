@@ -33,7 +33,8 @@ uMATeXPRESS/
 │   │   ├── shared/                      # map, shell, AI assistant
 │   │   └── student/                     # nearest ride and queue UI
 │   ├── launcher/                        # public app launcher widgets
-│   └── pwa/                             # home-screen install engine
+│   ├── pwa/                             # home-screen install engine
+│   └── vacation/                        # vacationRide flyer carousel
 ├── lib/
 │   ├── campus-engine/                   # campusRide API business engine
 │   ├── admin-auth.ts                    # admin session auth
@@ -61,6 +62,7 @@ uMATeXPRESS/
 │   ├── organizer-trips.ts               # organizer trip lifecycle and review state machine
 │   ├── organizer-payouts.ts             # commission split, payout ledger, transfers and reconcile
 │   ├── organizers.ts                    # organizer records, KYC and payout capture
+│   ├── public-notices.ts                # public flyer feed: platform plus approved organizer notices
 │   ├── payment-access.ts                # ticket/payment access cookies
 │   ├── paystack.ts                      # Paystack provider
 │   ├── paystack-banks.ts                # payout destinations (Ghana banks and networks)
@@ -68,7 +70,7 @@ uMATeXPRESS/
 │   ├── runtime-env.ts                   # Cloudflare/local env access
 │   ├── secret-box.ts                    # AES-GCM seal/open for payout and KYC values
 │   ├── staff-session.ts                 # staff guard bridging console and legacy admin
-│   ├── trip-notice.ts                   # client-safe trip notice shape and merge rules
+│   ├── trip-notice.ts                   # client-safe trip notice shape, placeholder cleanup and live route lines
 │   ├── trip-settings.ts                 # vacationRide display settings
 │   ├── trips.ts                         # shared trip helpers
 │   ├── turso.ts                         # Turso REST pipeline client

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CircleDollarSign, Copy, Edit3, Megaphone, RefreshCw, Save, Sparkles, TicketCheck, Trash2, Users } from "lucide-react";
-import { formatTime, TRAVEL_DATE } from "@/lib/trips";
+import { formatTime } from "@/lib/trips";
 import { type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
 import { EMPTY_FLYER_PROMO } from "@/lib/trip-notice";
 
@@ -16,7 +16,8 @@ const displayOptions: Array<{ mode: TripDisplayMode; title: string; detail: stri
   { mode: "BOTH", title: "Show both", detail: "Let students choose either coach" },
 ];
 const defaultSchedule: TripSchedule = { morningDeparture:"06:30", morningArrival:"11:30", eveningDeparture:"13:00", eveningArrival:"18:00" };
-const defaultTripForm = (): TripForm => ({ title:"", routeFrom:"UMaT Main Campus", routeTo:"Accra", travelDate:TRAVEL_DATE, departureTime:"06:30", arrivalTime:"11:30", price:"180", capacity:"50", coachType:"VIP Coach", tag:"", amenities:"AC\nWi-Fi\nUSB power", notes:"", displayOrder:"0", active:true });
+/** New trips open blank and dated today in Accra (UTC+0), never a stale route. */
+const defaultTripForm = (): TripForm => ({ title:"", routeFrom:"", routeTo:"", travelDate:new Date().toISOString().slice(0,10), departureTime:"06:30", arrivalTime:"11:30", price:"180", capacity:"50", coachType:"VIP Coach", tag:"", amenities:"AC\nWi-Fi\nUSB power", notes:"", displayOrder:"0", active:true });
 
 function splitLines(value:string) {
   return value.split(/\r?\n|,/).map((line)=>line.trim()).filter(Boolean);
@@ -199,12 +200,13 @@ export function VacationAdminConsole() {
   };
 
   const askAi = async (mode: "suggestion" | "passenger-help") => {
+    const route = newTrip.routeFrom && newTrip.routeTo ? `from ${newTrip.routeFrom} to ${newTrip.routeTo}` : "on the route being planned";
     const prompt = mode === "suggestion"
-      ? `Create a helpful trip suggestion for ${newTrip.title || "this vacationRide trip"} from ${newTrip.routeFrom || "UMaT Main Campus"} to ${newTrip.routeTo || "Accra"}. Include a short marketing note, timing advice, fare positioning, and customer reassurance.`
-      : `Help a passenger who wants to travel from ${newTrip.routeFrom || "UMaT Main Campus"} to ${newTrip.routeTo || "Accra"}. Give a brief answer about the travel date, departure time, arrival expectations, and what to do before boarding.`;
+      ? `Create a helpful trip suggestion for ${newTrip.title || "this vacationRide trip"} ${route}. Include a short marketing note, timing advice, fare positioning, and customer reassurance.`
+      : `Help a passenger who wants to travel ${route}. Give a brief answer about the travel date, departure time, arrival expectations, and what to do before boarding.`;
     setAiLoading(true); setAiSuggestion("");
     try {
-      const response = await fetch("/api/admin/ai", { method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"}, body:JSON.stringify({ mode, context:`Module: vacationRide\nTrip title: ${newTrip.title || "New package"}\nFrom: ${newTrip.routeFrom || "UMaT Main Campus"}\nTo: ${newTrip.routeTo || "Accra"}\nTravel date: ${newTrip.travelDate || "Not set"}\nDeparture: ${newTrip.departureTime || "06:30"}\nArrival: ${newTrip.arrivalTime || "11:30"}\nFare: ${newTrip.price || "180"}\nCoach: ${newTrip.coachType || "VIP Coach"}\nAmenities: ${splitLines(newTrip.amenities).join(", ")}`, prompt }) });
+      const response = await fetch("/api/admin/ai", { method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"}, body:JSON.stringify({ mode, context:`Module: vacationRide\nTrip title: ${newTrip.title || "New package"}\nFrom: ${newTrip.routeFrom || "Not set"}\nTo: ${newTrip.routeTo || "Not set"}\nTravel date: ${newTrip.travelDate || "Not set"}\nDeparture: ${newTrip.departureTime || "06:30"}\nArrival: ${newTrip.arrivalTime || "11:30"}\nFare: ${newTrip.price || "180"}\nCoach: ${newTrip.coachType || "VIP Coach"}\nAmenities: ${splitLines(newTrip.amenities).join(", ")}`, prompt }) });
       const data=await response.json();
       if (!response.ok) throw new Error(data.error || "AI suggestion could not be generated.");
       setAiSuggestion(data.suggestion || "No suggestion returned.");
@@ -306,7 +308,7 @@ export function VacationAdminConsole() {
         </div>
       </section>
       <section className="trip-visibility-card flyer-editor">
-        <div><p>PROMO FLYER</p><h2>Flyer content</h2><span>Show the flyer details on the booking page and update the public notice anytime.</span></div>
+        <div><p>PROMO FLYER</p><h2>Flyer content</h2><span>Shown in the public notice carousel alongside every approved organizer. Routes and destinations come from the live trips; the route and drop-off text below is the fallback when nothing is on sale.</span></div>
         <label className="promo-toggle"><input type="checkbox" checked={flyerPromo.enabled} onChange={(event)=>updateFlyer("enabled",event.target.checked)}/><span><Megaphone size={16}/> Show flyer promo on booking page</span></label>
         <div className="flyer-editor-grid">
           <label>Title<input value={flyerPromo.title} onChange={(event)=>updateFlyer("title",event.target.value)}/></label>

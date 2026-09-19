@@ -78,10 +78,39 @@ A missing or mismatched `travelDate` is a `400`.
 
 Display settings for the public page: `mode`, `morningDeparture`,
 `morningArrival`, `eveningDeparture`, `eveningArrival`, `flyerPromo`,
-`activeTripIds`. It no longer returns the trip list itself.
+`activeTripIds`, `notices`. It no longer returns the trip list itself.
 
 **Phase 2 change:** the notice becomes per organizer (`trip_notices`), with the
 platform notice as the fallback for trips that have no organizer.
+
+`notices` is the public carousel feed: the platform notice first (when enabled
+and non-empty), then every approved organizer's enabled notice ordered by name.
+Each entry is `{ id, organizerName, platform, promo, routes }`, where `routes`
+holds the live approved coaches the notice belongs to:
+
+```json
+{
+  "id": "org_123",
+  "organizerName": "Mensah Travel",
+  "platform": false,
+  "promo": { "enabled": true, "title": "Mensah Travel", "fare": "GH₵ 190", "…": "…" },
+  "routes": [{ "from": "UMaT Main Campus", "to": "Kumasi" }]
+}
+```
+
+Rules:
+
+- The card composes its route line from `routes` (`UMaT Main Campus → Accra,
+  Kumasi, Sunyani`), not from the saved `promo.route`, which is only the
+  fallback while nothing is on sale.
+- Drop-off points fall back to the distinct live destinations when the saved
+  list is empty.
+- Text that is only a placeholder (`---`, `GHS ---`) is dropped before the
+  response, so it can never render as a fare or a departure.
+- An organizer's notice is included only while that organizer has at least one
+  live approved trip; the platform never amplifies a flyer nobody can book.
+- `flyerPromo` still answers `?tripId=` for the single-trip preview, so the
+  admin console keeps working.
 
 ### `POST /api/trips/ai-search`
 

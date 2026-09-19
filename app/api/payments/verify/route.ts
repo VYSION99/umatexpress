@@ -130,8 +130,8 @@ export async function GET(request: Request) {
         const trip = await getDynamicTrip(String(ticket.trip_id), { includeArchived: true, approvedOnly: false });
         ticket = {
           ...ticket,
-          route_from: trip?.from || "UMaT Main Campus",
-          route_to: trip?.to || "Accra",
+          route_from: trip?.from || "",
+          route_to: trip?.to || "",
           arrival_time: trip?.arrival || "",
           coach_type: trip?.coachType || "VIP Coach",
           trip_title: trip?.title || "UMaTeXPRESS",
