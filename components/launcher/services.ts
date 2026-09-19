@@ -10,10 +10,12 @@ export const services = [
   { id: "food", title: "Food", icon: Utensils, accent: "cyan", available: false, destination: null, action: "Explore food", description: "Good food. Better study breaks.", detail: "Your next favourite bite", category: "A little refuel" },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "green", available: false, destination: null, action: "Explore cinema", description: "Make room for movie night.", detail: "Stories worth sharing", category: "After the lectures" },
   // Partner services that already run outside this app. `external` makes the
-  // card open a new tab instead of routing inside the platform, and the accent
-  // rotation keeps two neighbours from sharing a hue.
-  { id: "research", title: "ACMD Research", icon: FlaskConical, accent: "yellow", available: true, external: true, destination: "https://acmdresearch.com", action: "Open the hub", description: "Research, mentorship and innovation.", detail: "Projects with mentors and industry, in AI, biotech and cybersecurity", category: "Research & innovation" },
-  { id: "clipad", title: "CliPad", icon: BrainCircuit, accent: "cyan", available: true, external: true, destination: "https://clipad.optavel.com", action: "Open CliPad", description: "Meetings and team memory, in one place.", detail: "Team spaces, async video and AI meeting summaries", category: "Work & collaboration" },
+  // card open a new tab instead of routing inside the platform, the accent
+  // rotation keeps two neighbours from sharing a hue, and the fields below the
+  // directory entry — `feature` and `banner` — build the full-width
+  // spotlight card on the homepage with the partner's own brand asset.
+  { id: "research", title: "ACMD Research", icon: FlaskConical, accent: "yellow", available: true, external: true, destination: "https://acmdresearch.com", action: "Open the hub", description: "Research, mentorship and innovation.", detail: "Projects with mentors and industry", feature: "Join research and innovation projects with mentors and industry partners across AI, biotech and cybersecurity.", banner: { kind: "image", src: "/acmd-logo.png", alt: "ACMD Research" }, category: "Research & innovation" },
+  { id: "clipad", title: "CliPad", icon: BrainCircuit, accent: "cyan", available: true, external: true, destination: "https://clipad.optavel.com", action: "Open CliPad", description: "Meetings and team memory, in one place.", detail: "Team spaces, async video and AI summaries", feature: "Team spaces, async video and AI meeting summaries: the decisions and context your team builds, kept in one place.", banner: { kind: "mark", src: "/clipad-mark.svg", word: "CliPad" }, category: "Work & collaboration" },
 ] as const;
 export type Service = typeof services[number];
 export type LauncherPreference = { id: string; hidden: boolean; pinned: boolean };

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
 // The client launcher is the front door: every card must point somewhere real,
@@ -11,6 +14,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
 const { services, defaultPreferences, normalizePreferences } = await vite.ssrLoadModule("/components/launcher/services.ts");
+const { default: CampusLauncher } = await vite.ssrLoadModule("/components/launcher/CampusLauncher.tsx");
 
 const ACCENTS = new Set(["cyan", "green", "yellow"]);
 const PARTNERS = {
@@ -63,4 +67,29 @@ test("a layout saved before a service existed gains the new cards", () => {
     assert.ok(preferences.some((row) => row.id === id && !row.hidden), `${id} must be visible by default`);
   }
   assert.deepEqual(defaultPreferences().map((row) => row.id), services.map((service) => service.id));
+});
+
+test("each partner carries the banner its spotlight card renders", () => {
+  for (const id of Object.keys(PARTNERS)) {
+    const service = services.find((item) => item.id === id);
+    assert.ok(service.feature.trim(), `${id} needs long-form copy for the big card`);
+    assert.ok(service.banner?.src.startsWith("/"), `${id} must serve its brand asset from our own origin`);
+    assert.ok(existsSync(new URL(`../public${service.banner.src}`, import.meta.url)), `${id} points at a missing asset: ${service.banner.src}`);
+    if (service.banner.kind === "image") assert.ok(service.banner.alt.trim(), `${id} banner needs alt text`);
+    if (service.banner.kind === "mark") assert.ok(service.banner.word.trim(), `${id} needs the wordmark text`);
+  }
+});
+
+test("the homepage gives every partner the same full-width card as the rides", () => {
+  const html = renderToStaticMarkup(createElement(CampusLauncher));
+  const rides = ["CampusRide", "VacationRide"].every((name) => html.includes(name));
+  assert.ok(rides, "the ride cards must still render");
+  for (const [id, url] of Object.entries(PARTNERS)) {
+    const service = services.find((item) => item.id === id);
+    assert.ok(html.includes(`id="home-${id}-title"`), `${id} needs a spotlight card heading`);
+    assert.ok(html.includes(`src="${service.banner.src}"`), `${id} needs its brand asset on the card`);
+    assert.ok(html.includes(`href="${url}"`), `${id} card must link to the service`);
+    assert.ok(html.includes(service.feature), `${id} card must carry its spotlight copy`);
+  }
+  assert.equal((html.match(/target="_blank"/g) || []).length >= 4, true, "rail and spotlight cards both leave the app");
 });

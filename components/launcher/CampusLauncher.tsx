@@ -14,8 +14,14 @@ import "./home.css";
 
 type Panel = "services" | "customise" | "profile" | "notifications" | "support" | null;
 
-/** Partner services run on their own origin, so the card must leave the app. */
-function isExternal(service: Service) {
+/**
+ * Partner services run on their own origin. They are the only registry entries
+ * that carry a brand banner and a spotlight card, so the narrow type keeps the
+ * card honest: a service without a banner cannot be rendered as one.
+ */
+type PartnerService = Extract<Service, { external: true }>;
+
+function isExternal(service: Service): service is PartnerService {
   return "external" in service && service.external === true;
 }
 
@@ -37,6 +43,21 @@ function ServiceCard({ service, pinned }: { service: Service; pinned: boolean })
         </Link>
       : <span className="home-card-soon">Coming soon</span>}
   </article>;
+}
+
+/** The full-width homepage card for one partner, built from its registry entry. */
+function PartnerFeature({ service }: { service: PartnerService }) {
+  const Icon = service.icon;
+  const banner = service.banner;
+  const titleId = `home-${service.id}-title`;
+  return <section className={`home-feature is-${service.accent}`} aria-labelledby={titleId}>
+    <div className="home-feature-head"><span className="home-card-icon"><Icon size={22} aria-hidden /></span><div><h2 id={titleId}>{service.title}</h2><p>{service.detail}</p></div></div>
+    {banner.kind === "image"
+      ? <div className="home-brand-plate"><img src={banner.src} alt={banner.alt} width="908" height="362" /></div>
+      : <div className="home-brand-lockup"><img src={banner.src} alt="" width="54" height="54" /><span>{banner.word}</span></div>}
+    <p className="home-feature-copy">{service.feature}</p>
+    <Link className="home-cta" href={service.destination} target="_blank" rel="noreferrer noopener" aria-label={`${service.action}: ${service.title} (opens in a new tab)`}>{service.action}<ExternalLink size={17} aria-hidden /></Link>
+  </section>;
 }
 
 export default function CampusLauncher() {
@@ -61,7 +82,7 @@ export default function CampusLauncher() {
     [next[index], next[target]] = [next[target], next[index]]; save(next);
   }
   const visible = preferences.filter(item => !item.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  const matches = services.filter(service => `${service.title} ${service.description} ${service.detail} ${service.category}`.toLowerCase().includes(query.toLowerCase().trim()));
+  const matches = services.filter(service => `${service.title} ${service.description} ${service.detail} ${service.category} ${"feature" in service ? service.feature : ""}`.toLowerCase().includes(query.toLowerCase().trim()));
   return <div className="launcher home">
     <a href="#home-main" className="launch-skip">Skip to services</a>
     <header className="home-bar">
@@ -99,6 +120,7 @@ export default function CampusLauncher() {
         <p className="home-feature-copy">Pick a route and a travel date, choose your seat, and book before the coach fills up.</p>
         <Link className="home-cta" href="/vacation">Book a seat<ArrowRight size={17} aria-hidden /></Link>
       </section>
+      {services.filter(isExternal).map(service => <PartnerFeature key={service.id} service={service} />)}
       <section className="home-section" aria-labelledby="home-soon-title">
         <div className="home-section-head"><h2 id="home-soon-title">On the way</h2><span className="home-section-note">Not live yet</span></div>
         <div className="home-soon">{services.filter(service => !service.available).map(service => { const Icon = service.icon; return <article key={service.id} className={`is-${service.accent}`}><Icon size={19} aria-hidden /><h3>{service.title}</h3><p>{service.detail}</p></article>; })}</div>

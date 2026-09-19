@@ -446,6 +446,11 @@
   --card-soft: var(--home-green-soft);
 }
 
+.home-feature.is-yellow {
+  --card-ink: var(--home-yellow-ink);
+  --card-soft: var(--home-yellow-soft);
+}
+
 .home-feature-head {
   display: flex;
   align-items: center;
@@ -542,6 +547,62 @@
   width: 100%;
   height: clamp(160px, 30vw, 230px);
   object-fit: cover;
+}
+
+/* A partner's own artwork sits on a soft plate so a logo that was drawn for a
+   dark background or a white page still belongs to the card. */
+.home-brand-plate {
+  display: grid;
+  place-items: center;
+
+  margin-bottom: 18px;
+  padding: clamp(16px, 4vw, 30px);
+
+  border: 1px solid var(--home-line);
+  border-radius: 18px;
+  background: linear-gradient(140deg, #ffffff, var(--card-soft));
+}
+
+.home-brand-plate img {
+  display: block;
+  width: min(100%, 460px);
+  height: auto;
+}
+
+/* CliPad's brand is its mark plus the wordmark, the way their own app locks it
+   up; the word is text so it stays crisp at every width. */
+.home-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  margin-bottom: 18px;
+  padding: clamp(16px, 4vw, 26px);
+
+  border: 1px solid var(--home-line);
+  border-radius: 18px;
+  background: linear-gradient(140deg, #ffffff, var(--card-soft));
+}
+
+.home-brand-lockup img {
+  width: clamp(42px, 11vw, 58px);
+  height: auto;
+}
+
+.home-brand-lockup span {
+  color: #0f172a;
+  font-size: clamp(26px, 7vw, 40px);
+  font-weight: 800;
+  letter-spacing: -.8px;
+}
+
+.home-feature.is-yellow .home-cta {
+  background: var(--home-yellow);
+  color: var(--home-yellow-ink);
+}
+
+.home-feature.is-yellow .home-cta:hover {
+  background: #ecc900;
 }
 
 .home-feature-copy {

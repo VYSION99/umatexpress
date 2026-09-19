@@ -86,6 +86,8 @@ uMATeXPRESS/
 │   ├── icon-maskable-192.png            # maskable installer icon, safe-zone padded
 │   ├── icon-maskable-512.png            # maskable installer icon
 │   ├── apple-touch-icon.png             # iOS home-screen icon
+│   ├── acmd-logo.png                    # ACMD Research brand (dark plate keyed out)
+│   ├── clipad-mark.svg                  # CliPad brand mark, as served by clipad.optavel.com
 │   └── vip-coach.png                    # vacationRide hero image
 ├── sql/                                 # manual production migrations
 ├── scripts/                             # install, audit, build, deploy helpers
