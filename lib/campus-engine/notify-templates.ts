@@ -17,11 +17,22 @@ export const CAMPUS_NOTIFY_SUBJECTS: Record<CampusNotifyTemplate, string> = {
  * Where a passenger follows one ticket. Kept out of the message itself: the
  * in-app feed answers "what happened" on its own, and only the email needs a
  * clickable line, so the link is added by the sender rather than stored.
+ *
+ * `path` is the ticket page, which differs per product: campusRide checks a
+ * queue PIN, vacationRide shows a boarding pass. The template's prefix decides
+ * which one the sender uses, so the outbox needs no URL column.
  */
-export function ticketUrl(reference: string, origin?: string) {
+export function ticketUrl(reference: string, origin?: string, path = "/campus/ticket") {
   const base = String(origin || "").trim().replace(/\/$/, "");
   if (!base || !reference) return "";
-  return `${base}/campus/ticket?reference=${encodeURIComponent(reference)}`;
+  return `${base}${path}?reference=${encodeURIComponent(reference)}`;
+}
+
+/** The ticket page and link wording for a notification template. */
+export function ticketLinkForTemplate(template: string): { path: string; cta: string } {
+  return String(template || "").startsWith("vacation_")
+    ? { path: "/payment/callback", cta: "View your ticket" }
+    : { path: "/campus/ticket", cta: "Track your ride" };
 }
 
 /**

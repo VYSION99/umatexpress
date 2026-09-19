@@ -1,6 +1,7 @@
 import { staffEmailFromRequest } from "@/lib/staff-session";
 import { reversePayoutForBooking } from "@/lib/organizer-payouts";
 import { ensureAdminAuditLogTable, ensureBookingsTable, rowsToObjects, turso } from "@/lib/turso";
+import { notifyVacationBookingCancelled } from "@/lib/vacation-notify";
 
 export async function GET(request: Request) {
   if (!await staffEmailFromRequest(request)) return Response.json({ error: "Admin access is not authorised." }, { status: 401 });
@@ -56,6 +57,12 @@ export async function DELETE(request: Request) {
       "INSERT INTO admin_audit_logs (id, admin_email, action, target_type, target_reference, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [crypto.randomUUID(), adminEmail, "CANCEL_BOOKING", "booking", reference, JSON.stringify({ ...booked, payoutReversed: reversed.reversed === true }), new Date().toISOString()],
     );
+    // Only a booking the passenger actually paid for is worth a message; a
+    // stale unpaid hold disappearing is not news. The send never throws, so it
+    // cannot turn a completed cancellation into an error.
+    if (String(booked.payment_status) === "SUCCESSFUL") {
+      await notifyVacationBookingCancelled(String(booked.id));
+    }
 
     return Response.json({ cancelled: true, reference, seat: booked.seat, trip_id: booked.trip_id, travel_date: booked.travel_date }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

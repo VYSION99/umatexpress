@@ -68,7 +68,8 @@ uMATeXPRESS/
 │   ├── trip-notice.ts                   # client-safe trip notice shape and merge rules
 │   ├── trip-settings.ts                 # vacationRide display settings
 │   ├── trips.ts                         # shared trip helpers
-│   └── turso.ts                         # Turso REST pipeline client
+│   ├── turso.ts                         # Turso REST pipeline client
+│   └── vacation-notify.ts               # vacationRide confirmation and cancellation messages
 ├── public/
 │   ├── manifest.webmanifest             # installable app manifest
 │   ├── sw.js                            # service worker shell cache

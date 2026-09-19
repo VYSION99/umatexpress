@@ -56,6 +56,15 @@ turns a five-minute delivery wait into milliseconds. A deployment that disables
 the queue should move the sweep to `*/5 * * * *` in
 `lib/campus-engine/crons.ts`, because the sweep is then the only delivery path.
 
+Both products share the outbox. The template names the product: campusRide
+templates link to `/campus/ticket`, and `vacation_`-prefixed templates
+(`vacation_booking_confirmed`, `vacation_booking_cancelled`) link to
+`/payment/callback`, which is where a vacationRide boarding pass lives. The
+choice is made by `ticketLinkForTemplate` at send time, so the row needs no URL
+column. The unique `(reference, template)` index is what makes the vacation
+confirmation idempotent when payment verification and the Paystack webhook both
+confirm the same booking.
+
 **Durable Objects.** `RateLimiter` holds one fixed-window counter per
 `(scope, subject)`, in one object per subject, so counts are serialised and
 concurrent requests cannot read the same stale value. `lib/rate-limit.ts` tries

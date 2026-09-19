@@ -4,6 +4,7 @@ import { verifyPaystackTransaction } from "@/lib/paystack";
 import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
 import { accrueForBooking } from "@/lib/organizer-payouts";
+import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 function errorStatus(error: unknown) {
@@ -86,6 +87,9 @@ export async function GET(request: Request) {
           // The ledger write must never turn a successful payment into an
           // error, so it logs its own failure and the admin backfill catches it.
           await accrueForBooking(String(payment.booking_id));
+          // Same rule for the passenger's confirmation: the outbox row is
+          // idempotent and failure is logged, never surfaced as a payment error.
+          await notifyVacationBookingConfirmed(String(payment.booking_id));
         }
         }
       } else if (status === "FAILED") {

@@ -151,3 +151,48 @@ test("only the email carries the ticket link", async () => {
     "Driver arrived.\n\nTrack your ride: https://rides.example.com/campus/ticket?reference=CR-9",
   );
 });
+
+test("a vacation template links to the vacation ticket, a campus one to the queue ticket", async () => {
+  const { emailBody } = await vite.ssrLoadModule("/lib/notifications.ts");
+  const { ticketLinkForTemplate, ticketUrl } = await vite.ssrLoadModule("/lib/campus-engine/notify-templates.ts");
+
+  const vacation = ticketLinkForTemplate("vacation_booking_confirmed");
+  assert.equal(vacation.path, "/payment/callback");
+  assert.equal(vacation.cta, "View your ticket");
+  assert.equal(
+    emailBody("Ticket confirmed.", ticketUrl("UMX-1", "https://rides.example.com/", vacation.path), vacation.cta),
+    "Ticket confirmed.\n\nView your ticket: https://rides.example.com/payment/callback?reference=UMX-1",
+  );
+
+  const campus = ticketLinkForTemplate("driver_accepted");
+  assert.equal(campus.path, "/campus/ticket");
+  assert.equal(campus.cta, "Track your ride");
+});
+
+test("a vacation message names what the booking holds and invents nothing", async () => {
+  const { vacationCancelledMessage, vacationConfirmedMessage, humanTravelDate, moneyLabel } = await vite.ssrLoadModule("/lib/vacation-notify.ts");
+
+  const row = { reference: "UMX-VAC1", email: "esi@st.umat.edu.gh", seat: 8, travel_date: "2026-10-03", departure_time: "06:30", amount: 18360, booking_status: "CONFIRMED", route_from: "UMaT", route_to: "Accra" };
+  const confirmed = vacationConfirmedMessage(row);
+  assert.equal(confirmed.subject, "Your UMaTeXPRESS ticket UMX-VAC1 is confirmed");
+  assert.match(confirmed.message, /seat 8/);
+  assert.match(confirmed.message, /UMaT → Accra/);
+  assert.match(confirmed.message, /3 Oct 2026 at 06:30/);
+  assert.match(confirmed.message, /GHS 183\.60/);
+
+  // A booking with nothing but a reference still reads as a sentence, and no
+  // amount is invented for a fare we were not given.
+  const bare = vacationConfirmedMessage({ ...row, seat: "", travel_date: "", departure_time: "", amount: 0, route_from: "", route_to: "" });
+  assert.equal(bare.message.includes("GHS"), false);
+  assert.equal(bare.message.includes("undefined"), false);
+  assert.match(bare.message, /UMX-VAC1/);
+
+  const cancelled = vacationCancelledMessage(row);
+  assert.match(cancelled.subject, /cancelled/);
+  assert.match(cancelled.message, /UMX-VAC1/);
+  assert.equal(cancelled.message.includes("refund"), false, "a message must not promise money the decision has not made");
+
+  assert.equal(humanTravelDate("2026-10-03"), "3 Oct 2026");
+  assert.equal(humanTravelDate("not-a-date"), "not-a-date");
+  assert.equal(moneyLabel(0), "");
+});

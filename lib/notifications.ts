@@ -1,5 +1,5 @@
 import type { SqlExecutor } from "@/lib/campus-engine/queue";
-import { ticketUrl } from "@/lib/campus-engine/notify-templates";
+import { ticketLinkForTemplate, ticketUrl } from "@/lib/campus-engine/notify-templates";
 import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
 import { incrementMetric, logEvent } from "@/lib/observability";
@@ -32,8 +32,8 @@ function humanizedTemplate(template: string) {
 }
 
 /** The email body: the same text the feed shows, plus the ticket link. */
-export function emailBody(message: string, url: string) {
-  return url ? `${message}\n\nTrack your ride: ${url}` : message;
+export function emailBody(message: string, url: string, cta = "Track your ride") {
+  return url ? `${message}\n\n${cta}: ${url}` : message;
 }
 
 /** Exponential-ish retry spacing: 30s, 2m, then capped at an hour. */
@@ -235,11 +235,13 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
     if (!(await claimNotification(turso, { id, leaseUntil }))) continue;
     const attempts = Number(row.attempts || 0) + 1;
     try {
+      const template = String(row.template || "");
+      const link = ticketLinkForTemplate(template);
       const result = await sendEmail({
         config,
         to,
-        subject: String(row.subject || "") || humanizedTemplate(String(row.template || "")),
-        text: emailBody(String(row.message || ""), ticketUrl(String(row.reference || ""), appUrl)),
+        subject: String(row.subject || "") || humanizedTemplate(template),
+        text: emailBody(String(row.message || ""), ticketUrl(String(row.reference || ""), appUrl, link.path), link.cta),
       });
       if (!result.ok) throw new Error(result.error || "delivery failed");
       await turso("UPDATE notification_outbox SET status = 'SENT', sent_at = ?, last_error = '' WHERE id = ? AND status = 'SENDING'", [new Date().toISOString(), id]);

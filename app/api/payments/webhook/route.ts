@@ -3,6 +3,7 @@ import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
 import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
 import { accrueForBooking, applyPaystackTransferEvent } from "@/lib/organizer-payouts";
+import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
 import { incrementMetric, logEvent, requestIdFromRequest, withRequestId } from "@/lib/observability";
 
 type PaystackWebhook = {
@@ -86,6 +87,9 @@ async function markSuccessful(reference: string, amount: number, transactionId: 
   // Verify and the webhook can both confirm the same booking; the ledger's
   // unique booking index makes the second accrual a no-op.
   await accrueForBooking(String(payment.booking_id));
+  // The outbox is deduped the same way, so whichever path confirms first
+  // sends the one confirmation the passenger sees.
+  await notifyVacationBookingConfirmed(String(payment.booking_id));
   return { handled: true, status: "SUCCESSFUL" };
 }
 

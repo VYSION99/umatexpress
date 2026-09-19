@@ -146,6 +146,23 @@ vacationRide will continue to share the platform’s core infrastructure:
 - Paystack integration patterns (already used in campusRide and planned for Hostel Finder).
 - New payout logic will closely mirror the `hostel_payouts` design.
 
+### Passenger notifications (built)
+
+Booking messages reuse the campusRide notification outbox rather than growing a
+second one. One `notification_outbox` row is both the email (Resend) and the
+in-app message the student's feed reads, and the unique `(reference, template)`
+index makes the write idempotent: verification and the Paystack webhook can both
+confirm one booking, and whichever arrives first queues the single confirmation
+the passenger receives. The `vacation_` template prefix selects the vacation
+ticket link (`/payment/callback`) at send time.
+
+`vacation_booking_confirmed` is queued on confirmation, and
+`vacation_booking_cancelled` when an administrator cancels a booking the
+passenger actually paid for. Both are written on the payment path, so they log
+their own failures and never turn a successful payment into an error. Messages
+never promise a refund, because a refund is a decision the ledger makes, not the
+message.
+
 ---
 
 ## 9. Recommended Phased Rollout
