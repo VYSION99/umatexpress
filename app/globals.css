@@ -703,3 +703,87 @@
   .hostel-bed-price{justify-items:start;text-align:left}
   .hostel-map-canvas{height:340px}
 }
+
+/* ========================================
+   HOSTEL RESIDENCY
+   The bed a student already paid for: the hold button on a property page, and
+   the resident page that carries the host's number, the services switched on
+   for the year and the thread between the two of them. Same white cards and
+   the same yellow / green / dark-cyan accents as the browse pages.
+   ======================================== */
+
+.hostel-book{display:grid;gap:5px;justify-items:end;text-align:right}
+.hostel-book-button{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:12px;background:var(--ui-yellow);color:var(--ui-yellow-ink);padding:10px 13px;font-size:12px;font-weight:900;cursor:pointer;box-shadow:var(--ui-card-shadow)}
+.hostel-book-button:hover:not(:disabled){filter:brightness(.96)}
+.hostel-book-button:disabled{opacity:.6;cursor:progress}
+.hostel-book small{color:var(--ui-muted);font-size:11px;font-weight:700}
+.hostel-book-error{display:block;color:#a3372b;font-size:11px;font-weight:800}
+
+.hostel-resident{width:min(1220px,100%);margin:0 auto;display:grid;gap:16px}
+.hostel-resident-loading{display:flex;align-items:center;gap:8px;justify-content:center;padding:38px 18px;color:var(--ui-muted);font-weight:700}
+.hostel-resident-error{margin:0;border:1px solid #f0cfc6;border-radius:14px;background:#fdf3f0;color:#a3372b;padding:12px 15px;font-size:13px;font-weight:800}
+
+.hostel-resident-notices{border:1px solid var(--ui-line);border-radius:22px;background:var(--ui-surface);padding:18px 20px;box-shadow:var(--ui-card-shadow)}
+.hostel-resident-notices>p{display:flex;align-items:center;gap:8px;margin:0;color:var(--ui-cyan);font-size:10px;font-weight:900;letter-spacing:.14em}
+.hostel-resident-notices ul{display:grid;gap:12px;margin:14px 0 0;padding:0;list-style:none}
+.hostel-resident-notices li{display:grid;gap:3px;border-left:3px solid var(--ui-yellow);padding-left:12px}
+.hostel-resident-notices strong{font-size:15px}
+.hostel-resident-notices span{color:var(--ui-muted);font-size:13px;line-height:1.55}
+.hostel-resident-notices small{color:var(--ui-green);font-size:11px;font-weight:800}
+
+.hostel-resident-card{display:grid;gap:16px;border:1px solid var(--ui-line);border-radius:24px;background:var(--ui-surface);padding:20px;box-shadow:var(--ui-card-shadow)}
+.hostel-resident-card>header{display:flex;align-items:start;justify-content:space-between;gap:14px}
+.hostel-resident-card>header p{margin:0;color:var(--ui-green);font-size:10px;font-weight:900;letter-spacing:.14em}
+.hostel-resident-card>header h2{margin:5px 0 3px;font-size:24px}
+.hostel-resident-card>header span{color:var(--ui-muted);font-size:13px;font-weight:700}
+.hostel-resident-chip{flex:none;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+.hostel-resident-chip-paid{background:var(--ui-green-soft);color:var(--ui-green)}
+.hostel-resident-chip-payment_review{background:var(--ui-yellow-soft);color:var(--ui-yellow-ink)}
+
+.hostel-resident-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0;padding:0;list-style:none}
+.hostel-resident-facts li{display:grid;gap:3px;border:1px solid var(--ui-line);border-radius:14px;background:#fbfdfc;padding:12px 14px}
+.hostel-resident-facts span{color:var(--ui-muted);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+.hostel-resident-facts strong{font-size:16px}
+
+.hostel-resident-host{border:1px solid var(--ui-line);border-radius:18px;background:var(--ui-green-soft);padding:14px 16px}
+.hostel-resident-host>p{margin:0 0 6px;color:var(--ui-green);font-size:10px;font-weight:900;letter-spacing:.14em}
+.hostel-resident-host>strong{display:block;font-size:17px}
+.hostel-resident-host>span{display:block;color:var(--ui-muted);font-size:12px;font-weight:700;margin-top:2px}
+.hostel-resident-host>div{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.hostel-resident-host a{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:white;color:var(--ui-green);font-size:12px;font-weight:900;box-shadow:var(--ui-card-shadow)}
+
+.hostel-resident-services{display:grid;gap:12px}
+.hostel-resident-services>p{display:flex;align-items:center;gap:8px;margin:0;color:var(--ui-cyan);font-size:10px;font-weight:900;letter-spacing:.14em}
+.hostel-resident-plugin-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.hostel-resident-plugin{display:grid;gap:6px;border:1px solid var(--ui-line);border-radius:16px;background:#fbfdfc;padding:14px}
+.hostel-resident-plugin strong{font-size:15px}
+.hostel-resident-plugin small{color:var(--ui-muted);font-size:11px;font-weight:700;text-transform:capitalize}
+.hostel-resident-service-state{display:inline-flex;align-items:center;padding:7px 11px;border-radius:999px;background:var(--ui-cyan-soft);color:var(--ui-cyan-deep);font-size:11px;font-weight:900;justify-self:start}
+.hostel-resident-service-button{display:inline-flex;align-items:center;gap:6px;justify-self:start;border:0;border-radius:11px;background:var(--ui-green);color:white;padding:9px 13px;font-size:12px;font-weight:900;cursor:pointer}
+.hostel-resident-service-button:disabled{opacity:.6;cursor:progress}
+.hostel-resident-muted{color:var(--ui-muted);font-size:12px;font-weight:700}
+
+.hostel-resident-thread{border-top:1px solid var(--ui-line);padding-top:14px}
+.hostel-resident-thread-toggle{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--ui-line);border-radius:999px;background:white;color:var(--ui-ink);padding:10px 14px;font-size:12px;font-weight:900;cursor:pointer}
+.hostel-resident-thread-toggle:hover{border-color:var(--ui-green);color:var(--ui-green)}
+.hostel-resident-unread{display:grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--ui-yellow);color:var(--ui-yellow-ink);font-size:11px}
+.hostel-resident-thread-body{display:grid;gap:12px;margin-top:12px}
+.hostel-resident-thread-body ul{display:grid;gap:10px;margin:0;padding:0;list-style:none;max-height:340px;overflow:auto}
+.hostel-resident-thread-body li{display:grid;gap:3px;border:1px solid var(--ui-line);border-radius:14px;background:#fbfdfc;padding:11px 13px;max-width:min(560px,100%)}
+.hostel-resident-thread-body li.is-mine{justify-self:end;background:var(--ui-green-soft);border-color:transparent}
+.hostel-resident-thread-body li.is-system{background:var(--ui-yellow-soft);border-color:transparent}
+.hostel-resident-thread-body li strong{font-size:12px}
+.hostel-resident-thread-body li span{font-size:14px;line-height:1.5;white-space:pre-wrap}
+.hostel-resident-thread-body li small{color:var(--ui-muted);font-size:10px;font-weight:700}
+.hostel-resident-thread-body form{display:grid;gap:9px}
+.hostel-resident-thread-body textarea{width:100%;border:1px solid var(--ui-line);border-radius:14px;padding:12px 13px;font:inherit;font-size:14px;resize:vertical;outline:none}
+.hostel-resident-thread-body textarea:focus-visible{outline:2px solid var(--ui-cyan);outline-offset:1px}
+.hostel-resident-thread-body form button{display:inline-flex;align-items:center;gap:7px;justify-self:start;border:0;border-radius:12px;background:var(--ui-green);color:white;padding:11px 16px;font-size:13px;font-weight:900;cursor:pointer}
+.hostel-resident-thread-body form button:disabled{opacity:.55;cursor:not-allowed}
+
+@media(max-width:560px){
+  .hostel-book{justify-items:start;text-align:left}
+  .hostel-resident-card{padding:16px}
+  .hostel-resident-card>header{display:grid}
+  .hostel-resident-plugin-grid{grid-template-columns:1fr}
+}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, BedDouble, DoorClosed, MapPin, Zap } from "lucide-react";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
+import { HostelBookButton } from "@/components/campusRide/hostel/HostelBookButton";
 import { HostelMap } from "@/components/campusRide/hostel/HostelMap";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import { getPublicProperty } from "@/lib/hostel-engine/listings";
@@ -79,6 +80,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
                   <span>{cedis(bed.price)} rent{bed.utilitiesFee > 0 ? ` + ${cedis(bed.utilitiesFee)} utilities` : ""}</span>
                   <strong>{cedis(bed.total)}</strong>
                 </div>
+                <HostelBookButton listingId={bed.listingId} bedLabel={`${bed.spaceLabel || "bed"} in ${roomLabel}`} />
               </li>)}
             </ul>
           </article>)}

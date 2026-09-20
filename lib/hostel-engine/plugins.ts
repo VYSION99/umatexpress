@@ -123,6 +123,79 @@ async function seedHostelPlugins() {
   }
 }
 
+/**
+ * The catalogue belongs to the platform, not to a landlord: an administrator
+ * prices a plugin once and every landlord pays that price. Passing a pluginId
+ * edits that entry; passing only a code creates a new one. Switching a plugin
+ * off hides it from landlords without touching subscriptions already paid for.
+ */
+export async function saveHostelPlugin(input: {
+  actor: string;
+  pluginId?: unknown;
+  code?: unknown;
+  name?: unknown;
+  description?: unknown;
+  category?: unknown;
+  price?: unknown;
+  suggestedResidentPrice?: unknown;
+  active?: unknown;
+}) {
+  await ensureHostelPluginTables();
+  const pluginId = String(input.pluginId || "").trim();
+  const category = String(input.category ?? "SERVICE").trim().toUpperCase();
+  if (!HOSTEL_PLUGIN_CATEGORIES.includes(category as HostelPluginCategory)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose one of the plugin categories.", 400);
+  }
+  const stamp = new Date().toISOString();
+
+  if (pluginId) {
+    const existing = rowsToObjects(await turso("SELECT * FROM hostel_plugins WHERE id = ? LIMIT 1", [pluginId]))[0];
+    if (!existing) throw new CampusEngineError("NOT_FOUND", "That plugin was not found.", 404);
+    const name = input.name === undefined ? String(existing.name) : String(input.name).trim().slice(0, 80);
+    if (!name) throw new CampusEngineError("VALIDATION_ERROR", "Give the plugin a name.", 400);
+    const price = input.price === undefined ? Number(existing.price) : Math.max(0, Math.round(Number(input.price) || 0));
+    const suggested = input.suggestedResidentPrice === undefined
+      ? Number(existing.suggested_resident_price)
+      : Math.max(0, Math.round(Number(input.suggestedResidentPrice) || 0));
+    const active = input.active === undefined ? Number(existing.active) === 1 : Boolean(input.active);
+    const description = input.description === undefined
+      ? String(existing.description)
+      : String(input.description).trim().slice(0, 400);
+    await turso(
+      `UPDATE hostel_plugins SET name = ?, description = ?, category = ?, price = ?, suggested_resident_price = ?, active = ?, updated_at = ?
+       WHERE id = ?`,
+      [name, description, category, price, suggested, active ? 1 : 0, stamp, pluginId],
+    );
+    await consoleAudit({
+      actor: input.actor, action: "HOSTEL_PLUGIN_UPDATED", targetType: "hostel_plugin", targetReference: pluginId,
+      details: { name, price, suggested, active },
+    }).catch(() => undefined);
+    return pluginView(rowsToObjects(await turso("SELECT * FROM hostel_plugins WHERE id = ? LIMIT 1", [pluginId]))[0]);
+  }
+
+  const code = String(input.code || "").trim().toUpperCase().replace(/[^A-Z0-9_]/g, "").slice(0, 24);
+  if (!code) throw new CampusEngineError("VALIDATION_ERROR", "Give the plugin a short code.", 400);
+  const name = String(input.name || "").trim().slice(0, 80);
+  if (!name) throw new CampusEngineError("VALIDATION_ERROR", "Give the plugin a name.", 400);
+  const duplicate = rowsToObjects(await turso("SELECT id FROM hostel_plugins WHERE code = ? LIMIT 1", [code]))[0];
+  if (duplicate) throw new CampusEngineError("CONFLICT", `${code} is already on the catalogue.`, 409);
+  const id = `plugin_${code.toLowerCase()}`;
+  await turso(
+    `INSERT INTO hostel_plugins (id,code,name,description,category,price,suggested_resident_price,billing_period,active,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,'ACADEMIC_YEAR',?,?,?)`,
+    [
+      id, code, name, String(input.description || "").trim().slice(0, 400), category,
+      Math.max(0, Math.round(Number(input.price) || 0)),
+      Math.max(0, Math.round(Number(input.suggestedResidentPrice) || 0)),
+      input.active === false ? 0 : 1, stamp, stamp,
+    ],
+  );
+  await consoleAudit({
+    actor: input.actor, action: "HOSTEL_PLUGIN_CREATED", targetType: "hostel_plugin", targetReference: id, details: { code, name },
+  }).catch(() => undefined);
+  return pluginView(rowsToObjects(await turso("SELECT * FROM hostel_plugins WHERE id = ? LIMIT 1", [id]))[0]);
+}
+
 export type HostelPlugin = {
   id: string;
   code: string;

@@ -272,3 +272,16 @@
   .console-form { grid-template-columns: minmax(0, 1fr); }
   .console-table td.console-row-actions { flex-wrap: wrap; white-space: normal; }
 }
+
+/* Resident threads and the small links a console table grows: the hostel
+   workspace is the first surface where a host answers a student from the same
+   page they read the booking on. */
+.console-thread { display: grid; gap: 10px; margin: 0 0 16px; padding: 0; list-style: none; max-height: 420px; overflow-y: auto; }
+.console-thread li { display: grid; gap: 3px; max-width: min(600px, 100%); padding: 11px 14px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 14px; background: #fbfdfc; }
+.console-thread li.is-mine { justify-self: end; margin-left: auto; border-color: transparent; background: var(--ui-green-soft, #e6f2ec); }
+.console-thread li.is-system { border-color: transparent; background: var(--ui-yellow-soft, #fdf6df); }
+.console-thread li strong { font-size: 12px; }
+.console-thread li span { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.console-thread li small { color: var(--ui-muted, #57675f); font-size: 10px; font-weight: 700; }
+.console-inline-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; border-radius: 11px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 12px; font-weight: 800; text-decoration: none; }
+.console-inline-link:hover { background: var(--ui-green-deep, #0b5740); }

@@ -119,6 +119,26 @@ export async function unreadHostelMessageCount(bookingId: string, viewer: "STUDE
   return Number(row?.c || 0);
 }
 
+/**
+ * The same count for a whole page of bookings in one query. The console lists
+ * every resident at once, and asking the database once per row would turn one
+ * screen into a hundred round trips.
+ */
+export async function unreadHostelMessageCounts(bookingIds: string[], viewer: "STUDENT" | "HOST") {
+  await ensureHostelMessageTables();
+  const ids = bookingIds.map((id) => String(id || "")).filter(Boolean);
+  if (!ids.length) return new Map<string, number>();
+  const placeholders = ids.map(() => "?").join(",");
+  const counterpart = viewer === "STUDENT" ? "('HOST','ADMIN')" : "('STUDENT')";
+  const rows = rowsToObjects(await turso(
+    `SELECT booking_id,COUNT(*) AS c FROM hostel_messages
+     WHERE booking_id IN (${placeholders}) AND sender_type IN ${counterpart} AND read_at = ''
+     GROUP BY booking_id`,
+    ids,
+  ));
+  return new Map(rows.map((row) => [String(row.booking_id || ""), Number(row.c || 0)]));
+}
+
 export async function sendHostelMessage(input: {
   booking: Pick<HostelBooking, "id" | "reference" | "studentEmail" | "studentName" | "landlordId" | "landlordEmail" | "landlordName" | "propertyName">;
   senderType: HostelSenderType;
