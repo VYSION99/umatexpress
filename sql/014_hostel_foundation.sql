@@ -98,6 +98,9 @@ CREATE TABLE IF NOT EXISTS hostel_listings (
   price INTEGER NOT NULL,                             -- rent per bed, in pesewas
   status TEXT NOT NULL DEFAULT 'DRAFT',               -- DRAFT | PENDING_REVIEW | APPROVED | SUSPENDED
   review_reason TEXT NOT NULL DEFAULT '',
+  submitted_at TEXT NOT NULL DEFAULT '',               -- when the landlord last sent it for review
+  reviewed_at TEXT NOT NULL DEFAULT '',
+  reviewed_by TEXT NOT NULL DEFAULT '',                -- the console account that decided
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -105,6 +108,7 @@ CREATE TABLE IF NOT EXISTS hostel_listings (
 -- One offer per bed per period. A space is re-listed next year, never twice.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_listings_space_period ON hostel_listings(space_id, period_id);
 CREATE INDEX IF NOT EXISTS idx_hostel_listings_period_status ON hostel_listings(period_id, status);
+CREATE INDEX IF NOT EXISTS idx_hostel_listings_status_submitted ON hostel_listings(status, submitted_at);
 
 CREATE TABLE IF NOT EXISTS hostel_property_photos (
   id TEXT PRIMARY KEY,

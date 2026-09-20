@@ -19,7 +19,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * another's rows even with a valid property id.
  */
 
-export const HOSTEL_SCHEMA_VERSION = "2026-09-20.2";
+export const HOSTEL_SCHEMA_VERSION = "2026-09-20.3";
 
 export const HOSTEL_PROPERTY_STATUSES = ["DRAFT", "PENDING_REVIEW", "APPROVED", "SUSPENDED"] as const;
 export type HostelPropertyStatus = (typeof HOSTEL_PROPERTY_STATUSES)[number];
@@ -116,9 +116,15 @@ const HOSTEL_SCHEMA_STATEMENTS = [
     price INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'DRAFT',
     review_reason TEXT NOT NULL DEFAULT '',
+    submitted_at TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT NOT NULL DEFAULT '',
+    reviewed_by TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  "ALTER TABLE hostel_listings ADD COLUMN submitted_at TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE hostel_listings ADD COLUMN reviewed_at TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE hostel_listings ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''",
   `CREATE TABLE IF NOT EXISTS hostel_property_photos (
     id TEXT PRIMARY KEY,
     property_id TEXT NOT NULL,
@@ -140,6 +146,7 @@ const HOSTEL_SCHEMA_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_hostel_periods_active ON hostel_periods(active, starts_on)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_listings_space_period ON hostel_listings(space_id, period_id)",
   "CREATE INDEX IF NOT EXISTS idx_hostel_listings_period_status ON hostel_listings(period_id, status)",
+  "CREATE INDEX IF NOT EXISTS idx_hostel_listings_status_submitted ON hostel_listings(status, submitted_at)",
   "CREATE INDEX IF NOT EXISTS idx_hostel_photos_property ON hostel_property_photos(property_id, sort_order)",
 ];
 

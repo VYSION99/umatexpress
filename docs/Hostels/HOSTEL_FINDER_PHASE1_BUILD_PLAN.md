@@ -2,11 +2,15 @@
 
 **Version:** 1.0  
 **Status:** Ready to build — three decisions at the end need a call  
-**Progress:** M2 shipped 2026-09-20 — the landlord workspace now builds property → room →
-bed-space end to end: room create/edit with beds kept in step with capacity, per-bed
-rename/retire, partial unique indexes on live labels, and the cross-landlord 404 rule
-proved by test. M1 (schema, `LANDLORD` role, open landlord application, property
-create/list) shipped earlier the same day. Periods, listings and review are M3.
+**Progress:** M3 shipped 2026-09-20 — an academic-year catalogue, the listing
+lifecycle (`DRAFT → PENDING_REVIEW → APPROVED → SUSPENDED`, with edits and rejections
+returning a listing to draft), a review queue for ADMIN/MODERATOR, and the public read
+that shows only approved beds. M2 (property → room → bed-space, beds kept in step with
+capacity) and M1 (schema, `LANDLORD` role, open landlord application) shipped earlier
+the same day. Photos and the notification rails are M4/M5.
+**Photo gate:** R4 keeps photos mandatory for `APPROVED`, but the upload lands in M5;
+until then approval has nothing photographic to check, and the checklist gains it when
+the upload does.
 **Sources:** the seven design docs in this folder + the platform as shipped (Sep 2026)
 
 This plan does not replace the design docs. It records where the design meets the
@@ -98,12 +102,22 @@ Acceptance: a landlord creates a property with rooms and beds; nobody else can r
 
 ### M3 — Periods, listings and review
 
+Shipped 2026-09-20.
+
 Files:
-- `lib/hostel-engine/periods.ts` — admin catalogue + release-date computation
-- `lib/hostel-engine/listings.ts` — draft → submit → approve/reject; edits reset to draft
-- `app/api/hostel/periods/route.ts` (public read), `app/api/admin/hostel/periods/route.ts`, `app/api/console/hostel/listings/route.ts` + review endpoint
-- `app/console/hostel-listings/page.tsx` (ADMIN + MODERATOR review queue), listing editor in the landlord workspace
-- `consoleAudit` on every decision
+- `lib/hostel-engine/periods.ts` — admin catalogue, overlap guard, and `hostelReleaseAfter()` (`max(starts_on − 3 days, confirmed_at + 7 days)`, decision #3)
+- `lib/hostel-engine/listings.ts` — draft → submit → approve/reject/suspend; edits reset to draft; `listPublicSpaces()` is the one public gate
+- `app/api/hostel/periods/route.ts`, `app/api/hostel/spaces/route.ts` (public reads), `app/api/admin/hostel/periods/route.ts`, `app/api/console/hostel/listings/route.ts`, `…/[listingId]/route.ts`, `…/[listingId]/review/route.ts`, `…/listings/review/route.ts`
+- `components/console/hostel/HostelReviewQueue.tsx` + the listings panel in `app/console/hostels/page.tsx`
+- `consoleAudit` on every period, listing and decision
+
+**Delta from this plan:** the review queue is a staff component rendered by `/console/hostels`
+instead of a separate `app/console/hostel-listings` page, because the console IA test pins
+single-word service ids and `/console/hostels` already had a dead end for MODERATOR. One
+Accommodation service now answers by role: landlords build, ADMIN/MODERATOR review.
+**Visible publicly** means `listing.status = 'APPROVED'` **and** a live bed, an active room
+and a property that is not suspended — and only for an open year. Approving the first bed
+of a building also moves the property from `DRAFT` to `APPROVED`.
 
 Acceptance: a landlord lists a bed for a period; a moderator approves or rejects with a reason; only `APPROVED` listings are visible publicly.
 

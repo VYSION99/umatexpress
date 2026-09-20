@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BedDouble, Building2, Check, DoorOpen, MapPin, PencilLine, Plus, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
-import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { BadgeCheck, BedDouble, Building2, Check, DoorOpen, MapPin, PencilLine, Plus, RotateCcw, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
+import { HostelReviewQueue } from "@/components/console/hostel/HostelReviewQueue";
 
 type Landlord = {
   id: string; name: string; phone: string; email: string; organization: string;
@@ -25,6 +26,13 @@ type Room = {
 };
 
 type PropertyDetail = { property: Property; rooms: Room[] };
+type Period = { id: string; name: string; startsOn: string; endsOn: string };
+type Listing = {
+  id: string; spaceId: string; periodId: string; price: number; status: string;
+  reviewReason: string; submittedAt: string; reviewedAt: string; createdAt: string;
+  propertyId: string; propertyName: string; roomLabel: string; spaceLabel: string;
+  periodName: string; periodActive: boolean;
+};
 type RoomDraft = { label: string; capacity: string; utilitiesFee: string; amenities: string };
 type OpenPanel = { kind: "edit" | "beds"; roomId: string } | null;
 
@@ -40,14 +48,36 @@ const badge = (status: string) => `console-badge console-badge-${status.toLowerC
 const toPesewas = (value: string) => Math.round(Number(String(value ?? "0").replace(/,/g, "") || "0") * 100);
 
 export default function HostelWorkspacePage() {
-  return <ConsoleSessionGate label="your hostel workspace">
-    {(session) => session.account.role === "LANDLORD"
-      ? <HostelWorkspace session={session} />
-      : <ConsoleUnavailable session={session} service="hostels" label="HOSTEL FINDER" blurb="This workspace belongs to a landlord account." />}
+  return <ConsoleSessionGate label="the hostel workspace">
+    {(session) => {
+      if (session.account.role === "LANDLORD") {
+        return <ConsoleShell
+          session={session}
+          service="hostels"
+          label="ACCOMMODATION"
+          title="Your hostel workspace"
+          blurb="Build the property first, then the rooms and bed-spaces inside it. Students only ever see what review approves."
+        >
+          <HostelWorkspace />
+        </ConsoleShell>;
+      }
+      if (session.account.role === "ADMIN" || session.account.role === "MODERATOR") {
+        return <ConsoleShell
+          session={session}
+          service="hostels"
+          label="ACCOMMODATION"
+          title="Hostel listings"
+          blurb="Decide which beds students can book, pull one that has gone wrong, and keep the academic years every price is quoted against."
+        >
+          <HostelReviewQueue session={session} />
+        </ConsoleShell>;
+      }
+      return <ConsoleUnavailable session={session} service="hostels" label="HOSTEL FINDER" blurb="This workspace belongs to a landlord account." />;
+    }}
   </ConsoleSessionGate>;
 }
 
-function HostelWorkspace({ session }: { session: ConsoleSessionInfo }) {
+function HostelWorkspace() {
   const [landlord, setLandlord] = useState<Landlord | null>(null);
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [detail, setDetail] = useState<PropertyDetail | null>(null);
@@ -57,6 +87,10 @@ function HostelWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [roomEdit, setRoomEdit] = useState<(RoomDraft & { id: string; status: string }) | null>(null);
   const [panels, setPanels] = useState<OpenPanel>(null);
   const [bedNames, setBedNames] = useState<Record<string, string>>({});
+  const [periods, setPeriods] = useState<Period[] | null>(null);
+  const [listings, setListings] = useState<Listing[] | null>(null);
+  const [listingDraft, setListingDraft] = useState({ spaceId: "", periodId: "", price: "" });
+  const [listingEdit, setListingEdit] = useState<{ id: string; price: string } | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
@@ -73,7 +107,22 @@ function HostelWorkspace({ session }: { session: ConsoleSessionInfo }) {
     }
   }, []);
 
-  useEffect(() => { queueMicrotask(load); }, [load]);
+  const loadPeriods = useCallback(async () => {
+    try {
+      const response = await fetch("/api/hostel/periods", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The open academic years could not be loaded.");
+      setPeriods(data.periods || []);
+    } catch (loadError) {
+      setPeriods([]);
+      setError(loadError instanceof Error ? loadError.message : "The open academic years could not be loaded.");
+    }
+  }, []);
+
+  useEffect(() => {
+    queueMicrotask(load);
+    queueMicrotask(loadPeriods);
+  }, [load, loadPeriods]);
 
   async function request(path: string, init: RequestInit) {
     const response = await fetch(path, { credentials: "same-origin", ...init });
@@ -88,11 +137,18 @@ function HostelWorkspace({ session }: { session: ConsoleSessionInfo }) {
     setDetail({ property: data.property, rooms: data.rooms || [] });
   }, []);
 
+  /** One read, one place: the listings table always shows what the database holds. */
+  const refreshListings = useCallback(async (propertyId: string) => {
+    const data = await request(`/api/console/hostel/listings?propertyId=${encodeURIComponent(propertyId)}`, { cache: "no-store" });
+    setListings(data.listings || []);
+  }, []);
+
   async function openProperty(property: Property) {
     setBusy(`open:${property.id}`); setError(""); setSaved("");
-    setPanels(null); setRoomEdit(null);
+    setPanels(null); setRoomEdit(null); setListings(null); setListingEdit(null);
     try {
       await refreshDetail(property.id);
+      await refreshListings(property.id);
       setPropertyEdit(null);
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : "That property could not be opened.");
@@ -233,15 +289,87 @@ function HostelWorkspace({ session }: { session: ConsoleSessionInfo }) {
     }
   }
 
+  async function addListing(event: FormEvent) {
+    event.preventDefault();
+    if (!detail) return;
+    setBusy("listing"); setError(""); setSaved("");
+    try {
+      const data = await request("/api/console/hostel/listings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          spaceId: listingDraft.spaceId,
+          periodId: listingDraft.periodId,
+          price: toPesewas(listingDraft.price),
+        }),
+      });
+      const listing = data.listing as Listing;
+      setListingDraft({ spaceId: "", periodId: listing.periodId, price: "" });
+      setSaved(`${listing.roomLabel} · ${listing.spaceLabel} is priced for ${listing.periodName}. Submit it when it is right.`);
+      await refreshListings(detail.property.id);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "That bed could not be priced.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function submitListing(listing: Listing) {
+    if (!detail) return;
+    setBusy(listing.id); setError(""); setSaved("");
+    try {
+      await request(`/api/console/hostel/listings/${encodeURIComponent(listing.id)}/review`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "SUBMIT" }),
+      });
+      setSaved(`${listing.roomLabel} · ${listing.spaceLabel} is with the reviewers for ${listing.periodName}.`);
+      await refreshListings(detail.property.id);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "That listing could not be submitted.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveListingPrice(listing: Listing) {
+    if (!detail || listingEdit?.id !== listing.id) return;
+    setBusy(listing.id); setError(""); setSaved("");
+    try {
+      const data = await request(`/api/console/hostel/listings/${encodeURIComponent(listing.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ price: toPesewas(listingEdit.price) }),
+      });
+      setListingEdit(null);
+      setSaved(data.listing.status === "DRAFT" && listing.status !== "DRAFT"
+        ? "Rent saved. The bed is back in draft, so submit it again for review."
+        : "Rent saved.");
+      await refreshListings(detail.property.id);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "That rent could not be saved.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function removeListing(listing: Listing) {
+    if (!detail) return;
+    setBusy(listing.id); setError(""); setSaved("");
+    try {
+      await request(`/api/console/hostel/listings/${encodeURIComponent(listing.id)}`, { method: "DELETE" });
+      setSaved(`${listing.roomLabel} · ${listing.spaceLabel} is withdrawn from ${listing.periodName}.`);
+      await refreshListings(detail.property.id);
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "That listing could not be withdrawn.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   const openRoom = detail?.rooms.find((room) => room.id === (panels?.roomId || roomEdit?.id)) || null;
 
-  return <ConsoleShell
-    session={session}
-    service="hostels"
-    label="ACCOMMODATION"
-    title="Your hostel workspace"
-    blurb="Build the property first, then the rooms and bed-spaces inside it. Students only ever see what review approves."
-  >
+  return <>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
@@ -494,5 +622,75 @@ function HostelWorkspace({ session }: { session: ConsoleSessionInfo }) {
         Rename a bed to match the room — <strong>Bed A</strong>, <strong>Top bunk</strong>, whatever a student sees. Retiring a bed keeps it on old records but hides it from new bookings.
       </p>
     </section>}
-  </ConsoleShell>;
+
+    {detail && <section className="console-panel">
+      <h2><BadgeCheck size={18}/>Beds for sale</h2>
+      {periods !== null && periods.length === 0
+        ? <p className="console-empty">The platform has not opened an academic year yet. You can price beds as soon as it does.</p>
+        : <form className="console-form" onSubmit={addListing}>
+          <label>Bed
+            <select required value={listingDraft.spaceId} onChange={(event) => setListingDraft({ ...listingDraft, spaceId: event.target.value })}>
+              <option value="">Choose a bed…</option>
+              {detail.rooms.flatMap((room) => room.spaces
+                .filter((space) => space.status !== "RETIRED")
+                .map((space) => {
+                  const taken = (listings || []).some((listing) => listing.spaceId === space.id && listing.periodId === listingDraft.periodId);
+                  return <option key={space.id} value={space.id} disabled={taken}>
+                    {room.label} · {space.label}{taken ? " (already listed)" : ""}
+                  </option>;
+                }))}
+            </select>
+          </label>
+          <label>Academic year
+            <select required value={listingDraft.periodId} onChange={(event) => setListingDraft({ ...listingDraft, periodId: event.target.value })}>
+              <option value="">Choose a year…</option>
+              {(periods || []).map((period) => <option key={period.id} value={period.id}>{period.name}</option>)}
+            </select>
+          </label>
+          <label>Rent for the year (GH₵)
+            <input type="text" inputMode="decimal" required value={listingDraft.price} onChange={(event) => setListingDraft({ ...listingDraft, price: event.target.value })} placeholder="1800.00" />
+          </label>
+          <button disabled={busy === "listing"}><Plus size={16}/>{busy === "listing" ? "Saving…" : "Price the bed"}</button>
+        </form>}
+      {!listings
+        ? <p className="console-empty">Loading the listings for this property…</p>
+        : listings.length === 0
+          ? <p className="console-empty">No beds priced yet. A listing is one bed for one academic year.</p>
+          : <table className="console-table">
+            <thead><tr><th>Bed</th><th>Year</th><th>Rent</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {listings.map((listing) => (
+                <tr key={listing.id}>
+                  <td><strong>{listing.roomLabel} · {listing.spaceLabel}</strong><small>Added {when(listing.createdAt)}</small></td>
+                  <td>{listing.periodName || "—"}</td>
+                  <td>{cedis(listing.price)}</td>
+                  <td>
+                    <span className={badge(listing.status)}>{listing.status.replace("_", " ")}</span>
+                    {listing.reviewReason && <small className="console-reason">{listing.reviewReason}</small>}
+                  </td>
+                  <td className="console-row-actions">
+                    {listing.status === "DRAFT" && <button disabled={busy === listing.id} onClick={() => void submitListing(listing)}><Send size={15}/>Submit for review</button>}
+                    {listing.status !== "SUSPENDED" && listingEdit?.id !== listing.id && <button disabled={busy === listing.id} onClick={() => setListingEdit({ id: listing.id, price: cedisInput(listing.price) })}><PencilLine size={15}/>Change rent</button>}
+                    {listingEdit?.id === listing.id && <>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label={`New rent for ${listing.spaceLabel}`}
+                        value={listingEdit.price}
+                        onChange={(event) => setListingEdit({ id: listing.id, price: event.target.value })}
+                      />
+                      <button disabled={busy === listing.id} onClick={() => void saveListingPrice(listing)}><Check size={15}/>Save rent</button>
+                      <button disabled={busy === listing.id} onClick={() => setListingEdit(null)}>Cancel</button>
+                    </>}
+                    {(listing.status === "DRAFT" || listing.status === "PENDING_REVIEW") && <button disabled={busy === listing.id} onClick={() => void removeListing(listing)}><Trash2 size={15}/>Withdraw</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+      <p className="console-note">
+        Students only see a bed after review approves it. Changing a price sends an approved bed back to review — a cheaper price is still a different offer.
+      </p>
+    </section>}
+  </>;
 }
