@@ -6,6 +6,7 @@ import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 import { HostelReviewQueue } from "@/components/console/hostel/HostelReviewQueue";
+import { PropertyPhotos } from "@/components/console/hostel/PropertyPhotos";
 
 type Landlord = {
   id: string; name: string; phone: string; email: string; organization: string;
@@ -478,6 +479,13 @@ function HostelWorkspace() {
         <button disabled={busy === "property-edit"}><Check size={16}/>{busy === "property-edit" ? "Saving…" : "Save details"}</button>
       </form>}
     </section>}
+
+    {detail && <PropertyPhotos
+      propertyId={detail.property.id}
+      propertyName={detail.property.name}
+      rooms={detail.rooms.map((room) => ({ id: room.id, label: room.label }))}
+      onNotice={setSaved}
+    />}
 
     {detail && <section className="console-panel">
       <h2><Plus size={18}/>Add a room to {detail.property.name}</h2>

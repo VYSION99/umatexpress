@@ -87,5 +87,9 @@ export function StudentAuthCard({ next }: { next?: string }) {
       ? "Only UMaT student addresses ending in @st.umat.edu.gh can hold an account."
       : `Accounts are limited to @${STUDENT_EMAIL_DOMAIN}. Use uppercase, lowercase, a number and a symbol in the password.`}</p>
     <button disabled={loading}>{loading ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}</button>
+    {mode === "signin" && <>
+      <Link className="student-auth-forgot" href="/reset-password">Forgot your password?</Link>
+      <Link className="student-auth-forgot" href="/reset-password?mode=otp">Or sign in with a one-time code</Link>
+    </>}
   </form>;
 }

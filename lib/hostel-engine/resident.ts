@@ -5,6 +5,8 @@ import { rowsToObjects, turso } from "@/lib/turso";
 import { listHostelAnnouncements, unreadHostelMessageCount, type HostelAnnouncement } from "@/lib/hostel-engine/messages";
 import { listResidentPlugins, listServiceRequestsForBooking, type HostelPluginSubscription, type HostelServiceRequest } from "@/lib/hostel-engine/plugins";
 import { getHostelBookingByReference, hostelBookingAuthHash, type HostelBooking } from "@/lib/hostel-engine/residency";
+import { getHostelReviewForBooking, type HostelReview } from "@/lib/hostel-engine/reviews";
+import { hostelRefundQuote, latestRefundForBooking, type HostelRefund, type HostelRefundQuote } from "@/lib/hostel-engine/refunds";
 
 /**
  * The resident page's data.
@@ -20,6 +22,12 @@ export type HostelResidency = {
   plugins: HostelPluginSubscription[];
   services: HostelServiceRequest[];
   unreadMessages: number;
+  /** The review this student wrote for the stay, or null while there is none. */
+  review: HostelReview | null;
+  /** The latest refund on this booking, or null while none was ever asked for. */
+  refund: HostelRefund | null;
+  /** What the policy would return today, so the cancel card can price itself. */
+  refundQuote: HostelRefundQuote | null;
 };
 
 export type ResidentDashboard = {
@@ -51,20 +59,27 @@ export async function authorizeHostHostelBooking(landlordId: string, reference: 
 
 export async function residentDashboard(studentEmail: string): Promise<ResidentDashboard> {
   const email = String(studentEmail || "").trim().toLowerCase();
+  // A cancelled or refunded booking stays on the page: the student needs the
+  // record of what happened to the money, and the refund row carries it.
   const bookings = rowsToObjects(await turso(
-    `SELECT reference FROM hostel_bookings WHERE student_email = ? AND status IN ('PAID','PAYMENT_REVIEW') ORDER BY created_at DESC LIMIT 20`,
+    `SELECT reference FROM hostel_bookings WHERE student_email = ? AND status IN ('PAID','PAYMENT_REVIEW','CANCELLED','REFUNDED') ORDER BY created_at DESC LIMIT 20`,
     [email],
   ));
   const residencies: HostelResidency[] = [];
   for (const row of bookings) {
     const booking = await getHostelBookingByReference(String(row.reference));
     if (!booking) continue;
-    const [plugins, services, unreadMessages] = await Promise.all([
+    const [plugins, services, unreadMessages, review, refund] = await Promise.all([
       listResidentPlugins({ landlordId: booking.landlordId, periodId: booking.periodId, propertyId: booking.propertyId }),
       listServiceRequestsForBooking(booking.id),
       unreadHostelMessageCount(booking.id, "STUDENT"),
+      getHostelReviewForBooking(booking.id),
+      latestRefundForBooking(booking.id),
     ]);
-    residencies.push({ booking, plugins, services, unreadMessages });
+    // A quote is only meaningful while the money is still with the platform:
+    // once a refund exists, the card shows that row instead.
+    const refundQuote = refund ? null : hostelRefundQuote(booking);
+    residencies.push({ booking, plugins, services, unreadMessages, review, refund, refundQuote });
   }
   const announcements: HostelAnnouncement[] = [];
   const seen = new Set<string>();

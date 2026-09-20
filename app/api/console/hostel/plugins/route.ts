@@ -10,7 +10,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * The services this landlord can switch on, and the ones already running.
  *
  * Subscribing is a platform payment: the landlord pays the catalogue price for
- * the academic year, and that fee sits beside the 9% commission on bed payments
+ * the academic year, and that fee sits beside the 3% commission on bed payments
  * rather than replacing it. The amount a resident pays is the landlord's own
  * number, defaulted from the catalogue's suggestion.
  */

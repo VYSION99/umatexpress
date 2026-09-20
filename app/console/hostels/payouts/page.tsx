@@ -17,7 +17,7 @@ export default function HostelPayoutsPage() {
         service="hostels"
         label="ACCOMMODATION · MONEY OUT"
         title="Hostel payouts"
-        blurb="What each landlord earned from paid beds, the 9% the platform keeps, and the entries ready to release."
+        blurb="What each landlord earned from paid beds, the 3% the platform keeps, and the transfers behind every release."
       >
         <HostelPayoutDesk />
       </ConsoleShell>

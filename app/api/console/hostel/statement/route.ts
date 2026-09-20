@@ -8,7 +8,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
  * The landlord's own money: what each paid booking earned after the platform's
- * 9%, which entries have left their release window, and the batches already
+ * 3%, which entries have left their release window, and the batches already
  * transferred. A delegate manager sees the same statement, because it is the
  * landlord's money either way; only changing the account is owner-only.
  */

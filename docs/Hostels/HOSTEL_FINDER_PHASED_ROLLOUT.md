@@ -64,15 +64,23 @@ This document breaks down the delivery of the Hostel Finder into clear, sequenti
 
 **Goal:** Enable landlords to receive money and establish trust mechanisms.
 
-> **Status (as built).** The ledger, the release policy, KYC gating, payout
-> account masking with an audited reveal, and the admin release interface are
-> implemented: `/api/console/hostel/payouts`, `/api/console/hostel/payout-account`
-> and `/api/console/hostel/statement`, with the landlord's money tab in the
-> residents workspace and the admin payout desk under Hostel Finder → Payouts.
-> A recorded batch moves the entries it covers to `RELEASED` and notifies the
-> landlord. Still open from this phase: automatic Paystack Transfer/Recipient
-> payouts (recording is currently by transfer reference after a manual transfer),
-> and R2 photo upload for listings.
+> **Status (as built).** This phase is complete. The ledger, the release policy,
+> KYC gating, payout account masking with an audited reveal, and the admin
+> release interface are implemented: `/api/console/hostel/payouts`,
+> `/api/console/hostel/payout-account` and `/api/console/hostel/statement`, with
+> the landlord's money tab in the residents workspace and the admin payout desk
+> under Hostel Finder → Payouts. Money leaves through Paystack: `action: "SEND"`
+> claims the payable entries, creates a transfer recipient once per account,
+> initiates the transfer, and releases the entries when it settles — inline,
+> through the `transfer.*` webhook, or through the reconcile job on the payout
+> cron. A refused transfer returns the entries to the ledger with the reason and
+> an attempt count, and an unattended release only runs when the switch is on:
+> an administrator turns it on under **Console > Platform settings**
+> (`platform_settings.hostel_payout_auto`, audited), and
+> `HOSTEL_PAYOUT_AUTO_ENABLED` remains the fallback for a deployment that never
+> opens that page. Recording a transfer by hand stays available.
+> Listing photos upload to the private R2 bucket and are moderated before
+> anything public shows them (`018_hostel_photos`, `lib/hostel-engine/photos.ts`).
 
 ### Deliverables
 - Payout ledger (`hostel_payouts`)
@@ -99,20 +107,43 @@ This document breaks down the delivery of the Hostel Finder into clear, sequenti
 
 **Goal:** Improve user experience and add advanced capabilities.
 
+**Status: delivered.** The chat transport is a bounded server-sent event stream
+over the durable Turso thread rather than Ably — the same observable behaviour
+(a reply appears within seconds) without a second vendor, a second credential
+or a second bill. Every refund is a request a person decides, never an
+automatic payout.
+
 ### Deliverables
-- Chat system (Ably + Turso persistence)
-- AI assistant (property recommendations, availability questions)
-- Student reviews and ratings
-- Fraud detection signals
-- Cancellation / refund policy engine
-- Analytics dashboard for admin
-- Push notifications for new messages and booking updates
+- Chat system (Turso persistence + bounded SSE stream; Ably not needed)
+- AI assistant (public "ask about this hostel" over the listing's own facts)
+- Student reviews and ratings (one per paid stay, hostel replies once)
+- Fraud detection signals (seven rules, reviewed by a person)
+- Cancellation / refund policy engine (30-day / 7-day tiers, admin override)
+- Analytics dashboard for admin (`/console/hostels/analytics`)
+- Push notifications for new messages, bookings, refunds, reviews and payouts
+  (Resend email plus the in-app outbox; no SMS provider)
 
 ### Acceptance Criteria
-- Students and landlords can communicate in real-time via chat.
-- AI can answer basic questions about properties.
-- Students can leave reviews after their stay.
-- Admin has visibility into key platform metrics.
+- Students and landlords can communicate in real-time via chat. ✅ The stream
+  pushes a change event within seconds; the thread itself stays the source of
+  truth and the fallback is the page's own refresh.
+- AI can answer basic questions about properties. ✅ Bounded to one listing's
+  public facts, rate-limited, and answered from a written summary when Workers
+  AI is not configured.
+- Students can leave reviews after their stay. ✅ Paid stay only, one review per
+  booking, staff may hide with a reason and the audit records why.
+- Admin has visibility into key platform metrics. ✅ Occupancy, the booking
+  pipeline, money in/out, reviews and supply signals.
+
+### As-built surfaces
+- Tables: `hostel_reviews`, `hostel_risk_signals`, `hostel_refunds`.
+- Student: `/api/hostel/reviews`, `/api/hostel/refunds`, `/api/hostel/ask`,
+  `/api/hostel/messages/stream`.
+- Console: `/console/hostels/reviews`, `/refunds`, `/analytics`, `/signals`,
+  and the `/api/console/hostel/*` routes behind them.
+- Refunds ride the payout reconcile cron (`runHostelRefundReconcile`) and the
+  `refund.*` Paystack webhook; the booking reaches `REFUNDED` only when the
+  money is back.
 
 **Estimated Complexity:** Medium
 

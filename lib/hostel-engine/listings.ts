@@ -2,6 +2,8 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables } from "@/lib/hostel-engine/landlord";
 import { distanceToCampusMeters, isCoordinate } from "@/lib/hostel-engine/geo";
+import { listApprovedHostelPhotos, listApprovedPhotoCovers } from "@/lib/hostel-engine/photos";
+import { listPropertyReviews, reviewSummaryForProperties } from "@/lib/hostel-engine/reviews";
 import { rowsToObjects, turso } from "@/lib/turso";
 
 /**
@@ -85,6 +87,11 @@ export type PublicProperty = {
   minPrice: number;
   /** What the cheapest bed costs with the utilities the student would pay. */
   minTotal: number;
+  /** The landlord's first approved photo, or null while none has passed review. */
+  coverPhotoId: string | null;
+  /** Published review score, or 0 while nothing has been reviewed. */
+  ratingAverage: number;
+  ratingCount: number;
 };
 
 /** The filters the browse page may ask for, all optional. */
@@ -307,6 +314,11 @@ export async function submitHostelListing(landlordId: string, listingId: string)
     targetReference: listingId,
     details: { price: Number(row.price || 0) },
   }).catch(() => undefined);
+  // The reviewer should see what the rules noticed about this bed. A failed
+  // scan must not fail the submission, so it is fired and forgotten.
+  void import("@/lib/hostel-engine/signals")
+    .then(({ scanHostelSignals }) => scanHostelSignals())
+    .catch(() => undefined);
   return { ...listingView(row), status: "PENDING_REVIEW", submittedAt: stamp, reviewReason: "" };
 }
 
@@ -548,6 +560,9 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
       roomCount: Number(row.room_count || 0),
       minPrice: Number(row.min_price || 0),
       minTotal: Number(row.min_total || 0),
+      coverPhotoId: null,
+      ratingAverage: 0,
+      ratingCount: 0,
     };
   });
 
@@ -573,6 +588,19 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
     return left.name.localeCompare(right.name);
   });
 
+  // One extra query for every card's photo and one for its review score, rather
+  // than joins that would multiply the bed rows above.
+  const [covers, ratings] = await Promise.all([
+    listApprovedPhotoCovers(filtered.map((property) => property.id)),
+    reviewSummaryForProperties(filtered.map((property) => property.id)),
+  ]);
+  filtered.forEach((property) => {
+    property.coverPhotoId = covers.get(property.id)?.id || null;
+    const rating = ratings.get(property.id);
+    property.ratingAverage = rating?.average || 0;
+    property.ratingCount = rating?.count || 0;
+  });
+
   return {
     period: { id: String(period.id), name: String(period.name), startsOn: String(period.starts_on), endsOn: String(period.ends_on) },
     properties: filtered,
@@ -590,6 +618,10 @@ export async function getPublicProperty(propertyId: string, periodId?: string) {
   const { period, properties } = await listPublicProperties({ periodId });
   const property = properties.find((item) => item.id === id);
   if (!property || !period) return null;
-  const { spaces } = await listPublicSpaces({ propertyId: id, periodId: period.id });
-  return { period, property, spaces };
+  const [{ spaces }, photos, reviews] = await Promise.all([
+    listPublicSpaces({ propertyId: id, periodId: period.id }),
+    listApprovedHostelPhotos(id),
+    listPropertyReviews(id, { limit: 12 }),
+  ]);
+  return { period, property, spaces, photos, reviews };
 }

@@ -142,7 +142,9 @@ entries to `ACCRUED` — the platform still holds the money — and one that
 reverses does the same rather than creating a debt. Only a refund of a booking
 whose payout already arrived creates a debt.
 
-Unattended runs are off unless `PAYOUT_AUTO_ENABLED` is true. Running the job
+Unattended runs are off unless the switch is on: **Console > Platform
+settings** holds the audited override, and `PAYOUT_AUTO_ENABLED` remains the
+fallback for a deployment that never opens that page. Running the job
 from `/console/payouts` is an attended act and is not gated by the switch.
 
 ---

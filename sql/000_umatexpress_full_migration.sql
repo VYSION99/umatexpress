@@ -816,8 +816,8 @@ CREATE TABLE IF NOT EXISTS hostel_landlords (
   status TEXT NOT NULL DEFAULT 'ACTIVE',              -- ACTIVE | SUSPENDED
   kyc_status TEXT NOT NULL DEFAULT 'PENDING',         -- PENDING | VERIFIED | REJECTED
   review_reason TEXT NOT NULL DEFAULT '',
-  -- Landlord-side commission (9%), stored per booking when money arrives.
-  commission_bps INTEGER NOT NULL DEFAULT 900,
+  -- Landlord-side commission (3%), stored per booking when money arrives.
+  commission_bps INTEGER NOT NULL DEFAULT 300,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -937,7 +937,7 @@ CREATE TABLE IF NOT EXISTS hostel_bookings (
   price INTEGER NOT NULL,                             -- bed rent, pesewas
   utilities_fee INTEGER NOT NULL DEFAULT 0,           -- pesewas, only when the property charges one
   total_amount INTEGER NOT NULL,                      -- price + utilities, what the student pays
-  commission_bps INTEGER NOT NULL DEFAULT 900,
+  commission_bps INTEGER NOT NULL DEFAULT 300,
   commission_amount INTEGER NOT NULL DEFAULT 0,
   net_amount INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',     -- PENDING_PAYMENT | PAID | PAYMENT_REVIEW | EXPIRED | CANCELLED | REFUNDED
@@ -1076,9 +1076,9 @@ CREATE TABLE IF NOT EXISTS hostel_managers (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_managers_email ON hostel_managers(landlord_id, email);
 CREATE INDEX IF NOT EXISTS idx_hostel_managers_landlord ON hostel_managers(landlord_id, status);
 
--- The agreed hostel rate is 9%. Rows still on the placeholder 5% default move
+-- The agreed hostel rate is 3%. Rows still on the placeholder 5% default move
 -- with it; a rate anybody negotiated on purpose was never stored as 500.
-UPDATE hostel_landlords SET commission_bps = 900, updated_at = updated_at WHERE commission_bps = 500;
+UPDATE hostel_landlords SET commission_bps = 300, updated_at = updated_at WHERE commission_bps = 500;
 
 -- ============================================================================
 -- 016_hostel_payouts — the money-out half of a paid hostel booking
@@ -1111,3 +1111,184 @@ ALTER TABLE hostel_landlords ADD COLUMN payout_account_last4 TEXT NOT NULL DEFAU
 ALTER TABLE hostel_landlords ADD COLUMN payout_bank_code TEXT NOT NULL DEFAULT '';
 ALTER TABLE hostel_landlords ADD COLUMN payout_bank_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE hostel_landlords ADD COLUMN payout_updated_at TEXT NOT NULL DEFAULT '';
+
+-- ============================================================================
+-- 017_hostel_commission_3pct — the hostel platform rate moves from 9% to 3%
+-- ============================================================================
+-- Bookings keep the rate they were charged; only landlord rows still on the old
+-- platform default move.
+
+UPDATE hostel_landlords SET commission_bps = 300, updated_at = updated_at WHERE commission_bps = 900;
+
+-- ============================================================================
+-- 018_hostel_photos — property photos become usable
+-- ============================================================================
+
+ALTER TABLE hostel_property_photos ADD COLUMN landlord_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_property_photos ADD COLUMN room_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_property_photos ADD COLUMN content_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_property_photos ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hostel_property_photos ADD COLUMN review_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_property_photos ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_property_photos ADD COLUMN reviewed_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_property_photos ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_hostel_photos_landlord ON hostel_property_photos(landlord_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hostel_photos_status ON hostel_property_photos(status, created_at DESC);
+
+UPDATE hostel_property_photos SET landlord_id = COALESCE((SELECT p.landlord_id FROM hostel_properties p WHERE p.id = hostel_property_photos.property_id), '')
+  WHERE landlord_id = '';
+
+-- ============================================================================
+-- 019_hostel_payout_transfers — hostel payouts leave through Paystack
+-- ============================================================================
+
+ALTER TABLE hostel_payout_batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'MANUAL';
+ALTER TABLE hostel_payout_batches ADD COLUMN status TEXT NOT NULL DEFAULT 'RECORDED';
+ALTER TABLE hostel_payout_batches ADD COLUMN transfer_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_payout_batches ADD COLUMN recipient_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_payout_batches ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_payout_batches ADD COLUMN initiated_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_payout_batches ADD COLUMN settled_at TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE hostel_payouts ADD COLUMN payout_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hostel_payouts ADD COLUMN last_error TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE hostel_landlords ADD COLUMN paystack_recipient_code TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_hostel_payout_batches_inflight ON hostel_payout_batches(status, mode, initiated_at);
+
+-- ============================================================================
+-- 020_auth_recovery — password resets and one-time sign-in codes
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS auth_recovery_requests (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  token_hash TEXT NOT NULL DEFAULT '',
+  code_hash TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  used_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_recovery_lookup ON auth_recovery_requests(scope, email, purpose, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_recovery_token ON auth_recovery_requests(token_hash);
+
+-- ============================================================================
+-- 021_platform_settings — the deployment switches an administrator owns
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+
+-- ============================================================================
+-- 022_hostel_reviews — the score a paid stay earns
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS hostel_reviews (
+  id TEXT PRIMARY KEY,
+  booking_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  landlord_id TEXT NOT NULL,
+  period_id TEXT NOT NULL DEFAULT '',
+  student_email TEXT NOT NULL,
+  student_name TEXT NOT NULL DEFAULT '',
+  rating INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'PUBLISHED',
+  reply TEXT NOT NULL DEFAULT '',
+  reply_by TEXT NOT NULL DEFAULT '',
+  replied_at TEXT NOT NULL DEFAULT '',
+  hidden_reason TEXT NOT NULL DEFAULT '',
+  moderated_by TEXT NOT NULL DEFAULT '',
+  moderated_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_reviews_booking ON hostel_reviews(booking_id);
+CREATE INDEX IF NOT EXISTS idx_hostel_reviews_property ON hostel_reviews(property_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hostel_reviews_landlord ON hostel_reviews(landlord_id, status, created_at DESC);
+
+-- ============================================================================
+-- 023_hostel_signals — patterns a person should look at
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS hostel_risk_signals (
+  id TEXT PRIMARY KEY,
+  signal_key TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'MEDIUM',
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  landlord_id TEXT NOT NULL DEFAULT '',
+  property_id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  evidence TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'OPEN',
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT NOT NULL DEFAULT '',
+  review_note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_signals_entity ON hostel_risk_signals(signal_key, entity_id, status);
+CREATE INDEX IF NOT EXISTS idx_hostel_signals_status ON hostel_risk_signals(status, severity, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hostel_signals_landlord ON hostel_risk_signals(landlord_id, status);
+
+-- ============================================================================
+-- 024_hostel_refunds — cancelled beds, money on its way back.
+-- ============================================================================
+
+-- 024: hostel refunds — cancelled beds, money on its way back.
+--
+-- A refund is a request at the policy price, a person's decision, then a
+-- Paystack transfer back to the student. The row keeps every step: the quote
+-- the student was offered, the override (if a person made one) and why, the
+-- provider reference, and the settlement that closes the booking. The bed's
+-- accrual is reversed when the refund is approved, so a refunded bed never
+-- pays the landlord; money already transferred becomes a debt on the next
+-- payout (see hostel_payout_debt in lib/hostel-engine/payouts.ts).
+
+CREATE TABLE IF NOT EXISTS hostel_refunds (
+  id TEXT PRIMARY KEY,
+  booking_id TEXT NOT NULL,
+  reference TEXT NOT NULL,
+  landlord_id TEXT NOT NULL DEFAULT '',
+  student_email TEXT NOT NULL DEFAULT '',
+  amount INTEGER NOT NULL DEFAULT 0,
+  gross_amount INTEGER NOT NULL DEFAULT 0,
+  commission_amount INTEGER NOT NULL DEFAULT 0,
+  net_amount INTEGER NOT NULL DEFAULT 0,
+  policy TEXT NOT NULL DEFAULT 'NONE',
+  percent INTEGER NOT NULL DEFAULT 0,
+  override_reason TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'REQUESTED',
+  requested_by TEXT NOT NULL DEFAULT '',
+  decided_by TEXT NOT NULL DEFAULT '',
+  decided_at TEXT NOT NULL DEFAULT '',
+  paystack_reference TEXT NOT NULL DEFAULT '',
+  provider_status TEXT NOT NULL DEFAULT '',
+  settled_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hostel_refunds_booking ON hostel_refunds(booking_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hostel_refunds_status ON hostel_refunds(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hostel_refunds_landlord ON hostel_refunds(landlord_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_refunds_provider ON hostel_refunds(paystack_reference) WHERE paystack_reference <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_refunds_open ON hostel_refunds(booking_id) WHERE status IN ('REQUESTED','APPROVED');

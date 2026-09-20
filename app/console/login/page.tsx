@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LockKeyhole } from "lucide-react";
+import { AuthRecoveryCard } from "@/components/account/AuthRecoveryCard";
 
 export default function ConsoleLoginPage() {
   const router = useRouter();
@@ -11,6 +12,9 @@ export default function ConsoleLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [withCode, setWithCode] = useState(false);
+
+  if (withCode) return <AuthRecoveryCard scope="CONSOLE" mode="otp" variant="console" next="/console" />;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setSubmitting(true); setError("");
@@ -42,6 +46,8 @@ export default function ConsoleLoginPage() {
       <button disabled={submitting}><LockKeyhole size={17} />{submitting ? "Signing in…" : "Sign in"}</button>
       <small>Every service starts here. Apply for the service you want to run, or sign in with the account your team set up.</small>
       <Link href="/console/register">Apply or request access</Link>
+      <Link href="/console/reset-password">Forgot your password?</Link>
+      <button type="button" className="console-auth-alt" onClick={() => setWithCode(true)}>Email me a sign-in code instead</button>
       <Link href="/console">Already signed in? Open the console</Link>
     </form>
   </main>;

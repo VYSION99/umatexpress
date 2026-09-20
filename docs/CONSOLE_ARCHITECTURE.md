@@ -225,6 +225,52 @@ Wrangler config, so a redeploy cannot drop the domain. Binding a custom domain
 requires the zone to be in the same Cloudflare account; if it is not, remove
 `CLOUDFLARE_CONSOLE_HOST` for that deploy and the console stays on workers.dev.
 
+### Platform settings
+
+Switches that decide how the whole deployment behaves live in
+`platform_settings` rather than in a redeploy. An administrator opens
+**Console > Platform settings** (`/console/settings`, admin only, backed by
+`GET`/`PATCH /api/console/settings`) and flips them. A value saved there
+overrides the environment variable, every write is audited against the account
+that made it, and an unreadable table falls back to the variable instead of
+failing the job the switch guards.
+
+| Switch | Key | Fallback variable |
+|--------|-----|-------------------|
+| Hostel payouts on a schedule | `hostel_payout_auto` | `HOSTEL_PAYOUT_AUTO_ENABLED` |
+| Organizer payouts on a schedule | `organizer_payout_auto` | `PAYOUT_AUTO_ENABLED` |
+
+Both start off: a job that moves money with nobody watching is a policy an
+administrator owns. A change takes effect within the read cache's fifteen
+seconds and survives a redeploy. The payout desks link to the page, so the
+person who sees a held balance can also turn the schedule on.
+
+### Getting back in
+
+Every auth surface — the console and the student account alike — has the same
+two recovery paths, implemented once in `lib/auth-recovery.ts`:
+
+* **Forgot password.** `POST /api/auth/recovery` with `scope: "CONSOLE"` or
+  `"STUDENT"` sends a reset link and a six-digit code to the address on the
+  account. The console link lands on `/console/reset-password`, the student one
+  on `/reset-password`. The reset finishes with either the token in the link or
+  the code, through `PATCH /api/auth/recovery`. A new password retires every
+  existing session (the token version is bumped), and the change is mailed.
+* **One-time sign-in.** `PUT /api/auth/recovery` emails a six-digit code;
+  `PATCH /api/auth/otp` verifies it and opens exactly the session password
+  sign-in would. The console login page offers it as "Email me a sign-in code
+  instead".
+
+Only the HMAC of a token or code is stored, so a leaked database row cannot mint
+a working link. Each request carries its scope and purpose, expires (30 minutes
+for a reset, 10 for a sign-in code), counts attempts, and is burned once used or
+after five wrong guesses. A password that fails the role's policy is refused
+before the link or code is spent. An address with no account is answered exactly
+like one with an account, so the endpoint cannot be used to enumerate users.
+
+The deployment secret is `AUTH_RECOVERY_SECRET`, falling back to a session
+secret when it is unset.
+
 ## 8. Verification
 
 | Check | Command |
@@ -234,6 +280,8 @@ requires the zone to be in the same Cloudflare account; if it is not, remove
 | The service directory contract | `node --test tests/console-ia.test.mjs` |
 | Applications and invited access | `node --test tests/console-applications.test.mjs` |
 | The assistant's tools, roles and proposals | `node --test tests/console-assistant.test.mjs` |
+| Recovery links, codes and one-time sign-in | `node --test tests/auth-recovery.test.mjs` |
+| Platform switches and the admin-only settings route | `node --test tests/platform-settings.test.mjs` |
 | Console pages in a real browser | `node scripts/check-console-origin.mjs` (dev server on 5190, Chrome debug port 9231) |
 
 The browser check stubs the session endpoint by role, so it needs no

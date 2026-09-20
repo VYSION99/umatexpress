@@ -296,6 +296,104 @@ export async function verifyPaystackTransfer(reference: string) {
   return transferPayload(result);
 }
 
+type PaystackRefundResponse = {
+  status?: boolean;
+  message?: string;
+  data?: {
+    id?: number;
+    reference?: string;
+    transaction?: string | { reference?: string };
+    amount?: number;
+    status?: string;
+    currency?: string;
+    merchant_note?: string;
+    customer_note?: string;
+  };
+};
+
+export type PaystackRefundStatus = "PENDING" | "PROCESSED" | "FAILED" | "UNKNOWN";
+
+/** Paystack's refund lifecycle, folded into the three states our ledger keeps. */
+export function normalizeRefundStatus(value: unknown): PaystackRefundStatus {
+  switch (String(value || "").toLowerCase()) {
+    case "processed":
+    case "success":
+    case "successful":
+    case "completed":
+      return "PROCESSED";
+    case "failed":
+    case "reversed":
+    case "declined":
+      return "FAILED";
+    case "pending":
+    case "processing":
+    case "queued":
+    case "ongoing":
+      return "PENDING";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function refundPayload(result: PaystackRefundResponse) {
+  const data = result.data ?? {};
+  const transaction = typeof data.transaction === "string" ? data.transaction : data.transaction?.reference || "";
+  return {
+    refundReference: String(data.reference || ""),
+    transactionReference: String(transaction || ""),
+    amount: Number(data.amount || 0),
+    status: normalizeRefundStatus(data.status),
+    rawStatus: String(data.status || ""),
+    currency: String(data.currency || ""),
+    reason: String(data.merchant_note || data.customer_note || result.message || ""),
+  };
+}
+
+/**
+ * Sends part or all of a charge back to the student. The transaction is the one
+ * that paid the booking; Paystack accepts the refund and processes it
+ * asynchronously, so the ledger waits for `refund.processed` (or the reconcile
+ * action) before it calls the money returned.
+ */
+export async function initiatePaystackRefund(input: {
+  transactionReference: string;
+  amount: number;
+  currency?: string;
+  reason?: string;
+}) {
+  const { secretKey, baseUrl, currency } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/refund`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      transaction: input.transactionReference,
+      amount: Math.max(0, Math.round(input.amount)),
+      currency: input.currency || currency,
+      ...(input.reason ? { merchant_note: String(input.reason).slice(0, 200) } : {}),
+    }),
+  });
+  const result = await response.json().catch(() => ({})) as PaystackRefundResponse;
+  if (!response.ok || !result.status || !result.data) {
+    throw new Error(result.message || `Paystack refund failed (${response.status}).`);
+  }
+  return refundPayload(result);
+}
+
+export async function verifyPaystackRefund(reference: string) {
+  const { secretKey, baseUrl } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/refund/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` },
+  });
+  const result = await response.json().catch(() => ({})) as PaystackRefundResponse;
+  if (!response.ok || !result.status || !result.data) {
+    throw new Error(result.message || `Paystack refund verify failed (${response.status}).`);
+  }
+  return refundPayload(result);
+}
+
 type PaystackBankResponse = {
   status?: boolean;
   message?: string;

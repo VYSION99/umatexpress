@@ -7,7 +7,7 @@
 -- landlord talk on.
 --
 -- Plugins are the services a landlord switches on for a year, each with one
--- platform price, billed beside the 9% commission rather than instead of it.
+-- platform price, billed beside the 3% commission rather than instead of it.
 --
 -- Safe to run on a fresh database and safe to run twice. The same statements
 -- live in 000_umatexpress_full_migration.sql (section 11); the app also applies
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS hostel_bookings (
   price INTEGER NOT NULL,                             -- bed rent, pesewas
   utilities_fee INTEGER NOT NULL DEFAULT 0,           -- pesewas, only when the property charges one
   total_amount INTEGER NOT NULL,                      -- price + utilities, what the student pays
-  commission_bps INTEGER NOT NULL DEFAULT 900,
+  commission_bps INTEGER NOT NULL DEFAULT 300,
   commission_amount INTEGER NOT NULL DEFAULT 0,
   net_amount INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',     -- PENDING_PAYMENT | PAID | PAYMENT_REVIEW | EXPIRED | CANCELLED | REFUNDED
@@ -168,6 +168,6 @@ CREATE TABLE IF NOT EXISTS hostel_managers (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_managers_email ON hostel_managers(landlord_id, email);
 CREATE INDEX IF NOT EXISTS idx_hostel_managers_landlord ON hostel_managers(landlord_id, status);
 
--- The agreed hostel rate is 9%. Rows still on the placeholder 5% default move
+-- The agreed hostel rate is 3%. Rows still on the placeholder 5% default move
 -- with it; a rate anybody negotiated on purpose was never stored as 500.
-UPDATE hostel_landlords SET commission_bps = 900, updated_at = updated_at WHERE commission_bps = 500;
+UPDATE hostel_landlords SET commission_bps = 300, updated_at = updated_at WHERE commission_bps = 500;

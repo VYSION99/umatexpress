@@ -55,11 +55,23 @@ export type HostelProperty = {
 };
 
 /**
- * The platform's cut of every hostel bed payment, in basis points. Nine
- * percent, agreed for the hostel product, and the value every new landlord row
- * starts on and the residency migration moves the placeholder 5% to.
+ * The platform's cut of every hostel bed payment, in basis points. Three
+ * percent, agreed for the hostel product: it is the value every new landlord
+ * row starts on, and the rate the migration pass moves the old 9% default to.
+ * A booking stores the rate it was charged, so a change here never rewrites
+ * money that has already moved.
  */
-export const HOSTEL_DEFAULT_COMMISSION_BPS = 900;
+export const HOSTEL_DEFAULT_COMMISSION_BPS = 300;
+
+/**
+ * The rate move, run once as its own pass. A landlord row still on 900 was on
+ * the platform default — nobody negotiates a rate equal to the default — so it
+ * moves to the agreed 3%. A rate somebody set on purpose is any other value,
+ * and is left alone.
+ */
+const HOSTEL_COMMISSION_STATEMENTS = [
+  `UPDATE hostel_landlords SET commission_bps = ${HOSTEL_DEFAULT_COMMISSION_BPS}, updated_at = updated_at WHERE commission_bps = 900`,
+];
 
 /** Kept in step with sql/014_hostel_foundation.sql; the runtime applies it too. */
 const HOSTEL_SCHEMA_STATEMENTS = [
@@ -169,6 +181,12 @@ export function ensureHostelTables() {
       id: "hostelFoundation",
       version: HOSTEL_SCHEMA_VERSION,
       statements: HOSTEL_SCHEMA_STATEMENTS,
+    });
+    await runSchemaPass({
+      metaTable: "campus_schema_meta",
+      id: "hostelCommission3pct",
+      version: "017_hostel_commission_3pct",
+      statements: HOSTEL_COMMISSION_STATEMENTS,
     });
   })().catch((error: unknown) => {
     hostelTablesReady = null;

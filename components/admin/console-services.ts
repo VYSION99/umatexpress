@@ -1,11 +1,11 @@
-import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Scale, Store, Utensils, Wallet, type LucideIcon } from "lucide-react";
+import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Scale, SlidersHorizontal, Store, Utensils, Wallet, type LucideIcon } from "lucide-react";
 
 /**
  * The console is one console for every UMaTeXPRESS service, the way a cloud
  * console is one console for every product. A service is a product area with
  * its own navigation; a role decides which of them are on the shelf.
  */
-export type ConsoleServiceGroup = "Mobility" | "Self-service trips" | "Money" | "Trust & safety" | "Accommodation" | "Commerce" | "Account";
+export type ConsoleServiceGroup = "Mobility" | "Self-service trips" | "Money" | "Trust & safety" | "Accommodation" | "Commerce" | "Platform" | "Account";
 
 /** One page inside a service. `roles` restricts it to some of the roles that see the service. */
 export type ConsoleServiceNavItem = { label: string; href: string; roles?: readonly string[] };
@@ -33,6 +33,7 @@ export const CONSOLE_GROUP_ORDER: ConsoleServiceGroup[] = [
   "Trust & safety",
   "Accommodation",
   "Commerce",
+  "Platform",
   "Account",
 ];
 
@@ -46,9 +47,10 @@ export const consoleServices: readonly ConsoleService[] = [
   { id: "earnings", title: "Earnings", icon: Wallet, accent: "cyan", group: "Money", href: "/console/earnings", label: "MY STATEMENT", description: "Every fare you earned.", detail: "See what each booking earned, what is ready to pay, and the payouts already recorded.", action: "Open statement", tags: ["Statement", "Payouts"], nav: [{ label: "Statement", href: "/console/earnings" }] },
   { id: "payouts", title: "Organizer payouts", icon: Banknote, accent: "green", group: "Money", href: "/console/payouts", label: "MONEY OUT", description: "Pay what the platform owes.", detail: "Balances per organizer, the accrual ledger, and recording a payout by transfer reference.", action: "Open payouts", tags: ["Ledger", "Batch payouts"], nav: [{ label: "Balances & batches", href: "/console/payouts" }] },
   { id: "disputes", title: "Disputes", icon: Scale, accent: "purple", group: "Trust & safety", href: "/console/disputes", label: "TRUST & RESOLUTION", description: "Decide what went wrong.", detail: "What passengers and organizers raised, and the record of what was decided and why.", action: "Open disputes", tags: ["Complaints", "Decisions"], nav: [{ label: "Cases", href: "/console/disputes" }] },
-  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "green", group: "Accommodation", href: "/console/hostels", label: "ACCOMMODATION", description: "A home for every student.", detail: "Your properties, rooms, bed-spaces, residents, services and payouts.", action: "Open workspace", tags: ["Properties", "Residents & services"], nav: [{ label: "My properties", href: "/console/hostels" }, { label: "Residents & services", href: "/console/hostels/residents", roles: ["LANDLORD"] }, { label: "Payouts", href: "/console/hostels/payouts", roles: ["ADMIN"] }, { label: "Service catalogue", href: "/console/hostels/plugins", roles: ["ADMIN"] }] },
+  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "green", group: "Accommodation", href: "/console/hostels", label: "ACCOMMODATION", description: "A home for every student.", detail: "Your properties, rooms, bed-spaces, residents, services and payouts.", action: "Open workspace", tags: ["Properties", "Residents & services"], nav: [{ label: "My properties", href: "/console/hostels" }, { label: "Residents & services", href: "/console/hostels/residents", roles: ["LANDLORD"] }, { label: "Reviews", href: "/console/hostels/reviews", roles: ["LANDLORD", "ADMIN", "MODERATOR"] }, { label: "Payouts", href: "/console/hostels/payouts", roles: ["ADMIN"] }, { label: "Refunds", href: "/console/hostels/refunds", roles: ["ADMIN"] }, { label: "Service catalogue", href: "/console/hostels/plugins", roles: ["ADMIN"] }, { label: "Analytics", href: "/console/hostels/analytics", roles: ["ADMIN"] }, { label: "Supply signals", href: "/console/hostels/signals", roles: ["ADMIN", "MODERATOR"] }] },
   { id: "food", title: "Food", icon: Utensils, accent: "peach", group: "Commerce", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [], nav: [] },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "purple", group: "Commerce", href: null, label: "ENTERTAINMENT", description: "A place for movie nights.", detail: "Cinema management is not available yet.", action: "Coming soon", tags: [], nav: [] },
+  { id: "settings", title: "Platform settings", icon: SlidersHorizontal, accent: "cyan", group: "Platform", href: "/console/settings", label: "PLATFORM · CONTROLS", description: "One switchboard for the deployment.", detail: "Whether the scheduled jobs may pay out unattended, and the platform switches that come next.", action: "Open settings", tags: ["Payout automation"], nav: [{ label: "Payout automation", href: "/console/settings" }] },
   { id: "security", title: "Account security", icon: LockKeyhole, accent: "purple", group: "Account", href: "/console/change-password", label: "YOUR ACCESS", description: "Look after your access.", detail: "Change the password that opens this console.", action: "Change password", tags: ["Password settings"], nav: [{ label: "Password", href: "/console/change-password" }] },
 ];
 

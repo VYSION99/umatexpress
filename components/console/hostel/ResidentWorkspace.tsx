@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { BadgeCheck, Bell, Check, Loader2, MessageSquare, Phone, Plus, Send, UserX, Wallet, X } from "lucide-react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { cedis } from "@/components/campusRide/hostel/format";
+import { subscribeToHostelThread } from "@/components/campusRide/hostel/message-stream-client";
 
 type Booking = {
   id: string; reference: string; studentName: string; studentEmail: string; studentPhone: string;
@@ -248,7 +249,7 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
     {summary && <section className="console-totals">
       <article><span>RESIDENTS</span><strong>{summary.resident}</strong><small>{summary.total} bookings on record</small></article>
       <article><span>BED MONEY</span><strong>{cedis(summary.bedRevenue)}</strong><small>paid this year</small></article>
-      <article><span>PLATFORM 9%</span><strong>{cedis(summary.commission)}</strong><small>your net is {cedis(summary.net)}</small></article>
+      <article><span>PLATFORM 3%</span><strong>{cedis(summary.commission)}</strong><small>your net is {cedis(summary.net)}</small></article>
       <article><span>NEEDS YOU</span><strong>{summary.openServices}</strong><small>{summary.unreadMessages} unread messages</small></article>
     </section>}
 
@@ -418,7 +419,7 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
       />}
 
       <p className="console-note">
-        Bed payments are shown with the platform&apos;s 9% commission already taken out. Service fees are charged once per
+        Bed payments are shown with the platform&apos;s 3% commission already taken out. Service fees are charged once per
         academic year per plugin, on top of that commission, and the price a resident pays for each service is yours to set.
       </p>
     </section>
@@ -563,7 +564,7 @@ function ServicesPanel({ catalogue, subscriptions, periods, properties, busy, on
         </tr>)}
       </tbody>
     </table>
-    {!subscriptions.length && <p className="console-empty">No service is switched on yet. Each one is a once-a-year fee, separate from the 9% bed commission.</p>}
+    {!subscriptions.length && <p className="console-empty">No service is switched on yet. Each one is a once-a-year fee, separate from the 3% bed commission.</p>}
   </>;
 }
 
@@ -732,7 +733,7 @@ function PayoutsPanel({ account, statement, destinations, isOwner, busy, onSaveA
       <article><span>READY TO PAY</span><strong>{cedis(statement?.totals.payableAmount || 0)}</strong><small>released to you now</small></article>
       <article><span>STILL HELD</span><strong>{cedis(statement?.totals.accruedAmount || 0)}</strong><small>releases shortly before the year starts</small></article>
       <article><span>PAID OUT</span><strong>{cedis(statement?.totals.releasedAmount || 0)}</strong><small>{statement?.batches.length || 0} transfer{(statement?.batches.length || 0) === 1 ? "" : "s"} recorded</small></article>
-      <article><span>PLATFORM</span><strong>9%</strong><small>kept from each bed payment</small></article>
+      <article><span>PLATFORM</span><strong>3%</strong><small>kept from each bed payment</small></article>
     </section>
 
     <section className="console-panel">
@@ -756,9 +757,9 @@ function PayoutsPanel({ account, statement, destinations, isOwner, busy, onSaveA
     {!statement
       ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading your statement…</p>
       : statement.entries.length === 0
-        ? <p className="console-empty">No bed payment has landed yet. Each paid resident appears here with the platform&apos;s 9% already taken out.</p>
+        ? <p className="console-empty">No bed payment has landed yet. Each paid resident appears here with the platform&apos;s 3% already taken out.</p>
         : <table className="console-table">
-          <thead><tr><th>Resident</th><th>Bed</th><th>Paid</th><th>Platform 9%</th><th>Your net</th><th>Release</th></tr></thead>
+          <thead><tr><th>Resident</th><th>Bed</th><th>Paid</th><th>Platform 3%</th><th>Your net</th><th>Release</th></tr></thead>
           <tbody>
             {statement.entries.map((entry) => <tr key={entry.id}>
               <td><strong>{entry.studentName || "Student"}</strong><small>{entry.bookingReference} · {entry.periodName}</small></td>
@@ -797,6 +798,7 @@ function PayoutsPanel({ account, statement, destinations, isOwner, busy, onSaveA
 
 function ThreadPanel({ reference, name, onClose }: { reference: string; name: string; onClose: () => void }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
+  const latestMessageId = useRef("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -806,6 +808,7 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
       const response = await fetch(`/api/console/hostel/messages?reference=${encodeURIComponent(reference)}`, { credentials: "same-origin", cache: "no-store" });
       const data = await response.json() as { messages?: Message[]; error?: string };
       if (!response.ok) throw new Error(data.error || "That thread could not be loaded.");
+      latestMessageId.current = data.messages?.at(-1)?.id || "";
       setMessages(data.messages || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "That thread could not be loaded.");
@@ -814,6 +817,15 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
   }, [reference]);
 
   useEffect(() => { queueMicrotask(() => { void load(); }); }, [load]);
+
+  // The resident's reply arrives over the event stream while the panel is open,
+  // so the host does not answer a question that was already answered.
+  useEffect(() => {
+    const after = encodeURIComponent(latestMessageId.current);
+    return subscribeToHostelThread(`/api/console/hostel/messages/stream?reference=${encodeURIComponent(reference)}&after=${after}`, () => {
+      void load();
+    });
+  }, [load, reference]);
 
   const send = async (event: FormEvent) => {
     event.preventDefault();

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { BadgeCheck, BedDouble, CalendarClock, Check, IdCard, Plus, ShieldAlert, UserX, X } from "lucide-react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { PhotoReviewQueue } from "@/components/console/hostel/PhotoReviewQueue";
 
 type Listing = {
   id: string; spaceId: string; periodId: string; price: number; status: string;
@@ -178,6 +179,8 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
   return <>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
+
+    <PhotoReviewQueue onNotice={setSaved} />
 
     <section className="console-panel">
       <h2><IdCard size={18}/>Landlord verification

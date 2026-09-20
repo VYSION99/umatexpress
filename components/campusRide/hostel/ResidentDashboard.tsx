@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { AlertTriangle, Bell, CheckCircle2, Loader2, MessageSquare, Phone, Send, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, Loader2, MessageSquare, Phone, RotateCcw, Send, Star, Wrench } from "lucide-react";
+import { Stars } from "./PropertyReviews";
 import { cedis } from "./format";
+import { subscribeToHostelThread } from "./message-stream-client";
 
 type Booking = {
   id: string; reference: string; propertyName: string; propertyAddress: string;
@@ -23,12 +25,21 @@ type ServiceRequest = {
   price: number; note: string; status: string; createdAt: string;
 };
 
-type Residency = { booking: Booking; plugins: Subscription[]; services: ServiceRequest[]; unreadMessages: number };
+type Review = { id: string; rating: number; title: string; body: string; createdAt: string; reply: string; repliedAt: string };
+type Refund = {
+  id: string; amount: number; policy: string; percent: number; status: string;
+  reason: string; overrideReason: string; providerStatus: string; createdAt: string; decidedAt: string; settledAt: string;
+};
+type RefundQuote = { policy: string; percent: number; amount: number; daysBeforeStart: number; note: string; canRequest: boolean; blockedReason: string };
+type Residency = {
+  booking: Booking; plugins: Subscription[]; services: ServiceRequest[]; unreadMessages: number;
+  review: Review | null; refund: Refund | null; refundQuote: RefundQuote | null;
+};
 type Announcement = { id: string; propertyName: string; authorName: string; title: string; body: string; createdAt: string };
 type Message = { id: string; senderType: string; senderName: string; content: string; createdAt: string };
 
 const OPEN_SERVICE_STATUSES = ["REQUESTED", "APPROVED", "ACTIVE"];
-const TERMINAL = ["EXPIRED", "CANCELLED"];
+const TERMINAL = ["EXPIRED", "CANCELLED", "REFUNDED"];
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
 
 const statusLabel: Record<string, string> = {
@@ -37,6 +48,8 @@ const statusLabel: Record<string, string> = {
   REQUESTED: "Asked",
   APPROVED: "Approved",
   DECLINED: "Declined",
+  REFUNDED: "Refunded",
+  FAILED: "Failed",
   ACTIVE: "Running",
   COMPLETED: "Done",
   CANCELLED: "Cancelled",
@@ -141,18 +154,84 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [threadError, setThreadError] = useState("");
+  const [rating, setRating] = useState(0);
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewBody, setReviewBody] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [savingReview, setSavingReview] = useState(false);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundError, setRefundError] = useState("");
+  const [refundBusy, setRefundBusy] = useState(false);
 
+  /** A cancellation is a request, not a transfer: an administrator still decides. */
+  async function requestRefund(event: FormEvent) {
+    event.preventDefault();
+    setRefundBusy(true);
+    setRefundError("");
+    try {
+      const response = await fetch("/api/hostel/refunds", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reference: booking.reference, reason: refundReason }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "That cancellation was not recorded.");
+      setRefundReason("");
+      await onRefresh();
+    } catch (refundSubmitError) {
+      setRefundError(refundSubmitError instanceof Error ? refundSubmitError.message : "That cancellation was not recorded.");
+    } finally {
+      setRefundBusy(false);
+    }
+  }
+
+  /** One review per paid stay: the server refuses a second, so the box goes away with it. */
+  async function submitReview(event: FormEvent) {
+    event.preventDefault();
+    setSavingReview(true);
+    setReviewError("");
+    try {
+      const response = await fetch("/api/hostel/reviews", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bookingReference: booking.reference, rating, title: reviewTitle, body: reviewBody }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "That review was not saved.");
+      await onRefresh();
+    } catch (submitError) {
+      setReviewError(submitError instanceof Error ? submitError.message : "That review was not saved.");
+    } finally {
+      setSavingReview(false);
+    }
+  }
+
+  const latestMessageId = useRef("");
   const loadThread = useCallback(async () => {
     setThreadError("");
     try {
       const response = await fetch(`/api/hostel/messages?reference=${encodeURIComponent(booking.reference)}`, { credentials: "same-origin", cache: "no-store" });
       const data = await response.json() as { messages?: Message[]; error?: string };
       if (!response.ok) throw new Error(data.error || "The thread could not be loaded.");
+      latestMessageId.current = data.messages?.at(-1)?.id || "";
       setThread(data.messages || []);
     } catch (threadLoadError) {
       setThreadError(threadLoadError instanceof Error ? threadLoadError.message : "The thread could not be loaded.");
     }
   }, [booking.reference]);
+
+  // While the thread is open the server pushes a change event the moment the
+  // host writes, so the reply appears without waiting for the 45-second sweep.
+  const threadOpen = thread !== null;
+  useEffect(() => {
+    if (!threadOpen) return;
+    const after = encodeURIComponent(latestMessageId.current);
+    return subscribeToHostelThread(`/api/hostel/messages/stream?reference=${encodeURIComponent(booking.reference)}&after=${after}`, () => {
+      void loadThread();
+    });
+  }, [threadOpen, loadThread, booking.reference]);
 
   const send = async (event: FormEvent) => {
     event.preventDefault();
@@ -227,19 +306,98 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
               <small>{plugin.pluginCategory.toLowerCase()} · {plugin.residentPrice > 0 ? `${cedis(plugin.residentPrice)} a year` : "included in your rent"}</small>
               {open
                 ? <span className="hostel-resident-service-state">{statusLabel[open.status] || open.status}{open.price > 0 ? ` · ${cedis(open.price)}` : ""}</span>
-                : <button
-                  type="button"
-                  className="hostel-resident-service-button"
-                  onClick={() => void onRequest(booking.reference, plugin.pluginId)}
-                  disabled={busy === `service:${plugin.pluginId}`}
-                >
-                  {busy === `service:${plugin.pluginId}` ? <Loader2 size={13} className="console-spin" aria-hidden /> : null}
-                  {last && !OPEN_SERVICE_STATUSES.includes(last.status) ? "Ask again" : "Ask for this"}
-                </button>}
+                : TERMINAL.includes(booking.status)
+                  ? <span className="hostel-resident-muted">This stay is closed.</span>
+                  : <button
+                    type="button"
+                    className="hostel-resident-service-button"
+                    onClick={() => void onRequest(booking.reference, plugin.pluginId)}
+                    disabled={busy === `service:${plugin.pluginId}`}
+                  >
+                    {busy === `service:${plugin.pluginId}` ? <Loader2 size={13} className="console-spin" aria-hidden /> : null}
+                    {last && !OPEN_SERVICE_STATUSES.includes(last.status) ? "Ask again" : "Ask for this"}
+                  </button>}
               {last && !open && <small className="hostel-resident-muted">Last: {statusLabel[last.status] || last.status} · {when(last.createdAt)}</small>}
             </div>;
           })}
         </div>}
+    </section>
+
+    <section className="hostel-resident-review">
+      <p><Star size={13} aria-hidden /> YOUR REVIEW</p>
+      {residency.review
+        ? <div className="hostel-resident-review-saved">
+          <Stars rating={residency.review.rating} />
+          <strong>{residency.review.title || `${residency.review.rating} out of 5`}</strong>
+          <span>{residency.review.body}</span>
+          {residency.review.reply && <div className="hostel-resident-review-reply">
+            <strong>The hostel replied</strong>
+            <span>{residency.review.reply}</span>
+          </div>}
+        </div>
+        : booking.status === "PAID"
+          ? <form onSubmit={submitReview}>
+            <div className="hostel-review-picker" role="radiogroup" aria-label="Your rating">
+              {[1, 2, 3, 4, 5].map((step) => <button
+                key={step}
+                type="button"
+                role="radio"
+                aria-checked={rating === step}
+                aria-label={`${step} ${step === 1 ? "star" : "stars"}`}
+                className={step <= rating ? "is-on" : ""}
+                onClick={() => setRating(step)}
+              ><Star size={18} aria-hidden /></button>)}
+            </div>
+            <input value={reviewTitle} onChange={(event) => setReviewTitle(event.target.value)} placeholder="A headline (optional)" maxLength={120} />
+            <textarea value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} placeholder="What were the room, the water, the gate like?" maxLength={1500} rows={3} />
+            <button type="submit" disabled={savingReview || !rating || !reviewBody.trim()}>
+              {savingReview ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Star size={14} aria-hidden />} Post review
+            </button>
+            {reviewError && <span className="hostel-book-error">{reviewError}</span>}
+          </form>
+          : <span className="hostel-resident-muted">{TERMINAL.includes(booking.status) ? "This stay is closed, so there is no review to leave." : "A review opens once the bed is paid."}</span>}
+    </section>
+
+    <section className="hostel-resident-refund">
+      <p><RotateCcw size={13} aria-hidden /> CANCELLING THIS BED</p>
+      {residency.refund
+        ? <div className="hostel-resident-refund-state">
+          <span className={`hostel-resident-refund-chip hostel-resident-refund-${residency.refund.status.toLowerCase()}`}>
+            {statusLabel[residency.refund.status] || residency.refund.status}
+          </span>
+          <strong>{cedis(residency.refund.amount)}</strong>
+          <span>
+            {residency.refund.policy === "OVERRIDE"
+              ? `An administrator set this at ${residency.refund.percent}%${residency.refund.overrideReason ? ` — ${residency.refund.overrideReason}` : ""}`
+              : `Policy: ${residency.refund.percent}% returned`}
+          </span>
+          {residency.refund.status === "DECLINED" && residency.refund.providerStatus && <span>Reason: {residency.refund.providerStatus}</span>}
+          {residency.refund.status === "APPROVED" && <span>The money is with Paystack and will land in your account shortly.</span>}
+          <small>Asked {when(residency.refund.createdAt)}{residency.refund.settledAt ? ` · settled ${when(residency.refund.settledAt)}` : ""}</small>
+        </div>
+        : residency.refundQuote?.canRequest
+          ? <form onSubmit={requestRefund}>
+            <p className="hostel-resident-refund-quote">
+              Cancel today and <strong>{cedis(residency.refundQuote.amount)}</strong> comes back — {residency.refundQuote.percent}% of what you paid.
+            </p>
+            <small>{residency.refundQuote.note}</small>
+            <textarea
+              value={refundReason}
+              onChange={(event) => setRefundReason(event.target.value)}
+              placeholder="Why are you cancelling? (optional, but it helps the office decide)"
+              maxLength={500}
+              rows={2}
+            />
+            <button type="submit" disabled={refundBusy}>
+              {refundBusy ? <Loader2 size={14} className="console-spin" aria-hidden /> : <RotateCcw size={14} aria-hidden />} Ask to cancel and refund
+            </button>
+            <small className="hostel-resident-muted">The bed stays yours until an administrator approves, and the money moves after that.</small>
+            {refundError && <span className="hostel-book-error">{refundError}</span>}
+          </form>
+          : <span className="hostel-resident-muted">
+            {residency.refundQuote?.blockedReason || "There is nothing to refund on this booking."}
+            {residency.refundQuote && residency.refundQuote.daysBeforeStart > 0 && ` The year starts in ${residency.refundQuote.daysBeforeStart} day${residency.refundQuote.daysBeforeStart === 1 ? "" : "s"}.`}
+          </span>}
     </section>
 
     <section className="hostel-resident-thread">

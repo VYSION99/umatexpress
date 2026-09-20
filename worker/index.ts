@@ -7,6 +7,8 @@ import { consoleBoundaryResponse } from "@/lib/console-hosts";
 import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
 import { runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
+import { runHostelPayoutReconcileJob, runHostelPayoutReleaseJob } from "@/lib/hostel-engine/payouts";
+import { runHostelRefundReconcile } from "@/lib/hostel-engine/refunds";
 
 // Durable Object classes must be exported from the Worker entry point. The
 // binding and its migration live in build/cloudflare-binding-plan.ts.
@@ -94,11 +96,20 @@ const worker = {
     if (controller?.cron === PAYOUT_RELEASE_CRON) {
       // Four at a time: each candidate costs a recipient lookup, a claim, a
       // transfer and two writes, and one invocation has fifty subrequests.
-      ctx.waitUntil(runPayoutReleaseJob());
+      // The hostel release is opt-in (`HOSTEL_PAYOUT_AUTO_ENABLED`) and adds
+      // at most two transfers, so a deployment with both products still fits.
+      ctx.waitUntil(Promise.all([runPayoutReleaseJob(), runHostelPayoutReleaseJob({ limit: 2 })]));
       return;
     }
     if (controller?.cron === PAYOUT_RECONCILE_CRON) {
-      ctx.waitUntil(runPayoutReconcileJob());
+      // Refunds ride the same reconciliation trigger: a refund is money
+      // moving, and an approved refund whose webhook never arrived is exactly
+      // the kind of row this cron exists to notice.
+      ctx.waitUntil(Promise.all([
+        runPayoutReconcileJob(),
+        runHostelPayoutReconcileJob({ limit: 4 }),
+        runHostelRefundReconcile({ limit: 4 }),
+      ]));
       return;
     }
     ctx.waitUntil(runCampusReconcile());

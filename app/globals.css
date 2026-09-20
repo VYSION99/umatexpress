@@ -650,6 +650,12 @@
 .hostel-card-foot small{color:var(--ui-muted);font-size:11px;font-weight:700}
 .hostel-card-link{display:inline-flex;align-items:center;gap:6px;padding:10px 13px;border-radius:12px;background:var(--ui-green);color:white;font-size:12px;font-weight:900}
 .hostel-card-link:hover{background:var(--ui-green-deep)}
+.hostel-card-cover{display:block;margin:-18px -18px 0;border-radius:19px 19px 0 0;overflow:hidden;aspect-ratio:16/9;background:var(--ui-line)}
+.hostel-card-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.hostel-gallery{display:grid;gap:10px}
+.hostel-gallery-main{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:22px;display:block;box-shadow:var(--ui-card-shadow)}
+.hostel-gallery-strip{display:grid;grid-auto-flow:column;grid-auto-columns:92px;gap:10px;margin:0;padding:0 0 4px;list-style:none;overflow-x:auto}
+.hostel-gallery-strip img{width:92px;height:70px;object-fit:cover;border-radius:14px;display:block;box-shadow:var(--ui-card-shadow)}
 
 .hostel-empty{width:min(1220px,100%);margin:18px auto;display:grid;justify-items:start;gap:8px;border:1px solid var(--ui-line);border-radius:22px;background:var(--ui-surface);padding:28px;box-shadow:var(--ui-card-shadow);color:var(--ui-ink)}
 .hostel-empty svg{color:var(--ui-green)}
@@ -787,3 +793,69 @@
   .hostel-resident-card>header{display:grid}
   .hostel-resident-plugin-grid{grid-template-columns:1fr}
 }
+
+/* Reviews: a paid stay earns one, a landlord may answer it, staff may hide it */
+.hostel-card-rating{display:flex;align-items:center;gap:6px;margin:-4px 0 0;font-size:12px;font-weight:700;color:var(--ui-muted)}
+.hostel-stars{display:inline-flex;align-items:center;gap:1px;color:#cbd5d0}
+.hostel-stars svg.is-on{color:var(--ui-yellow-ink);fill:var(--ui-yellow-ink)}
+.hostel-reviews{display:grid;gap:14px;margin-top:18px}
+.hostel-review-score{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--ui-ink)}
+.hostel-review-list{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.hostel-review-list>li{display:grid;gap:9px;border:1px solid var(--ui-line);border-radius:18px;background:var(--ui-surface);padding:16px 18px;box-shadow:var(--ui-card-shadow)}
+.hostel-review-list header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hostel-review-list header strong{font-size:15px}
+.hostel-review-list header small{color:var(--ui-muted);font-size:12px;font-weight:700}
+.hostel-review-list>li>p{margin:0;font-size:14px;line-height:1.62;color:var(--ui-ink)}
+.hostel-review-reply{display:flex;gap:10px;border-radius:14px;background:var(--ui-green-soft);padding:12px 14px;color:var(--ui-green-deep)}
+.hostel-review-reply strong{display:block;font-size:12px;letter-spacing:.05em;text-transform:uppercase}
+.hostel-review-reply span{display:block;margin-top:4px;font-size:13.5px;line-height:1.55}
+.hostel-review-reply small{display:block;margin-top:4px;font-size:11px;font-weight:700;opacity:.75}
+.hostel-resident-review{display:grid;gap:10px;border-top:1px solid var(--ui-line);padding-top:14px}
+.hostel-resident-review>p{display:flex;align-items:center;gap:7px;margin:0;font-size:11px;font-weight:900;letter-spacing:.1em;color:var(--ui-cyan)}
+.hostel-resident-review-saved{display:grid;gap:6px}
+.hostel-resident-review-saved strong{font-size:14px}
+.hostel-resident-review-saved>span{font-size:14px;line-height:1.6;color:var(--ui-ink)}
+.hostel-resident-review-reply{margin-top:4px;border-radius:13px;background:var(--ui-green-soft);padding:11px 13px;color:var(--ui-green-deep)}
+.hostel-resident-review-reply strong{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.hostel-resident-review-reply span{display:block;margin-top:3px;font-size:13.5px;line-height:1.55}
+.hostel-resident-review form{display:grid;gap:9px}
+.hostel-resident-review form input{width:100%;border:1px solid var(--ui-line);border-radius:13px;padding:11px 13px;font:inherit;font-size:14px;outline:none}
+.hostel-resident-review form textarea{width:100%;border:1px solid var(--ui-line);border-radius:14px;padding:12px 13px;font:inherit;font-size:14px;resize:vertical;outline:none}
+.hostel-resident-review form input:focus-visible,.hostel-resident-review form textarea:focus-visible{outline:2px solid var(--ui-cyan);outline-offset:1px}
+.hostel-resident-review form button{display:inline-flex;align-items:center;gap:7px;justify-self:start;border:0;border-radius:12px;background:var(--ui-green);color:white;padding:11px 16px;font-size:13px;font-weight:900;cursor:pointer}
+.hostel-resident-review form button:disabled{opacity:.55;cursor:not-allowed}
+.hostel-review-picker{display:flex;gap:4px}
+.hostel-review-picker button{border:0;background:none;padding:2px;cursor:pointer;color:#cbd5d0;line-height:0}
+.hostel-review-picker button.is-on{color:var(--ui-yellow-ink)}
+.hostel-review-picker button.is-on svg{fill:var(--ui-yellow-ink)}
+/* The public assistant card: answers written from the listing's own facts. */
+.hostel-assistant{display:grid;gap:10px;border:1px solid var(--ui-line);border-radius:20px;background:white;padding:16px 18px;box-shadow:0 12px 30px rgba(16,24,40,.06)}
+.hostel-assistant>p{display:flex;align-items:center;gap:7px;margin:0;font-size:11px;font-weight:900;letter-spacing:.1em;color:var(--ui-cyan)}
+.hostel-assistant form{display:grid;gap:9px}
+.hostel-assistant textarea{width:100%;border:1px solid var(--ui-line);border-radius:14px;padding:12px 13px;font:inherit;font-size:14px;resize:vertical;outline:none}
+.hostel-assistant textarea:focus-visible{outline:2px solid var(--ui-cyan);outline-offset:1px}
+.hostel-assistant form button{display:inline-flex;align-items:center;gap:7px;justify-self:start;border:0;border-radius:12px;background:var(--ui-green);color:white;padding:10px 16px;font-size:13px;font-weight:900;cursor:pointer}
+.hostel-assistant form button:disabled{opacity:.55;cursor:not-allowed}
+.hostel-assistant-chips{display:flex;flex-wrap:wrap;gap:7px}
+.hostel-assistant-chips button{border:1px solid var(--ui-line);border-radius:999px;background:#fbfdfc;color:var(--ui-ink);padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;text-align:left}
+.hostel-assistant-chips button:hover{border-color:var(--ui-green);color:var(--ui-green)}
+.hostel-assistant-answer{display:grid;gap:5px;border-radius:14px;background:var(--ui-green-soft);padding:12px 14px}
+.hostel-assistant-answer p{margin:0;font-size:14px;line-height:1.6}
+.hostel-assistant-answer small{color:var(--ui-muted);font-size:11px;font-weight:700}
+/* Cancelling a bed: the policy price first, then a person's decision. */
+.hostel-resident-refund{display:grid;gap:10px;border-top:1px solid var(--ui-line);padding-top:14px}
+.hostel-resident-refund>p{display:flex;align-items:center;gap:7px;margin:0;font-size:11px;font-weight:900;letter-spacing:.1em;color:var(--ui-cyan)}
+.hostel-resident-refund form{display:grid;gap:9px}
+.hostel-resident-refund-quote{margin:0;font-size:14px;line-height:1.55}
+.hostel-resident-refund form>small{color:var(--ui-muted);font-size:12px;font-weight:700}
+.hostel-resident-refund form textarea{width:100%;border:1px solid var(--ui-line);border-radius:14px;padding:12px 13px;font:inherit;font-size:14px;resize:vertical;outline:none}
+.hostel-resident-refund form textarea:focus-visible{outline:2px solid var(--ui-cyan);outline-offset:1px}
+.hostel-resident-refund form button{display:inline-flex;align-items:center;gap:7px;justify-self:start;border:0;border-radius:12px;background:var(--ui-yellow);color:var(--ui-yellow-ink);padding:11px 16px;font-size:13px;font-weight:900;cursor:pointer}
+.hostel-resident-refund form button:disabled{opacity:.55;cursor:not-allowed}
+.hostel-resident-refund-state{display:grid;gap:5px;border:1px solid var(--ui-line);border-radius:16px;background:#fbfdfc;padding:13px 15px}
+.hostel-resident-refund-state strong{font-size:18px}
+.hostel-resident-refund-state>span{font-size:13.5px;line-height:1.55;color:var(--ui-ink)}
+.hostel-resident-refund-state small{color:var(--ui-muted);font-size:11px;font-weight:700}
+.hostel-resident-refund-chip{display:inline-flex;align-items:center;justify-self:start;border-radius:999px;padding:5px 11px;font-size:11px;font-weight:900;letter-spacing:.04em;background:var(--ui-yellow-soft);color:var(--ui-yellow-ink)}
+.hostel-resident-refund-paid{background:var(--ui-green-soft);color:var(--ui-green-deep)}
+.hostel-resident-refund-declined,.hostel-resident-refund-failed{background:#fdecec;color:#a12b2b}

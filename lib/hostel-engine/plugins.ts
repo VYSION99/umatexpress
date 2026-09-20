@@ -10,7 +10,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  *
  * The platform owns the catalogue and prices each plugin once. A landlord
  * subscribes to the ones they want for an academic year and pays the platform
- * a per-year fee for each; that fee sits beside the 9% commission the platform
+ * a per-year fee for each; that fee sits beside the 3% commission the platform
  * already takes from every bed payment, it does not replace it. The landlord
  * then sets the price a resident pays for the service, and residents request
  * those services from the resident page. A plugin with a resident price of zero

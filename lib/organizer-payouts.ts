@@ -3,6 +3,7 @@ import { consoleAudit } from "@/lib/console-audit";
 import { logEvent } from "@/lib/observability";
 import { createPaystackRecipient, fetchPaystackBalance, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
 import { isPayoutMethod, recipientTypeFor, type PayoutMethod } from "@/lib/paystack-banks";
+import { platformSettingEnabled } from "@/lib/platform-settings";
 import { openSecret } from "@/lib/secret-box";
 import { ensureBookingsTable, ensurePaymentsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
@@ -613,13 +614,6 @@ export async function reversePayoutForBooking(input: { bookingId: string; reason
  *      its own state, and the reconcile job — not the send — is what settles.
  * ------------------------------------------------------------------ */
 
-async function envFlag(name: string, fallback: boolean) {
-  const { envValue } = await import("@/lib/runtime-env");
-  const raw = (await envValue(name)).trim().toLowerCase();
-  if (!raw) return fallback;
-  return ["1", "true", "yes", "on"].includes(raw);
-}
-
 async function envNumber(name: string, fallback: number) {
   const { envValue } = await import("@/lib/runtime-env");
   const raw = Number((await envValue(name)).trim());
@@ -629,10 +623,12 @@ async function envNumber(name: string, fallback: number) {
 /**
  * Unattended transfers are opt-in. The switch exists so that a deployment can
  * hold the ledger and the statements without a cron ever moving money; an
- * administrator clicking "run now" is attended and is not gated by it.
+ * administrator clicking "run now" is attended and is not gated by it. The
+ * console's Platform settings holds the override, and `PAYOUT_AUTO_ENABLED`
+ * stays as the fallback for a deployment that never opens that page.
  */
 export async function payoutAutoEnabled() {
-  return envFlag("PAYOUT_AUTO_ENABLED", false);
+  return platformSettingEnabled("organizer_payout_auto");
 }
 
 export async function payoutTransferFee() {

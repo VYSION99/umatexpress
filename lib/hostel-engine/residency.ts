@@ -13,7 +13,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  *
  * Money is pesewas everywhere. The student pays the published bed price plus
  * the utilities fee when the property charges one; the platform keeps
- * `commission_bps` (9% by default) of that payment and the landlord's share is
+ * `commission_bps` (3% by default) of that payment and the landlord's share is
  * written to `hostel_payouts` as an accrual, so the payout phase releases a
  * ledger that already exists rather than rebuilding one from bookings.
  *
@@ -93,7 +93,7 @@ const RESIDENCY_SCHEMA_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_hostel_bookings_hold ON hostel_bookings(status, hold_expires_at)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_payouts_booking ON hostel_payouts(booking_id)",
   "CREATE INDEX IF NOT EXISTS idx_hostel_payouts_landlord ON hostel_payouts(landlord_id, status, release_after)",
-  // The platform rate is 9%. Every landlord row still carrying the placeholder
+  // The platform rate is 3%. Every landlord row still carrying the placeholder
   // 5% default moves with it; an explicitly negotiated rate was never stored as
   // 500, so the update cannot overwrite a decision someone made on purpose.
   `UPDATE hostel_landlords SET commission_bps = ${HOSTEL_DEFAULT_COMMISSION_BPS} WHERE commission_bps = 500`,

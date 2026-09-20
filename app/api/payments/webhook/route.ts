@@ -2,6 +2,8 @@ import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
 import { failHostelWebhookPayment, settleHostelWebhookPayment } from "@/lib/hostel-engine/settle";
+import { applyHostelPaystackTransferEvent } from "@/lib/hostel-engine/payouts";
+import { applyHostelRefundEvent } from "@/lib/hostel-engine/refunds";
 import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
 import { accrueForBooking, applyPaystackTransferEvent } from "@/lib/organizer-payouts";
 import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
@@ -17,14 +19,22 @@ type PaystackWebhook = {
     gateway_response?: string;
     transfer_code?: string;
     reason?: string;
+    /** Refund payloads carry the refund's own reference and its charge. */
+    transaction?: string | { reference?: string };
   };
 };
 
 /** Paystack sends payout results to the same endpoint as payments. */
 const TRANSFER_EVENTS = ["transfer.success", "transfer.failed", "transfer.reversed"] as const;
+/** Refunds are their own family: the payload reference belongs to the refund. */
+const REFUND_EVENTS = ["refund.processed", "refund.pending", "refund.failed"] as const;
 
 function isTransferEvent(event: string | undefined): event is (typeof TRANSFER_EVENTS)[number] {
   return (TRANSFER_EVENTS as readonly string[]).includes(String(event || ""));
+}
+
+function isRefundEvent(event: string | undefined): event is (typeof REFUND_EVENTS)[number] {
+  return (REFUND_EVENTS as readonly string[]).includes(String(event || ""));
 }
 
 function json(message: string, status = 200, requestId = "") {
@@ -134,6 +144,32 @@ export async function POST(request: Request) {
     return json("Invalid webhook payload.", 400, requestId);
   }
 
+  // A refund carries its own reference, not the charge's, so it is settled
+  // before the payment path reads a reference it would not find.
+  if (isRefundEvent(event.event)) {
+    const refundReference = String(event.data?.reference || "").trim();
+    const refundEventId = event.data?.id ? String(event.data.id) : `${event.event}:${refundReference}`;
+    try {
+      if (!(await claimPaymentEvent("PAYSTACK", refundEventId, refundReference))) {
+        await incrementMetric("webhook_duplicate");
+        return json("Webhook ignored: event already processed.", 200, requestId);
+      }
+      const result = await applyHostelRefundEvent({
+        event: String(event.event),
+        reference: refundReference,
+        status: event.data?.status,
+        amount: Number(event.data?.amount || 0),
+      });
+      await incrementMetric(`hostel_refund_${result.status === "PAID" ? "settled" : result.status === "FAILED" ? "failed" : "pending"}`);
+      return noStore(result);
+    } catch (error) {
+      await incrementMetric("webhook_failed");
+      logEvent("error", "hostel_refund_webhook_failed", { requestId, reference: refundReference, reason: error instanceof Error ? error.message : "unknown" });
+      await releasePaymentEvent("PAYSTACK", refundEventId).catch(() => undefined);
+      return noStore({ error: error instanceof Error ? error.message : "Refund webhook could not be processed." }, 500);
+    }
+  }
+
   const reference = String(event.data?.reference || "").trim();
   if (!reference) return json("Webhook ignored: missing reference.", 200, requestId);
 
@@ -148,10 +184,20 @@ export async function POST(request: Request) {
         await incrementMetric("webhook_duplicate");
         return json("Webhook ignored: event already processed.", 200, requestId);
       }
-      const result = await applyPaystackTransferEvent({
+      // Two payout ledgers share this endpoint: vacation ride organizers and
+      // hostel landlords. Each handler answers for its own batches, so a
+      // transfer is settled by exactly the one it belongs to.
+      let result = await applyPaystackTransferEvent({
         event: event.event,
         data: (event.data || {}) as Record<string, unknown>,
       });
+      if (!result.handled) {
+        const hostel = await applyHostelPaystackTransferEvent({
+          event: event.event,
+          data: (event.data || {}) as Record<string, unknown>,
+        });
+        if (hostel.handled) result = hostel;
+      }
       await incrementMetric(`payout_transfer_${result.handled ? "applied" : "ignored"}`);
       return noStore(result);
     } catch (error) {

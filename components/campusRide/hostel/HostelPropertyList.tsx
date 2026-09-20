@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, BedDouble, MapPin, Zap } from "lucide-react";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import type { PublicProperty } from "@/lib/hostel-engine/listings";
+import { Stars } from "@/components/campusRide/hostel/PropertyReviews";
 
 /**
  * The answer under the map: every approved building in the open year, in the
@@ -25,11 +26,15 @@ export function HostelPropertyList({ properties }: { properties: PublicProperty[
     </div>
     <div className="hostel-card-grid">
       {properties.map((property) => <article key={property.id} className="hostel-card">
+        {property.coverPhotoId && <Link href={`/hostel/${encodeURIComponent(property.id)}`} className="hostel-card-cover" aria-hidden tabIndex={-1}>
+          <img src={`/api/hostel/photos/${property.coverPhotoId}`} alt="" loading="lazy" />
+        </Link>}
         <div className="hostel-card-top">
           <h3><Link href={`/hostel/${encodeURIComponent(property.id)}`}>{property.name}</Link></h3>
           <span className="hostel-card-beds">{bedsLabel(property.availableSpaces)}</span>
         </div>
         <p className="hostel-card-address"><MapPin size={14} aria-hidden />{property.address || "Address on the property page"}</p>
+        {property.ratingCount > 0 && <p className="hostel-card-rating"><Stars rating={property.ratingAverage} size={13} /><span>{property.ratingAverage.toFixed(1)} ({property.ratingCount})</span></p>}
         <ul className="hostel-card-facts">
           <li>{distanceLabel(property.distanceM)}</li>
           <li>{property.roomCount} {property.roomCount === 1 ? "room" : "rooms"}</li>

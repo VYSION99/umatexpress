@@ -142,3 +142,24 @@
 }
 .passenger-support-list { width: 100%; }
 .passenger-support-list th, .passenger-support-list td { text-align: left; font-size: 12.5px; }
+
+/* Recovery: the reset page, and the link from sign-in. */
+.student-auth-forgot {
+  justify-self: center;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--ui-cyan, #0e7490);
+  font-size: 12.5px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.student-auth-forgot:hover { text-decoration: underline; }
+
+.student-auth-interface > .campus-auth-card > a:not(.student-auth-forgot) {
+  justify-self: center;
+  color: var(--ui-cyan, #0e7490);
+  font-size: 13px;
+  font-weight: 750;
+}

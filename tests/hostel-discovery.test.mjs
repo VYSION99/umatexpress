@@ -22,6 +22,7 @@ const properties = [];
 const rooms = [];
 const spaces = [];
 const listings = [];
+const photos = [];
 const statements = [];
 
 function cell(value) {
@@ -105,6 +106,18 @@ function handle(sql, args) {
   }
 
   if (/INSERT INTO rate_limit_windows/.test(sql) && /RETURNING count/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
+
+  // The cover on a card, and the gallery on one building's page. Both read
+  // approved rows only, which is the gate these tests exist to keep honest.
+  if (/FROM hostel_property_photos WHERE status = 'APPROVED' AND property_id IN/.test(sql)) {
+    const wanted = new Set(args);
+    const rows = photos.filter((photo) => photo.status === "APPROVED" && wanted.has(photo.property_id)).sort((left, right) => left.sort_order - right.sort_order);
+    return ok(rows.length ? table(["id", "property_id", "caption", "sort_order"], rows) : empty);
+  }
+  if (/FROM hostel_property_photos WHERE property_id = \? AND status = 'APPROVED'/.test(sql)) {
+    const rows = photos.filter((photo) => photo.status === "APPROVED" && photo.property_id === args[0]).sort((left, right) => left.sort_order - right.sort_order);
+    return ok(rows.length ? table(["id", "caption", "sort_order"], rows) : empty);
+  }
   return ok(empty);
 }
 
@@ -137,7 +150,7 @@ const PERIOD = { id: "period-1", name: "2026/27 Academic Year", starts_on: "2026
 const NEXT_YEAR = { id: "period-2", name: "2027/28 Academic Year", starts_on: "2027-09-01", ends_on: "2028-07-31", active: 1 };
 
 function seed() {
-  periods.length = 0; properties.length = 0; rooms.length = 0; spaces.length = 0; listings.length = 0; statements.length = 0;
+  periods.length = 0; properties.length = 0; rooms.length = 0; spaces.length = 0; listings.length = 0; photos.length = 0; statements.length = 0;
   periods.push({ ...PERIOD }, { ...NEXT_YEAR });
   properties.push(
     { id: "property-a", landlord_id: "landlord-1", name: "Green Court Hostel", address: "12 Hospital Road, Tarkwa", latitude: 5.3018, longitude: -1.9931, campus_distance_m: null, utilities_enabled: 1, status: "APPROVED" },
@@ -177,6 +190,12 @@ function seed() {
   // bed-a4's listing is approved but its bed is retired; make bed-a2's listing a draft instead.
   listings.find((item) => item.id === "listing-a2").status = "DRAFT";
   listings.find((item) => item.id === "listing-a4").status = "APPROVED";
+  photos.push(
+    { id: "photo-a1", property_id: "property-a", caption: "Front gate", sort_order: 1, status: "APPROVED" },
+    // Uploaded, never reviewed: no student surface may show it.
+    { id: "photo-a2", property_id: "property-a", caption: "Waiting for review", sort_order: 0, status: "PENDING" },
+    { id: "photo-b1", property_id: "property-b", caption: "Suspended building", sort_order: 1, status: "APPROVED" },
+  );
 }
 
 test("the public list counts only beds a student could actually book", async () => {
@@ -286,9 +305,11 @@ test("the properties route needs no session and says nothing about the landlord"
   assert.equal(body.period.name, "2026/27 Academic Year");
   assert.equal(body.properties.length, 1);
   const property = body.properties[0];
-  assert.deepEqual(Object.keys(property).sort(), ["address", "availableSpaces", "distanceM", "id", "latitude", "longitude", "minPrice", "minTotal", "name", "roomCount", "utilitiesEnabled"].sort());
+  assert.deepEqual(Object.keys(property).sort(), ["address", "availableSpaces", "coverPhotoId", "distanceM", "id", "latitude", "longitude", "minPrice", "minTotal", "name", "ratingAverage", "ratingCount", "roomCount", "utilitiesEnabled"].sort());
   assert.equal(property.availableSpaces, 2);
   assert.equal(property.distanceM, 0);
+  assert.equal(property.coverPhotoId, "photo-a1", "the card cover is the first approved photo");
+  assert.equal(JSON.stringify(body).includes("photo-a2"), false, "a pending photo is not even leaked by id");
   assert.equal(JSON.stringify(body).includes("landlord"), false, "no landlord field may leak");
 
   const filtered = await (await propertiesGet(new Request("https://umatexpress.test/api/hostel/properties?periodId=period-1&maxDistance=99999999"))).json();
@@ -309,6 +330,8 @@ test("the browse page renders the filters, the map and the cards", async () => {
   assert.match(html, /Interactive Hostel Finder map/);
   assert.match(html, /hostel-marker|Loading real map/);
   assert.match(html, /href="\/hostel\/property-a"/);
+  assert.match(html, /\/api\/hostel\/photos\/photo-a1/, "the card shows the approved cover");
+  assert.equal(/\/api\/hostel\/photos\/photo-a2/.test(html), false, "the pending photo has no public URL on the page");
   assert.equal(/Suspended Lodge/.test(html), false, "a suspended building cannot appear anywhere on the page");
 });
 
@@ -321,6 +344,9 @@ test("one hostel's page lists its approved beds and 404s for a suspended buildin
   assert.match(html, /GH₵ 1,800/, "the bed rent renders");
   assert.match(html, /GH₵ 1,950/, "rent plus utilities renders");
   assert.match(html, /2026\/27 Academic Year/);
+  assert.match(html, /hostel-gallery-main/);
+  assert.match(html, /\/api\/hostel\/photos\/photo-a1/);
+  assert.equal(/\/api\/hostel\/photos\/photo-a2/.test(html), false, "the gallery shows approved photos only");
 
   await assert.rejects(() => HostelPropertyPage({ params: Promise.resolve({ propertyId: "property-b" }), searchParams: Promise.resolve({}) }), (error) => {
     assert.match(String(error?.digest || error?.message || error), /404/);

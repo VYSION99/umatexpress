@@ -109,6 +109,36 @@ export async function listHostelMessages(bookingId: string, viewer: "STUDENT" | 
   return messages.map((message) => (unread.includes(message.id) ? { ...message, readAt: new Date().toISOString() } : message));
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Waits for the thread to grow, for the stream route that turns a thread into
+ * server-sent events. It is a bounded long-poll: read the newest message id,
+ * return the moment it differs from `after`, otherwise look again on a short
+ * interval until the wait runs out. Nothing is marked read here — opening the
+ * thread is what marks it, and that stays the ordinary GET's job.
+ */
+export async function waitForHostelMessages(
+  bookingId: string,
+  options: { after?: string; waitMs?: number; pollMs?: number } = {},
+) {
+  await ensureHostelMessageTables();
+  const after = String(options.after || "");
+  const waitMs = Math.min(Math.max(Number(options.waitMs) || 10_000, 500), 30_000);
+  const pollMs = Math.min(Math.max(Number(options.pollMs) || 2_000, 500), 10_000);
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const row = rowsToObjects(await turso(
+      "SELECT id FROM hostel_messages WHERE booking_id = ? ORDER BY created_at DESC LIMIT 1",
+      [String(bookingId || "")],
+    ))[0];
+    const latestId = String(row?.id || "");
+    const changed = Boolean(latestId) && latestId !== after;
+    if (changed || Date.now() >= deadline) return { changed, latestId };
+    await sleep(Math.max(50, Math.min(pollMs, deadline - Date.now())));
+  }
+}
+
 export async function unreadHostelMessageCount(bookingId: string, viewer: "STUDENT" | "HOST") {
   await ensureHostelMessageTables();
   const counterpart = viewer === "STUDENT" ? "('HOST','ADMIN')" : "('STUDENT')";

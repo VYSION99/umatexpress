@@ -107,7 +107,7 @@ function bookableRow(listingId) {
     property_status: property.status,
     utilities_enabled: property.utilities_enabled,
     landlord_id: landlord.id,
-    commission_bps: landlord.commission_bps ?? 900,
+    commission_bps: landlord.commission_bps ?? 300,
     landlord_status: landlord.status,
     period_starts_on: period?.starts_on || "",
     period_active: period?.active ?? 0,
@@ -238,12 +238,12 @@ function handle(sql, args) {
     const row = bookableRow(args[0]);
     return ok(row ? table(Object.keys(row), [row]) : empty);
   }
-  if (matched(/SELECT reference FROM hostel_bookings WHERE student_email = \? AND period_id = \? AND status IN \('PAID','PAYMENT_REVIEW'\)/, sql)) {
-    const row = bookings.find((item) => item.student_email === args[0] && item.period_id === args[1] && ["PAID", "PAYMENT_REVIEW"].includes(item.status));
+  if (matched(/SELECT reference FROM hostel_bookings WHERE student_email = \? AND period_id = \? AND status IN/, sql)) {
+    const row = bookings.find((item) => item.student_email === args[0] && item.period_id === args[1] && ["PAID", "PAYMENT_REVIEW", "CANCELLED", "REFUNDED"].includes(item.status));
     return ok(row ? table(["reference"], [row]) : empty);
   }
-  if (matched(/SELECT reference FROM hostel_bookings WHERE student_email = \? AND status IN \('PAID','PAYMENT_REVIEW'\)/, sql)) {
-    const rows = bookings.filter((item) => item.student_email === args[0] && ["PAID", "PAYMENT_REVIEW"].includes(item.status));
+  if (matched(/SELECT reference FROM hostel_bookings WHERE student_email = \? AND status IN/, sql)) {
+    const rows = bookings.filter((item) => item.student_email === args[0] && ["PAID", "PAYMENT_REVIEW", "CANCELLED", "REFUNDED"].includes(item.status));
     return ok(rows.length ? table(["reference"], rows) : empty);
   }
   if (matched(/UPDATE hostel_spaces SET status = 'RESERVED'/, sql)) {
@@ -524,7 +524,7 @@ function handle(sql, args) {
       id: row.id, name: row.name, phone: row.phone, email: row.email,
       organization: row.organization || "", status: row.status || "ACTIVE",
       kyc_status: row.kyc_status || "PENDING", review_reason: "",
-      commission_bps: row.commission_bps ?? 900, created_at: row.created_at || "", updated_at: row.updated_at || "",
+      commission_bps: row.commission_bps ?? 300, created_at: row.created_at || "", updated_at: row.updated_at || "",
     }]));
   }
   if (matched(/SELECT COALESCE\(payout_method,''\) AS payout_method/, sql)) {
@@ -543,6 +543,8 @@ function handle(sql, args) {
       row.payout_method = method; row.payout_account_name = accountName; row.payout_account_number = sealed;
       row.payout_account_last4 = last4; row.payout_bank_code = bankCode; row.payout_bank_name = bankName;
       row.payout_updated_at = payoutUpdatedAt; row.updated_at = updatedAt;
+      // The SQL clears the cached recipient, so the fake does too.
+      row.paystack_recipient_code = "";
     }
     return affected(row ? 1 : 0);
   }
@@ -551,8 +553,11 @@ function handle(sql, args) {
     return ok(row ? table(["payout_account_number"], [{ payout_account_number: row.payout_account_number || "" }]) : empty);
   }
   if (matched(/INSERT INTO hostel_payout_batches/, sql)) {
-    const [id, landlordId, reference, note, actor, createdAt, updatedAt] = args;
-    payoutBatches.push({ id, landlord_id: landlordId, total_amount: 0, entry_count: 0, transfer_reference: reference, note, created_by: actor, created_at: createdAt, updated_at: updatedAt });
+    const [id, landlordId, reference, note, actor, settledAt, createdAt, updatedAt] = args;
+    payoutBatches.push({
+      id, landlord_id: landlordId, total_amount: 0, entry_count: 0, transfer_reference: reference, note,
+      created_by: actor, mode: "MANUAL", status: "RELEASED", settled_at: settledAt, created_at: createdAt, updated_at: updatedAt,
+    });
     return affected(1);
   }
   if (matched(/UPDATE hostel_payouts SET status = 'RELEASED', batch_id = \?/, sql)) {
@@ -619,7 +624,7 @@ function handle(sql, args) {
       return {
         id: landlord.id, name: landlord.name, organization: landlord.organization || "", email: landlord.email || "",
         phone: landlord.phone || "", status: landlord.status || "ACTIVE", kyc_status: landlord.kyc_status || "PENDING",
-        commission_bps: landlord.commission_bps ?? 900, payout_method: landlord.payout_method || "",
+        commission_bps: landlord.commission_bps ?? 300, payout_method: landlord.payout_method || "",
         payout_account_name: landlord.payout_account_name || "", payout_account_last4: landlord.payout_account_last4 || "",
         payout_bank_name: landlord.payout_bank_name || "", payout_updated_at: landlord.payout_updated_at || "",
         accrued_amount: sum(accrued), payable_amount: sum(payable), payable_count: payable.length,
@@ -688,7 +693,7 @@ const { CampusEngineError } = await vite.ssrLoadModule("/lib/campus-engine/error
 
 landlords.push({
   id: "landlord-a", name: "Mr. Owusu", organization: "Owusu Hostels", phone: "0551234567",
-  email: "owusu@example.com", status: "ACTIVE", commission_bps: 900,
+  email: "owusu@example.com", status: "ACTIVE", commission_bps: 300,
 });
 consoleAccounts.push({
   id: "acc-owner", email: "owusu@example.com", name: "Mr. Owusu", phone: "0551234567",
@@ -736,19 +741,19 @@ async function expectError(promise, code, status) {
   });
 }
 
-test("a bed is claimed once, and the split is the platform's 9%", async () => {
+test("a bed is claimed once, and the split is the platform's 3%", async () => {
   const first = await holdBed("listing-a");
   heldA = first;
   assert.equal(first.booking.status, "PENDING_PAYMENT");
   assert.equal(spaces.find((item) => item.id === "space-a").status, "RESERVED");
   assert.equal(first.booking.commissionBps, HOSTEL_DEFAULT_COMMISSION_BPS);
   // The bed is GH₵1,200 for the year and the room bills GH₵50 of utilities, so
-  // the 9% is charged on what the student actually pays.
+  // the 3% is charged on what the student actually pays.
   assert.equal(first.booking.price, 120_000);
   assert.equal(first.booking.utilitiesFee, 5_000);
   assert.equal(first.booking.totalAmount, 125_000);
-  assert.equal(first.booking.commissionAmount, 11_250);
-  assert.equal(first.booking.netAmount, 113_750);
+  assert.equal(first.booking.commissionAmount, 3_750);
+  assert.equal(first.booking.netAmount, 121_250);
   assert.equal(first.holdMinutes, 10);
 
   // A second student racing for the same bed loses, because the claim is one
@@ -781,21 +786,21 @@ test("settling writes the payout once, turns the bed over and opens the thread",
   const payout = payouts.filter((item) => item.booking_id === settled.booking.id);
   assert.equal(payout.length, 1);
   // Cells come back from the fake the way Turso sends them: as text.
-  assert.equal(Number(payout[0].commission_amount), 11_250);
-  assert.equal(Number(payout[0].net_amount), 113_750);
+  assert.equal(Number(payout[0].commission_amount), 3_750);
+  assert.equal(Number(payout[0].net_amount), 121_250);
   assert.equal(payout[0].status, "ACCRUED");
 
   const studentMail = outbox.filter((item) => item.template === "hostel_booking_confirmed" && item.reference === reference);
   const hostMail = outbox.filter((item) => item.template === "hostel_booking_landlord" && item.reference === `${reference}:host`);
   assert.equal(studentMail.length, 1);
   assert.equal(hostMail.length, 1);
-  assert.match(hostMail[0].message, /Your share is 1137\.50/);
+  assert.match(hostMail[0].message, /Your share is 1212\.50/);
 
   const thread = await listHostelMessages(settled.booking.id, "HOST");
   assert.equal(thread.length, 1);
   assert.equal(thread[0].senderType, "SYSTEM");
   assert.match(thread[0].content, /Payment received/);
-  assert.match(thread[0].content, /keeps 112\.50/);
+  assert.match(thread[0].content, /keeps 37\.50/);
 
   // Settling again is the same as settling once: no second payout, no second
   // system message, and the late caller is told the booking was already paid.
@@ -1076,7 +1081,7 @@ test("a payout needs a verified landlord, a saved account and a released entry",
 
   const batch = await recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", note: "First release", actor: "admin@umat.edu.gh" });
   assert.equal(batch.entryCount, 1);
-  assert.equal(batch.totalAmount, 113_750);
+  assert.equal(batch.totalAmount, 121_250);
   assert.equal(mine.status, "RELEASED");
   assert.equal(mine.transfer_reference, "TRF-001");
   assert.equal(mine.released_by, "admin@umat.edu.gh");
@@ -1084,7 +1089,7 @@ test("a payout needs a verified landlord, a saved account and a released entry",
   assert.equal(other.status, "ACCRUED");
   assert.equal(other.batch_id, undefined);
   assert.equal(payoutBatches.length, 1);
-  assert.equal(Number(payoutBatches[0].total_amount), 113_750);
+  assert.equal(Number(payoutBatches[0].total_amount), 121_250);
   assert.equal(Number(payoutBatches[0].entry_count), 1);
 
   // The landlord hears about it, once, and a second attempt finds nothing left.
@@ -1100,22 +1105,22 @@ test("a payout needs a verified landlord, a saved account and a released entry",
   assert.equal(paidEntry.status, "RELEASED");
   assert.equal(paidEntry.studentName, "Ama Mensah");
   assert.equal(paidEntry.propertyName, "Owusu Lodge");
-  assert.equal(statement.totals.releasedAmount, 113_750);
+  assert.equal(statement.totals.releasedAmount, 121_250);
   assert.equal(statement.totals.payableAmount, 0);
-  assert.equal(statement.totals.accruedAmount, 113_750);
+  assert.equal(statement.totals.accruedAmount, 121_250);
   assert.equal(statement.batches.length, 1);
 
   const { landlords: owed, totals } = await listHostelPayoutLandlords();
   assert.equal(owed.length, 1);
   assert.equal(owed[0].payableAmount, 0);
-  assert.equal(owed[0].accruedAmount, 113_750);
-  assert.equal(owed[0].releasedAmount, 113_750);
+  assert.equal(owed[0].accruedAmount, 121_250);
+  assert.equal(owed[0].releasedAmount, 121_250);
   assert.equal(owed[0].payoutReady, true);
-  assert.equal(totals.releasedAmount, 113_750);
+  assert.equal(totals.releasedAmount, 121_250);
   const balance = await platformHostelPayoutBalance();
-  assert.equal(balance.releasedAmount, 113_750);
-  assert.equal(balance.accruedAmount, 113_750);
-  assert.equal(balance.commissionAmount, 22_500);
+  assert.equal(balance.releasedAmount, 121_250);
+  assert.equal(balance.accruedAmount, 121_250);
+  assert.equal(balance.commissionAmount, 7_500);
 });
 
 test("a payout account is masked, sealed at rest, and only revealed on the record", async () => {

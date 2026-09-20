@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { BadgeCheck, Banknote, Eye, Loader2, RefreshCw } from "lucide-react";
 import { cedis } from "@/components/campusRide/hostel/format";
@@ -25,6 +26,7 @@ type PayoutEntry = {
 
 type PayoutBatch = {
   id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdBy: string; createdAt: string;
+  mode: string; status: string; transferCode: string; reason: string; settledAt: string;
 };
 
 type Statement = {
@@ -39,15 +41,17 @@ type Overview = {
   landlords: PayoutLandlord[];
   totals: { accruedAmount: number; payableAmount: number; releasedAmount: number; payableCount: number };
   balance: { payableAmount: number; accruedAmount: number; releasedAmount: number; commissionAmount: number };
+  auto?: { enabled: boolean; source: string };
 };
 
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
 
 /**
  * The hostel money desk: every landlord with ledger rows, the part of their
- * balance that has left its release window, and the record of a transfer an
- * administrator has made. Nothing here sends money — it proves where it went,
- * which is what the ledger is for until Paystack transfers take over.
+ * balance that has left its release window, and the transfers behind it. Money
+ * leaves through Paystack (the send button), and an entry is only marked paid
+ * once Paystack says the transfer settled — a manual record stays for the
+ * transfer that had to be made by hand.
  */
 export function HostelPayoutDesk() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -63,7 +67,7 @@ export function HostelPayoutDesk() {
     const response = await fetch("/api/console/hostel/payouts", { credentials: "same-origin", cache: "no-store" });
     const data = await response.json() as Overview & { error?: string };
     if (!response.ok) throw new Error(data.error || "The payout ledger could not be loaded.");
-    setOverview({ landlords: data.landlords || [], totals: data.totals, balance: data.balance });
+    setOverview({ landlords: data.landlords || [], totals: data.totals, balance: data.balance, auto: data.auto });
   }, []);
 
   const open = useCallback(async (landlordId: string) => {
@@ -113,6 +117,62 @@ export function HostelPayoutDesk() {
     });
   }
 
+  /**
+   * Sends the payable balance through Paystack. The entries are claimed by the
+   * batch, so a double-click cannot pay twice: the second call finds a transfer
+   * already in flight and says so.
+   */
+  async function send() {
+    if (!statement) return;
+    await run(async () => {
+      setBusy("send");
+      setNotice("");
+      try {
+        const response = await fetch("/api/console/hostel/payouts", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "SEND", landlordId: statement.landlord.id, note }),
+        });
+        const data = await response.json() as { batch?: PayoutBatch; status?: string; error?: string };
+        if (!response.ok) throw new Error(data.error || "That transfer could not be sent.");
+        setNotice(data.status === "RELEASED"
+          ? `${cedis(data.batch?.totalAmount || 0)} sent to ${statement.landlord.name} through Paystack.`
+          : `${cedis(data.batch?.totalAmount || 0)} is in flight with Paystack. It releases when the transfer settles.`);
+        await open(statement.landlord.id);
+        await load();
+      } finally {
+        setBusy("");
+      }
+    });
+  }
+
+  /** The stuck-transfer button: ask Paystack what happened, then settle or return. */
+  async function reconcile() {
+    await run(async () => {
+      setBusy("reconcile");
+      setNotice("");
+      try {
+        const response = await fetch("/api/console/hostel/payouts", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "RECONCILE" }),
+        });
+        const data = await response.json() as { result?: { scanned: number; settled: number; failed: number; stillPending: number }; error?: string };
+        if (!response.ok) throw new Error(data.error || "The transfers could not be reconciled.");
+        const result = data.result;
+        setNotice(result
+          ? `Checked ${result.scanned} in-flight transfer${result.scanned === 1 ? "" : "s"}: ${result.settled} settled, ${result.failed} returned to the ledger, ${result.stillPending} still pending.`
+          : "Nothing was in flight.");
+        if (statement) await open(statement.landlord.id);
+        await load();
+      } finally {
+        setBusy("");
+      }
+    });
+  }
+
   if (!overview) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading the payout ledger…</p>;
 
   const now = new Date().toISOString();
@@ -122,8 +182,14 @@ export function HostelPayoutDesk() {
       <article><span>PAYABLE NOW</span><strong>{cedis(overview.balance.payableAmount)}</strong><small>{overview.totals.payableCount} entries released</small></article>
       <article><span>STILL HELD</span><strong>{cedis(overview.balance.accruedAmount)}</strong><small>inside the release window</small></article>
       <article><span>PAID OUT</span><strong>{cedis(overview.balance.releasedAmount)}</strong><small>recorded transfers</small></article>
-      <article><span>PLATFORM 9%</span><strong>{cedis(overview.balance.commissionAmount)}</strong><small>kept from bed payments</small></article>
+      <article><span>PLATFORM 3%</span><strong>{cedis(overview.balance.commissionAmount)}</strong><small>kept from bed payments</small></article>
     </section>
+
+    {overview.auto && <p className="console-note">
+      {overview.auto.enabled
+        ? <>Automatic releases are on, so a due balance leaves without anyone watching. <Link href="/console/settings">Platform settings</Link>.</>
+        : <>Automatic releases are off, so money only moves when you press Send. <Link href="/console/settings">Turn them on in Platform settings</Link>.</>}
+    </p>}
 
     <section className="console-panel">
       <h2><Banknote size={18} aria-hidden />Landlords owed
@@ -155,6 +221,9 @@ export function HostelPayoutDesk() {
 
     {statement && <section className="console-panel">
       <h2><Banknote size={18} aria-hidden />{statement.landlord.name}
+        <button type="button" className="console-panel-close" disabled={busy === "reconcile"} onClick={() => void reconcile()}>
+          <RefreshCw size={14} aria-hidden />{busy === "reconcile" ? "Checking…" : "Reconcile transfers"}
+        </button>
         <button type="button" className="console-panel-close" onClick={() => { setStatement(null); setRevealed(""); }}>Close</button>
       </h2>
       <section className="console-totals">
@@ -195,9 +264,17 @@ export function HostelPayoutDesk() {
         <label>Note
           <input type="text" value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder="Optional" />
         </label>
-        <button type="submit" disabled={busy === "record" || reference.trim().length < 3 || statement.totals.payableAmount <= 0}>
+        <button
+          type="button"
+          disabled={busy === "send" || !statement.account.ready || statement.totals.payableAmount <= 0}
+          onClick={() => void send()}
+        >
+          {busy === "send" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Banknote size={15} aria-hidden />}
+          Send {cedis(statement.totals.payableAmount)} with Paystack
+        </button>
+        <button type="submit" className="console-secondary" disabled={busy === "record" || reference.trim().length < 3 || statement.totals.payableAmount <= 0}>
           {busy === "record" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <BadgeCheck size={15} aria-hidden />}
-          Record payout of {cedis(statement.totals.payableAmount)}
+          Record a transfer made by hand
         </button>
       </form>
 
@@ -223,12 +300,18 @@ export function HostelPayoutDesk() {
         </table>}
 
       {statement.batches.length > 0 && <>
-        <h3 className="console-subhead">Transfers recorded</h3>
+        <h3 className="console-subhead">Transfers</h3>
         <table className="console-table">
-          <thead><tr><th>Reference</th><th>Entries</th><th>Amount</th><th>Recorded</th><th>By</th></tr></thead>
+          <thead><tr><th>Reference</th><th>How</th><th>Entries</th><th>Amount</th><th>Recorded</th><th>By</th></tr></thead>
           <tbody>
             {statement.batches.map((batch) => <tr key={batch.id}>
               <td><strong>{batch.transferReference}</strong>{batch.note ? <small>{batch.note}</small> : null}</td>
+              <td>
+                <span className={`console-badge console-badge-${batch.status === "RELEASED" || batch.status === "RECORDED" ? "released" : batch.status === "FAILED" ? "draft" : "active"}`}>
+                  {batch.status === "RECORDED" ? "By hand" : batch.status}
+                </span>
+                {batch.reason ? <small>{batch.reason}</small> : null}
+              </td>
               <td>{batch.entryCount}</td>
               <td>{cedis(batch.totalAmount)}</td>
               <td>{when(batch.createdAt)}</td>

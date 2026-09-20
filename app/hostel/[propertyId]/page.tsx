@@ -5,6 +5,8 @@ import { ArrowLeft, BedDouble, DoorClosed, MapPin, Zap } from "lucide-react";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { HostelBookButton } from "@/components/campusRide/hostel/HostelBookButton";
 import { HostelMap } from "@/components/campusRide/hostel/HostelMap";
+import { PropertyAssistant } from "@/components/campusRide/hostel/PropertyAssistant";
+import { PropertyReviews } from "@/components/campusRide/hostel/PropertyReviews";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import { getPublicProperty } from "@/lib/hostel-engine/listings";
 import { defaultHostelPeriodId, listHostelPeriods } from "@/lib/hostel-engine/periods";
@@ -37,7 +39,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
   const periodId = periods.some((item) => item.id === requestedPeriod) ? requestedPeriod : defaultHostelPeriodId(periods);
   const record = await getPublicProperty(propertyId, periodId);
   if (!record) notFound();
-  const { period, property, spaces } = record;
+  const { period, property, spaces, photos } = record;
 
   const rooms = new Map<string, typeof spaces>();
   spaces.forEach((space) => rooms.set(space.roomLabel, [...(rooms.get(space.roomLabel) || []), space]));
@@ -49,6 +51,14 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
     </nav>
     <div className="hostel-layout">
       <div className="hostel-main">
+        {photos.length > 0 && <section className="hostel-gallery">
+          <img className="hostel-gallery-main" src={`/api/hostel/photos/${photos[0].id}`} alt={photos[0].caption || `${property.name} from outside`} />
+          {photos.length > 1 && <ul className="hostel-gallery-strip">
+            {photos.slice(1).map((photo) => <li key={photo.id}>
+              <img src={`/api/hostel/photos/${photo.id}`} alt={photo.caption || `${property.name} photo`} loading="lazy" />
+            </li>)}
+          </ul>}
+        </section>}
         <section className="hostel-detail-card">
           <p>ABOUT THIS HOSTEL</p>
           <h2>{property.address || "Address shared on request"}</h2>
@@ -85,6 +95,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
             </ul>
           </article>)}
         </section>
+        <PropertyReviews propertyId={property.id} />
       </div>
       <aside className="hostel-side">
         <HostelMap properties={[{
@@ -96,6 +107,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
           minTotal: property.minTotal,
           distanceM: property.distanceM,
         }]} title="Where you would live" />
+        <PropertyAssistant propertyId={property.id} propertyName={property.name} />
         <section className="hostel-how">
           <p>BEFORE YOU BOOK</p>
           <ul>

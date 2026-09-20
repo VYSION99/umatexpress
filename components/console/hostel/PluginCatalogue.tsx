@@ -95,7 +95,7 @@ export function PluginCatalogue() {
       {editing && <button type="button" className="console-panel-close" onClick={() => { setEditing(""); setDraft({ ...EMPTY }); }}><X size={14} aria-hidden />Cancel edit</button>}
     </h2>
     <p className="console-note">
-      Each service is charged to the landlord once per academic year, on top of the 9% commission on bed payments. The resident
+      Each service is charged to the landlord once per academic year, on top of the 3% commission on bed payments. The resident
       price is the default a landlord starts from and may change; the platform fee is what the platform earns.
     </p>
     {error && <div className="console-alert" role="alert">{error}</div>}
