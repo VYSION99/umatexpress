@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS hostel_rooms (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hostel_rooms_property ON hostel_rooms(property_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_rooms_property_label ON hostel_rooms(property_id, label) WHERE status = 'ACTIVE';
 
 CREATE TABLE IF NOT EXISTS hostel_spaces (
   id TEXT PRIMARY KEY,
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS hostel_spaces (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hostel_spaces_room_status ON hostel_spaces(room_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_spaces_room_label ON hostel_spaces(room_id, label) WHERE status <> 'RETIRED';
 
 CREATE TABLE IF NOT EXISTS hostel_periods (
   id TEXT PRIMARY KEY,

@@ -193,6 +193,8 @@
 .console-table td strong { display: block; font-size: 14px; }
 .console-table td small { display: block; margin-top: 3px; color: var(--ui-muted, #57675f); font-size: 12px; }
 .console-table a { color: var(--ui-cyan, #0e7490); font-weight: 700; }
+.console-table input[type="text"] { width: min(100%, 220px); min-height: 40px; padding: 0 12px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 11px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 13px; font-weight: 600; }
+.console-table input[type="text"]:focus { outline: 2px solid var(--ui-green, #0d694d); outline-offset: 1px; border-color: transparent; }
 
 .console-row-actions { display: flex; gap: 8px; white-space: nowrap; }
 .console-row-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 11px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 12px; font-weight: 800; cursor: pointer; }
@@ -208,6 +210,8 @@
 .console-badge-open, .console-badge-reviewing { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
 .console-badge-resolved { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-dismissed { background: #eef1f4; color: #48545f; }
+.console-badge-available, .console-badge-active { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
+.console-badge-retired, .console-badge-draft { background: #eef1f4; color: #48545f; }
 .console-badge-processing { background: var(--ui-cyan-soft, #e6f3f7); color: var(--ui-cyan, #0e7490); }
 .console-badge-released { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-success { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
@@ -266,4 +270,5 @@
   .console-footer { flex-direction: column; }
   .console-panel { margin-inline: 16px; padding: 16px; border-radius: 18px; }
   .console-form { grid-template-columns: minmax(0, 1fr); }
+  .console-table td.console-row-actions { flex-wrap: wrap; white-space: normal; }
 }

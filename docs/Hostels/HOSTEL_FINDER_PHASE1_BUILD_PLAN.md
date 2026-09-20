@@ -2,9 +2,11 @@
 
 **Version:** 1.0  
 **Status:** Ready to build — three decisions at the end need a call  
-**Progress:** M1 shipped 2026-09-20 — schema (`sql/014` + the hostel section of `sql/000`), the
-`LANDLORD` console role, the open landlord application, and the workspace's first
-property create/list. Rooms, bed-spaces and editing are the rest of M2.
+**Progress:** M2 shipped 2026-09-20 — the landlord workspace now builds property → room →
+bed-space end to end: room create/edit with beds kept in step with capacity, per-bed
+rename/retire, partial unique indexes on live labels, and the cross-landlord 404 rule
+proved by test. M1 (schema, `LANDLORD` role, open landlord application, property
+create/list) shipped earlier the same day. Periods, listings and review are M3.
 **Sources:** the seven design docs in this folder + the platform as shipped (Sep 2026)
 
 This plan does not replace the design docs. It records where the design meets the
