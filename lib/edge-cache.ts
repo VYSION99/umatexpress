@@ -36,7 +36,14 @@ export async function withEdgeCache(
   }
 
   const key = cacheKeyFor(request, options.path);
-  const hit = await cache.match(key);
+  // A cache lookup is advisory: if the edge cache is unhappy, the producer
+  // still answers rather than the whole request failing with it.
+  let hit: Response | undefined;
+  try {
+    hit = await cache.match(key);
+  } catch {
+    hit = undefined;
+  }
   if (hit) return hit;
 
   const response = await produce();

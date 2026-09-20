@@ -131,15 +131,22 @@ export async function rateLimit(request: Request, scope: string, options: RateLi
   const now = Date.now();
   const subject = clientIp(request);
 
-  const durable = await consumeDurableRateLimit(scope, subject, options, now);
-  if (durable) return durable;
+  // The limiter is a guard, never a gate: a store that is briefly unavailable
+  // must degrade to the in-memory counter below rather than fail the request it
+  // was only meant to protect.
+  try {
+    const durable = await consumeDurableRateLimit(scope, subject, options, now);
+    if (durable) return durable;
 
-  if (await isTursoConfiguredRuntime()) {
-    await ensureRateLimitTable();
-    const result = await consumeRateLimitWindow(turso, { scope, subject, limit: options.limit, windowMs: options.windowMs, now });
-    return result.allowed
-      ? { ok: true, remaining: Math.max(0, options.limit - result.count), retryAfter: 0 }
-      : { ok: false, remaining: 0, retryAfter: result.retryAfter };
+    if (await isTursoConfiguredRuntime()) {
+      await ensureRateLimitTable();
+      const result = await consumeRateLimitWindow(turso, { scope, subject, limit: options.limit, windowMs: options.windowMs, now });
+      return result.allowed
+        ? { ok: true, remaining: Math.max(0, options.limit - result.count), retryAfter: 0 }
+        : { ok: false, remaining: 0, retryAfter: result.retryAfter };
+    }
+  } catch (error) {
+    logEvent("warn", "rate_limit_store_failed", { scope, reason: error instanceof Error ? error.message : "unknown" });
   }
 
   // Local preview fallback: per-isolate only, but better than no limit at all.

@@ -2,6 +2,7 @@ import { campusErrorPayload } from "@/lib/campus-engine/errors";
 import { listPublicSpaces } from "@/lib/hostel-engine/listings";
 import { withEdgeCache } from "@/lib/edge-cache";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { withTransientRetry } from "@/lib/transient";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const READ_LIMIT = 240;
@@ -17,10 +18,13 @@ export async function GET(request: Request) {
     const limited = await rateLimit(request, "hostel-spaces-read", { limit: READ_LIMIT, windowMs: 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     return await withEdgeCache(request, { path: `/api/hostel/spaces${url.search}`, maxAge: 60, staleWhileRevalidate: 600 }, async () => {
-      const result = await listPublicSpaces({
-        propertyId: url.searchParams.get("propertyId") || undefined,
-        periodId: url.searchParams.get("periodId") || undefined,
-      });
+      const result = await withTransientRetry(
+        () => listPublicSpaces({
+          propertyId: url.searchParams.get("propertyId") || undefined,
+          periodId: url.searchParams.get("periodId") || undefined,
+        }),
+        { label: "hostel_spaces" },
+      );
       return Response.json({ ok: true, ...result }, { headers: NO_STORE });
     });
   } catch (error) {
