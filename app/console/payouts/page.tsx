@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Banknote, RefreshCw, Send, ShieldCheck, Undo2, Zap } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Banknote, RefreshCw, Send, ShieldCheck, Undo2, UserX, Zap } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -81,6 +81,39 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
 
   useEffect(() => { queueMicrotask(loadOverview); }, [loadOverview]);
   useEffect(() => { if (selected) queueMicrotask(() => loadDetail(selected)); }, [selected, loadDetail]);
+
+  /**
+   * KYC is the money gate. The decision belongs to the organizers service, but
+   * the administrator meets it here as a blocked payout, so the action is put
+   * where the blocker is instead of sending them to another page to find it.
+   */
+  const decideKyc = useCallback(async (organizerId: string, action: "VERIFY_KYC" | "REJECT_KYC") => {
+    let reason = "";
+    if (action === "REJECT_KYC") {
+      reason = window.prompt("Why is this KYC rejected?")?.trim() || "";
+      if (!reason) return;
+    }
+    setBusy(`kyc-${organizerId}`); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/console/organizers", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ organizerId, action, reason }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The KYC decision could not be saved.");
+      setNotice(`${data.organizer?.organization || data.organizer?.name || "Organizer"} · KYC ${data.organizer?.kycStatus || "updated"}`);
+      await Promise.all([
+        loadOverview(),
+        detail?.organizer.id === organizerId ? loadDetail(organizerId) : Promise.resolve(),
+      ]);
+    } catch (decisionError) {
+      setError(decisionError instanceof Error ? decisionError.message : "The KYC decision could not be saved.");
+    } finally {
+      setBusy("");
+    }
+  }, [detail, loadDetail, loadOverview]);
 
   const record = useCallback(async () => {
     if (!detail) return;
@@ -225,6 +258,12 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
                 <td>{cedis(row.totals.released)}</td>
                 <td className="console-row-actions">
                   <button onClick={() => { setSelected(row.organizerId); setError(""); setNotice(""); }}>Open statement</button>
+                  {row.kycStatus !== "VERIFIED" && <button disabled={busy === `kyc-${row.organizerId}`} onClick={() => void decideKyc(row.organizerId, "VERIFY_KYC")}>
+                    <BadgeCheck size={15}/>Verify KYC
+                  </button>}
+                  {row.kycStatus === "PENDING" && <button disabled={busy === `kyc-${row.organizerId}`} onClick={() => void decideKyc(row.organizerId, "REJECT_KYC")}>
+                    <UserX size={15}/>Reject KYC
+                  </button>}
                 </td>
               </tr>
             ))}
@@ -264,7 +303,15 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <Banknote size={16}/>{busy === "record" ? "Recording…" : `Record ${cedis(totals?.ready || 0)} payout`}
         </button>
       </form>
-      {!kycVerified && <p className="console-note">KYC is {detail.organizer.kycStatus}. Verify it before recording a payout.</p>}
+      {!kycVerified && <div className="console-row-actions">
+        <span className="console-note">KYC is {detail.organizer.kycStatus}. Verify it before recording a payout.</span>
+        <button disabled={busy === `kyc-${detail.organizer.id}`} onClick={() => void decideKyc(detail.organizer.id, "VERIFY_KYC")}>
+          <BadgeCheck size={15}/>{busy === `kyc-${detail.organizer.id}` ? "Saving…" : "Verify KYC"}
+        </button>
+        {detail.organizer.kycStatus === "PENDING" && <button disabled={busy === `kyc-${detail.organizer.id}`} onClick={() => void decideKyc(detail.organizer.id, "REJECT_KYC")}>
+          <UserX size={15}/>Reject KYC
+        </button>}
+      </div>}
       {kycVerified && !ready && <p className="console-note">Nothing is ready to pay right now. Entries release after midnight following the trip, and a debt blocks the batch.</p>}
 
       <h3 className="console-note">Entries</h3>

@@ -292,6 +292,65 @@ export async function getHostelLandlord(landlordId: string): Promise<HostelLandl
   return landlordView(row);
 }
 
+export const HOSTEL_KYC_ACTIONS = ["VERIFY", "REJECT"] as const;
+export type HostelKycAction = (typeof HOSTEL_KYC_ACTIONS)[number];
+
+export function isHostelKycAction(value: unknown): value is HostelKycAction {
+  return typeof value === "string" && (HOSTEL_KYC_ACTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * The landlord queue for staff: who is waiting on a verification decision, with
+ * the contact details the decision has to be made against. Pending first, then
+ * rejected, then the landlords who are already verified.
+ */
+export async function listHostelLandlordsForStaff(): Promise<HostelLandlord[]> {
+  await ensureHostelTables();
+  const rows = rowsToObjects(await turso(
+    `SELECT id,name,phone,email,COALESCE(organization,'') AS organization,COALESCE(status,'ACTIVE') AS status,
+       COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(review_reason,'') AS review_reason,COALESCE(commission_bps,500) AS commission_bps,created_at,updated_at
+     FROM hostel_landlords
+     ORDER BY CASE COALESCE(kyc_status,'PENDING') WHEN 'PENDING' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END,created_at DESC`,
+  ));
+  return rows.map(landlordView);
+}
+
+/**
+ * KYC is the money gate: it decides whether a landlord may ever be paid, not
+ * whether they may build and list. A rejection needs a reason; a landlord who
+ * fixes what was wrong is verified on a fresh decision by staff.
+ */
+export async function reviewHostelLandlordKyc(input: {
+  landlordId: string; action: HostelKycAction; reason?: string; actor: string;
+}): Promise<HostelLandlord> {
+  await ensureHostelTables();
+  const landlord = await getHostelLandlord(input.landlordId);
+  if (input.action === "VERIFY" && landlord.status !== "ACTIVE") {
+    throw new CampusEngineError("INVALID_STATE", "Reactivate the landlord account before verifying its KYC.", 409);
+  }
+  const reason = String(input.reason || "").trim();
+  if (input.action === "REJECT" && !reason) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Give a reason so the landlord knows what to fix.", 400);
+  }
+  const next: HostelKycStatus = input.action === "VERIFY" ? "VERIFIED" : "REJECTED";
+  if (landlord.kycStatus === next && !reason) {
+    throw new CampusEngineError("INVALID_STATE", `This landlord's KYC is already ${next.toLowerCase()}.`, 409);
+  }
+  const stamp = new Date().toISOString();
+  await turso(
+    "UPDATE hostel_landlords SET kyc_status=?,review_reason=?,updated_at=? WHERE id=?",
+    [next, next === "VERIFIED" ? "" : reason, stamp, landlord.id],
+  );
+  await consoleAudit({
+    actor: input.actor,
+    action: `HOSTEL_LANDLORD_KYC_${input.action}`,
+    targetType: "hostel_landlord",
+    targetReference: landlord.id,
+    details: { from: landlord.kycStatus, reason },
+  }).catch(() => undefined);
+  return getHostelLandlord(landlord.id);
+}
+
 export async function listHostelProperties(landlordId: string): Promise<HostelProperty[]> {
   await ensureHostelTables();
   const rows = rowsToObjects(await turso(

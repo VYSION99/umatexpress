@@ -74,6 +74,13 @@ try {
       if (url.startsWith("/api/driver/me")) return json({ driver: { id: "check-driver", name: "Check Driver", active: true, vehicleId: "", currentZoneId: "", mustChangePassword: false }, ride: null, zones: [], corridors: [], vehicles: [] });
       if (url.startsWith("/api/driver/queue")) return json({ queue: [] });
       if (url.startsWith("/api/driver/summary")) return json({ day: "Today", completed: 0, boarded: 0, grossFares: 0, activeQueue: 0, nextPickup: null });
+      if (url.startsWith("/api/console/payouts") && method === "GET") return json({
+        organizers: [{ organizerId: "org-check", name: "Agbo Merashack Kwesi", organization: "All Students transport", status: "APPROVED", kycStatus: "PENDING", commissionBps: 300, totals: { accrued: 97, ready: 0, released: 0, reversed: 0, debt: 0, balance: 97, entries: 1 } }],
+        automation: { enabled: false, provider: "PAYSTACK", transferFee: 0, balance: null },
+      });
+      if (url.startsWith("/api/console/hostel/listings/review")) return json({ ok: true, status: "PENDING_REVIEW", listings: [] });
+      if (url.startsWith("/api/admin/hostel/periods")) return json({ ok: true, periods: [] });
+      if (url.startsWith("/api/console/hostel/landlords")) return json({ ok: true, landlords: [{ id: "landlord-check", name: "Mr. Owusu", phone: "0551234567", email: "owusu@example.com", organization: "Owusu Hostels", status: "ACTIVE", kycStatus: "PENDING", reviewReason: "" }] });
       if (url.startsWith("/api/console/assistant/brief") && method === "GET") return json({ ok: true, role: "ORGANIZER", headline: "Good morning, Console", summary: "One thing needs your attention today.", generatedAt: new Date().toISOString(), items: [{ key: "trips-fix", label: "Trips needing a fix", value: "1", detail: "Reason: coach photo missing.", href: "/console/trips", tone: "action" }, { key: "next-departure", label: "Next departure", value: "2026-10-04", detail: "Accra → Kumasi · 12 of 45 seats confirmed.", href: "/console/trips", tone: "info" }], note: "" });
       if (url.startsWith("/api/console/assistant/confirm") && method === "POST") return json({ ok: true, tool: "trips_review", title: "Review an organizer trip", result: { done: true } });
       if (url.startsWith("/api/console/assistant") && method === "POST") return json({ ok: true, reply: "Three organizer applications are waiting for review.", toolRuns: ["Organizer applications"], pendingAction: { token: "stub-token", title: "Review an organizer application", summary: "Organizer id: org_1 · Decision: APPROVE" } });
@@ -158,11 +165,15 @@ try {
   await until(`location.pathname === "/console/login"`, "the legacy driver sign-in to redirect");
   console.log("PASS legacy admin and driver addresses redirect into the console");
 
-  // 7. An administrator sees every service, including the ones that are not
-  //    ready: those are named and marked, never linkable.
+  // 7. An administrator sees every service the platform runs, including the
+  //    ones that are not ready: those are named and marked, never linkable. A
+  //    role's personal workspace is not an admin tool and is not offered.
   await visit("/console?role=ADMIN", `document.querySelectorAll(".console-card").length > 0`);
   const admin = await evaluate(`[...document.querySelectorAll(".console-card h2")].map(node => node.textContent)`);
   assert.ok(admin.includes("CampusRide") && admin.includes("VacationRide"), `admin cards were ${admin.join(", ")}`);
+  for (const personal of ["Organizer workspace", "Business profile", "Earnings", "Driver portal"]) {
+    assert.ok(!admin.includes(personal), `an administrator must not be offered ${personal}`);
+  }
   const soon = await evaluate(`[...document.querySelectorAll(".console-service-soon small")].map(node => node.textContent)`);
   // Food and OnlineCinema are the two still waiting; Hostel Finder opened with its landlord workspace.
   assert.deepEqual(soon, ["Soon", "Soon"], "the services that are not ready must be marked in the rail");
@@ -175,15 +186,26 @@ try {
   await evaluate(`(() => {
     const input = document.querySelector("dialog input");
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-    setter.call(input, "payout");
+    setter.call(input, "ride");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   })()`);
-  await until(`document.querySelectorAll(".launch-directory article").length === 3`, "the finder to filter");
+  await until(`document.querySelectorAll(".launch-directory article").length === 2`, "the finder to filter");
   const found = await evaluate(`[...document.querySelectorAll(".launch-directory h3")].map(node => node.firstChild.textContent)`);
-  assert.deepEqual(found, ["Business profile", "Earnings", "Organizer payouts"], "the finder must match on what a service does");
+  assert.deepEqual(found, ["CampusRide", "VacationRide"], "the finder must match on what a service does");
   await call("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await until(`!document.querySelector("dialog").open`, "the finder to close");
   console.log("PASS the service finder searches every service");
+
+  // 8b. KYC is the money gate, so the decision is offered where the block is
+  //     met: on the payout balances, and on the hostel review queue.
+  await visit("/console/payouts?role=ADMIN", `[...document.querySelectorAll(".console-panel h2")].some(node => node.textContent.includes("Balances by organizer"))`);
+  await until(`[...document.querySelectorAll(".console-row-actions button")].some(node => node.textContent.includes("Verify KYC"))`, "the payout screen to offer a KYC decision");
+  const payoutKyc = await evaluate(`[...document.querySelectorAll(".console-row-actions button")].map(node => node.textContent.trim())`);
+  assert.ok(payoutKyc.includes("Verify KYC") && payoutKyc.includes("Reject KYC"), `the payout screen must carry both KYC decisions, saw ${payoutKyc.join(", ")}`);
+  await visit("/console/hostels?role=ADMIN", `[...document.querySelectorAll(".console-panel h2")].some(node => node.textContent.includes("Landlord verification"))`);
+  await until(`[...document.querySelectorAll(".console-row-actions button")].some(node => node.textContent.includes("Verify KYC"))`, "the hostel queue to offer landlord KYC");
+  assert.ok(await evaluate(`document.body.textContent.includes("0551234567")`), "the landlord's phone must be on screen for the decision");
+  console.log("PASS KYC decisions sit where the payment is blocked");
 
   // 9. Getting access is one page for every service: the services that take
   //    applications, the ones that are still coming, and the roles that are

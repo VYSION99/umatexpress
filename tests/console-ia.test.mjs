@@ -47,7 +47,11 @@ test("each role gets the services it may use, without repeats", () => {
     }
     assert.ok(ids.includes("security"), `${role} must always be able to change its password`);
   }
-  assert.equal(consoleServicesForRole("ADMIN").length, consoleServices.length, "an administrator sees every service, including the ones that are coming soon");
+  assert.deepEqual(
+    consoleServicesForRole("ADMIN").map((service) => service.id),
+    ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "food", "cinema", "security"],
+    "an administrator gets the platform's services, never another role's personal workspace, and still sees what is coming",
+  );
   assert.deepEqual(consoleServicesForRole("SOMETHING").map((service) => service.id), ["security"], "an unknown role only ever reaches account security");
 });
 
@@ -79,6 +83,10 @@ test("a role is only offered the services its work belongs to", () => {
   for (const role of ["MODERATOR", "ORGANIZER"]) {
     const ids = consoleServicesForRole(role).map((service) => service.id);
     assert.ok(!ids.includes("campus") && !ids.includes("vacation"), `${role} was offered operations services: ${ids.join(", ")}`);
+  }
+  for (const id of ["driver", "organizer", "profile", "earnings"]) {
+    const adminIds = consoleServicesForRole("ADMIN").map((service) => service.id);
+    assert.ok(!adminIds.includes(id), `an administrator must not be offered ${id}: the page belongs to another role`);
   }
 });
 

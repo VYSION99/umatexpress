@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BedDouble, CalendarClock, Check, Plus, ShieldAlert, X } from "lucide-react";
+import { BadgeCheck, BedDouble, CalendarClock, Check, IdCard, Plus, ShieldAlert, UserX, X } from "lucide-react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 
 type Listing = {
@@ -13,6 +13,10 @@ type Listing = {
 };
 
 type Period = { id: string; name: string; startsOn: string; endsOn: string; active: boolean; createdAt: string };
+type LandlordKyc = {
+  id: string; name: string; phone: string; email: string; organization: string;
+  status: string; kycStatus: string; reviewReason: string;
+};
 
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -30,23 +34,30 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
   const [live, setLive] = useState<Listing[] | null>(null);
   const [periods, setPeriods] = useState<Period[] | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [landlords, setLandlords] = useState<LandlordKyc[] | null>(null);
+  const [kycReasons, setKycReasons] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState({ name: "", startsOn: "", endsOn: "" });
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
+  const pendingKyc = (landlords || []).filter((landlord) => landlord.kycStatus !== "VERIFIED");
 
   const load = useCallback(async () => {
     try {
-      const [queueResponse, liveResponse] = await Promise.all([
+      const [queueResponse, liveResponse, landlordResponse] = await Promise.all([
         fetch("/api/console/hostel/listings/review", { credentials: "same-origin", cache: "no-store" }),
         fetch("/api/console/hostel/listings/review?status=APPROVED", { credentials: "same-origin", cache: "no-store" }),
+        fetch("/api/console/hostel/landlords", { credentials: "same-origin", cache: "no-store" }),
       ]);
       const queueData = await queueResponse.json();
       if (!queueResponse.ok) throw new Error(queueData.error || "The review queue could not be loaded.");
       const liveData = await liveResponse.json();
       if (!liveResponse.ok) throw new Error(liveData.error || "Live listings could not be loaded.");
+      const landlordData = await landlordResponse.json();
+      if (!landlordResponse.ok) throw new Error(landlordData.error || "Landlord verification could not be loaded.");
       setQueue(queueData.listings || []);
       setLive(liveData.listings || []);
+      setLandlords(landlordData.landlords || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "The review queue could not be loaded.");
     }
@@ -86,6 +97,37 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
       await load();
     } catch (decisionError) {
       setError(decisionError instanceof Error ? decisionError.message : "That decision could not be saved.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /**
+   * The landlord's KYC gate. It decides whether the platform may ever pay them,
+   * so it is kept separate from the listing decision above: verifying a landlord
+   * never publishes a bed, and rejecting one never hides a bed that is live.
+   */
+  async function decideKyc(landlord: LandlordKyc, action: "VERIFY" | "REJECT") {
+    const reason = String(kycReasons[landlord.id] || "").trim();
+    if (action === "REJECT" && !reason) {
+      setError("Give a reason so the landlord knows what to fix.");
+      return;
+    }
+    setBusy(`kyc-${landlord.id}`); setError(""); setSaved("");
+    try {
+      const response = await fetch("/api/console/hostel/landlords", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ landlordId: landlord.id, action: action === "VERIFY" ? "VERIFY_KYC" : "REJECT_KYC", reason }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "That KYC decision could not be saved.");
+      setSaved(`${landlord.organization || landlord.name} · KYC ${data.landlord?.kycStatus || "updated"}.`);
+      setKycReasons((current) => ({ ...current, [landlord.id]: "" }));
+      await load();
+    } catch (decisionError) {
+      setError(decisionError instanceof Error ? decisionError.message : "That KYC decision could not be saved.");
     } finally {
       setBusy("");
     }
@@ -136,6 +178,52 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
   return <>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
+
+    <section className="console-panel">
+      <h2><IdCard size={18}/>Landlord verification
+        {pendingKyc.length > 0 && <span className="console-badge">{pendingKyc.length}</span>}
+      </h2>
+      {!landlords
+        ? <p className="console-empty">Loading landlords…</p>
+        : pendingKyc.length === 0
+          ? <p className="console-empty">Every landlord is verified. KYC only gates payouts; it never stops a landlord building or listing.</p>
+          : <table className="console-table">
+            <thead><tr><th>Landlord</th><th>Contact</th><th>KYC</th><th>Decision</th></tr></thead>
+            <tbody>
+              {pendingKyc.map((landlord) => (
+                <tr key={landlord.id}>
+                  <td>
+                    <strong>{landlord.organization || landlord.name}</strong>
+                    {landlord.organization && <small>{landlord.name}</small>}
+                  </td>
+                  <td>
+                    <span>{landlord.phone || "—"}</span>
+                    <small>{landlord.email || "—"}</small>
+                  </td>
+                  <td>
+                    <span className={badge(landlord.kycStatus)}>{landlord.kycStatus}</span>
+                    {landlord.reviewReason && <small className="console-reason">{landlord.reviewReason}</small>}
+                  </td>
+                  <td className="console-row-actions">
+                    <input
+                      type="text"
+                      aria-label={`Reason for ${landlord.name}`}
+                      placeholder="Reason (needed to reject)"
+                      maxLength={200}
+                      value={kycReasons[landlord.id] || ""}
+                      onChange={(event) => setKycReasons({ ...kycReasons, [landlord.id]: event.target.value })}
+                    />
+                    <button disabled={busy === `kyc-${landlord.id}`} onClick={() => void decideKyc(landlord, "VERIFY")}><BadgeCheck size={15}/>Verify KYC</button>
+                    <button disabled={busy === `kyc-${landlord.id}`} onClick={() => void decideKyc(landlord, "REJECT")}><UserX size={15}/>Reject KYC</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+      <p className="console-note">
+        Verification is the money gate: it decides whether this landlord can ever be paid. It never changes what they can build or list.
+      </p>
+    </section>
 
     <section className="console-panel">
       <h2><BedDouble size={18}/>Waiting for review

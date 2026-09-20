@@ -35,12 +35,20 @@ export const consoleServices = [
 ] as const;
 
 /**
+ * Services that belong to the person doing that work and never to an
+ * administrator: a driver's own queue, and the trips, verification and earnings
+ * of one organizer. Every one of those pages refuses a staff account, so
+ * offering them to an admin would be a row of dead ends.
+ */
+const PERSONAL_SERVICE_IDS = ["driver", "organizer", "profile", "earnings"] as const;
+
+/**
  * One console, four roles. A service is only offered to the roles that may use
  * it, and this list is presentation only: the matching API re-checks the role
  * from the signed session on every request.
  */
 export function consoleServicesForRole(role: string) {
-  if (role === "ADMIN") return [...consoleServices];
+  if (role === "ADMIN") return consoleServices.filter((service) => !(PERSONAL_SERVICE_IDS as readonly string[]).includes(service.id));
   // Role order matters: the role's own workspace leads and account security is
   // always last, so the first card is the one the person signed in to use.
   const order: Record<string, string[]> = {

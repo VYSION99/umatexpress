@@ -23,17 +23,23 @@ way for one service's console to be reached from the student site.
 | Shell | `components/console/ConsoleShell.tsx` — one frame for every service |
 | Service directory | `components/admin/console-services.ts` — what exists, its group and its navigation |
 | Assistant | `lib/console-assistant.ts` + `components/console/ConsoleAssistant.tsx` — role-scoped reads and confirmed actions (see `docs/CONSOLE_ASSISTANT.md`) |
+| KYC decisions | `PATCH /api/console/organizers` (organizers) and `PATCH /api/console/hostel/landlords` (landlords) — offered on the payout balances and the hostel review queue, where the block is actually met |
 
 ## 2. Roles
 
 | Role | Meaning | `profile_id` |
 |------|---------|--------------|
-| `ADMIN` | Platform staff, every service | — |
+| `ADMIN` | Platform staff: every service that runs the platform (never another role's personal workspace) | — |
 | `MODERATOR` | Reviews trips, organizer applications and listings; no money, no campus operations | — |
 | `ORGANIZER` | Runs their own vacationRide trips | `trip_organizers.id` (Phase 2) |
 | `DRIVER` | CampusRide driver | `campus_drivers.id` |
 
 Rules that make the role meaningful:
+
+0. The shelf is the role's work, not the whole platform. An administrator is
+   offered every service that runs UMaTeXPRESS, but never another role's
+   personal workspace (`driver`, `organizer`, `profile`, `earnings`), because
+   those pages refuse a staff account and would only ever be dead ends.
 
 1. The role is read from the **signed session** and re-checked against the stored
    row on every request. A role claim in a body, query string or header is

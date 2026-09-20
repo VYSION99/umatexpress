@@ -112,15 +112,19 @@ test("the loop runs a read tool and answers from its result", async () => {
   const run = async (model, payload) => {
     seen.push(payload.messages);
     if (seen.length === 1) return { tool_calls: [{ id: "call_1", function: { name: "console_guide", arguments: JSON.stringify({ topic: "trips" }) } }] };
-    return { choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Organizer trips live in the Organizer workspace." } }] };
+    return { choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Organizer applications live under Self-service trips." } }] };
   };
   const result = await consoleAssistantReply({ request, account: adminAccount, message: "Where do I manage trips?", run });
-  assert.equal(result.reply, "Organizer trips live in the Organizer workspace.");
+  assert.equal(result.reply, "Organizer applications live under Self-service trips.");
   assert.deepEqual(result.toolRuns, ["Console guide"]);
   assert.equal(result.pendingAction, undefined);
   const toolMessage = seen[1].find((message) => message.role === "tool");
   assert.ok(toolMessage, "the tool result must be handed back to the model");
-  assert.match(toolMessage.content, /Organizer workspaces?"?:|Organizer workspace/i);
+  // An administrator is mapped to the staff services that own organizer work,
+  // never to an organizer's own workspace, which refuses a staff account.
+  assert.match(toolMessage.content, /Organizer applications/i);
+  assert.match(toolMessage.content, /Organizer payouts/i);
+  assert.doesNotMatch(toolMessage.content, /Organizer workspace|Business profile|Earnings/i);
 });
 
 test("the daily brief is role-shaped and survives a service it cannot read", async () => {
