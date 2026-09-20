@@ -54,6 +54,13 @@ export type HostelProperty = {
   updatedAt: string;
 };
 
+/**
+ * The platform's cut of every hostel bed payment, in basis points. Nine
+ * percent, agreed for the hostel product, and the value every new landlord row
+ * starts on and the residency migration moves the placeholder 5% to.
+ */
+export const HOSTEL_DEFAULT_COMMISSION_BPS = 900;
+
 /** Kept in step with sql/014_hostel_foundation.sql; the runtime applies it too. */
 const HOSTEL_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS hostel_landlords (
@@ -65,7 +72,7 @@ const HOSTEL_SCHEMA_STATEMENTS = [
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     kyc_status TEXT NOT NULL DEFAULT 'PENDING',
     review_reason TEXT NOT NULL DEFAULT '',
-    commission_bps INTEGER NOT NULL DEFAULT 500,
+    commission_bps INTEGER NOT NULL DEFAULT ${HOSTEL_DEFAULT_COMMISSION_BPS},
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
@@ -258,7 +265,7 @@ export async function registerLandlord(input: {
   const stamp = new Date().toISOString();
   const landlordId = crypto.randomUUID();
   await turso(
-    "INSERT INTO hostel_landlords (id,name,phone,email,organization,status,kyc_status,commission_bps,created_at,updated_at) VALUES (?,?,?,?,?,'ACTIVE','PENDING',500,?,?)",
+    `INSERT INTO hostel_landlords (id,name,phone,email,organization,status,kyc_status,commission_bps,created_at,updated_at) VALUES (?,?,?,?,?,'ACTIVE','PENDING',${HOSTEL_DEFAULT_COMMISSION_BPS},?,?)`,
     [landlordId, name, phone, email, organization, stamp, stamp],
   );
   let accountId = "";
@@ -285,7 +292,7 @@ export async function registerLandlord(input: {
 export async function getHostelLandlord(landlordId: string): Promise<HostelLandlord> {
   await ensureHostelTables();
   const row = rowsToObjects(await turso(
-    "SELECT id,name,phone,email,COALESCE(organization,'') AS organization,COALESCE(status,'ACTIVE') AS status,COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(review_reason,'') AS review_reason,COALESCE(commission_bps,500) AS commission_bps,created_at,updated_at FROM hostel_landlords WHERE id = ? LIMIT 1",
+    `SELECT id,name,phone,email,COALESCE(organization,'') AS organization,COALESCE(status,'ACTIVE') AS status,COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(review_reason,'') AS review_reason,COALESCE(commission_bps,${HOSTEL_DEFAULT_COMMISSION_BPS}) AS commission_bps,created_at,updated_at FROM hostel_landlords WHERE id = ? LIMIT 1`,
     [landlordId],
   ))[0];
   if (!row) throw new CampusEngineError("NOT_FOUND", "That landlord account no longer exists.", 404);
@@ -308,7 +315,7 @@ export async function listHostelLandlordsForStaff(): Promise<HostelLandlord[]> {
   await ensureHostelTables();
   const rows = rowsToObjects(await turso(
     `SELECT id,name,phone,email,COALESCE(organization,'') AS organization,COALESCE(status,'ACTIVE') AS status,
-       COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(review_reason,'') AS review_reason,COALESCE(commission_bps,500) AS commission_bps,created_at,updated_at
+       COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(review_reason,'') AS review_reason,COALESCE(commission_bps,${HOSTEL_DEFAULT_COMMISSION_BPS}) AS commission_bps,created_at,updated_at
      FROM hostel_landlords
      ORDER BY CASE COALESCE(kyc_status,'PENDING') WHEN 'PENDING' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END,created_at DESC`,
   ));
@@ -421,8 +428,23 @@ export function landlordIdFromAccount(account: { profileId?: string }) {
 export const HOSTEL_ROOM_STATUSES = ["ACTIVE", "RETIRED"] as const;
 export type HostelRoomStatus = (typeof HOSTEL_ROOM_STATUSES)[number];
 
-export const HOSTEL_SPACE_STATUSES = ["AVAILABLE", "RETIRED"] as const;
+/**
+ * A bed is either free, held for a student who is paying right now, lived in,
+ * or taken off the market. Only the first and last are the landlord's to set by
+ * hand; the middle two belong to a booking.
+ */
+export const HOSTEL_SPACE_STATUSES = ["AVAILABLE", "RESERVED", "OCCUPIED", "RETIRED"] as const;
 export type HostelSpaceStatus = (typeof HOSTEL_SPACE_STATUSES)[number];
+
+/** The two states a landlord may set directly. */
+export const HOSTEL_MANUAL_SPACE_STATUSES = ["AVAILABLE", "RETIRED"] as const;
+
+/** Set by the booking engine, never by a console form. */
+export const HOSTEL_CLAIMED_SPACE_STATUSES = ["RESERVED", "OCCUPIED"] as const;
+
+export function isClaimedSpaceStatus(value: unknown) {
+  return (HOSTEL_CLAIMED_SPACE_STATUSES as readonly string[]).includes(String(value ?? ""));
+}
 
 export type HostelRoom = {
   id: string;
@@ -657,8 +679,16 @@ export async function updateHostelRoom(landlordId: string, roomId: string, input
   const stamp = new Date().toISOString();
   const allSpaces = await roomSpaces(roomId);
   const active = allSpaces.filter((space) => space.status !== "RETIRED");
+  const claimed = allSpaces.filter((space) => isClaimedSpaceStatus(space.status));
+  // A bed someone has paid for is not capacity the landlord can withdraw: the
+  // room may hold fewer free beds than its number until those bookings end, and
+  // shrinking below the claimed count is refused rather than resolved silently.
+  if (capacity < claimed.length) {
+    throw new CampusEngineError("INVALID_STATE", `This room has ${claimed.length} bed${claimed.length === 1 ? "" : "s"} a resident already paid for. Resolve those bookings before shrinking below that.`, 409);
+  }
   if (capacity < active.length) {
-    const surplus = active.slice().sort((left, right) => right.label.localeCompare(left.label, undefined, { numeric: true })).slice(0, active.length - capacity);
+    const free = active.filter((space) => !isClaimedSpaceStatus(space.status));
+    const surplus = free.slice().sort((left, right) => right.label.localeCompare(left.label, undefined, { numeric: true })).slice(0, active.length - capacity);
     const listed = await listedSpaceIds(roomId);
     const blocked = surplus.filter((space) => listed.has(space.id));
     if (blocked.length) {
@@ -682,6 +712,9 @@ export async function updateHostelRoom(landlordId: string, roomId: string, input
   }
 
   if (status === "RETIRED" && room.status !== "RETIRED") {
+    if (claimed.length) {
+      throw new CampusEngineError("INVALID_STATE", `This room has ${claimed.length} resident${claimed.length === 1 ? "" : "s"}. Resolve those bookings before retiring it.`, 409);
+    }
     const listed = await listedSpaceIds(roomId);
     if (listed.size) {
       throw new CampusEngineError("INVALID_STATE", "This room has listings. Cancel them before retiring it.", 409);
@@ -713,8 +746,13 @@ export async function updateHostelSpace(landlordId: string, spaceId: string, inp
   const label = input.label === undefined ? space.label : requiredText(input.label, 1, 24, "Give the bed a name (1 to 24 characters).");
   let status: HostelSpaceStatus = space.status;
   if (input.status !== undefined) {
-    if (!(HOSTEL_SPACE_STATUSES as readonly string[]).includes(String(input.status))) {
+    if (!(HOSTEL_MANUAL_SPACE_STATUSES as readonly string[]).includes(String(input.status))) {
       throw new CampusEngineError("VALIDATION_ERROR", "A bed is either AVAILABLE or RETIRED.", 400);
+    }
+    // A held or occupied bed belongs to a booking: freeing it by hand would let
+    // a second student pay for a bed that is already someone's.
+    if (isClaimedSpaceStatus(space.status)) {
+      throw new CampusEngineError("INVALID_STATE", "That bed belongs to a resident. Resolve the booking before changing its status.", 409);
     }
     status = String(input.status) as HostelSpaceStatus;
   }

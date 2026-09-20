@@ -1,6 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { landlordIdFromAccount } from "@/lib/hostel-engine/landlord";
+import { resolveHostelHost } from "@/lib/hostel-engine/managers";
 import { reviewHostelListing, submitHostelListing } from "@/lib/hostel-engine/listings";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
@@ -31,7 +31,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ listi
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
     const listing = action === "SUBMIT"
-      ? await submitHostelListing(landlordIdFromAccount(account), String(listingId || ""))
+      ? await submitHostelListing((await resolveHostelHost(account)).landlordId, String(listingId || ""))
       : await reviewHostelListing({
         listingId: String(listingId || ""),
         action: action as "APPROVE" | "REJECT" | "SUSPEND",

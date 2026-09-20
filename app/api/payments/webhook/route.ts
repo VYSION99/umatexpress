@@ -1,6 +1,7 @@
 import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "@/lib/turso";
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
+import { failHostelWebhookPayment, settleHostelWebhookPayment } from "@/lib/hostel-engine/settle";
 import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
 import { accrueForBooking, applyPaystackTransferEvent } from "@/lib/organizer-payouts";
 import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
@@ -184,7 +185,17 @@ export async function POST(request: Request) {
       const result = await markSuccessful(reference, amount, transactionId);
       if (!result.handled) {
         // The campus engine records its own settlement metric.
-        return noStore(await markCampusRidePaymentSuccessful(reference, amount, transactionId, requestId));
+        const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, requestId);
+        if (campus.handled) return noStore(campus);
+        // A hostel bed is the reason a student pays and closes the tab, so the
+        // webhook settles it rather than waiting for a return that never comes.
+        const hostel = await settleHostelWebhookPayment({ reference, amount, transactionId, source: "webhook" });
+        if (hostel.handled) {
+          const review = "status" in hostel && hostel.status === "PAYMENT_REVIEW";
+          await incrementMetric(review ? "payment_review" : "payment_success");
+          return noStore(hostel);
+        }
+        return noStore(campus);
       }
       await incrementMetric(result.status === "PAID_REVIEW" ? "payment_review" : "payment_success");
       return noStore(result);
@@ -194,7 +205,10 @@ export async function POST(request: Request) {
     const transactionId = event.data?.id ? String(event.data.id) : "";
     const result = await markFailed(reference, reason, transactionId);
     if (!result.handled) {
-      return noStore(await markCampusRidePaymentFailed(reference, reason, transactionId, requestId));
+      const campus = await markCampusRidePaymentFailed(reference, reason, transactionId, requestId);
+      if (campus.handled) return noStore(campus);
+      const hostel = await failHostelWebhookPayment({ reference, reason, transactionId });
+      return noStore(hostel.handled ? hostel : campus);
     }
     await incrementMetric("payment_failed");
     return noStore(result);

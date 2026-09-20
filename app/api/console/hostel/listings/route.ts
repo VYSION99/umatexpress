@@ -1,6 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { landlordIdFromAccount } from "@/lib/hostel-engine/landlord";
+import { resolveHostelHost } from "@/lib/hostel-engine/managers";
 import { createHostelListing, listHostelListingsForProperty } from "@/lib/hostel-engine/listings";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const account = await requireConsoleRole(request, ["LANDLORD"]);
     const propertyId = new URL(request.url).searchParams.get("propertyId") || "";
     if (!propertyId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a property.", 400);
-    const listings = await listHostelListingsForProperty(landlordIdFromAccount(account), propertyId);
+    const listings = await listHostelListingsForProperty((await resolveHostelHost(account)).landlordId, propertyId);
     return Response.json({ ok: true, listings }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const limited = await rateLimit(request, "hostel-write", { limit: 60, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const body = await request.json() as Record<string, unknown>;
-    const listing = await createHostelListing(landlordIdFromAccount(account), body);
+    const listing = await createHostelListing((await resolveHostelHost(account)).landlordId, body);
     return Response.json({ ok: true, listing }, { status: 201, headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

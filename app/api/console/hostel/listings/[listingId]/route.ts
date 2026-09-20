@@ -1,6 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { landlordIdFromAccount } from "@/lib/hostel-engine/landlord";
+import { resolveHostelHost } from "@/lib/hostel-engine/managers";
 import { removeHostelListing, updateHostelListing } from "@/lib/hostel-engine/listings";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
@@ -14,7 +14,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ listi
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { listingId } = await context.params;
     const body = await request.json() as Record<string, unknown>;
-    const listing = await updateHostelListing(landlordIdFromAccount(account), String(listingId || ""), body);
+    const listing = await updateHostelListing((await resolveHostelHost(account)).landlordId, String(listingId || ""), body);
     return Response.json({ ok: true, listing }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
@@ -29,7 +29,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ list
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { listingId } = await context.params;
     if (!String(listingId || "").trim()) throw new CampusEngineError("VALIDATION_ERROR", "Choose a listing.", 400);
-    const removed = await removeHostelListing(landlordIdFromAccount(account), String(listingId || ""));
+    const removed = await removeHostelListing((await resolveHostelHost(account)).landlordId, String(listingId || ""));
     return Response.json({ ok: true, ...removed }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

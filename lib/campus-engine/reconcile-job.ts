@@ -1,4 +1,5 @@
 import { reconcilePendingCampusPayments } from "@/lib/campus-engine/reconcile";
+import { reconcilePendingHostelPayments } from "@/lib/hostel-engine/reconcile";
 import { dispatchPendingNotifications } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
 
@@ -17,11 +18,15 @@ import { logEvent } from "@/lib/observability";
 export async function runCampusReconcile() {
   try {
     const result = await reconcilePendingCampusPayments();
+    // Hostel holds ride the same trigger: two extra statements when there is
+    // nothing stale, and a paid checkout that lost its webhook is caught here.
+    const hostel = await reconcilePendingHostelPayments().catch(() => null);
     logEvent("info", "reconcile_run", {
       configured: result.configured,
       reconciled: result.reconciled,
       reviewed: result.reviewed,
       sweeps: result.sweeps.length,
+      hostel: hostel ? { settled: hostel.settled, reviewed: hostel.reviewed, released: hostel.released, unverified: hostel.unverified } : "skipped",
     });
     return result;
   } catch (error) {

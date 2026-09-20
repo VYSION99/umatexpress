@@ -1,6 +1,7 @@
 import { campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { createHostelProperty, getHostelLandlord, landlordIdFromAccount, listHostelProperties } from "@/lib/hostel-engine/landlord";
+import { createHostelProperty, getHostelLandlord, listHostelProperties } from "@/lib/hostel-engine/landlord";
+import { resolveHostelHost } from "@/lib/hostel-engine/managers";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -13,7 +14,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export async function GET(request: Request) {
   try {
     const account = await requireConsoleRole(request, ["LANDLORD"]);
-    const landlordId = landlordIdFromAccount(account);
+    const { landlordId } = await resolveHostelHost(account);
     const [landlord, properties] = await Promise.all([
       getHostelLandlord(landlordId),
       listHostelProperties(landlordId),
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     const account = await requireConsoleRole(request, ["LANDLORD"]);
     const limited = await rateLimit(request, "hostel-write", { limit: 60, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
-    const landlordId = landlordIdFromAccount(account);
+    const { landlordId } = await resolveHostelHost(account);
     const body = await request.json() as Record<string, unknown>;
     const property = await createHostelProperty(landlordId, body);
     return Response.json({ ok: true, property }, { status: 201, headers: NO_STORE });

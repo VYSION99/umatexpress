@@ -1,6 +1,7 @@
 import { campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { getHostelPropertyDetail, landlordIdFromAccount, updateHostelProperty } from "@/lib/hostel-engine/landlord";
+import { getHostelPropertyDetail, updateHostelProperty } from "@/lib/hostel-engine/landlord";
+import { resolveHostelHost } from "@/lib/hostel-engine/managers";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -10,7 +11,7 @@ export async function GET(request: Request, context: { params: Promise<{ propert
   try {
     const account = await requireConsoleRole(request, ["LANDLORD"]);
     const { propertyId } = await context.params;
-    const detail = await getHostelPropertyDetail(landlordIdFromAccount(account), String(propertyId || ""));
+    const detail = await getHostelPropertyDetail((await resolveHostelHost(account)).landlordId, String(propertyId || ""));
     return Response.json({ ok: true, ...detail }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
@@ -25,7 +26,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ prope
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { propertyId } = await context.params;
     const body = await request.json() as Record<string, unknown>;
-    const property = await updateHostelProperty(landlordIdFromAccount(account), String(propertyId || ""), body);
+    const property = await updateHostelProperty((await resolveHostelHost(account)).landlordId, String(propertyId || ""), body);
     return Response.json({ ok: true, property }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

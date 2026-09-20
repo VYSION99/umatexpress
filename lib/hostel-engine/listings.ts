@@ -211,8 +211,8 @@ export async function createHostelListing(landlordId: string, input: {
     [spaceId, landlordId],
   ))[0];
   if (!space) throw new CampusEngineError("NOT_FOUND", "That bed does not belong to your account.", 404);
-  if (String(space.space_status) === "RETIRED" || String(space.room_status) !== "ACTIVE") {
-    throw new CampusEngineError("INVALID_STATE", "That bed is not part of an active room, so it cannot be listed.", 409);
+  if (String(space.space_status) !== "AVAILABLE" || String(space.room_status) !== "ACTIVE") {
+    throw new CampusEngineError("INVALID_STATE", "Only a free bed can be listed. That one is retired or already belongs to a resident.", 409);
   }
 
   const period = rowsToObjects(await turso("SELECT id,name,COALESCE(active,1) AS active FROM hostel_periods WHERE id = ? LIMIT 1", [periodId]))[0];
@@ -285,8 +285,8 @@ export async function submitHostelListing(landlordId: string, listingId: string)
   if (current === "SUSPENDED") {
     throw new CampusEngineError("INVALID_STATE", "This listing was suspended by the platform, so it cannot go back for review on its own.", 409);
   }
-  if (String(row.space_status) === "RETIRED" || String(row.room_status) !== "ACTIVE") {
-    throw new CampusEngineError("INVALID_STATE", "That bed is no longer part of an active room.", 409);
+  if (String(row.space_status) !== "AVAILABLE" || String(row.room_status) !== "ACTIVE") {
+    throw new CampusEngineError("INVALID_STATE", "That bed is retired or already belongs to a resident, so it cannot go back on the market.", 409);
   }
   if (String(row.property_status) === "SUSPENDED") {
     throw new CampusEngineError("INVALID_STATE", "This property is suspended, so its beds cannot be listed.", 409);
@@ -455,7 +455,10 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
     : rowsToObjects(await turso("SELECT id,name,starts_on,ends_on FROM hostel_periods WHERE COALESCE(active,1) = 1 ORDER BY starts_on DESC LIMIT 1"))[0];
   if (!period) return { period: null, spaces: [] as PublicSpace[] };
 
-  const filters = ["l.period_id = ?", "l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') <> 'RETIRED'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "COALESCE(p.status,'DRAFT') <> 'SUSPENDED'"];
+  // A bed a student is paying for, or already lives in, is not on offer: only
+  // AVAILABLE beds reach the page, which is what keeps two students from paying
+  // for the same bed.
+  const filters = ["l.period_id = ?", "l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "COALESCE(p.status,'DRAFT') <> 'SUSPENDED'"];
   const args: (string | number | null)[] = [String(period.id)];
   if (propertyId) { filters.push("p.id = ?"); args.push(propertyId); }
 
@@ -516,7 +519,7 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
      JOIN hostel_rooms r ON r.id = s.room_id
      JOIN hostel_properties p ON p.id = r.property_id
      WHERE l.period_id = ? AND l.status = 'APPROVED'
-       AND COALESCE(s.status,'AVAILABLE') <> 'RETIRED'
+       AND COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'
        AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
        AND COALESCE(p.status,'DRAFT') <> 'SUSPENDED'
      GROUP BY p.id

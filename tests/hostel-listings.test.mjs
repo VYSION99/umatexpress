@@ -83,6 +83,15 @@ function handle(sql, args) {
     const row = accounts.find((item) => item.id === args[0]);
     return ok(row ? table(["id", "email", "name", "phone", "role", "status", "profile_id"], [row]) : empty);
   }
+  // The host resolver reads the landlord's owner email to tell an owner from a
+  // delegate manager, and the manager row itself when the emails differ.
+  if (/SELECT id,COALESCE\(email,''\) AS email FROM hostel_landlords WHERE id = \? LIMIT 1/.test(sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    return ok(row ? table(["id", "email"], [row]) : empty);
+  }
+  if (/FROM hostel_managers WHERE landlord_id = \? AND lower\(email\) = \? AND status = 'ACTIVE' LIMIT 1/.test(sql)) {
+    return ok(empty);
+  }
 
   // --- periods -------------------------------------------------------------
   if (/FROM hostel_periods WHERE id = \? AND COALESCE\(active,1\) = 1 LIMIT 1/.test(sql)) {
@@ -639,7 +648,8 @@ test("the public reads need no session and the console reads do", async () => {
   const period = await buildPeriod();
   const listing = await createHostelListing("landlord-a", { spaceId: beds[0].id, periodId: period.id, price: 200000 });
 
-  const periodsResponse = await publicPeriodsRoute.GET();
+  // The read is metered now, so it is handed the request the Worker would give it.
+  const periodsResponse = await publicPeriodsRoute.GET(new Request("https://umatexpress.example/api/hostel/periods"));
   assert.equal(periodsResponse.status, 200);
   const periodsBody = await periodsResponse.json();
   assert.ok(periodsBody.periods.some((item) => item.id === period.id));
@@ -659,8 +669,9 @@ test("the public reads need no session and the console reads do", async () => {
   const landlordRead = await listingsRoute.GET(new Request(`${URL_BASE}/api/console/hostel/listings?propertyId=${property.id}`, {
     headers: { cookie: await cookieFor("acc-landlord") },
   }));
-  assert.equal(landlordRead.status, 200);
-  assert.equal((await landlordRead.json()).listings.length, 1);
+  const landlordReadBody = await landlordRead.json();
+  assert.equal(landlordRead.status, 200, `the landlord read failed: ${JSON.stringify(landlordReadBody)}`);
+  assert.equal(landlordReadBody.listings.length, 1);
 
   const adminPeriods = await adminPeriodsRoute.GET(new Request(`${URL_BASE}/api/admin/hostel/periods`, {
     headers: { cookie: await cookieFor("acc-admin") },

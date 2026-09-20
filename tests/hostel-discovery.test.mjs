@@ -61,7 +61,9 @@ function handle(sql, args) {
       const liveBeds = listings.filter((listing) => {
         if (listing.period_id !== args[0] || listing.status !== "APPROVED") return false;
         const space = spaces.find((item) => item.id === listing.space_id);
-        if (!space || space.status === "RETIRED") return false;
+        // Only a free bed is on offer: held and occupied beds are the gate the
+        // production aggregate applies, so the double applies it too.
+        if (!space || space.status !== "AVAILABLE") return false;
         const room = rooms.find((item) => item.id === space.room_id);
         if (!room || room.status !== "ACTIVE" || room.property_id !== property.id) return false;
         return property.status !== "SUSPENDED";
@@ -96,7 +98,7 @@ function handle(sql, args) {
         utilities_enabled: property.utilities_enabled || 0, property_id: property.id || "",
         space_status: space.status || "AVAILABLE", room_status: room.status || "ACTIVE", property_status: property.status || "DRAFT",
       };
-    }).filter((row) => row.space_status !== "RETIRED" && row.room_status === "ACTIVE" && row.property_status !== "SUSPENDED")
+    }).filter((row) => row.space_status === "AVAILABLE" && row.room_status === "ACTIVE" && row.property_status !== "SUSPENDED")
       .filter((row) => !wantsProperty || row.property_id === args[1])
       .sort((left, right) => left.room_label.localeCompare(right.room_label) || left.space_label.localeCompare(right.space_label));
     return ok(table(["listing_id", "space_id", "room_label", "space_label", "capacity", "price", "utilities_fee", "utilities_enabled"], rows));
@@ -155,6 +157,8 @@ function seed() {
     { id: "bed-a3", room_id: "room-a2", label: "Bed A", status: "AVAILABLE" },
     { id: "bed-a4", room_id: "room-a2", label: "Bed B", status: "RETIRED" },
     { id: "bed-a5", room_id: "room-a3", label: "Bed A", status: "AVAILABLE" },
+    // A bed a student is paying for right now: approved listing, but not on offer.
+    { id: "bed-a6", room_id: "room-a1", label: "Bed C", status: "RESERVED" },
     { id: "bed-b1", room_id: "room-b1", label: "Bed A", status: "AVAILABLE" },
     { id: "bed-c1", room_id: "room-c1", label: "Bed A", status: "AVAILABLE" },
   );
@@ -165,6 +169,7 @@ function seed() {
     // A bed whose listing is still in review must not reach a student.
     { id: "listing-a4", space_id: "bed-a4", period_id: PERIOD.id, price: 150000, status: "APPROVED" },
     { id: "listing-a5", space_id: "bed-a5", period_id: PERIOD.id, price: 90000, status: "APPROVED" },
+    { id: "listing-a7", space_id: "bed-a6", period_id: PERIOD.id, price: 120000, status: "APPROVED" },
     { id: "listing-a6", space_id: "bed-a1", period_id: NEXT_YEAR.id, price: 260000, status: "APPROVED" },
     { id: "listing-b1", space_id: "bed-b1", period_id: PERIOD.id, price: 170000, status: "APPROVED" },
     { id: "listing-c1", space_id: "bed-c1", period_id: PERIOD.id, price: 120000, status: "DRAFT" },
@@ -180,14 +185,14 @@ test("the public list counts only beds a student could actually book", async () 
   assert.equal(period.name, "2026/27 Academic Year");
   assert.deepEqual(listed.map((property) => property.id), ["property-a"]);
   const green = listed[0];
-  assert.equal(green.availableSpaces, 2, "the draft listing, the retired bed and the retired room must not count");
+  assert.equal(green.availableSpaces, 2, "the draft listing, the held bed, the retired bed and the retired room must not count");
   assert.equal(green.roomCount, 2);
   assert.equal(green.minPrice, 180000);
   assert.equal(green.minTotal, 195000, "utilities are added per bed when the property charges them");
   assert.equal(green.utilitiesEnabled, true);
   const aggregate = statements.find((statement) => /^SELECT p\.id AS property_id/.test(statement.sql));
   assert.ok(aggregate, "the property list must run its own aggregate query");
-  for (const gate of ["l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') <> 'RETIRED'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "COALESCE(p.status,'DRAFT') <> 'SUSPENDED'"]) {
+  for (const gate of ["l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "COALESCE(p.status,'DRAFT') <> 'SUSPENDED'"]) {
     assert.ok(aggregate.sql.includes(gate), `the aggregate must keep the gate: ${gate}`);
   }
   assert.deepEqual(aggregate.args, [PERIOD.id]);

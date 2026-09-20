@@ -1,6 +1,7 @@
 import { campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { landlordIdFromAccount, updateHostelRoom } from "@/lib/hostel-engine/landlord";
+import { updateHostelRoom } from "@/lib/hostel-engine/landlord";
+import { resolveHostelHost } from "@/lib/hostel-engine/managers";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -13,7 +14,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ roomI
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { roomId } = await context.params;
     const body = await request.json() as Record<string, unknown>;
-    const room = await updateHostelRoom(landlordIdFromAccount(account), String(roomId || ""), body);
+    const room = await updateHostelRoom((await resolveHostelHost(account)).landlordId, String(roomId || ""), body);
     return Response.json({ ok: true, room }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
