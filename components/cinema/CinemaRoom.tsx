@@ -11,10 +11,10 @@ import "./cinema.css";
  * The room as a student sees it.
  *
  * Membership is the server's answer, never the client's assumption: this joins
- * once on open and then re-reads the room so the presence list is the database's
- * version of who is here. The milestone that adds the Durable Object replaces
- * that refresh with a socket; until then a reload is what updates the list, and
- * the button says so rather than pretending otherwise.
+ * once on open, and only while the room is open, then re-reads it so the list
+ * shows the database's version of who joined. The list is membership, not live
+ * presence — the Durable Object that knows who is connected arrives with M2,
+ * and until then the refresh button is the honest way to update it.
  *
  * Host controls are hidden from everyone else, but that is a courtesy: the
  * engine refuses a non-host's action regardless.
@@ -26,6 +26,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
   const joined = useRef(false);
+  const enteredStatus = useRef(initialRoom.status);
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +39,9 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
 
   useEffect(() => {
     if (!ready || !account || joined.current) return;
+    // An ended room takes no joins, and asking anyway would paint an error over
+    // the page that is already explaining itself.
+    if (enteredStatus.current !== "CREATED" && enteredStatus.current !== "LIVE") return;
     joined.current = true;
     void (async () => {
       try {
@@ -122,7 +126,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     </div>
 
     <aside className="cinema-card">
-      <h2>In the room</h2>
+      <h2>Who joined</h2>
       {!ready
         ? <p className="cinema-note">Checking your account…</p>
         : !account
@@ -135,7 +139,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
           : <ul className="cinema-people">
             {room.participants.map((member) => <li key={member.studentId}>
               {member.displayName || "Member"}
-              <span>{member.studentId === room.hostStudentId ? "Host" : member.leftAt ? "Left" : "Here"}</span>
+              <span>{member.studentId === room.hostStudentId ? "Host" : "Member"}</span>
             </li>)}
           </ul>}
       {account && <div className="cinema-controls cinema-sub">
@@ -144,7 +148,9 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       <p className="cinema-note cinema-sub">
         {room.status === "ENDED"
           ? "This room has ended. Nobody new can join."
-          : room.joinLocked ? "The host locked the door." : "The list updates when you refresh."}
+          : room.joinLocked
+            ? "The host locked the door, so only people already in can come back."
+            : "Everyone with the link and a UMaT account can join. The list updates when you refresh."}
       </p>
     </aside>
   </div>;

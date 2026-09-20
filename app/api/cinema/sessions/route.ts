@@ -9,8 +9,9 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * The student's rooms: create one, or read back the ones they are already in.
  *
  * Creating a room is cheap but not free — every room is a row and a share link
- * — so it is rate limited per student. Reading the lobby is not: a student may
- * reload their own list as often as they like.
+ * — so it is rate limited per caller, the way every write on the platform is.
+ * Reading the lobby is not: a student may reload their own list as often as
+ * they like.
  */
 export async function POST(request: Request) {
   try {

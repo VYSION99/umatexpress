@@ -141,11 +141,14 @@ function participantView(row: CinemaRoomRow): CinemaParticipant {
  * One room as a student sees it. Membership is an argument rather than a second
  * query, because every caller already had to know it to get here.
  */
-export function roomView(row: CinemaRoomRow, input: { studentId?: string; participants?: CinemaRoomRow[] } = {}): CinemaRoom {
+export function roomView(row: CinemaRoomRow, input: { studentId?: string; participants?: CinemaRoomRow[]; memberCount?: number } = {}): CinemaRoom {
   const participants = (input.participants || []).map(participantView);
   const studentId = String(input.studentId || "");
-  const isMember = Boolean(studentId) && participants.some((member) => member.studentId === studentId);
   const hostStudentId = String(row.host_student_id || "");
+  // The host is a member of their own room even if a membership row is somehow
+  // missing: refusing them their own controls would be the worse failure.
+  const isMember = Boolean(studentId)
+    && (studentId === hostStudentId || participants.some((member) => member.studentId === studentId));
   const host = participants.find((member) => member.studentId === hostStudentId);
   const status = String(row.status || "CREATED") as CinemaRoomStatus;
   const joinLocked = Number(row.join_locked || 0) === 1;
@@ -161,7 +164,7 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
     isHost: Boolean(studentId) && studentId === hostStudentId,
     isMember,
     joinable: isRoomActive(status) && (!joinLocked || isMember),
-    verifiedCount: participants.filter((member) => !member.leftAt).length,
+    verifiedCount: input.memberCount ?? participants.filter((member) => !member.leftAt).length,
     participants,
     startedAt: String(row.started_at || ""),
     endedAt: String(row.ended_at || ""),
@@ -186,6 +189,24 @@ async function membersOf(sessionIds: string[]): Promise<Map<string, CinemaRoomRo
     grouped.set(key, [...(grouped.get(key) || []), row]);
   }
   return grouped;
+}
+
+/**
+ * Counts only, for the lobby. A list of twenty rooms does not need twenty
+ * member lists to show a number, and one query cannot be starved by a chatty
+ * room the way a single shared row limit could.
+ */
+async function memberCounts(sessionIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!sessionIds.length) return counts;
+  const placeholders = sessionIds.map(() => "?").join(",");
+  const rows = rowsToObjects(await turso(
+    `SELECT session_id, COUNT(*) AS members FROM cinema_participants
+      WHERE session_id IN (${placeholders}) AND left_at = '' GROUP BY session_id`,
+    sessionIds,
+  ));
+  for (const row of rows) counts.set(String(row.session_id || ""), Number(row.members || 0));
+  return counts;
 }
 
 async function roomRow(sessionId: string): Promise<CinemaRoomRow | undefined> {
@@ -222,10 +243,17 @@ export async function createRoom(input: { student: { id: string; name?: string }
      VALUES (?,?,?,?,?,'CREATED',?,?)`,
     [id, String(input.student.id), title, "YOUTUBE", lookup.id, stamp, stamp],
   );
-  await turso(
-    "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at) VALUES (?,?,?,?,?,'')",
-    [id, String(input.student.id), String(input.student.name || "").slice(0, 80), stamp, stamp],
-  );
+  try {
+    await turso(
+      "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at) VALUES (?,?,?,?,?,'')",
+      [id, String(input.student.id), String(input.student.name || "").slice(0, 80), stamp, stamp],
+    );
+  } catch (error) {
+    // A room without its host is a share link nobody can open, so the insert
+    // that failed takes the room with it rather than leaving it behind.
+    await turso("DELETE FROM cinema_sessions WHERE id = ?", [id]).catch(() => undefined);
+    throw error;
+  }
   logEvent("info", "cinema_room_created", { roomId: id });
   await incrementMetric("cinema_rooms_created");
   return roomView(
@@ -254,8 +282,14 @@ export async function listMyRooms(studentId: string) {
       ORDER BY s.created_at DESC LIMIT ${LIST_LIMIT}`,
     [String(studentId)],
   ));
-  const members = await membersOf(rows.map((row) => String(row.id || "")));
-  return rows.map((row) => roomView(row, { studentId, participants: members.get(String(row.id || "")) || [] }));
+  const counts = await memberCounts(rows.map((row) => String(row.id || "")));
+  // Every room here is in the list because this student is in it — that is what
+  // the join proved — so the names are not needed to render the lobby.
+  return rows.map((row) => roomView(row, {
+    studentId,
+    participants: [],
+    memberCount: counts.get(String(row.id || "")) ?? 0,
+  }));
 }
 
 /**
@@ -271,8 +305,10 @@ export async function joinRoom(input: { id: string; student: { id: string; name?
   const members = (await membersOf([String(row.id)])).get(String(row.id)) || [];
   const isMember = members.some((member) => String(member.student_id || "") === studentId);
 
+  // An ended room admits nobody, member or not: the page says the room has
+  // ended, and a join that quietly succeeded would contradict it.
+  if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
   if (!isMember) {
-    if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
     if (Number(row.join_locked || 0) === 1) throw new CampusEngineError("FORBIDDEN", "The host has locked this room.", 403);
     const stamp = new Date().toISOString();
     await turso(

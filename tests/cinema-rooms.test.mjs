@@ -14,8 +14,9 @@ import { createServer } from "vite";
 
 process.env.TURSO_DATABASE_URL = "https://cinema-rooms-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
+process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const state = { rooms: [], members: [], metrics: new Map() };
+const state = { rooms: [], members: [], metrics: new Map(), failMembershipOnce: false };
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -35,6 +36,26 @@ function handle(sql, args) {
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
   if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
 
+  // The Turso rate-limit store, which the routes use when no Durable Object
+  // binding is present. Each window is fresh, so every call is allowed.
+  if (/^DELETE FROM rate_limit_windows/.test(sql)) return affected(0);
+  if (/^INSERT INTO rate_limit_windows/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
+  if (/^SELECT count FROM rate_limit_windows/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
+
+  // The account behind the session cookie, for the route-level tests.
+  if (/^PRAGMA table_info\(student_accounts\)/.test(sql)) {
+    return ok(table(["name"], ["id", "email", "name", "phone", "password_hash", "password_salt", "password_iterations", "token_version", "email_verified", "active", "created_at", "updated_at", "last_login_at"].map((name) => ({ name }))));
+  }
+  if (/^SELECT COALESCE\(token_version,0\) AS token_version FROM student_accounts/.test(sql)) {
+    return ok(args[0] === ACCOUNT.id ? table(["token_version"], [{ token_version: 0 }]) : empty);
+  }
+  if (/FROM student_accounts WHERE id = \? LIMIT 1/.test(sql)) {
+    return ok(args[0] === ACCOUNT.id ? table(
+      ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"],
+      [ACCOUNT],
+    ) : empty);
+  }
+
   if (/^INSERT INTO metrics_counters/.test(sql)) {
     const [name, day, amount] = args;
     const key = `${name}:${day}`;
@@ -51,11 +72,20 @@ function handle(sql, args) {
     });
     return affected(1);
   }
+  if (/^DELETE FROM cinema_sessions WHERE id = \?/.test(sql)) {
+    const index = state.rooms.findIndex((room) => room.id === args[0]);
+    if (index >= 0) state.rooms.splice(index, 1);
+    return affected(index >= 0 ? 1 : 0);
+  }
   if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
     return ok(row ? table(ROOM_COLUMNS, [row]) : empty);
   }
   if (/^INSERT OR IGNORE INTO cinema_participants/.test(sql)) {
+    if (state.failMembershipOnce) {
+      state.failMembershipOnce = false;
+      return { type: "error", error: { message: "the membership write failed" } };
+    }
     const [sessionId, studentId, displayName, joinedAt] = args;
     if (state.members.some((member) => member.session_id === sessionId && member.student_id === studentId)) return affected(0);
     state.members.push({ session_id: sessionId, student_id: studentId, display_name: displayName, joined_at: joinedAt, last_seen_at: joinedAt, left_at: "" });
@@ -68,6 +98,16 @@ function handle(sql, args) {
       .sort((left, right) => String(left.joined_at).localeCompare(String(right.joined_at)))
       .slice(0, 200);
     return ok(rows.length ? table(MEMBER_COLUMNS, rows) : empty);
+  }
+  if (/^SELECT session_id, COUNT\(\*\) AS members FROM cinema_participants/.test(sql)) {
+    const ids = args;
+    const counts = new Map();
+    for (const member of state.members) {
+      if (!ids.includes(member.session_id) || member.left_at) continue;
+      counts.set(member.session_id, (counts.get(member.session_id) || 0) + 1);
+    }
+    const rows = [...counts.entries()].map(([session_id, members]) => ({ session_id, members }));
+    return ok(rows.length ? table(["session_id", "members"], rows) : empty);
   }
   if (/^UPDATE cinema_participants SET last_seen_at = \?, left_at = '' WHERE session_id = \? AND student_id = \?/.test(sql)) {
     const [lastSeenAt, sessionId, studentId] = args;
@@ -133,11 +173,17 @@ globalThis.fetch = async (_url, init) => {
 };
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const ACCOUNT = {
+  id: "student-host", email: "ama@st.umat.edu.gh", name: "Ama Host", phone: "0244000000",
+  created_at: "2026-09-01T00:00:00.000Z", last_login_at: "", token_version: 0, active: 1,
+};
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
 
 const { parseYouTubeId } = await vite.ssrLoadModule("/lib/cinema-engine/youtube.ts");
 const { CINEMA_TITLE_MAX, createRoom, joinRoom, listMyRooms, patchRoom, readRoom } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
+const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
+const sessionsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/route.ts");
 
 const host = { id: "student-host", name: "Ama Host" };
 const guest = { id: "student-guest", name: "Kwesi Guest" };
@@ -261,4 +307,50 @@ test("a room that was never there, or was closed, is a 404 rather than a forbidd
   const room = await createRoom({ student: host, video: VIDEO });
   state.rooms.find((row) => row.id === room.id).status = "DELETED";
   await expectRefusal(joinRoom({ id: room.id, student: guest }), "NOT_FOUND", 404);
+});
+
+test("an ended room refuses a member's join too, so the page and the engine agree", async () => {
+  const room = await createRoom({ student: host, video: VIDEO });
+  await joinRoom({ id: room.id, student: guest });
+  await patchRoom({ id: room.id, studentId: host.id, action: "END" });
+  await expectRefusal(joinRoom({ id: room.id, student: guest }), "INVALID_STATE", 409);
+});
+
+test("a membership write that fails does not leave a room nobody can open", async () => {
+  state.failMembershipOnce = true;
+  await assert.rejects(createRoom({ student: host, video: VIDEO }), /membership write failed/);
+  assert.equal(state.rooms.length, 0, "the room is put back when its host could not be added");
+});
+
+test("the lobby counts members without reading every name", async () => {
+  const room = await createRoom({ student: host, video: VIDEO });
+  await joinRoom({ id: room.id, student: guest });
+  const [listed] = await listMyRooms(host.id);
+  assert.equal(listed.id, room.id);
+  assert.equal(listed.verifiedCount, 2, "the count comes from the grouped query");
+  assert.equal(listed.participants.length, 0, "the lobby does not carry member names");
+  assert.equal(listed.isHost, true);
+});
+
+test("the routes require the platform account, and create a room for it once signed in", async () => {
+  const anonymous = await sessionsRoute.GET(new Request("https://umatexpress.test/api/cinema/sessions"));
+  assert.equal(anonymous.status, 401, "the lobby list is not readable without an account");
+
+  const request = new Request("https://umatexpress.test/api/cinema/sessions", { headers: { cookie: await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/")) } });
+  const response = await sessionsRoute.POST(new Request(request.url, {
+    method: "POST",
+    headers: { cookie: request.headers.get("cookie"), "content-type": "application/json" },
+    body: JSON.stringify({ title: "From the route", video: VIDEO }),
+  }));
+  const payload = await response.json();
+  assert.equal(response.status, 201, JSON.stringify(payload));
+  assert.equal(payload.room.title, "From the route");
+  assert.equal(payload.room.isHost, true);
+  assert.equal(payload.room.participants.length, 1);
+
+  const listed = await sessionsRoute.GET(request);
+  assert.equal(listed.status, 200);
+  const listPayload = await listed.json();
+  assert.equal(listPayload.rooms.length, 1);
+  assert.equal(listPayload.rooms[0].id, payload.room.id);
 });

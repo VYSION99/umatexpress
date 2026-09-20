@@ -115,7 +115,7 @@ export function CinemaLobby() {
 
 /** A room id out of a pasted link, a bare id, or nothing. */
 function roomIdFrom(value: string) {
-  const trimmed = value.trim();
+  const trimmed = value.trim().split(/[?#]/)[0];
   const candidate = trimmed.includes("/") ? trimmed.split("/").filter(Boolean).pop() || "" : trimmed;
   return /^[A-Za-z0-9-]{8,64}$/.test(candidate) ? candidate : "";
 }
