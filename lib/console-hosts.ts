@@ -26,6 +26,10 @@ const CONSOLE_SURFACE_PREFIXES = [
   "/admin",
   "/api/admin",
   "/api/driver",
+  // The hostel catalogue read is public on the student site and the landlord's
+  // console workspace needs it too: a landlord prices beds from the open
+  // academic years before any of their own data is involved.
+  "/api/hostel",
   // Only the two admin trip endpoints: the public trip reads stay public, so a
   // future /api/trips/* route never becomes reachable from the console by
   // accident.

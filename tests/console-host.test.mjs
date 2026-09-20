@@ -35,7 +35,9 @@ test("the console entry point redirects from the console root", () => {
 });
 
 test("the console origin serves console work and refuses the public site", () => {
-  for (const path of ["/console", "/console/campus", "/console/vacation", "/console/driver", "/console/change-password", "/api/console/session", "/admin/reset-password", "/api/admin/bookings", "/api/driver/me", "/api/trips/schedule", "/api/campus/ai"]) {
+  // /api/hostel/periods is a public read the landlord workspace also calls, so
+  // the console origin must answer it rather than 404 the listing form.
+  for (const path of ["/console", "/console/campus", "/console/vacation", "/console/driver", "/console/change-password", "/api/console/session", "/admin/reset-password", "/api/admin/bookings", "/api/driver/me", "/api/trips/schedule", "/api/campus/ai", "/api/hostel/periods", "/api/hostel/properties"]) {
     assert.deepEqual(consoleHostAction("console.umatexpress.com", path, CONSOLE), { action: "serve" }, `${path} should be served on the console host`);
   }
   for (const path of ["/vacation", "/campus", "/api/auth/student", "/api/campus/queue/initialize", "/api/payments/webhook", "/api/trips/availability", "/sw.js"]) {
@@ -47,7 +49,7 @@ test("console-native paths are never reachable on the public host", () => {
   for (const path of ["/console", "/console/login", "/api/console/session"]) {
     assert.deepEqual(consoleHostAction(PUBLIC, path, CONSOLE), { action: "not-found" }, `${path} must be refused publicly`);
   }
-  for (const path of ["/", "/vacation", "/api/trips/schedule", "/api/payments/webhook"]) {
+  for (const path of ["/", "/vacation", "/api/trips/schedule", "/api/payments/webhook", "/api/hostel/periods"]) {
     assert.deepEqual(consoleHostAction(PUBLIC, path, CONSOLE), { action: "serve" }, `${path} must keep working publicly`);
   }
 });

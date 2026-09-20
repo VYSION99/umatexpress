@@ -1,9 +1,17 @@
 import { campusErrorPayload } from "@/lib/campus-engine/errors";
 import { listPublicProperties } from "@/lib/hostel-engine/listings";
+import { withEdgeCache } from "@/lib/edge-cache";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const SORTS = ["distance", "price", "name"] as const;
 type Sort = (typeof SORTS)[number];
+
+/** The browse catalogue changes only on a review decision, so the edge may hold it. */
+const CACHE_SECONDS = 60;
+const CACHE_SWR_SECONDS = 600;
+/** A campus network puts hundreds of students behind one address. */
+const READ_LIMIT = 240;
 
 /**
  * A filter a browse page may ignore: junk or out-of-range values fall back to
@@ -30,15 +38,21 @@ function sortParam(value: string | null): Sort {
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const result = await listPublicProperties({
-      periodId: url.searchParams.get("periodId") || undefined,
-      maxDistanceM: boundedParam(url.searchParams.get("maxDistance"), 50_000),
-      maxPrice: boundedParam(url.searchParams.get("maxPrice"), 50_000_000),
-      minSpaces: boundedParam(url.searchParams.get("minSpaces"), 60),
-      utilitiesOnly: url.searchParams.get("utilities") === "1",
-      sort: sortParam(url.searchParams.get("sort")),
+    const limited = await rateLimit(request, "hostel-properties-read", { limit: READ_LIMIT, windowMs: 60_000 });
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+    // The query string is part of the key: a filtered search must never be
+    // served the unfiltered catalogue.
+    return await withEdgeCache(request, { path: `/api/hostel/properties${url.search}`, maxAge: CACHE_SECONDS, staleWhileRevalidate: CACHE_SWR_SECONDS }, async () => {
+      const result = await listPublicProperties({
+        periodId: url.searchParams.get("periodId") || undefined,
+        maxDistanceM: boundedParam(url.searchParams.get("maxDistance"), 50_000),
+        maxPrice: boundedParam(url.searchParams.get("maxPrice"), 50_000_000),
+        minSpaces: boundedParam(url.searchParams.get("minSpaces"), 60),
+        utilitiesOnly: url.searchParams.get("utilities") === "1",
+        sort: sortParam(url.searchParams.get("sort")),
+      });
+      return Response.json({ ok: true, ...result }, { headers: NO_STORE });
     });
-    return Response.json({ ok: true, ...result }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

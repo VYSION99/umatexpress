@@ -75,7 +75,7 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, bindings, ctx);
+    return withSecurityHeaders(request, await handler.fetch(request, bindings, ctx));
   },
 
   /**
@@ -137,5 +137,43 @@ const worker = {
     }
   },
 };
+
+/**
+ * Security headers every response carries.
+ *
+ * A Content-Security-Policy is deliberately absent: the student map runs
+ * MapLibre with blob workers and the console ships Next's inline bootstrap, so
+ * a policy that does not break them has to be written and tested against both
+ * origins first. These five are the ones that are safe unconditionally.
+ */
+const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "X-Frame-Options": "DENY",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(self), payment=(self)",
+  "Cross-Origin-Opener-Policy": "same-origin",
+};
+
+/** 101/204/304 responses may not carry a body, so they are rebuilt without one. */
+function bodyless(status: number) {
+  return status === 101 || status === 204 || status === 304;
+}
+
+function withSecurityHeaders(request: Request, response: Response) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    // A route may set its own (stricter) value; the deployment default never
+    // overwrites a decision made closer to the data.
+    if (!headers.has(name)) headers.set(name, value);
+  }
+  if (new URL(request.url).protocol === "https:" && !headers.has("Strict-Transport-Security")) {
+    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  return new Response(bodyless(response.status) ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 export default worker;

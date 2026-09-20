@@ -1,12 +1,13 @@
 import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "@/lib/turso";
 import { getPaymentStatus } from "@/lib/mtn-momo";
 import { verifyPaystackTransaction } from "@/lib/paystack";
-import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
+import { paymentTokenFromRequest, verifyPaymentToken } from "@/lib/payment-access";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
 import { accrueForBooking } from "@/lib/organizer-payouts";
 import { studentOwnsEmail } from "@/lib/student-auth";
 import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 function errorStatus(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -21,6 +22,10 @@ function errorStatus(error: unknown) {
 export async function GET(request: Request) {
   const requestId = requestIdFromRequest(request);
   const respond = (body: unknown, init?: ResponseInit) => withRequestId(Response.json(body, init), requestId);
+  // Each attempt costs a Paystack verify call and can settle a booking, so the
+  // poll is metered even though the reference is unguessable.
+  const limited = await rateLimit(request, "payment-verify-read", { limit: 120, windowMs: 10 * 60_000 });
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
   const reference = new URL(request.url).searchParams.get("reference");
   if (!reference) return respond({ error: "Missing payment reference." }, { status: 400 });
 
@@ -35,10 +40,7 @@ export async function GET(request: Request) {
     if (!payment) return respond({ error: "Payment was not found." }, { status: 404 });
 
     const token = paymentTokenFromRequest(request, reference);
-    let authorised = false;
-    if (token && payment.access_token_hash) {
-      authorised = await hashPaymentToken(token) === String(payment.access_token_hash);
-    }
+    const authorised = await verifyPaymentToken(token, payment.access_token_hash);
     // The token is the guest's key: minted at checkout and good for an hour.
     // A student who signed in keeps access to their own booking without it,
     // because the booking was made under their account's address — that is what

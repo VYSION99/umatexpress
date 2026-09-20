@@ -61,11 +61,14 @@ export async function verifyPaystackWebhookSignature(rawBody: string, suppliedSi
 }
 
 export function getPaymentProvider() {
-  return (process.env.PAYMENT_PROVIDER || "MTN_MOMO").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
+  // Paystack is the platform default. MTN MoMo stays reachable, but only when a
+  // deployment asks for it by name: a missing variable must never silently
+  // route checkout to a provider nobody configured.
+  return (process.env.PAYMENT_PROVIDER || "PAYSTACK").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
 }
 
 export async function getPaymentProviderRuntime() {
-  return (await envValue("PAYMENT_PROVIDER") || "MTN_MOMO").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
+  return (await envValue("PAYMENT_PROVIDER") || "PAYSTACK").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
 }
 
 export function getPaystackCurrency() {

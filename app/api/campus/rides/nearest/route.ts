@@ -1,8 +1,11 @@
 import { matchNearestRide } from "@/lib/campus-engine/matching";
 import { fail, ok } from "@/lib/campus-engine/responses";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
   try {
+    const limited = await rateLimit(request, "campus-nearest-read", { limit: 240, windowMs: 60_000 });
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const url = new URL(request.url);
     const pickupZoneId = url.searchParams.get("pickupZoneId") || "";
     const destinationZoneId = url.searchParams.get("destinationZoneId") || "";

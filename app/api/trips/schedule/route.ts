@@ -68,14 +68,13 @@ function normalizeTripBody(body: Partial<ScheduledTripInput>) {
 export async function GET(request: Request) {
   const adminView = new URL(request.url).searchParams.get("admin") === "1";
   // The public read is the cheapest way to scrape the whole schedule, and it
-  // hits the database on every call. The admin view is a signed-in console
-  // read and is not limited here. The ceiling is generous on purpose: a campus
-  // network puts many students behind one address, so the limit is there to
-  // stop a flood, not to meter a person.
-  if (!adminView) {
-    const limited = await rateLimit(request, "trips-schedule-read", { limit: 240, windowMs: 60_000 });
-    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
-  }
+  // hits the database on every call. Both views are metered before the auth
+  // check, because otherwise `?admin=1` is an unauthenticated way around the
+  // limiter. The ceiling is generous on purpose: a campus network puts many
+  // students behind one address, so the limit is there to stop a flood, not to
+  // meter a person.
+  const limited = await rateLimit(request, "trips-schedule-read", { limit: 240, windowMs: 60_000 });
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
   if (!(await isTursoConfiguredRuntime())) {
     return Response.json({ trips: await getDynamicTrips(), configured: false });
   }

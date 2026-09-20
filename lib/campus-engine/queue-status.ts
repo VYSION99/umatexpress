@@ -1,7 +1,7 @@
 import { ensureCampusRideTables } from "@/lib/campus-ride";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { estimateWaitMinutes, queueProgress, waitLabel } from "@/lib/campus-engine/progress";
-import { hashPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
+import { paymentTokenFromRequest, verifyPaymentToken } from "@/lib/payment-access";
 import { incrementMetric } from "@/lib/observability";
 import { studentOwnsEmail } from "@/lib/student-auth";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
@@ -45,10 +45,7 @@ export async function campusQueueStatus(request: Request, reference: string) {
   if (!row) throw new CampusEngineError("NOT_FOUND", "campusRide payment was not found.", 404);
 
   const token = paymentTokenFromRequest(request, reference);
-  let authorised = false;
-  if (token && row.access_token_hash) {
-    authorised = await hashPaymentToken(token) === String(row.access_token_hash);
-  }
+  const authorised = await verifyPaymentToken(token, row.access_token_hash);
   // A signed-in passenger tracks their own ride without the one-hour cookie,
   // so a deep link to the ticket keeps its live status after the cookie dies.
   if (!authorised && !(await studentOwnsEmail(request, row.email))) {
