@@ -1,6 +1,7 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables } from "@/lib/hostel-engine/landlord";
+import { distanceToCampusMeters, isCoordinate } from "@/lib/hostel-engine/geo";
 import { rowsToObjects, turso } from "@/lib/turso";
 
 /**
@@ -65,6 +66,35 @@ export type PublicSpace = {
   price: number;
   utilitiesFee: number;
   total: number;
+};
+
+/** A building a signed-out visitor may browse: its pin, its price and its beds. */
+export type PublicProperty = {
+  id: string;
+  name: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** Metres from campus: what the landlord declared, else measured from the pin. */
+  distanceM: number | null;
+  utilitiesEnabled: boolean;
+  /** Approved beds in the open year, after every gate. */
+  availableSpaces: number;
+  roomCount: number;
+  /** Yearly rent in pesewas, before utilities. */
+  minPrice: number;
+  /** What the cheapest bed costs with the utilities the student would pay. */
+  minTotal: number;
+};
+
+/** The filters the browse page may ask for, all optional. */
+export type PublicPropertyQuery = {
+  periodId?: string;
+  maxDistanceM?: number;
+  maxPrice?: number;
+  minSpaces?: number;
+  utilitiesOnly?: boolean;
+  sort?: "distance" | "price" | "name";
 };
 
 /** A year's rent in whole pesewas: GH₵1 at the floor, GH₵50,000 at the ceiling. */
@@ -458,4 +488,105 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
     period: { id: String(period.id), name: String(period.name), startsOn: String(period.starts_on), endsOn: String(period.ends_on) },
     spaces,
   };
+}
+
+/**
+ * What the map and the browse page show: one row per building that has at least
+ * one bed a student could actually book, in the open year. The same gates as
+ * `listPublicSpaces` are applied here in aggregate, so a suspended property, a
+ * retired bed, an inactive room or a draft listing can never put a pin on the
+ * map. Distance is declared when the landlord typed it, computed from the pin
+ * otherwise, and null when the building has neither.
+ */
+export async function listPublicProperties(query: PublicPropertyQuery = {}) {
+  await ensureHostelTables();
+  const periodId = String(query.periodId ?? "").trim();
+  const period = periodId
+    ? rowsToObjects(await turso("SELECT id,name,starts_on,ends_on FROM hostel_periods WHERE id = ? AND COALESCE(active,1) = 1 LIMIT 1", [periodId]))[0]
+    : rowsToObjects(await turso("SELECT id,name,starts_on,ends_on FROM hostel_periods WHERE COALESCE(active,1) = 1 ORDER BY starts_on DESC LIMIT 1"))[0];
+  if (!period) return { period: null, properties: [] as PublicProperty[] };
+
+  const rows = rowsToObjects(await turso(
+    `SELECT p.id AS property_id,p.name AS property_name,COALESCE(p.address,'') AS property_address,p.latitude,p.longitude,
+       p.campus_distance_m,COALESCE(p.utilities_enabled,0) AS utilities_enabled,COALESCE(p.status,'DRAFT') AS property_status,
+       COUNT(*) AS available_spaces,COUNT(DISTINCT r.id) AS room_count,MIN(l.price) AS min_price,
+       MIN(l.price + CASE WHEN COALESCE(p.utilities_enabled,0) = 1 THEN COALESCE(r.utilities_fee,0) ELSE 0 END) AS min_total
+     FROM hostel_listings l
+     JOIN hostel_spaces s ON s.id = l.space_id
+     JOIN hostel_rooms r ON r.id = s.room_id
+     JOIN hostel_properties p ON p.id = r.property_id
+     WHERE l.period_id = ? AND l.status = 'APPROVED'
+       AND COALESCE(s.status,'AVAILABLE') <> 'RETIRED'
+       AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
+       AND COALESCE(p.status,'DRAFT') <> 'SUSPENDED'
+     GROUP BY p.id
+     ORDER BY p.name COLLATE NOCASE ASC`,
+    [String(period.id)],
+  ));
+
+  const properties: PublicProperty[] = rows.map((row) => {
+    const latitude = row.latitude === null || row.latitude === undefined || !isCoordinate(Number(row.latitude)) ? null : Number(row.latitude);
+    const longitude = row.longitude === null || row.longitude === undefined || !isCoordinate(Number(row.longitude)) ? null : Number(row.longitude);
+    const declared = row.campus_distance_m === null || row.campus_distance_m === undefined ? null : Number(row.campus_distance_m);
+    const distanceM = declared !== null && Number.isFinite(declared)
+      ? Math.max(0, Math.round(declared))
+      : latitude !== null && longitude !== null
+        ? distanceToCampusMeters(latitude, longitude)
+        : null;
+    return {
+      id: String(row.property_id || ""),
+      name: String(row.property_name || ""),
+      address: String(row.property_address || ""),
+      latitude,
+      longitude,
+      distanceM,
+      utilitiesEnabled: Number(row.utilities_enabled ?? 0) === 1,
+      availableSpaces: Number(row.available_spaces || 0),
+      roomCount: Number(row.room_count || 0),
+      minPrice: Number(row.min_price || 0),
+      minTotal: Number(row.min_total || 0),
+    };
+  });
+
+  const { maxDistanceM, minSpaces, maxPrice } = query;
+  const filtered = properties.filter((property) => {
+    if (query.utilitiesOnly === true && !property.utilitiesEnabled) return false;
+    if (typeof maxDistanceM === "number" && Number.isFinite(maxDistanceM) && maxDistanceM >= 0) {
+      if (property.distanceM === null || property.distanceM > maxDistanceM) return false;
+    }
+    if (typeof minSpaces === "number" && Number.isFinite(minSpaces) && minSpaces > 1 && property.availableSpaces < minSpaces) return false;
+    if (typeof maxPrice === "number" && Number.isFinite(maxPrice) && maxPrice >= 0 && property.minTotal > maxPrice) return false;
+    return true;
+  });
+
+  const sort = query.sort || "name";
+  filtered.sort((left, right) => {
+    if (sort === "price") return left.minTotal - right.minTotal || left.name.localeCompare(right.name);
+    if (sort === "distance") {
+      if (left.distanceM === null) return right.distanceM === null ? left.name.localeCompare(right.name) : 1;
+      if (right.distanceM === null) return -1;
+      return left.distanceM - right.distanceM || left.name.localeCompare(right.name);
+    }
+    return left.name.localeCompare(right.name);
+  });
+
+  return {
+    period: { id: String(period.id), name: String(period.name), startsOn: String(period.starts_on), endsOn: String(period.ends_on) },
+    properties: filtered,
+  };
+}
+
+/**
+ * One building with the beds a student can see: the browse row plus the labelled
+ * spaces underneath it. A property with no approved bed resolves to `null`, so a
+ * suspended building's page is a 404 rather than an empty promise.
+ */
+export async function getPublicProperty(propertyId: string, periodId?: string) {
+  const id = String(propertyId ?? "").trim();
+  if (!id) return null;
+  const { period, properties } = await listPublicProperties({ periodId });
+  const property = properties.find((item) => item.id === id);
+  if (!property || !period) return null;
+  const { spaces } = await listPublicSpaces({ propertyId: id, periodId: period.id });
+  return { period, property, spaces };
 }

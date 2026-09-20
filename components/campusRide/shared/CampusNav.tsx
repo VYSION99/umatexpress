@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bus, Car, House } from "lucide-react";
+import { BedDouble, Bus, Car, House } from "lucide-react";
 
 type NavLink = { href: string; label: string; icon: typeof House };
 
@@ -9,12 +9,14 @@ const NAV: NavLink[] = [
   { href: "/", label: "Home", icon: House },
   { href: "/campus", label: "campusRide", icon: Car },
   { href: "/vacation", label: "vacationRide", icon: Bus },
+  { href: "/hostel", label: "Hostels", icon: BedDouble },
 ];
 
 /** Which public entry point the shell is currently showing. */
 export function campusNavState(area: string): { activeHref: string } {
   // The account page belongs to the whole platform, so no area is current.
   if (area.includes("ACCOUNT")) return { activeHref: "" };
+  if (area.includes("HOSTEL")) return { activeHref: "/hostel" };
   return { activeHref: "/campus" };
 }
 

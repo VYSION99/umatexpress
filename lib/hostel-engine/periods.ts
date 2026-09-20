@@ -26,6 +26,20 @@ export type HostelPeriod = {
 };
 
 /** School reopening, minus three days. */
+/**
+ * The year a student should land on when they did not pick one: the year in
+ * progress, else the next to start, else the most recent in the catalogue. The
+ * catalogue is sorted newest first, so "the first year" would open on an intake
+ * that is two sessions away.
+ */
+export function defaultHostelPeriodId(periods: HostelPeriod[]): string | undefined {
+  const today = new Date().toISOString().slice(0, 10);
+  const current = periods.find((period) => period.startsOn <= today && period.endsOn >= today);
+  if (current) return current.id;
+  const upcoming = periods.filter((period) => period.startsOn > today).sort((left, right) => left.startsOn.localeCompare(right.startsOn))[0];
+  return upcoming?.id || periods[0]?.id;
+}
+
 export const RELEASE_LEAD_DAYS = 3;
 /** The shortest escrow window a late booking can ever have. */
 export const ESCROW_FLOOR_DAYS = 7;

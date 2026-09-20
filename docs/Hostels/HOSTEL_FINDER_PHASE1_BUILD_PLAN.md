@@ -2,7 +2,13 @@
 
 **Version:** 1.0  
 **Status:** Ready to build — three decisions at the end need a call  
-**Progress:** M3 shipped 2026-09-20 — an academic-year catalogue, the listing
+**Progress:** M4 shipped 2026-09-20 — the public browse page and the hostel map
+(`/hostel`, `/hostel/[propertyId]`, `GET /api/hostel/properties`), filters for year,
+distance, budget, beds and utilities, and the launcher entry flipped live. Distance
+is the landlord's declared figure when there is one and the haversine distance from
+the dropped pin otherwise, so the distance filter works before anyone fills
+`campus_distance_m` in. The landlord KYC verify/reject decision also landed early
+(see M5). M3 shipped the same day — an academic-year catalogue, the listing
 lifecycle (`DRAFT → PENDING_REVIEW → APPROVED → SUSPENDED`, with edits and rejections
 returning a listing to draft), a review queue for ADMIN/MODERATOR, and the public read
 that shows only approved beds. M2 (property → room → bed-space, beds kept in step with
@@ -123,6 +129,15 @@ Acceptance: a landlord lists a bed for a period; a moderator approves or rejects
 
 ### M4 — Student discovery
 
+Shipped 2026-09-20. The two pages read the engine directly (the same public gate
+the API serves), the map is a hostel-specific component modelled on `CampusMap`,
+and the filters are a real GET form that also applies on change.
+
+**Delta from this plan:** the landlord KYC approve/reject action was pulled
+forward from M5, because a landlord's `kyc_status` could never leave `PENDING`
+and the hostel payout gate is built on it. The M5 item below keeps the document
+capture that a decision should eventually be made against.
+
 Files:
 - `app/hostel/page.tsx` (browse, filters: period, distance, price, utilities, availability), `app/hostel/[propertyId]/page.tsx`
 - `app/api/hostel/properties/route.ts`, `app/api/hostel/spaces/route.ts`
@@ -135,7 +150,9 @@ Acceptance: with one approved listing, a signed-out visitor finds the property o
 
 Files:
 - R2 upload for property photos (private bucket + signed read), photo moderation
-- Landlord KYC sheet in the console profile (documents + admin verify/reject)
+- Landlord KYC sheet in the console profile (documents + admin verify/reject);
+  the verify/reject **decision** already shipped with M4, so this milestone adds
+  the documents the decision is made against
 - Approval/rejection notifications (Resend + in-app feed)
 - Rate limits on landlord writes and public reads where needed
 

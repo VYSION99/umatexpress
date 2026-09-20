@@ -605,3 +605,101 @@
 .search-ai-note{margin:10px 2px 2px;color:#2a4338;font-size:13px;line-height:1.6}
 .search-ai-error{margin:10px 2px 2px;color:#9c3026;font-size:13px}
 @media(max-width:560px){.search-ai{width:calc(100% - 28px)}.search-ai form{flex-wrap:wrap}.search-ai input{flex-basis:calc(100% - 30px)}.search-ai button{width:100%}}
+
+/* ========================================
+   HOSTEL FINDER (student discovery)
+   A white page, white cards with real elevation, and the yellow / green /
+   dark cyan accents, so a hostel search reads as one product with the rides.
+   ======================================== */
+
+.hostel-layout{width:min(1220px,100%);margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,.72fr);gap:18px;align-items:start}
+.hostel-main{display:grid;gap:18px;min-width:0}
+.hostel-side{display:grid;gap:18px;min-width:0}
+
+.hostel-filters{border:1px solid var(--ui-line);border-radius:22px;background:var(--ui-surface);padding:16px 18px;box-shadow:var(--ui-card-shadow)}
+.hostel-filters-head{display:flex;align-items:center;gap:8px;color:var(--ui-green);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.1em}
+.hostel-filters-head strong{font-size:12px}
+.hostel-filters-head span{margin-left:auto;padding:6px 10px;border-radius:999px;background:var(--ui-yellow-soft);color:var(--ui-yellow-ink);letter-spacing:0;text-transform:none}
+.hostel-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px}
+.hostel-filter-grid label{display:grid;gap:6px;color:var(--ui-muted);font-size:11px;font-weight:800}
+.hostel-filter-grid select{width:100%;border:1px solid var(--ui-line);border-radius:12px;background:white;color:var(--ui-ink);padding:11px 12px;font-weight:700;outline:none}
+.hostel-filter-grid select:focus-visible,.hostel-filter-check input:focus-visible{outline:2px solid var(--ui-cyan);outline-offset:2px}
+.hostel-filter-check{display:flex!important;align-items:center;gap:9px;padding:11px 12px;border:1px solid var(--ui-line);border-radius:12px;background:var(--ui-green-soft);color:var(--ui-green);text-transform:none}
+.hostel-filter-check input{width:18px;height:18px;accent-color:var(--ui-green)}
+.hostel-filter-apply{margin-top:14px;border:0;border-radius:12px;background:var(--ui-green);color:white;padding:12px 18px;font-weight:900;cursor:pointer}
+.hostel-filter-apply:hover{background:var(--ui-green-deep)}
+
+.hostel-results{display:grid;gap:14px}
+.hostel-results-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.hostel-results-head h2{margin:0;font-size:22px}
+.hostel-results-head span{color:var(--ui-muted);font-size:12px;font-weight:700}
+.hostel-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.hostel-card{display:grid;gap:12px;border:1px solid var(--ui-line);border-radius:20px;background:var(--ui-surface);padding:18px;box-shadow:var(--ui-card-shadow);transition:box-shadow .18s ease,transform .18s ease}
+.hostel-card:hover{box-shadow:var(--ui-card-shadow-lg);transform:translateY(-2px)}
+.hostel-card-top{display:flex;align-items:start;justify-content:space-between;gap:10px}
+.hostel-card-top h3{margin:0;font-size:19px;line-height:1.25}
+.hostel-card-top h3 a:hover{color:var(--ui-green)}
+.hostel-card-beds{flex:none;padding:7px 10px;border-radius:999px;background:var(--ui-yellow-soft);color:var(--ui-yellow-ink);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
+.hostel-card-address{display:flex;align-items:center;gap:7px;margin:0;color:var(--ui-muted);font-size:13px;font-weight:700}
+.hostel-card-facts{display:flex;flex-wrap:wrap;gap:7px;margin:0;padding:0;list-style:none}
+.hostel-card-facts li{display:inline-flex;align-items:center;gap:5px;padding:7px 9px;border-radius:999px;background:var(--ui-cyan-soft);color:var(--ui-cyan-deep);font-size:11px;font-weight:800}
+.hostel-card-foot{display:flex;align-items:end;justify-content:space-between;gap:12px;border-top:1px solid var(--ui-line);padding-top:12px}
+.hostel-card-foot div{display:grid;gap:1px}
+.hostel-card-foot span{color:var(--ui-muted);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+.hostel-card-foot strong{font-size:21px}
+.hostel-card-foot small{color:var(--ui-muted);font-size:11px;font-weight:700}
+.hostel-card-link{display:inline-flex;align-items:center;gap:6px;padding:10px 13px;border-radius:12px;background:var(--ui-green);color:white;font-size:12px;font-weight:900}
+.hostel-card-link:hover{background:var(--ui-green-deep)}
+
+.hostel-empty{width:min(1220px,100%);margin:18px auto;display:grid;justify-items:start;gap:8px;border:1px solid var(--ui-line);border-radius:22px;background:var(--ui-surface);padding:28px;box-shadow:var(--ui-card-shadow);color:var(--ui-ink)}
+.hostel-empty svg{color:var(--ui-green)}
+.hostel-empty h2{margin:4px 0 0;font-size:22px}
+.hostel-empty p{margin:0;color:var(--ui-muted);line-height:1.6;max-width:56ch}
+.hostel-empty .hostel-card-link{margin-top:8px}
+
+.hostel-how{border:1px solid var(--ui-line);border-radius:22px;background:var(--ui-surface);padding:18px;box-shadow:var(--ui-card-shadow)}
+.hostel-how>p{margin:0;color:var(--ui-green);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
+.hostel-how ul{display:grid;gap:12px;margin:12px 0 0;padding:0;list-style:none}
+.hostel-how li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;color:var(--ui-muted);font-size:13px;line-height:1.55}
+.hostel-how li svg{margin-top:2px;color:var(--ui-cyan)}
+.hostel-how strong{display:block;color:var(--ui-ink)}
+
+.hostel-breadcrumb{width:min(1220px,100%);margin:0 auto 14px}
+.hostel-breadcrumb a{display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border:1px solid var(--ui-line);border-radius:999px;background:var(--ui-surface);color:var(--ui-green);font-size:12px;font-weight:900;box-shadow:var(--ui-card-shadow)}
+
+.hostel-detail-card{border:1px solid var(--ui-line);border-radius:22px;background:var(--ui-surface);padding:20px;box-shadow:var(--ui-card-shadow)}
+.hostel-detail-card>p:first-child{margin:0;color:var(--ui-green);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
+.hostel-detail-card h2{margin:7px 0 10px;font-size:24px}
+.hostel-detail-note{margin:12px 0 0;color:var(--ui-muted);font-size:13px;line-height:1.6}
+.hostel-rooms{display:grid;gap:14px}
+.hostel-room{border:1px solid var(--ui-line);border-radius:20px;background:var(--ui-surface);padding:16px 18px;box-shadow:var(--ui-card-shadow)}
+.hostel-room header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-bottom:1px solid var(--ui-line);padding-bottom:10px}
+.hostel-room header strong{font-size:17px}
+.hostel-room header span{color:var(--ui-muted);font-size:11px;font-weight:800}
+.hostel-room ul{display:grid;gap:10px;margin:12px 0 0;padding:0;list-style:none}
+.hostel-room li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--ui-line);border-radius:14px;background:#fbfdfc}
+.hostel-room li>div:first-child{display:grid;gap:2px}
+.hostel-room li>div:first-child span{color:var(--ui-muted);font-size:11px;font-weight:700}
+.hostel-bed-price{display:grid;gap:2px;justify-items:end;text-align:right}
+.hostel-bed-price span{color:var(--ui-muted);font-size:11px;font-weight:700}
+.hostel-bed-price strong{color:var(--ui-green);font-size:17px}
+
+.hostel-map-widget{position:sticky;top:18px}
+.hostel-map-canvas{height:clamp(320px,42vh,460px)}
+.hostel-marker{display:grid;place-items:center;width:38px;height:38px;border:3px solid white;border-radius:12px;background:linear-gradient(150deg,var(--ui-yellow),#d99a06);box-shadow:0 5px 0 rgba(138,90,6,.55),0 12px 22px rgba(72,46,13,.22)}
+.hostel-marker span{display:grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:999px;background:white;color:var(--ui-green);font-size:10px}
+.hostel-marker:hover{background:linear-gradient(150deg,#f6c945,var(--ui-yellow))}
+.hostel-map-widget .real-map-canvas a{color:var(--ui-green);font-weight:900;text-decoration:underline}
+
+@media(max-width:980px){
+  .hostel-layout{grid-template-columns:1fr}
+  .hostel-map-widget{position:static}
+}
+@media(max-width:560px){
+  .hostel-filters{padding:14px}
+  .hostel-filter-grid{grid-template-columns:1fr}
+  .hostel-results-head,.hostel-card-foot,.hostel-room li{display:grid}
+  .hostel-card-foot{justify-items:start}
+  .hostel-bed-price{justify-items:start;text-align:left}
+  .hostel-map-canvas{height:340px}
+}

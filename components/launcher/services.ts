@@ -6,7 +6,7 @@ import { BedDouble, BrainCircuit, BusFront, CarFront, Clapperboard, FlaskConical
 export const services = [
   { id: "campus", title: "CampusRide", icon: CarFront, accent: "cyan", available: true, destination: "/campus", action: "Find a ride", description: "Move around campus.", detail: "Zones, seats and fares", category: "Around campus" },
   { id: "vacation", title: "VacationRide", icon: BusFront, accent: "green", available: true, destination: "/vacation", action: "Book a seat", description: "Next stop, home.", detail: "Choose a route and travel date", category: "Beyond campus" },
-  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "yellow", available: false, destination: null, action: "Explore hostels", description: "Find your own corner of campus.", detail: "Places to settle in", category: "Make yourself at home" },
+  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "yellow", available: true, destination: "/hostel", action: "Explore hostels", description: "Find your own corner of campus.", detail: "Places to settle in", category: "Make yourself at home" },
   { id: "food", title: "Food", icon: Utensils, accent: "cyan", available: false, destination: null, action: "Explore food", description: "Good food. Better study breaks.", detail: "Your next favourite bite", category: "A little refuel" },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "green", available: false, destination: null, action: "Explore cinema", description: "Make room for movie night.", detail: "Stories worth sharing", category: "After the lectures" },
   // Partner services that already run outside this app. `external` makes the
