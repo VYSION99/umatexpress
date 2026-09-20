@@ -37,6 +37,7 @@ uMATeXPRESS/
 │   └── vacation/                        # vacationRide flyer carousel
 ├── lib/
 │   ├── campus-engine/                   # campusRide API business engine
+│   ├── hostel-engine/                   # Hostel Finder landlord, property and listing engine
 │   ├── admin-auth.ts                    # admin session auth
 │   ├── admin-credentials.ts             # admin password hashing/recovery
 │   ├── campus-ai.ts                     # campusRide AI prompts

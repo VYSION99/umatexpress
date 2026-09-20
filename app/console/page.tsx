@@ -11,6 +11,7 @@ const ROLE_COPY: Record<string, { title: string; blurb: string }> = {
   ADMIN: { title: "One campus. One console.", blurb: "Every UMaTeXPRESS service, one sign-in." },
   MODERATOR: { title: "Review and keep it fair.", blurb: "Trips, organizer applications and hostel listings that need a decision." },
   ORGANIZER: { title: "Your trips, your way.", blurb: "Publish coaches, watch bookings and reach your passengers." },
+  LANDLORD: { title: "Your hostels, your way.", blurb: "Build your properties and bed-spaces for students." },
   DRIVER: { title: "Ready for the next queue.", blurb: "Your vehicle, your queue and your passengers." },
 };
 

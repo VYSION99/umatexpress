@@ -8,7 +8,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
  * and the role is always read from the signed session — never from a header,
  * body or query parameter, which a caller can choose freely.
  */
-export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "DRIVER"] as const;
+export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER"] as const;
 export type ConsoleRole = (typeof CONSOLE_ROLES)[number];
 
 export const CONSOLE_SESSION_COOKIE = "umx_console_session";

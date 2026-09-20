@@ -2,6 +2,9 @@
 
 **Version:** 1.0  
 **Status:** Ready to build — three decisions at the end need a call  
+**Progress:** M1 shipped 2026-09-20 — schema (`sql/014` + the hostel section of `sql/000`), the
+`LANDLORD` console role, the open landlord application, and the workspace's first
+property create/list. Rooms, bed-spaces and editing are the rest of M2.
 **Sources:** the seven design docs in this folder + the platform as shipped (Sep 2026)
 
 This plan does not replace the design docs. It records where the design meets the

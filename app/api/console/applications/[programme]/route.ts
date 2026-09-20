@@ -1,5 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { consoleApplicationById } from "@/lib/console-applications";
+import { registerLandlord } from "@/lib/hostel-engine/landlord";
 import { registerOrganizer } from "@/lib/organizers";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
@@ -15,6 +16,8 @@ async function submitApplication(programme: string, body: Record<string, unknown
   switch (programme) {
     case "organizer":
       return registerOrganizer(body);
+    case "landlord":
+      return registerLandlord(body);
     default:
       throw new CampusEngineError("INVALID_STATE", "This application is not being accepted yet.", 501);
   }

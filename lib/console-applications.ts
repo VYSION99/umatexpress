@@ -93,17 +93,23 @@ export const consoleApplications: readonly ConsoleApplication[] = [
   },
   {
     id: "landlord",
-    role: null,
+    role: "LANDLORD",
     title: "List your hostel",
     short: "Hostel landlord",
-    blurb: "Put rooms and spaces in front of students.",
-    detail: "Opens with Hostel Finder. A landlord registers, builds the property and goes live after a review.",
-    applyLabel: "Apply to list",
-    status: "COMING_SOON",
+    blurb: "Put rooms and bed-spaces in front of students.",
+    detail: "Register to list hostels on Hostel Finder. You can build your property and beds right away; every listing goes live only after a review.",
+    applyLabel: "Open a landlord account",
+    status: "OPEN",
     activation: "DIRECT",
     reviewService: "hostels",
     endpoint: "/api/console/applications/landlord",
-    fields: [...contactFields, passwordField(10)],
+    fields: [
+      contactFields[0],
+      { key: "organization", label: "Hostel or business name (optional)", type: "text", autoComplete: "organization", required: false },
+      contactFields[1],
+      contactFields[2],
+      passwordField(10),
+    ],
   },
   {
     id: "vendor",
@@ -140,7 +146,7 @@ export const consoleApplications: readonly ConsoleApplication[] = [
  * OPEN while its handler is still being built — the API answers 501 instead of
  * pretending — but this list and the OPEN status must agree the day it ships.
  */
-export const implementedConsoleApplicationIds: readonly string[] = ["organizer"];
+export const implementedConsoleApplicationIds: readonly string[] = ["organizer", "landlord"];
 
 export function consoleApplicationById(id: string): ConsoleApplication | null {
   return consoleApplications.find((application) => application.id === id) || null;

@@ -164,7 +164,8 @@ try {
   const admin = await evaluate(`[...document.querySelectorAll(".console-card h2")].map(node => node.textContent)`);
   assert.ok(admin.includes("CampusRide") && admin.includes("VacationRide"), `admin cards were ${admin.join(", ")}`);
   const soon = await evaluate(`[...document.querySelectorAll(".console-service-soon small")].map(node => node.textContent)`);
-  assert.deepEqual(soon, ["Soon", "Soon", "Soon"], "the services that are not ready must be marked in the rail");
+  // Food and OnlineCinema are the two still waiting; Hostel Finder opened with its landlord workspace.
+  assert.deepEqual(soon, ["Soon", "Soon"], "the services that are not ready must be marked in the rail");
   assert.equal(await evaluate(`document.querySelectorAll(".console-service-soon a").length`), 0, "a coming-soon service must not be linkable");
 
   // 8. The service finder opens over any page and filters the directory.
@@ -195,7 +196,7 @@ try {
   const applications = await evaluate(`[...document.querySelectorAll(".console-apply-grid .console-card")].map(node => ({ title: node.querySelector("h2").textContent, label: node.querySelector(".console-card-label").textContent }))`);
   assert.deepEqual(applications.map((application) => application.title), ["Trip organizer", "Hostel landlord", "Food vendor", "Cinema partner"], "the picker must cover every service");
   assert.equal(applications[0].label, "OPEN FOR APPLICATIONS", "the service that takes applications must say so");
-  assert.deepEqual(applications.slice(1).map((application) => application.label), ["COMING SOON", "COMING SOON", "COMING SOON"], "a service that is not built cannot accept applications");
+  assert.deepEqual(applications.slice(1).map((application) => application.label), ["OPEN FOR APPLICATIONS", "COMING SOON", "COMING SOON"], "a service accepts applications only once its workspace exists");
   const invited = await evaluate(`[...document.querySelectorAll(".console-apply-invited article strong")].map(node => node.textContent)`);
   assert.deepEqual(invited, ["CampusRide driver", "Platform staff"], "the roles that are set up by the team must be named");
   await visit("/console/register/organizer", `document.querySelector(".console-auth-card h1")?.textContent === "Organise your coach"`);
@@ -203,7 +204,9 @@ try {
   await writeFile("/tmp/umatexpress-console-apply-organizer-390.png", Buffer.from(formShot.data, "base64"));
   const applicationFields = await evaluate(`[...document.querySelectorAll(".console-auth-card input")].map(node => node.type)`);
   assert.deepEqual(applicationFields, ["text", "text", "tel", "email", "password"], "the organizer form must collect the agreed fields");
-  await visit("/console/register/landlord", `document.querySelector(".console-auth-card h1")?.textContent === "Hostel landlord is not open yet"`);
+  await visit("/console/register/landlord", `document.querySelector(".console-auth-card h1")?.textContent === "List your hostel"`);
+  const landlordFields = await evaluate(`[...document.querySelectorAll(".console-auth-card input")].map(node => node.type)`);
+  assert.deepEqual(landlordFields, ["text", "text", "tel", "email", "password"], "the landlord form must collect the agreed fields");
   await visit("/console/register/nonsense", `document.querySelector(".console-auth-card h1")?.textContent === "Application not found"`);
   console.log("PASS access applications cover every service");
 
