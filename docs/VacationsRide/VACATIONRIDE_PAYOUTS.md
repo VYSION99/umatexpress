@@ -12,7 +12,7 @@ This document defines the **payout system** for trip organizers in the new marke
 Key rules:
 - Platform takes a **fixed 3% commission** per booking.
 - Organizers receive **97%** of the booking amount.
-- Payouts are released **daily at 12:00 AM**.
+- A payout becomes payable **24 hours after the booking was paid**.
 - All payouts go through **Paystack Transfers**.
 
 Automated transfers are the end state, not the first step: Phase 4 ships the
@@ -20,13 +20,15 @@ ledger and admin-triggered batches, Phase 5 automates them (section 8).
 
 Two safety rules override the schedule below:
 
-1. **A payout is never released before the coach has departed.** A booking made
-   at 23:59 cannot be payable one minute later at 00:00. `release_after` is at
-   minimum the next 12:00 AM *and* departure time plus 24 hours, whichever is
-   later. Refunding a trip that has not run must never require chasing money
-   back from an organizer.
+1. **A payout waits a full day after the payment that created it.** The anchor
+   is the moment the booking was paid: `release_after` is paid + 24 hours,
+   computed when the ledger entry is written. The day is the reversal window —
+   long enough for a mistaken or duplicated payment to be refunded before any
+   money moves, and for Paystack's charge to settle. Eligibility is deliberately
+   **not** tied to the coach's departure: a seat sold a month before travel
+   still becomes payable the next day.
 2. **Release waits for settlement.** Paystack settles payments on its own
-   schedule; a transfer attempted against unsettled funds can fail. The daily
+   schedule; a transfer attempted against unsettled funds can fail. The release
    job only picks up payouts whose funds are settled, and a failed transfer is
    retried, never dropped.
 
@@ -68,8 +70,8 @@ organizer_payouts (
   gross_amount INTEGER NOT NULL,                 -- payments.fare_amount, in pesewas
   commission_amount INTEGER NOT NULL,            -- round(gross * commission_bps / 10000)
   net_amount INTEGER NOT NULL,                   -- gross - commission
-  release_after TEXT NOT NULL,                   -- next 12:00 AM, never before departure + 24h
-  status TEXT NOT NULL DEFAULT 'ACCRUED',        -- ACCRUED | RELEASED | REVERSED | FAILED
+  release_after TEXT NOT NULL,                   -- paid_at + 24h; the reversal window
+  status TEXT NOT NULL DEFAULT 'ACCRUED',        -- ACCRUED | PROCESSING | RELEASED | REVERSED | FAILED
   transfer_reference TEXT,
   released_at TEXT,
   transferred_at TEXT,
@@ -101,17 +103,18 @@ System calculates:
    - net = gross - commission
         ↓
 Insert into organizer_payouts with:
-   - release_after = max(next day 12:00 AM, departure + 24h)
+   - release_after = paid_at + 24h
         ↓
-Daily cron runs at 12:00 AM:
-   - Finds all PENDING payouts where release_after <= now
-   - Initiates Paystack Transfer
-   - Updates status to TRANSFERRED or FAILED
+Release job runs every fifteen minutes:
+   - Finds all ACCRUED payouts where release_after <= now
+   - Initiates a Paystack Transfer for the organizer's ready total
+   - Sets the batch to SUCCESS (entries RELEASED) or PENDING while in flight,
+     and to FAILED for a transfer Paystack rejects
 ```
 
 ---
 
-## 4. Daily Payout Job (12:00 AM)
+## 4. Payout Release Job
 
 **Responsibilities:**
 - Query all eligible payouts.
@@ -122,13 +125,13 @@ Daily cron runs at 12:00 AM:
 
 **Idempotency:** The job must be safe to run multiple times without creating duplicate transfers.
 
-**As built.** The job runs every fifteen minutes rather than once at midnight,
-because `release_after` is already the gate: only a looser schedule makes a
-payout early, and running more often drains a backlog sooner without paying
-anyone before their release date. Each run takes at most four organizers, which
-keeps it inside the free plan's fifty subrequests per invocation, and it stops
-when the settled balance runs out of headroom — every transfer also costs a
-fee, budgeted with `PAYOUT_TRANSFER_FEE_PESEWAS`.
+**As built.** The job runs every fifteen minutes (`7,22,37,52 * * * *`) because
+`release_after` is the gate, not the schedule: running more often only drains a
+backlog sooner, and the query that picks entries up already refuses one whose
+day has not passed. Each run takes at most four organizers, which keeps it
+inside the free plan's fifty subrequests per invocation, and it stops when the
+settled balance runs out of headroom — every transfer also costs a fee, budgeted
+with `PAYOUT_TRANSFER_FEE_PESEWAS`.
 
 Idempotency is the claim, not a check: the batch row is written first, then a
 conditional `UPDATE ... WHERE status = 'ACCRUED' AND batch_id = ''` moves the
@@ -191,16 +194,20 @@ them apart:
 **As built.** The ledger is `organizer_payouts`, written once per confirmed
 booking at confirmation time (verification and the webhook both call
 `accrueForBooking`, and a unique index on `booking_id` makes the second write a
-no-op). `release_after` is the later of the next midnight and departure + 24h.
-An administrator records a payout from `/console/payouts`, which moves every
-ready entry to `RELEASED` in one batch and stores the transfer reference they
-were given. Organizers read their own statement at `/console/earnings`.
+no-op). `release_after` is 24 hours after the moment the booking was paid,
+anchored on `bookings.confirmed_at`, then `payments.completed_at`, then
+`payments.created_at`, then `bookings.created_at` for entries whose payment row
+has not recorded a confirmation. An administrator records a payout from
+`/console/payouts`, which moves every ready entry to `RELEASED` in one batch and
+stores the transfer reference they were given. Organizers read their own
+statement at `/console/earnings`.
 
 Two rules this document set out, as implemented:
 
-1. **A payout is never released before the coach has departed**, and never on
-   the midnight of the sale: `release_after` is `max(next midnight, departure +
-   24h)`, computed when the entry is written.
+1. **A payout is never released before its reversal window has closed**:
+   `release_after` is the payment time plus 24 hours, computed when the entry is
+   written. A booking made at 23:59 is not payable a minute later; it is payable
+   at 23:59 the next day.
 2. **Release waits for settlement.** The release job reads Paystack's balance
    and stops when a transfer plus its fee would not be covered, so a payout is
    only attempted against money that has actually settled. An administrator
@@ -209,7 +216,8 @@ Two rules this document set out, as implemented:
 A refund before release reverses the entry and nothing else happens. A refund
 after release reverses the entry and leaves a debt, because `released_at` is
 kept as the evidence that money left. The debt blocks the next batch until it
-is settled: neither phase nets a payout against a debt automatically.
+is settled: the release job skips any organizer carrying one, so a debt is
+never silently netted against what they are owed next.
 
 Before Phase 5 moved real money, the Paystack account was checked for the
 transfer permission, which is separate from collecting payments: the recipients,

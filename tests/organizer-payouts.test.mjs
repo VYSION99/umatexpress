@@ -129,10 +129,11 @@ function handle(sql, args) {
     const payment = payments.find((item) => item.booking_id === booking.id && item.status === "SUCCESSFUL");
     const owner = organizerRows.find((item) => item.id === booking.organizer_id);
     return ok(table(
-      ["booking_id", "reference", "trip_id", "organizer_id", "travel_date", "departure_time", "booking_status", "fare_amount", "amount", "commission_bps"],
+      ["booking_id", "reference", "trip_id", "organizer_id", "travel_date", "departure_time", "booking_status", "paid_at", "fare_amount", "amount", "commission_bps"],
       [{
         booking_id: booking.id, reference: booking.reference, trip_id: booking.trip_id, organizer_id: booking.organizer_id,
         travel_date: booking.travel_date, departure_time: booking.departure_time, booking_status: booking.booking_status,
+        paid_at: booking.confirmed_at || payment?.created_at || booking.created_at,
         fare_amount: payment?.fare_amount || 0, amount: payment?.amount || 0,
         commission_bps: owner?.commission_bps ?? 300,
       }],
@@ -356,22 +357,21 @@ async function recordBatch(cookie, body) {
   }));
 }
 
-test("the fare is split by the commission rate and the release gate is the later of midnight and departure", () => {
+test("the fare is split by the commission rate and the release gate is a day after the booking was paid", () => {
   assert.deepEqual(splitCommission(18000, 300), { gross: 18000, commission: 540, net: 17460 });
   // GHS 180.00 at 3%: 540 pesewas commission, 17460 net.
   assert.deepEqual(splitCommission(1, 300), { gross: 1, commission: 0, net: 1 }, "a rounding must never lose a pesewa of the net");
   assert.deepEqual(splitCommission(18000, 0), { gross: 18000, commission: 0, net: 18000 });
 
-  const lateEvening = new Date("2026-09-20T23:30:00.000Z");
   assert.equal(
-    releaseAfterFor("2026-10-03", "06:30", lateEvening),
-    "2026-10-04T06:30:00.000Z",
-    "a future departure gates the payout a day after the coach leaves",
+    releaseAfterFor("2026-09-20T13:45:00.000Z", new Date("2026-09-20T14:00:00.000Z")),
+    "2026-09-21T13:45:00.000Z",
+    "the gate counts from the moment the booking was paid, not from the trip",
   );
   assert.equal(
-    releaseAfterFor("2026-09-01", "06:30", lateEvening),
-    "2026-09-21T00:00:00.000Z",
-    "a booking for a trip already gone still waits for the next midnight",
+    releaseAfterFor("not-a-timestamp", new Date("2026-09-20T23:30:00.000Z")),
+    "2026-09-21T23:30:00.000Z",
+    "an unreadable payment time falls back to the moment the entry is written",
   );
 });
 
@@ -385,7 +385,8 @@ test("a confirmed booking accrues exactly one entry from the fare, not the amoun
   const entry = payouts.find((row) => row.booking_id === "bk-new1");
   assert.equal(entry.gross_amount, 18000, "the commission base is the fare, never the pass-through fee");
   assert.equal(entry.net_amount, 17460);
-  assert.equal(entry.release_after, "2026-10-04T06:30:00.000Z");
+  // bk-new1 was confirmed at 2026-09-20T10:00:00.000Z, so its earnings open a day later.
+  assert.equal(entry.release_after, "2026-09-21T10:00:00.000Z");
   assert.equal(bookings.find((row) => row.id === "bk-new1").commission_amount, 540, "the booking carries the resolved commission");
 
   // Verify and the webhook both confirm a booking; the second write is a no-op.

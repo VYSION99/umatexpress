@@ -66,7 +66,7 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     service="earnings"
     label="EARNINGS"
     title="What you have earned"
-    blurb="Each fare is split into the platform commission and your share. A payout releases after midnight following the trip."
+    blurb="Each fare is split into the platform commission and your share. A booking's payout becomes ready 24 hours after it was paid."
     actions={<Link href="/console/trips">My trips</Link>}
   >
 

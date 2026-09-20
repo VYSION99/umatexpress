@@ -11,7 +11,7 @@
 |--------|--------------|--------------------------|
 | Trip Creation | Admin-managed | Organizer self-service |
 | Revenue Model | Platform keeps 100% | Platform takes 3%, organizer gets 97% |
-| Payouts | None | Ledger + manual admin batches, then daily Paystack Transfers at 12:00 AM |
+| Payouts | None | Ledger + manual admin batches, then Paystack Transfers 24h after each booking is paid |
 | Trust Model | Basic admin control | KYC + trip approval + payout gating |
 | Organizer Console | None | Organizer surfaces inside the existing `/console/*` console |
 
@@ -61,12 +61,12 @@ The commission base is the fare (`payments.fare_amount`), never
 `bookings.amount`, which carries Paystack's pass-through charge; the rate is
 copied onto the booking and the ledger row, so a later rate change cannot
 rewrite what an organizer earned, and the owner is copied onto the booking at
-creation for the same reason. `release_after` is the later of the next midnight
-and departure + 24 hours. An administrator makes the transfer by hand and
-records the reference, which releases every ready entry in one batch; Phase 5
-replaces the human transfer with Paystack Transfers. Cancelling a booking
-reverses its entry — un-earned if it was never released, a carried debt if it
-was — and a batch is refused while a debt stands.
+creation for the same reason. `release_after` is 24 hours after the booking was
+paid. An administrator makes the transfer by hand and records the reference,
+which releases every ready entry in one batch; Phase 5 replaces the human
+transfer with Paystack Transfers. Cancelling a booking reverses its entry —
+un-earned if it was never released, a carried debt if it was — and a batch is
+refused while a debt stands.
 
 **Phase 5, as built.** The ledger now pays out. An entry in flight is its own
 status (`PROCESSING`), because money that has left for Paystack has not arrived

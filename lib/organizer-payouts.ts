@@ -123,25 +123,19 @@ export function ensurePayoutTables() {
 }
 
 /**
- * Ghana is UTC+0 all year, with no daylight saving, so the local clock and UTC
- * are the same clock and a payout released "at midnight" needs no zone table.
+ * A booking's earnings become payable 24 hours after the booking was paid.
+ *
+ * The day is not about the trip: it is the window in which a mistaken or
+ * duplicated payment can be reversed before any money moves, and it is long
+ * enough for the charge to settle. The release job still refuses to send
+ * against funds Paystack has not settled, so the two gates are independent.
+ * A timestamp that cannot be read falls back to the moment the entry is
+ * written, which pays at the same pace rather than never.
  */
-function nextMidnight(now: Date) {
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0);
-}
-
-/**
- * A payout is never released before the coach has departed, and never on the
- * same midnight as the sale: a booking made at 23:59 must not be payable a
- * minute later. So the gate is the later of the next midnight and departure
- * plus a day.
- */
-export function releaseAfterFor(travelDate: unknown, departureTime: unknown, now = new Date()) {
-  const date = String(travelDate || "").trim();
-  const time = /^\d{2}:\d{2}$/.test(String(departureTime || "")) ? String(departureTime) : "00:00";
-  const departure = Date.parse(`${date}T${time}:00.000Z`);
-  const departureGate = Number.isNaN(departure) ? now.getTime() : departure + 24 * 60 * 60_000;
-  return new Date(Math.max(nextMidnight(now), departureGate)).toISOString();
+export function releaseAfterFor(paidAt: unknown, now = new Date()) {
+  const paid = Date.parse(String(paidAt || "").trim());
+  const anchor = Number.isNaN(paid) ? now.getTime() : paid;
+  return new Date(anchor + 24 * 60 * 60_000).toISOString();
 }
 
 /** `round(gross * bps / 10000)`, with the net derived from the two so the split can never be a pesewa out. */
@@ -157,8 +151,8 @@ type AccrualInput = {
   reference: string;
   trip_id: string;
   organizer_id: string;
-  travel_date: string;
-  departure_time: string;
+  /** When the booking was paid: the anchor the 24-hour release gate counts from. */
+  paid_at: string;
   booking_status: string;
   fare_amount: number;
   amount: number;
@@ -187,7 +181,8 @@ export async function accrueForBooking(bookingId: string): Promise<AccrualResult
 
     const row = rowsToObjects(await turso(
       `SELECT b.id AS booking_id, b.reference, b.trip_id, COALESCE(b.organizer_id,'') AS organizer_id,
-         b.travel_date, COALESCE(b.departure_time,'') AS departure_time, b.booking_status,
+         b.booking_status,
+         COALESCE(b.confirmed_at, p.completed_at, p.created_at, b.created_at) AS paid_at,
          COALESCE(p.fare_amount,0) AS fare_amount, COALESCE(p.amount,0) AS amount,
          COALESCE(o.commission_bps, ${DEFAULT_COMMISSION_BPS}) AS commission_bps
        FROM bookings b
@@ -206,9 +201,9 @@ export async function accrueForBooking(bookingId: string): Promise<AccrualResult
     // Paystack's charge as a pass-through that the organizer never earned.
     const gross = Number(row.fare_amount || 0) > 0 ? Number(row.fare_amount) : Number(row.amount || 0);
     const split = splitCommission(gross, Number(row.commission_bps || DEFAULT_COMMISSION_BPS));
-    const releaseAfter = releaseAfterFor(row.travel_date, row.departure_time);
-    const payoutId = crypto.randomUUID();
     const stamp = new Date().toISOString();
+    const releaseAfter = releaseAfterFor(row.paid_at, new Date(stamp));
+    const payoutId = crypto.randomUUID();
 
     const insert = await turso(
       `INSERT OR IGNORE INTO organizer_payouts
@@ -522,7 +517,7 @@ export async function recordPayoutBatch(input: {
   ))[0];
   const eligibleCount = Number(eligible?.entry_count || 0);
   if (!eligibleCount) {
-    throw new CampusEngineError("INVALID_STATE", "No payout is ready yet: entries release after midnight following the trip.", 409);
+    throw new CampusEngineError("INVALID_STATE", "No payout is ready yet: entries become ready 24 hours after the booking was paid.", 409);
   }
   if (eligibleCount > MAX_BATCH_ENTRIES) {
     throw new CampusEngineError("INVALID_STATE", "More entries are ready than one batch should carry. Record them in smaller batches.", 409);

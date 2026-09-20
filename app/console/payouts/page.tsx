@@ -312,7 +312,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <UserX size={15}/>Reject KYC
         </button>}
       </div>}
-      {kycVerified && !ready && <p className="console-note">Nothing is ready to pay right now. Entries release after midnight following the trip, and a debt blocks the batch.</p>}
+      {kycVerified && !ready && <p className="console-note">Nothing is ready to pay right now. Entries become ready 24 hours after the booking was paid, and a debt blocks the batch.</p>}
 
       <h3 className="console-note">Entries</h3>
       {detail.statement.entries.length === 0

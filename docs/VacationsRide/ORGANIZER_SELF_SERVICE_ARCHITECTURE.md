@@ -269,7 +269,7 @@ Concrete scope, so the phase has no missing half:
 Organizers create and edit trips (route, date, times, capacity, price, coach type, amenities), submit for review, and an admin or moderator approves or rejects with a reason. The public page lists approved trips grouped by organizer, labelled with the organizer's display name (falling back to `UMaTeXPRESS` for platform trips).
 **Acceptance:** an organizer publishes a bookable trip without admin data entry; an unapproved trip is never publicly bookable; an edit to a live trip re-enters review; another organizer's trip id returns `404` on every read and write; KYC and the payout account are stored for the money phases without ever being returned in the clear.
 
-**Carried forward to Phase 4:** the payout release rule (never before departure + 24h, settled funds only) and every question about how a payout batch is assembled. Phase 3 captures the account; it pays nothing.
+**Carried forward to Phase 4:** the payout release rule (later decided: 24h after the booking was paid, settled funds only) and every question about how a payout batch is assembled. Phase 3 captures the account; it pays nothing.
 
 ### Phase 4 — Money and attribution — **Shipped**
 Commission per organizer, `bookings.organizer_id` + `commission_amount`, `organizer_payouts` ledger accrued on confirmed payment, `organizer_payout_batches` recorded by an administrator, organizer statement at `/console/earnings` and the money console at `/console/payouts`.
@@ -346,7 +346,7 @@ Still open, and deliberately parked until the phase that spends money:
 
 | Question | Needed by |
 |----------|-----------|
-| ~~Payout release rule: is `release_after` the next 12:00 AM, or after the coach has departed?~~ | **Decided: never before departure + 24h, on settled funds only — enforced in Phase 4** |
+| ~~Payout release rule: is `release_after` the next 12:00 AM, or after the coach has departed?~~ | **Decided: 24h after the booking was paid, on settled funds only — enforced in Phase 4** |
 | ~~Are KYC documents stored, or is only the ID type and number recorded?~~ | **Decided: ID type and number only. No scan is uploaded; storing documents needs an R2 binding and a retention policy first** |
 | ~~Manual payout batches before automated Paystack Transfers?~~ | **Decided: ledger and hand-recorded batches in Phase 4 (shipped); Paystack Transfers in Phase 5** |
 | ~~Refund after a payout: the affected organizer's balance goes negative and the next payout absorbs it?~~ | **Decided: the reversal is a carried debt that blocks the next batch until settled. Phase 5 automates the netting** |

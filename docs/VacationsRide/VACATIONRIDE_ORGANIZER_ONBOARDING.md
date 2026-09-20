@@ -99,7 +99,7 @@ bookable until a reviewer approves it.
 ### Stage 6: Payout Activation
 
 - Once `kyc_status = VERIFIED` and at least one trip has been approved, the organizer becomes eligible for payouts.
-- Daily payout job (12:00 AM) begins processing their earnings.
+- The release job begins processing their earnings 24 hours after each booking is paid.
 
 ---
 

@@ -102,7 +102,7 @@
 │ expires_at           │        │ commission_amount    │
 │ created_at           │        │ net_amount           │  gross − commission
 │ UQ(trip_id,          │        │ commission_bps       │  the rate in force at accrual
-│    travel_date,      │        │ release_after        │  next midnight, never before departure + 24h
+│    travel_date,      │        │ release_after        │  paid_at + 24h: the reversal window
 │    seat)             │        │ status               │  ACCRUED | RELEASED | REVERSED | FAILED
 └──────────────────────┘        │ batch_id (FK)        │
                                 │ transfer_reference   │  recorded by an admin in Phase 4
