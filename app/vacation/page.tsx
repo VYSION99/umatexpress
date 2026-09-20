@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { formatTime } from "@/lib/trips";
 import { ArrowRight, Bot, BusFront, CalendarDays, Check, Clock3, MapPin, ShieldCheck, Sparkles, Users } from "lucide-react";
@@ -28,6 +29,7 @@ type PublicTrip = {
 };
 
 export default function Home() {
+  const router = useRouter();
   const [selectedTrip, setSelectedTrip] = useState("1");
   const [visibleTrips, setVisibleTrips] = useState<PublicTrip[]>([]);
   const [notices, setNotices] = useState<PublicNotice[]>([]);
@@ -316,7 +318,7 @@ export default function Home() {
               : <button className="confirm-button" disabled={paying} onClick={async () => {
               setPaymentError("");
               setPaymentMessage("");
-              if(!account){window.location.assign(`/account?next=${encodeURIComponent("/vacation#booking")}`);return;}
+              if(!account){router.push(`/account?next=${encodeURIComponent("/vacation#booking")}`);return;}
               if(!passenger.name || !passenger.phone){setPaymentError("Enter your name and MTN MoMo number.");return;}
               setPaying(true);
               try {
@@ -338,7 +340,7 @@ export default function Home() {
                   const status=await check.json();
                   if(!check.ok) throw new Error(status.error || "Payment verification failed.");
                   if(status.status==="SUCCESSFUL"){
-                    window.location.href=`/payment/callback?reference=${encodeURIComponent(paymentReference)}`;
+                    router.push(`/payment/callback?reference=${encodeURIComponent(paymentReference)}`);
                     return;
                   }
                   if(status.status==="FAILED") throw new Error("Payment failed or was declined. Please try again.");

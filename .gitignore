@@ -27,6 +27,9 @@ yarn-error.log*
 .vscode/
 .idea/
 
+# Agent scratch worktrees (full checkouts of this repo)
+.kilo/
+
 # Platform
 .vercel
 /.pnp

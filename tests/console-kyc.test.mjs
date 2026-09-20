@@ -97,7 +97,7 @@ after(async () => vite.close());
 
 const { CONSOLE_SESSION_COOKIE, createConsoleSession } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const { reviewOrganizerKyc } = await vite.ssrLoadModule("/lib/organizers.ts");
-const { listHostelLandlordsForStaff, reviewHostelLandlordKyc } = await vite.ssrLoadModule("/lib/hostel-engine/landlord.ts");
+const { listHostelLandlordsForStaff } = await vite.ssrLoadModule("/lib/hostel-engine/landlord.ts");
 const organizersRoute = await vite.ssrLoadModule("/app/api/console/organizers/route.ts");
 const landlordsRoute = await vite.ssrLoadModule("/app/api/console/hostel/landlords/route.ts");
 

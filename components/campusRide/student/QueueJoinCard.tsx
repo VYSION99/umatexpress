@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import { clearProfile, readProfile, writeProfile } from "@/lib/passenger-profile";
 
 export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLatitude, pickupLongitude }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string; pickupLatitude?: number; pickupLongitude?: number }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [passengerName, setPassengerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -34,7 +36,7 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
     event.preventDefault();
     // Joining a queue starts a payment. The server enforces this too; this hop
     // just keeps the student from filling the form before being told.
-    if (!account) { window.location.assign(`/account?next=${encodeURIComponent("/campus")}`); return; }
+    if (!account) { router.push(`/account?next=${encodeURIComponent("/campus")}`); return; }
     setLoading(true); setError("");
     try {
       const response = await fetch("/api/campus/queue/initialize", {
@@ -48,7 +50,7 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
       writeProfile({ name: passengerName, email, phone });
       const url = data.queue?.authorizationUrl;
       if (url) window.location.href = url;
-      else if (data.queue?.paymentReference) window.location.href = `/campus/ticket?reference=${encodeURIComponent(data.queue.paymentReference)}`;
+      else if (data.queue?.paymentReference) router.push(`/campus/ticket?reference=${encodeURIComponent(data.queue.paymentReference)}`);
       else setError(data.queue?.message || "Queue request created.");
     } catch (queueError) {
       setError(queueError instanceof Error ? queueError.message : "Could not join ride queue.");

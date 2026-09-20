@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { LocateFixed } from "lucide-react";
 import { CampusAiAssistant } from "@/components/campusRide/shared/CampusAiAssistant";
 import { CampusMap } from "@/components/campusRide/shared/CampusMap";
@@ -19,6 +20,7 @@ type DriverSummary = {
 };
 
 export function DriverOperationsPanel({ initialData }: { initialData?: DriverState | null }) {
+  const router = useRouter();
   const [data, setData] = useState<DriverState | null>(initialData || null);
   const [queue, setQueue] = useState<CampusQueueEntry[]>([]);
   const [summary, setSummary] = useState<DriverSummary | null>(null);
@@ -48,14 +50,14 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
       // The console shell already guarantees a signed-in driver, so only an
       // ended session goes back to sign-in. An account that is not linked to an
       // active campus driver stays here and says so.
-      if (response.status === 401) { window.location.assign("/console/login"); return; }
+      if (response.status === 401) { router.push("/console/login"); return; }
       setError(json.error || "This driver account is not linked to an active campus driver profile.");
       return;
     }
     setData(json);
     await loadQueue();
     await loadSummary();
-  }, [loadQueue, loadSummary]);
+  }, [loadQueue, loadSummary, router]);
 
   useEffect(() => { if (!data) queueMicrotask(load); else queueMicrotask(loadQueue); }, [data, load, loadQueue]);
 
