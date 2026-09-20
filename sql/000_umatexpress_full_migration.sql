@@ -1079,3 +1079,35 @@ CREATE INDEX IF NOT EXISTS idx_hostel_managers_landlord ON hostel_managers(landl
 -- The agreed hostel rate is 9%. Rows still on the placeholder 5% default move
 -- with it; a rate anybody negotiated on purpose was never stored as 500.
 UPDATE hostel_landlords SET commission_bps = 900, updated_at = updated_at WHERE commission_bps = 500;
+
+-- ============================================================================
+-- 016_hostel_payouts — the money-out half of a paid hostel booking
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS hostel_payout_batches (
+  id TEXT PRIMARY KEY,
+  landlord_id TEXT NOT NULL,
+  total_amount INTEGER NOT NULL DEFAULT 0,
+  entry_count INTEGER NOT NULL DEFAULT 0,
+  transfer_reference TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hostel_payout_batches_landlord ON hostel_payout_batches(landlord_id, created_at DESC);
+
+ALTER TABLE hostel_payouts ADD COLUMN batch_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_payouts ADD COLUMN transfer_reference TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_payouts ADD COLUMN released_by TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_hostel_payouts_batch ON hostel_payouts(batch_id);
+
+ALTER TABLE hostel_landlords ADD COLUMN payout_method TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_landlords ADD COLUMN payout_account_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_landlords ADD COLUMN payout_account_number TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_landlords ADD COLUMN payout_account_last4 TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_landlords ADD COLUMN payout_bank_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_landlords ADD COLUMN payout_bank_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE hostel_landlords ADD COLUMN payout_updated_at TEXT NOT NULL DEFAULT '';

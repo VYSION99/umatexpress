@@ -19,6 +19,7 @@ process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.PAYSTACK_SECRET_KEY = "sk_test_hostel_residency_key";
 process.env.PAYSTACK_CURRENCY = "GHS";
 process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-chars";
+process.env.PAYOUT_ENCRYPTION_KEY = "test-payout-encryption-key-at-least-32-chars";
 
 const landlords = [];
 const consoleAccounts = [];
@@ -29,6 +30,7 @@ const spaces = [];
 const listings = [];
 const bookings = [];
 const payouts = [];
+const payoutBatches = [];
 const outbox = [];
 const plugins = [];
 const subscriptions = [];
@@ -514,6 +516,120 @@ function handle(sql, args) {
     return ok(rows.length ? table(["id", "landlord_id", "property_id", "author_name", "title", "body", "created_at", "property_name"], rows) : empty);
   }
 
+  // --- payout batches -------------------------------------------------------
+  if (matched(/SELECT id,name,phone,email,COALESCE\(organization,''\) AS organization/, sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    if (!row) return ok(empty);
+    return ok(table(["id", "name", "phone", "email", "organization", "status", "kyc_status", "review_reason", "commission_bps", "created_at", "updated_at"], [{
+      id: row.id, name: row.name, phone: row.phone, email: row.email,
+      organization: row.organization || "", status: row.status || "ACTIVE",
+      kyc_status: row.kyc_status || "PENDING", review_reason: "",
+      commission_bps: row.commission_bps ?? 900, created_at: row.created_at || "", updated_at: row.updated_at || "",
+    }]));
+  }
+  if (matched(/SELECT COALESCE\(payout_method,''\) AS payout_method/, sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    if (!row) return ok(empty);
+    return ok(table(["payout_method", "payout_account_name", "payout_account_last4", "payout_bank_code", "payout_bank_name", "payout_updated_at"], [{
+      payout_method: row.payout_method || "", payout_account_name: row.payout_account_name || "",
+      payout_account_last4: row.payout_account_last4 || "", payout_bank_code: row.payout_bank_code || "",
+      payout_bank_name: row.payout_bank_name || "", payout_updated_at: row.payout_updated_at || "",
+    }]));
+  }
+  if (matched(/UPDATE hostel_landlords SET payout_method=\?/, sql)) {
+    const [method, accountName, sealed, last4, bankCode, bankName, payoutUpdatedAt, updatedAt, landlordId] = args;
+    const row = landlords.find((item) => item.id === landlordId);
+    if (row) {
+      row.payout_method = method; row.payout_account_name = accountName; row.payout_account_number = sealed;
+      row.payout_account_last4 = last4; row.payout_bank_code = bankCode; row.payout_bank_name = bankName;
+      row.payout_updated_at = payoutUpdatedAt; row.updated_at = updatedAt;
+    }
+    return affected(row ? 1 : 0);
+  }
+  if (matched(/SELECT COALESCE\(payout_account_number,''\) AS payout_account_number FROM hostel_landlords/, sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    return ok(row ? table(["payout_account_number"], [{ payout_account_number: row.payout_account_number || "" }]) : empty);
+  }
+  if (matched(/INSERT INTO hostel_payout_batches/, sql)) {
+    const [id, landlordId, reference, note, actor, createdAt, updatedAt] = args;
+    payoutBatches.push({ id, landlord_id: landlordId, total_amount: 0, entry_count: 0, transfer_reference: reference, note, created_by: actor, created_at: createdAt, updated_at: updatedAt });
+    return affected(1);
+  }
+  if (matched(/UPDATE hostel_payouts SET status = 'RELEASED', batch_id = \?/, sql)) {
+    const [batchId, reference, releasedAt, actor, , landlordId, stamp] = args;
+    const rows = payouts.filter((item) => item.landlord_id === landlordId && item.status === "ACCRUED" && String(item.release_after) <= stamp);
+    rows.forEach((item) => {
+      item.status = "RELEASED"; item.batch_id = batchId; item.transfer_reference = reference;
+      item.released_at = releasedAt; item.released_by = actor;
+    });
+    return affected(rows.length);
+  }
+  if (matched(/UPDATE hostel_payout_batches SET total_amount = \?, entry_count = \?, updated_at = \? WHERE id = \?/, sql)) {
+    const row = payoutBatches.find((item) => item.id === args[3]);
+    if (row) { row.total_amount = args[0]; row.entry_count = args[1]; row.updated_at = args[2]; }
+    return affected(row ? 1 : 0);
+  }
+  if (matched(/SELECT COUNT\(\*\) AS entry_count, COALESCE\(SUM\(net_amount\),0\) AS total_amount FROM hostel_payouts WHERE landlord_id = \? AND status = 'ACCRUED' AND release_after <= \?/, sql)) {
+    const rows = payouts.filter((item) => item.landlord_id === args[0] && item.status === "ACCRUED" && String(item.release_after) <= args[1]);
+    return ok(table(["entry_count", "total_amount"], [{ entry_count: rows.length, total_amount: rows.reduce((sum, item) => sum + Number(item.net_amount), 0) }]));
+  }
+  if (matched(/SELECT COUNT\(\*\) AS entry_count, COALESCE\(SUM\(net_amount\),0\) AS total_amount FROM hostel_payouts WHERE batch_id = \?/, sql)) {
+    const rows = payouts.filter((item) => item.batch_id === args[0]);
+    return ok(table(["entry_count", "total_amount"], [{ entry_count: rows.length, total_amount: rows.reduce((sum, item) => sum + Number(item.net_amount), 0) }]));
+  }
+  if (matched(/SELECT \* FROM hostel_payout_batches WHERE landlord_id = \? ORDER BY created_at DESC/, sql)) {
+    const rows = payoutBatches.filter((item) => item.landlord_id === args[0]).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
+    return ok(rows.length ? table(Object.keys(rows[0]), rows) : empty);
+  }
+  if (matched(/SELECT COALESCE\(SUM\(CASE WHEN status = 'ACCRUED' AND release_after <= \?/, sql)) {
+    const [stamp] = args;
+    const accrued = payouts.filter((item) => item.status === "ACCRUED");
+    const payable = accrued.filter((item) => String(item.release_after) <= stamp);
+    const sum = (rows) => rows.reduce((total, item) => total + Number(item.net_amount), 0);
+    return ok(table(["payable_amount", "accrued_amount", "released_amount", "commission_amount"], [{
+      payable_amount: sum(payable), accrued_amount: sum(accrued),
+      released_amount: sum(payouts.filter((item) => item.status === "RELEASED")),
+      commission_amount: payouts.reduce((total, item) => total + Number(item.commission_amount), 0),
+    }]));
+  }
+  if (matched(/FROM hostel_payouts p\s+LEFT JOIN hostel_bookings b ON b\.id = p\.booking_id/, sql)) {
+    const rows = payouts
+      .filter((item) => item.landlord_id === args[0])
+      .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
+      .map((item) => {
+        const booking = bookings.find((entry) => entry.id === item.booking_id) || {};
+        return {
+          ...item,
+          booking_reference: booking.reference || "",
+          student_name: booking.student_name || "",
+          property_name: (properties.find((entry) => entry.id === booking.property_id) || {}).name || "",
+          period_name: (periods.find((entry) => entry.id === booking.period_id) || {}).name || "",
+        };
+      });
+    const columns = ["id", "booking_id", "landlord_id", "gross_amount", "commission_bps", "commission_amount", "net_amount", "status", "release_after", "released_at", "transfer_reference", "created_at", "booking_reference", "student_name", "property_name", "period_name"];
+    return ok(rows.length ? table(columns, rows) : empty);
+  }
+  if (matched(/FROM hostel_landlords l\s+JOIN hostel_payouts p ON p\.landlord_id = l\.id/, sql)) {
+    const stamp = args[0];
+    const rows = landlords.map((landlord) => {
+      const entries = payouts.filter((item) => item.landlord_id === landlord.id);
+      const accrued = entries.filter((item) => item.status === "ACCRUED");
+      const payable = accrued.filter((item) => String(item.release_after) <= stamp);
+      const sum = (list) => list.reduce((total, item) => total + Number(item.net_amount), 0);
+      return {
+        id: landlord.id, name: landlord.name, organization: landlord.organization || "", email: landlord.email || "",
+        phone: landlord.phone || "", status: landlord.status || "ACTIVE", kyc_status: landlord.kyc_status || "PENDING",
+        commission_bps: landlord.commission_bps ?? 900, payout_method: landlord.payout_method || "",
+        payout_account_name: landlord.payout_account_name || "", payout_account_last4: landlord.payout_account_last4 || "",
+        payout_bank_name: landlord.payout_bank_name || "", payout_updated_at: landlord.payout_updated_at || "",
+        accrued_amount: sum(accrued), payable_amount: sum(payable), payable_count: payable.length,
+        released_amount: sum(entries.filter((item) => item.status === "RELEASED")), entry_count: entries.length,
+      };
+    }).filter((landlord) => landlord.entry_count > 0);
+    const columns = ["id", "name", "organization", "email", "phone", "status", "kyc_status", "commission_bps", "payout_method", "payout_account_name", "payout_account_last4", "payout_bank_name", "payout_updated_at", "accrued_amount", "payable_amount", "payable_count", "released_amount", "entry_count"];
+    return ok(rows.length ? table(columns, rows) : empty);
+  }
+
   if (matched(/INSERT INTO rate_limit_windows/, sql) && /RETURNING count/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
   return ok(empty);
 }
@@ -564,6 +680,10 @@ const {
   assertHostelOwner, inviteHostelManager, listHostelManagers, resolveHostelHost, revokeHostelManager,
 } = await vite.ssrLoadModule("/lib/hostel-engine/managers.ts");
 const { authorizeStudentHostelBooking, residentDashboard } = await vite.ssrLoadModule("/lib/hostel-engine/resident.ts");
+const {
+  getHostelPayoutAccount, hostelPayoutStatement, listHostelPayoutLandlords,
+  platformHostelPayoutBalance, recordHostelPayoutBatch, revealHostelPayoutAccount, saveHostelPayoutAccount,
+} = await vite.ssrLoadModule("/lib/hostel-engine/payouts.ts");
 const { CampusEngineError } = await vite.ssrLoadModule("/lib/campus-engine/errors.ts");
 
 landlords.push({
@@ -926,4 +1046,94 @@ test("the resident dashboard carries the bed, the host's number and the services
   assert.equal(residency.services[0].status, "COMPLETED");
   assert.ok(residency.unreadMessages >= 1);
   assert.equal(dashboard.announcements.length, 2);
+});
+
+test("a payout needs a verified landlord, a saved account and a released entry", async () => {
+  const ledger = payouts.filter((item) => item.landlord_id === "landlord-a");
+  assert.equal(ledger.length, 2);
+  const mine = ledger.find((item) => item.booking_id === paidBooking.id);
+  const other = ledger.find((item) => item.booking_id !== paidBooking.id);
+  assert.ok(mine && other);
+  // Both entries are held: one because its year is far away, the other only
+  // until the release window opens a few lines below.
+  mine.release_after = "2999-01-01";
+  other.release_after = "2999-01-01";
+
+  // KYC first: an unverified landlord is exactly who the money gate stops.
+  await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
+  landlords[0].kyc_status = "VERIFIED";
+
+  // Then the destination: money with no address cannot be recorded as sent.
+  await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
+  await saveHostelPayoutAccount({
+    landlordId: "landlord-a", method: "MOMO", accountName: "Mr. Owusu",
+    accountNumber: "0244000111", bankCode: "MTN", actor: "owusu@example.com",
+  });
+
+  // Then the release window: an entry held until the year is close stays held.
+  await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
+  mine.release_after = "2000-01-01";
+
+  const batch = await recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", note: "First release", actor: "admin@umat.edu.gh" });
+  assert.equal(batch.entryCount, 1);
+  assert.equal(batch.totalAmount, 113_750);
+  assert.equal(mine.status, "RELEASED");
+  assert.equal(mine.transfer_reference, "TRF-001");
+  assert.equal(mine.released_by, "admin@umat.edu.gh");
+  // The other entry is untouched: a batch releases what the window opened.
+  assert.equal(other.status, "ACCRUED");
+  assert.equal(other.batch_id, undefined);
+  assert.equal(payoutBatches.length, 1);
+  assert.equal(Number(payoutBatches[0].total_amount), 113_750);
+  assert.equal(Number(payoutBatches[0].entry_count), 1);
+
+  // The landlord hears about it, once, and a second attempt finds nothing left.
+  const mail = outbox.filter((item) => item.template === "hostel_payout_recorded" && item.reference === batch.id);
+  assert.equal(mail.length, 1);
+  assert.match(mail[0].message, /TRF-001/);
+  await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-002", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
+  assert.equal(payoutBatches.length, 1);
+
+  const statement = await hostelPayoutStatement("landlord-a");
+  assert.equal(statement.entries.length, 2);
+  const paidEntry = statement.entries.find((entry) => entry.bookingId === paidBooking.id);
+  assert.equal(paidEntry.status, "RELEASED");
+  assert.equal(paidEntry.studentName, "Ama Mensah");
+  assert.equal(paidEntry.propertyName, "Owusu Lodge");
+  assert.equal(statement.totals.releasedAmount, 113_750);
+  assert.equal(statement.totals.payableAmount, 0);
+  assert.equal(statement.totals.accruedAmount, 113_750);
+  assert.equal(statement.batches.length, 1);
+
+  const { landlords: owed, totals } = await listHostelPayoutLandlords();
+  assert.equal(owed.length, 1);
+  assert.equal(owed[0].payableAmount, 0);
+  assert.equal(owed[0].accruedAmount, 113_750);
+  assert.equal(owed[0].releasedAmount, 113_750);
+  assert.equal(owed[0].payoutReady, true);
+  assert.equal(totals.releasedAmount, 113_750);
+  const balance = await platformHostelPayoutBalance();
+  assert.equal(balance.releasedAmount, 113_750);
+  assert.equal(balance.accruedAmount, 113_750);
+  assert.equal(balance.commissionAmount, 22_500);
+});
+
+test("a payout account is masked, sealed at rest, and only revealed on the record", async () => {
+  const saved = await getHostelPayoutAccount("landlord-a");
+  assert.equal(saved.ready, true);
+  assert.equal(saved.last4, "0111");
+  assert.equal(saved.accountMasked, "••••0111");
+  assert.equal(saved.bankName, "MTN");
+  // At rest the number is sealed, not stored as typed.
+  assert.match(String(landlords[0].payout_account_number), /^v1:/);
+  assert.equal(String(landlords[0].payout_account_number).includes("0244000111"), false);
+
+  const revealed = await revealHostelPayoutAccount("landlord-a", "admin@umat.edu.gh");
+  assert.equal(revealed.accountNumber, "0244000111");
+
+  // A code nobody offers is refused, so a transfer cannot address a stranger.
+  await expectError(saveHostelPayoutAccount({
+    landlordId: "landlord-a", method: "MOMO", accountName: "Mr. Owusu",
+    accountNumber: "0244000111", bankCode: "NOT-A-NETWORK", actor: "owusu@example.com",
+  }), "VALIDATION_ERROR", 400);
 });

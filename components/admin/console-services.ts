@@ -1,4 +1,4 @@
-import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Scale, Store, Utensils, Wallet } from "lucide-react";
+import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyhole, MapPinned, Scale, Store, Utensils, Wallet, type LucideIcon } from "lucide-react";
 
 /**
  * The console is one console for every UMaTeXPRESS service, the way a cloud
@@ -6,6 +6,24 @@ import { Banknote, BedDouble, BusFront, CarFront, Clapperboard, IdCard, LockKeyh
  * its own navigation; a role decides which of them are on the shelf.
  */
 export type ConsoleServiceGroup = "Mobility" | "Self-service trips" | "Money" | "Trust & safety" | "Accommodation" | "Commerce" | "Account";
+
+/** One page inside a service. `roles` restricts it to some of the roles that see the service. */
+export type ConsoleServiceNavItem = { label: string; href: string; roles?: readonly string[] };
+
+export type ConsoleService = {
+  id: string;
+  title: string;
+  icon: LucideIcon;
+  accent: string;
+  group: ConsoleServiceGroup;
+  href: string | null;
+  label: string;
+  description: string;
+  detail: string;
+  action: string;
+  tags: readonly string[];
+  nav: readonly ConsoleServiceNavItem[];
+};
 
 /** Display order of the groups in the service directory and the sidebar. */
 export const CONSOLE_GROUP_ORDER: ConsoleServiceGroup[] = [
@@ -18,7 +36,7 @@ export const CONSOLE_GROUP_ORDER: ConsoleServiceGroup[] = [
   "Account",
 ];
 
-export const consoleServices = [
+export const consoleServices: readonly ConsoleService[] = [
   { id: "campus", title: "CampusRide", icon: CarFront, accent: "blue", group: "Mobility", href: "/console/campus", label: "CAMPUS OPERATIONS", description: "Keep campus moving.", detail: "Zones, routes, drivers, vehicles and ride queues.", action: "Open CampusRide", tags: ["Drivers & vehicles", "Zones & fares"], nav: [{ label: "Zones, drivers & queues", href: "/console/campus" }] },
   { id: "vacation", title: "VacationRide", icon: BusFront, accent: "orange", group: "Mobility", href: "/console/vacation", label: "TRIPS & PASSENGERS", description: "Every journey, organised.", detail: "Schedules, fares, passenger records and bookings.", action: "Manage trips", tags: ["Trip scheduler", "Passenger records"], nav: [{ label: "Schedules & bookings", href: "/console/vacation" }] },
   { id: "driver", title: "Driver portal", icon: MapPinned, accent: "green", group: "Mobility", href: "/console/driver", label: "BOARDING & QUEUES", description: "From pickup to arrival.", detail: "The driver workspace for today's queue and boarding.", action: "Open driver portal", tags: ["Driver access"], nav: [{ label: "Today's queue", href: "/console/driver" }] },
@@ -28,11 +46,16 @@ export const consoleServices = [
   { id: "earnings", title: "Earnings", icon: Wallet, accent: "cyan", group: "Money", href: "/console/earnings", label: "MY STATEMENT", description: "Every fare you earned.", detail: "See what each booking earned, what is ready to pay, and the payouts already recorded.", action: "Open statement", tags: ["Statement", "Payouts"], nav: [{ label: "Statement", href: "/console/earnings" }] },
   { id: "payouts", title: "Organizer payouts", icon: Banknote, accent: "green", group: "Money", href: "/console/payouts", label: "MONEY OUT", description: "Pay what the platform owes.", detail: "Balances per organizer, the accrual ledger, and recording a payout by transfer reference.", action: "Open payouts", tags: ["Ledger", "Batch payouts"], nav: [{ label: "Balances & batches", href: "/console/payouts" }] },
   { id: "disputes", title: "Disputes", icon: Scale, accent: "purple", group: "Trust & safety", href: "/console/disputes", label: "TRUST & RESOLUTION", description: "Decide what went wrong.", detail: "What passengers and organizers raised, and the record of what was decided and why.", action: "Open disputes", tags: ["Complaints", "Decisions"], nav: [{ label: "Cases", href: "/console/disputes" }] },
-  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "green", group: "Accommodation", href: "/console/hostels", label: "ACCOMMODATION", description: "A home for every student.", detail: "Your properties, rooms, bed-spaces, residents and services.", action: "Open workspace", tags: ["Properties", "Residents & services"], nav: [{ label: "My properties", href: "/console/hostels" }, { label: "Residents & services", href: "/console/hostels/residents" }] },
+  { id: "hostels", title: "Hostel Finder", icon: BedDouble, accent: "green", group: "Accommodation", href: "/console/hostels", label: "ACCOMMODATION", description: "A home for every student.", detail: "Your properties, rooms, bed-spaces, residents, services and payouts.", action: "Open workspace", tags: ["Properties", "Residents & services"], nav: [{ label: "My properties", href: "/console/hostels" }, { label: "Residents & services", href: "/console/hostels/residents", roles: ["LANDLORD"] }, { label: "Payouts", href: "/console/hostels/payouts", roles: ["ADMIN"] }, { label: "Service catalogue", href: "/console/hostels/plugins", roles: ["ADMIN"] }] },
   { id: "food", title: "Food", icon: Utensils, accent: "peach", group: "Commerce", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [], nav: [] },
   { id: "cinema", title: "OnlineCinema", icon: Clapperboard, accent: "purple", group: "Commerce", href: null, label: "ENTERTAINMENT", description: "A place for movie nights.", detail: "Cinema management is not available yet.", action: "Coming soon", tags: [], nav: [] },
   { id: "security", title: "Account security", icon: LockKeyhole, accent: "purple", group: "Account", href: "/console/change-password", label: "YOUR ACCESS", description: "Look after your access.", detail: "Change the password that opens this console.", action: "Change password", tags: ["Password settings"], nav: [{ label: "Password", href: "/console/change-password" }] },
-] as const;
+];
+
+/** The pages of a service this role may actually open. */
+export function consoleServiceNavForRole(service: ConsoleService, role: string) {
+  return service.nav.filter((entry) => !entry.roles || entry.roles.includes(role));
+}
 
 /**
  * Services that belong to the person doing that work and never to an

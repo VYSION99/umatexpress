@@ -179,6 +179,7 @@
 .console-panel-close:hover { border-color: var(--ui-green, #0d694d); color: var(--ui-green, #0d694d); }
 .console-reason { display: block; margin-top: 4px; color: #9c3026; font-size: 11px; font-weight: 600; }
 .console-note { margin: 14px 0 0; color: var(--ui-muted, #57675f); font-size: 12px; line-height: 1.6; }
+.console-subhead { margin: 26px 0 12px; font-size: 13px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-muted, #57675f); }
 .console-empty { margin: 0; padding: 18px 0; color: var(--ui-muted, #57675f); font-size: 14px; }
 
 .console-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -283,5 +284,5 @@
 .console-thread li strong { font-size: 12px; }
 .console-thread li span { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 .console-thread li small { color: var(--ui-muted, #57675f); font-size: 10px; font-weight: 700; }
-.console-inline-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; border-radius: 11px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 12px; font-weight: 800; text-decoration: none; }
+.console-inline-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; border: 0; border-radius: 11px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 12px; font-weight: 800; text-decoration: none; cursor: pointer; }
 .console-inline-link:hover { background: var(--ui-green-deep, #0b5740); }

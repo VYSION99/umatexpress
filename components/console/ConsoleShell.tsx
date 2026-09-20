@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, ExternalLink, Grid2X2, Home, LockKeyhole, LogOut, Search, ShieldCheck, X } from "lucide-react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
-import { consoleGroupsForRole, consoleServicesForRole, consoleServiceById } from "@/components/admin/console-services";
+import { consoleGroupsForRole, consoleServicesForRole, consoleServiceById, consoleServiceNavForRole } from "@/components/admin/console-services";
 import { ConsoleAssistant } from "@/components/console/ConsoleAssistant";
 import "@/components/launcher/launcher.css";
 import "@/components/admin/console.css";
@@ -98,12 +98,13 @@ export function ConsoleShell({
           {group.services.map((item) => {
             const Icon = item.icon;
             const active = item.id === service;
+            const subnav = consoleServiceNavForRole(item, session.account.role);
             return <div className="console-service" key={item.id}>
               {item.href
                 ? <Link href={item.href} aria-current={active ? "page" : undefined}><Icon size={19}/>{item.title}</Link>
                 : <span className="console-service-soon"><Icon size={19}/>{item.title}<small>Soon</small></span>}
-              {active && item.nav.length > 1 && <div className="console-subnav">
-                {item.nav.map((entry) => <Link key={entry.href} href={entry.href} aria-current={pathname === entry.href ? "page" : undefined}>{entry.label}</Link>)}
+              {active && subnav.length > 1 && <div className="console-subnav">
+                {subnav.map((entry) => <Link key={entry.href} href={entry.href} aria-current={pathname === entry.href ? "page" : undefined}>{entry.label}</Link>)}
               </div>}
             </div>;
           })}

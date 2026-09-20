@@ -42,16 +42,38 @@ type Announcement = { id: string; propertyName: string; authorName: string; titl
 type Message = { id: string; senderType: string; senderName: string; content: string; createdAt: string };
 type Period = { id: string; name: string };
 type Property = { id: string; name: string };
+type PayoutDestination = { code: string; name: string };
+type Destinations = { BANK: PayoutDestination[]; MOMO: PayoutDestination[] };
+type PayoutAccount = {
+  method: string; accountName: string; accountMasked: string; last4: string;
+  bankCode: string; bankName: string; updatedAt: string; ready: boolean;
+};
+type PayoutEntry = {
+  id: string; bookingReference: string; propertyName: string; studentName: string; periodName: string;
+  grossAmount: number; commissionAmount: number; netAmount: number;
+  status: string; releaseAfter: string; releasedAt: string; transferReference: string; createdAt: string;
+};
+type PayoutBatch = {
+  id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdBy: string; createdAt: string;
+};
+type PayoutStatement = {
+  entries: PayoutEntry[];
+  batches: PayoutBatch[];
+  totals: { accruedAmount: number; payableAmount: number; releasedAmount: number };
+};
 
-type Tab = "residents" | "requests" | "services" | "team" | "notices";
+type Tab = "residents" | "requests" | "services" | "payouts" | "team" | "notices";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "residents", label: "Residents" },
   { id: "requests", label: "Service requests" },
   { id: "services", label: "Services & fees" },
+  { id: "payouts", label: "Money & payouts" },
   { id: "team", label: "Team" },
   { id: "notices", label: "Notices" },
 ];
+
+const EMPTY_DESTINATIONS: Destinations = { BANK: [], MOMO: [] };
 
 /** What the host may do next with a request, and nothing else. */
 const SERVICE_ACTIONS: Record<string, Array<{ action: string; label: string }>> = {
@@ -98,6 +120,9 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [payoutAccount, setPayoutAccount] = useState<PayoutAccount | null>(null);
+  const [payoutStatement, setPayoutStatement] = useState<PayoutStatement | null>(null);
+  const [destinations, setDestinations] = useState<Destinations>(EMPTY_DESTINATIONS);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -153,6 +178,21 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
     setProperties(propertyData.properties || []);
   }, []);
 
+  /** The money tab reads both halves: where it goes, and what has accrued. */
+  const loadPayouts = useCallback(async () => {
+    const [accountResponse, statementResponse] = await Promise.all([
+      fetch("/api/console/hostel/payout-account", { credentials: "same-origin", cache: "no-store" }),
+      fetch("/api/console/hostel/statement", { credentials: "same-origin", cache: "no-store" }),
+    ]);
+    const accountData = await accountResponse.json() as { account?: PayoutAccount; destinations?: Destinations; error?: string };
+    if (!accountResponse.ok) throw new Error(accountData.error || "The payout account could not be loaded.");
+    setPayoutAccount(accountData.account || null);
+    setDestinations(accountData.destinations || EMPTY_DESTINATIONS);
+    const statementData = await statementResponse.json() as PayoutStatement & { error?: string };
+    if (!statementResponse.ok) throw new Error(statementData.error || "The statement could not be loaded.");
+    setPayoutStatement({ entries: statementData.entries || [], batches: statementData.batches || [], totals: statementData.totals });
+  }, []);
+
   const run = useCallback(async (task: () => Promise<void>) => {
     setError("");
     try {
@@ -173,10 +213,11 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
     queueMicrotask(() => {
       if (tab === "requests") void run(loadRequests);
       if (tab === "services") void run(loadServices);
+      if (tab === "payouts") void run(loadPayouts);
       if (tab === "team") void run(loadTeam);
       if (tab === "notices") void run(loadNotices);
     });
-  }, [tab, loadNotices, loadRequests, loadServices, loadTeam, run]);
+  }, [tab, loadNotices, loadPayouts, loadRequests, loadServices, loadTeam, run]);
 
   // Paystack sends the landlord back with the reference in the query string;
   // settling it here means the fee is confirmed without a second click.
@@ -285,6 +326,32 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
             if (!response.ok) throw new Error(data.error || "That window could not be closed.");
             setNotice("The unpaid window is closed. Start it again whenever you are ready.");
             await loadServices();
+          } finally {
+            setBusy("");
+          }
+        })}
+      />}
+
+      {tab === "payouts" && <PayoutsPanel
+        account={payoutAccount}
+        statement={payoutStatement}
+        destinations={destinations}
+        isOwner={ownerAccess}
+        busy={busy}
+        onSaveAccount={(input) => run(async () => {
+          setBusy("payout-account");
+          try {
+            const response = await fetch("/api/console/hostel/payout-account", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(input),
+            });
+            const data = await response.json() as { account?: PayoutAccount; error?: string };
+            if (!response.ok) throw new Error(data.error || "That payout account could not be saved.");
+            setPayoutAccount(data.account || null);
+            setNotice("Payout account saved. Money goes to the account ending " + (data.account?.last4 || "") + ".");
+            await loadPayouts();
           } finally {
             setBusy("");
           }
@@ -591,6 +658,140 @@ function NoticesPanel({ announcements, properties, busy, onPublish }: {
           </tr>)}
         </tbody>
       </table>}
+  </>;
+}
+
+/**
+ * The money tab: what the platform has earned for the landlord, what it is
+ * still holding, what it has already sent, and the account a transfer would
+ * reach. Only the owner may change the destination; a manager sees the same
+ * statement without the pen.
+ */
+/**
+ * The account form, keyed by the saved account so a successful save remounts it
+ * with the new values instead of needing an effect to copy them in.
+ */
+function PayoutAccountForm({ account, destinations, busy, onSave }: {
+  account: PayoutAccount | null;
+  destinations: Destinations;
+  busy: string;
+  onSave: (input: { method: string; accountName: string; accountNumber: string; bankCode: string }) => void;
+}) {
+  const [form, setForm] = useState({
+    method: account?.method || "MOMO",
+    accountName: account?.accountName || "",
+    accountNumber: "",
+    bankCode: account?.bankCode || "",
+  });
+  const choices = destinations[form.method === "BANK" ? "BANK" : "MOMO"] || [];
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!form.accountName.trim() || !form.accountNumber.trim() || !form.bankCode) return;
+    onSave(form);
+  };
+
+  return <form className="console-form" onSubmit={submit}>
+    <label>Type
+      <select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value, bankCode: "" })}>
+        <option value="MOMO">Mobile money</option>
+        <option value="BANK">Bank account</option>
+      </select>
+    </label>
+    <label>Account name
+      <input type="text" value={form.accountName} onChange={(event) => setForm({ ...form, accountName: event.target.value })} maxLength={80} placeholder="Name on the account" />
+    </label>
+    <label>{form.method === "BANK" ? "Bank" : "Network"}
+      <select value={form.bankCode} onChange={(event) => setForm({ ...form, bankCode: event.target.value })}>
+        <option value="">Choose…</option>
+        {choices.map((choice) => <option key={choice.code} value={choice.code}>{choice.name}</option>)}
+      </select>
+    </label>
+    <label>Account number
+      <input type="text" value={form.accountNumber} onChange={(event) => setForm({ ...form, accountNumber: event.target.value })} maxLength={40} placeholder={account?.ready ? "Enter the number again to replace it" : "Account or mobile money number"} />
+    </label>
+    <button type="submit" disabled={busy === "payout-account" || !form.accountName.trim() || !form.accountNumber.trim() || !form.bankCode}>
+      {busy === "payout-account" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Check size={15} aria-hidden />}
+      Save account
+    </button>
+  </form>;
+}
+
+function PayoutsPanel({ account, statement, destinations, isOwner, busy, onSaveAccount }: {
+  account: PayoutAccount | null;
+  statement: PayoutStatement | null;
+  destinations: Destinations;
+  isOwner: boolean;
+  busy: string;
+  onSaveAccount: (input: { method: string; accountName: string; accountNumber: string; bankCode: string }) => void;
+}) {
+  const now = new Date().toISOString();
+
+  return <>
+    <section className="console-totals">
+      <article><span>READY TO PAY</span><strong>{cedis(statement?.totals.payableAmount || 0)}</strong><small>released to you now</small></article>
+      <article><span>STILL HELD</span><strong>{cedis(statement?.totals.accruedAmount || 0)}</strong><small>releases shortly before the year starts</small></article>
+      <article><span>PAID OUT</span><strong>{cedis(statement?.totals.releasedAmount || 0)}</strong><small>{statement?.batches.length || 0} transfer{(statement?.batches.length || 0) === 1 ? "" : "s"} recorded</small></article>
+      <article><span>PLATFORM</span><strong>9%</strong><small>kept from each bed payment</small></article>
+    </section>
+
+    <section className="console-panel">
+      <h2><Wallet size={18} aria-hidden />Payout account</h2>
+      <p className="console-note">
+        {account?.ready
+          ? <>Payouts are addressed to <strong>{account.accountName}</strong> · {account.bankName || account.method} {account.accountMasked}. </>
+          : <>No payout account is saved yet, so no transfer can be recorded for you. </>}
+        {isOwner ? "Enter a new number below to change it." : "Only the account owner can change this."}
+      </p>
+      {isOwner && <PayoutAccountForm
+        key={`${account?.updatedAt || "new"}:${account?.last4 || ""}:${destinations.BANK.length}`}
+        account={account}
+        destinations={destinations}
+        busy={busy}
+        onSave={onSaveAccount}
+      />}
+    </section>
+
+    <h3 className="console-subhead">Bed earnings</h3>
+    {!statement
+      ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading your statement…</p>
+      : statement.entries.length === 0
+        ? <p className="console-empty">No bed payment has landed yet. Each paid resident appears here with the platform&apos;s 9% already taken out.</p>
+        : <table className="console-table">
+          <thead><tr><th>Resident</th><th>Bed</th><th>Paid</th><th>Platform 9%</th><th>Your net</th><th>Release</th></tr></thead>
+          <tbody>
+            {statement.entries.map((entry) => <tr key={entry.id}>
+              <td><strong>{entry.studentName || "Student"}</strong><small>{entry.bookingReference} · {entry.periodName}</small></td>
+              <td>{entry.propertyName}</td>
+              <td>{cedis(entry.grossAmount)}</td>
+              <td>{cedis(entry.commissionAmount)}</td>
+              <td><strong>{cedis(entry.netAmount)}</strong></td>
+              <td>
+                {entry.status === "RELEASED"
+                  ? <><span className="console-badge console-badge-released">Paid</span><small>{when(entry.releasedAt)}{entry.transferReference ? ` · ${entry.transferReference}` : ""}</small></>
+                  : entry.releaseAfter <= now
+                    ? <span className="console-badge console-badge-active">Ready to pay</span>
+                    : <><span className="console-badge console-badge-accrued">Held</span><small>releases {when(entry.releaseAfter)}</small></>}
+              </td>
+            </tr>)}
+          </tbody>
+        </table>}
+
+    {statement && statement.batches.length > 0 && <>
+      <h3 className="console-subhead">Transfers recorded</h3>
+      <table className="console-table">
+        <thead><tr><th>Reference</th><th>Bookings</th><th>Amount</th><th>Recorded</th><th>By</th></tr></thead>
+        <tbody>
+          {statement.batches.map((batch) => <tr key={batch.id}>
+            <td><strong>{batch.transferReference}</strong>{batch.note ? <small>{batch.note}</small> : null}</td>
+            <td>{batch.entryCount}</td>
+            <td>{cedis(batch.totalAmount)}</td>
+            <td>{when(batch.createdAt)}</td>
+            <td>{batch.createdBy}</td>
+          </tr>)}
+        </tbody>
+      </table>
+    </>}
   </>;
 }
 

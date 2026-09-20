@@ -64,6 +64,16 @@ This document breaks down the delivery of the Hostel Finder into clear, sequenti
 
 **Goal:** Enable landlords to receive money and establish trust mechanisms.
 
+> **Status (as built).** The ledger, the release policy, KYC gating, payout
+> account masking with an audited reveal, and the admin release interface are
+> implemented: `/api/console/hostel/payouts`, `/api/console/hostel/payout-account`
+> and `/api/console/hostel/statement`, with the landlord's money tab in the
+> residents workspace and the admin payout desk under Hostel Finder → Payouts.
+> A recorded batch moves the entries it covers to `RELEASED` and notifies the
+> landlord. Still open from this phase: automatic Paystack Transfer/Recipient
+> payouts (recording is currently by transfer reference after a manual transfer),
+> and R2 photo upload for listings.
+
 ### Deliverables
 - Payout ledger (`hostel_payouts`)
 - Paystack Transfer / Recipient integration

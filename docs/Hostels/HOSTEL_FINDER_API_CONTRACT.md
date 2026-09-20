@@ -11,6 +11,36 @@ This document defines the request and response shapes for the core Hostel Finder
 
 All monetary values are in **pesewas** (GHS × 100).
 
+### As-built surface (current)
+
+The routes below are what the deployed Worker serves today. The design paths in
+sections 1–4 are kept for shape reference where they differ; the console is one
+origin for every service, so admin and landlord endpoints live under
+`/api/console/hostel/*` and are gated by the signed console session and role.
+
+| Method | Route | Role | What it does |
+| --- | --- | --- | --- |
+| `GET` | `/api/hostel/properties` | public | Approved beds grouped per property, with pin, distance and cheapest total |
+| `GET` | `/api/hostel/spaces` | public | The beds inside one property for the open year |
+| `GET` | `/api/hostel/periods` | public | Academic years a price can be quoted against |
+| `POST` | `/api/hostel/bookings` | student session | Hold a bed for 10 minutes and start Paystack checkout |
+| `GET` | `/api/hostel/bookings/verify` | payment cookie / owner | Confirm a checkout and turn it into a residency |
+| `GET` | `/api/hostel/resident` … | student session | The resident page: bed, host contact, services, thread, notices |
+| `GET/POST` | `/api/console/hostel/residents`, `/services`, `/messages`, `/announcements`, `/managers` | landlord | The host workspace |
+| `GET/POST` | `/api/console/hostel/plugins` | landlord | Switch a service on for the year |
+| `GET/POST` | `/api/console/hostel/plugins/catalogue` | admin | The platform price list behind every landlord's services |
+| `GET/POST` | `/api/console/hostel/payouts` | admin | Who is owed what, and the batch a transfer was recorded under |
+| `GET/POST` | `/api/console/hostel/payout-account` | landlord owner | The masked destination a payout is addressed to |
+| `GET` | `/api/console/hostel/statement` | landlord | The landlord's own accrual statement and recorded transfers |
+
+**Payout release policy.** A paid booking writes an `ACCRUED` row into
+`hostel_payouts` carrying the gross, the platform's 9%, and the landlord's net.
+The entry becomes payable three days before the academic year starts
+(`release_after`), and an administrator records the transfer reference that
+releases it. Recording a payout requires a verified (KYC) landlord and a saved
+payout account; the account number is sealed at rest and only readable through
+an audited reveal.
+
 ---
 
 ## 1. Public / Student Endpoints
