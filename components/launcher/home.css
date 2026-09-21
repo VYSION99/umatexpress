@@ -920,6 +920,11 @@
   background: #f5f8f6;
 }
 
+.launcher.home .launch-directory-note {
+  color: var(--home-muted);
+}
+
+.launcher.home .launch-directory button[aria-pressed=true],
 .launcher.home .launch-customise button[aria-pressed=true] {
   border-color: #bfe0cd;
   background: var(--home-green-soft);

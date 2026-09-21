@@ -30,3 +30,23 @@ export function normalizePreferences(value: unknown): LauncherPreference[] {
   }
   return [...result, ...defaultPreferences().filter(item => !result.some(row => row.id === item.id))];
 }
+
+/**
+ * The homepage banner/rail projection: only services that are live today and
+ * that the student has not switched off, in their saved order with pinned
+ * cards first. Coming-soon entries stay out of the sheet and live in the
+ * "On the way" strip, so the hide/show controls never reference a dead card.
+ */
+export function homepageServices(preferences: LauncherPreference[]): Service[] {
+  return normalizePreferences(preferences)
+    .map(row => ({ row, service: services.find(service => service.id === row.id) }))
+    .filter((entry): entry is { row: LauncherPreference; service: Service } => Boolean(entry.service?.available))
+    .filter(entry => !entry.row.hidden)
+    .sort((a, b) => Number(b.row.pinned) - Number(a.row.pinned))
+    .map(entry => entry.service);
+}
+
+/** True when the student has switched this service off on the homepage. */
+export function isServiceHidden(preferences: LauncherPreference[], id: string): boolean {
+  return preferences.some(row => row.id === id && row.hidden);
+}

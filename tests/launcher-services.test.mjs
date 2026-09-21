@@ -13,7 +13,7 @@ import { createServer } from "vite";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
-const { services, defaultPreferences, normalizePreferences } = await vite.ssrLoadModule("/components/launcher/services.ts");
+const { services, defaultPreferences, normalizePreferences, homepageServices, isServiceHidden } = await vite.ssrLoadModule("/components/launcher/services.ts");
 const { default: CampusLauncher } = await vite.ssrLoadModule("/components/launcher/CampusLauncher.tsx");
 
 const ACCENTS = new Set(["cyan", "green", "yellow"]);
@@ -69,6 +69,20 @@ test("a layout saved before a service existed gains the new cards", () => {
   assert.deepEqual(defaultPreferences().map((row) => row.id), services.map((service) => service.id));
 });
 
+test("the homepage and the services sheet only carry live services", () => {
+  const open = services.filter((service) => service.available).map((service) => service.id);
+  assert.deepEqual(homepageServices(defaultPreferences()).map((service) => service.id), open, "the rail mirrors the open services in registry order");
+  assert.ok(!open.includes("food"), "coming-soon services stay in On the way");
+
+  const hidden = normalizePreferences([{ id: "vacation", hidden: true, pinned: false }]);
+  assert.ok(isServiceHidden(hidden, "vacation"), "a hidden service reports itself");
+  assert.ok(!isServiceHidden(hidden, "campus"), "untouched services stay visible");
+  assert.deepEqual(homepageServices(hidden).map((service) => service.id), open.filter((id) => id !== "vacation"), "hiding a service drops its banner card");
+
+  const pinned = homepageServices(normalizePreferences([{ id: "cinema", pinned: true }]));
+  assert.ok(pinned.findIndex((service) => service.id === "cinema") < pinned.findIndex((service) => service.id === "hostels"), "pinned cards lead the rail");
+});
+
 test("each partner carries the banner its spotlight card renders", () => {
   for (const id of Object.keys(PARTNERS)) {
     const service = services.find((item) => item.id === id);
@@ -92,4 +106,11 @@ test("the homepage gives every partner the same full-width card as the rides", (
     assert.ok(html.includes(service.feature), `${id} card must carry its spotlight copy`);
   }
   assert.equal((html.match(/target="_blank"/g) || []).length >= 4, true, "rail and spotlight cards both leave the app");
+});
+
+test("the homepage rail never advertises a service that is not open", () => {
+  const html = renderToStaticMarkup(createElement(CampusLauncher));
+  const rail = html.slice(html.indexOf('class="home-rail"'), html.indexOf("home-feature"));
+  assert.ok(rail.includes("home-card"), "the rail still renders live cards");
+  assert.ok(!rail.includes("Food"), "Food belongs to the On the way strip, not the rail");
 });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, Bell, BusFront, CarFront, Check, Compass, ExternalLink, Grid2X2, House, MapPin, Pin, Search, Settings2, Ticket, User, X } from "lucide-react";
-import { defaultPreferences, services, type LauncherPreference, type Service } from "./services";
+import { defaultPreferences, homepageServices, isServiceHidden, services, type LauncherPreference, type Service } from "./services";
 import { useLauncherLayout } from "./useLauncherLayout";
 import { ProfilePanel } from "./ProfilePanel";
 import { NotificationFeed } from "./NotificationFeed";
@@ -81,8 +81,14 @@ export default function CampusLauncher() {
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]]; save(next);
   }
-  const visible = preferences.filter(item => !item.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  const matches = services.filter(service => `${service.title} ${service.description} ${service.detail} ${service.category} ${"feature" in service ? service.feature : ""}`.toLowerCase().includes(query.toLowerCase().trim()));
+  // The sheet only carries services that are live today; the homepage rail and
+  // the full-width banner cards below read the same projection, so a hide/show
+  // toggle in the sheet is reflected everywhere on this page.
+  const openServices = services.filter(service => service.available);
+  const comingSoon = services.filter(service => !service.available);
+  const homepage = homepageServices(preferences);
+  const pinned = new Set(preferences.filter(item => item.pinned).map(item => item.id));
+  const matches = openServices.filter(service => `${service.title} ${service.description} ${service.detail} ${service.category} ${"feature" in service ? service.feature : ""}`.toLowerCase().includes(query.toLowerCase().trim()));
   return <div className="launcher home">
     <a href="#home-main" className="launch-skip">Skip to services</a>
     <header className="home-bar">
@@ -101,11 +107,11 @@ export default function CampusLauncher() {
       </section>
       <section className="home-section" aria-labelledby="home-services-title" aria-busy={!ready}>
         <div className="home-section-head"><h2 id="home-services-title">Explore services</h2><button onClick={() => setPanel("services")}>See all<ArrowRight size={14} aria-hidden /></button></div>
-        {visible.length
-          ? <div className="home-rail">{visible.map(item => <ServiceCard key={item.id} pinned={item.pinned} service={services.find(service => service.id === item.id)!} />)}</div>
-          : <div className="launch-empty"><Compass size={28} aria-hidden /><h2>A little space for your favourites.</h2><p>Restore widgets from All services.</p><button onClick={() => setPanel("services")}>Discover services</button></div>}
+        {homepage.length
+          ? <div className="home-rail">{homepage.map(service => <ServiceCard key={service.id} pinned={pinned.has(service.id)} service={service} />)}</div>
+          : <div className="launch-empty"><Compass size={28} aria-hidden /><h2>A little space for your favourites.</h2><p>Restore a service from Open services.</p><button onClick={() => setPanel("services")}>Discover services</button></div>}
       </section>
-      <section className="home-feature" aria-labelledby="home-ride-title">
+      {!isServiceHidden(preferences, "campus") && <section className="home-feature" aria-labelledby="home-ride-title">
         <div className="home-feature-head"><span className="home-card-icon"><CarFront size={22} aria-hidden /></span><div><h2 id="home-ride-title">CampusRide</h2><p>Trips inside campus, on demand</p></div></div>
         <ol className="home-steps">
           <li><i><MapPin size={12} aria-hidden /></i><div><small>Pickup</small><strong>Choose the pickup zone that suits you.</strong></div></li>
@@ -113,14 +119,14 @@ export default function CampusLauncher() {
           <li><i><Check size={12} aria-hidden /></i><div><small>Ticket</small><strong>Keep your ticket link. It is the only proof of booking.</strong></div></li>
         </ol>
         <Link className="home-cta" href="/campus">Find a ride<ArrowRight size={17} aria-hidden /></Link>
-      </section>
-      <section className="home-feature is-green" aria-labelledby="home-trip-title">
+      </section>}
+      {!isServiceHidden(preferences, "vacation") && <section className="home-feature is-green" aria-labelledby="home-trip-title">
         <div className="home-feature-head"><span className="home-card-icon"><BusFront size={22} aria-hidden /></span><div><h2 id="home-trip-title">VacationRide</h2><p>Long-distance coach trips</p></div></div>
         <div className="home-photo"><img src="/vip-coach.png" alt="A VacationRide coach" width="560" height="300" /></div>
         <p className="home-feature-copy">Pick a route and a travel date, choose your seat, and book before the coach fills up.</p>
         <Link className="home-cta" href="/vacation">Book a seat<ArrowRight size={17} aria-hidden /></Link>
-      </section>
-      {services.filter(isExternal).map(service => <PartnerFeature key={service.id} service={service} />)}
+      </section>}
+      {services.filter(isExternal).filter(service => !isServiceHidden(preferences, service.id)).map(service => <PartnerFeature key={service.id} service={service} />)}
       <section className="home-section" aria-labelledby="home-soon-title">
         <div className="home-section-head"><h2 id="home-soon-title">On the way</h2><span className="home-section-note">Not live yet</span></div>
         <div className="home-soon">{services.filter(service => !service.available).map(service => { const Icon = service.icon; return <article key={service.id} className={`is-${service.accent}`}><Icon size={19} aria-hidden /><h3>{service.title}</h3><p>{service.detail}</p></article>; })}</div>
@@ -131,7 +137,7 @@ export default function CampusLauncher() {
         <p>A combined booking history isn’t available yet. Already booked? Open the ticket link saved after your payment. A pending payment is not a confirmed booking.</p>
         <Link className="home-cta" href="/vacation">Plan a trip<ArrowRight size={17} aria-hidden /></Link>
       </section>
-      <section className="home-note"><Compass size={19} aria-hidden /><span>Hostels, food and movie nights are on the horizon.</span><button onClick={() => setPanel("support")}>Need a hand?</button></section>
+      <section className="home-note"><Compass size={19} aria-hidden /><span>Food is on the horizon. Everything else is ready when you are.</span><button onClick={() => setPanel("support")}>Need a hand?</button></section>
       {/* Client footer only. The driver portal and the management console live on
           their own routes and are not advertised from the student homepage. */}
       <footer className="home-footer"><span><strong>UMaTeXPRESS</strong> · Made for campus life.</span><button onClick={() => setPanel("support")}>Help</button></footer>
@@ -143,12 +149,16 @@ export default function CampusLauncher() {
       <button onClick={() => setPanel("profile")}><User size={21} aria-hidden />Profile</button>
     </nav>
     <dialog ref={dialog} className="launch-dialog" onCancel={() => setPanel(null)} onClick={event => { if (event.target === event.currentTarget) setPanel(null); }} aria-labelledby="launch-dialog-title">
-      <div className="launch-dialog-inner"><div className="launch-dialog-heading"><h2 id="launch-dialog-title">{panel === "services" ? "All services" : panel === "customise" ? "Make it yours" : panel === "profile" ? "Your profile" : panel === "notifications" ? "Notifications" : "Here to help"}</h2><button className="home-icon-button" aria-label="Close" onClick={() => setPanel(null)}><X size={20} aria-hidden /></button></div>
-      {panel === "services" && <><label className="launch-search"><Search size={18} aria-hidden /><input aria-label="Filter all services" placeholder="Search rides, food, hostels…" value={query} onChange={event => setQuery(event.target.value)} /></label><div className="launch-directory">{matches.map(service => { const item = preferences.find(row => row.id === service.id)!; const Icon = service.icon; return <article key={service.id}><Icon size={24} aria-hidden /><div><h3>{service.title}</h3><p>{service.available ? service.description : "Coming soon"}</p>{service.destination && <Link
+      <div className="launch-dialog-inner"><div className="launch-dialog-heading"><h2 id="launch-dialog-title">{panel === "services" ? "Open services" : panel === "customise" ? "Make it yours" : panel === "profile" ? "Your profile" : panel === "notifications" ? "Notifications" : "Here to help"}</h2><button className="home-icon-button" aria-label="Close" onClick={() => setPanel(null)}><X size={20} aria-hidden /></button></div>
+      {panel === "services" && <><label className="launch-search"><Search size={18} aria-hidden /><input aria-label="Filter open services" placeholder="Search rides, hostels, cinema…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <p className="launch-directory-note">{homepage.length} of {openServices.length} open services on your homepage.</p>
+      <div className="launch-directory">{matches.map(service => { const item = preferences.find(row => row.id === service.id)!; const Icon = service.icon; return <article key={service.id}><Icon size={24} aria-hidden /><div><h3>{service.title}</h3><p>{service.description}</p>{service.destination && <Link
   href={service.destination}
   aria-label={isExternal(service) ? `${service.action}: ${service.title} (opens in a new tab)` : undefined}
   {...(isExternal(service) ? { target: "_blank", rel: "noreferrer noopener" } : {})}
->{service.action} →</Link>}</div><button aria-label={`${item.hidden ? "Show" : "Hide"} ${service.title}`} onClick={() => toggle(service.id, "hidden")}>{item.hidden ? "Add" : <><Check size={16} aria-hidden /> Added</>}</button></article>; })}{!matches.length && <p role="status">No services match “{query}”. Try “ride” or clear your search.</p>}</div><button className="launch-reset" onClick={() => setPanel("customise")}><Settings2 size={16} aria-hidden /> Customise layout</button></>}
+>{service.action} →</Link>}</div><button aria-pressed={!item.hidden} aria-label={`${item.hidden ? "Show" : "Hide"} ${service.title} on the homepage`} onClick={() => toggle(service.id, "hidden")}>{item.hidden ? "Show" : "Hide"}</button></article>; })}{!matches.length && <p role="status">No open services match “{query}”. Try “ride” or clear your search.</p>}</div>
+      {comingSoon.length > 0 && <p className="launch-directory-note">Coming soon: {comingSoon.map(service => service.title).join(", ")}.</p>}
+      <button className="launch-reset" onClick={() => setPanel("customise")}><Settings2 size={16} aria-hidden /> Customise layout</button></>}
       {panel === "customise" && <><p>Pin favourites to the top, hide widgets, or move them with the arrows. Your choices stay on this device.</p><div className="launch-customise">{preferences.map((item, index) => <article key={item.id}><strong>{services.find(service => service.id === item.id)!.title}</strong><div><button aria-label={`Pin ${item.id}`} aria-pressed={item.pinned} onClick={() => toggle(item.id, "pinned")}><Pin size={17} aria-hidden /></button><button aria-label={`Move ${item.id} earlier`} disabled={index === 0} onClick={() => move(item.id, -1)}><ArrowUp size={17} aria-hidden /></button><button aria-label={`Move ${item.id} later`} disabled={index === preferences.length - 1} onClick={() => move(item.id, 1)}><ArrowDown size={17} aria-hidden /></button><button aria-pressed={!item.hidden} onClick={() => toggle(item.id, "hidden")}>{item.hidden ? "Show" : "Hide"}</button></div></article>)}</div><button className="launch-reset" onClick={() => save(defaultPreferences())}>Restore default layout</button></>}
       {panel === "profile" && <ProfilePanel />}
       {panel === "notifications" && <NotificationFeed />}
