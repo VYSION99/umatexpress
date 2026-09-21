@@ -94,6 +94,11 @@ async function newRoom() {
   return { room, state };
 }
 
+/** The last frame of one type: presence and playback travel the same wire. */
+function last(socket, type) {
+  return [...socket.sent].reverse().find((frame) => frame.type === type);
+}
+
 test("an authorised socket is accepted and told who is already here", async () => {
   const { room, state } = await newRoom();
   const response = await room.fetch(upgrade());
@@ -120,10 +125,10 @@ test("the arrival of a second student is broadcast to both, host first", async (
   await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
 
   const [hostSocket, guestSocket] = state.sockets;
-  assert.deepEqual(hostSocket.sent.at(-1).members.map((member) => member.studentId), ["host-1", "guest-2"]);
-  assert.deepEqual(guestSocket.sent.at(-1).members.map((member) => member.studentId), ["host-1", "guest-2"]);
-  assert.equal(hostSocket.sent.at(-1).members[0].isHost, true);
-  assert.equal(hostSocket.sent.at(-1).members[1].isHost, false);
+  assert.deepEqual(last(hostSocket, "presence").members.map((member) => member.studentId), ["host-1", "guest-2"]);
+  assert.deepEqual(last(guestSocket, "presence").members.map((member) => member.studentId), ["host-1", "guest-2"]);
+  assert.equal(last(hostSocket, "presence").members[0].isHost, true);
+  assert.equal(last(hostSocket, "presence").members[1].isHost, false);
 });
 
 test("closing a tab leaves the room, and everyone still attached sees it", async () => {
@@ -136,8 +141,7 @@ test("closing a tab leaves the room, and everyone still attached sees it", async
   // it is deliberately not removed here: the handler must exclude it itself.
   await room.webSocketClose(guestSocket);
 
-  assert.deepEqual(hostSocket.sent.at(-1).members.map((member) => member.studentId), ["host-1"]);
-  assert.equal(hostSocket.sent.at(-1).type, "presence");
+  assert.deepEqual(last(hostSocket, "presence").members.map((member) => member.studentId), ["host-1"]);
 
   state.remove(guestSocket);
 });
@@ -148,8 +152,8 @@ test("one student with two tabs is one person in the room", async () => {
   await room.fetch(upgrade());
 
   const [firstSocket, secondSocket] = state.sockets;
-  assert.equal(secondSocket.sent.at(-1).members.length, 1);
-  assert.equal(firstSocket.sent.at(-1).members.length, 1);
+  assert.equal(last(secondSocket, "presence").members.length, 1);
+  assert.equal(last(firstSocket, "presence").members.length, 1);
 });
 
 test("a ping is answered, and anything else is refused without touching the room", async () => {
@@ -164,8 +168,8 @@ test("a ping is answered, and anything else is refused without touching the room
   await room.webSocketMessage(socket, "not json at all");
   assert.equal(socket.sent.at(-1).type, "error");
 
-  // A playback action is M3's to accept; until then it is dropped, not queued.
-  await room.webSocketMessage(socket, JSON.stringify({ type: "seek", time: 120 }));
+  // A frame this version does not know is refused rather than guessed at.
+  await room.webSocketMessage(socket, JSON.stringify({ type: "dance" }));
   assert.equal(socket.sent.at(-1).type, "error");
 
   await room.webSocketMessage(socket, JSON.stringify({ type: "ping", padding: "x".repeat(5_000) }));
@@ -195,4 +199,111 @@ test("a socket that is not an authorised upgrade never becomes one", async () =>
   assert.equal((await room.fetch(upgrade({ "x-cinema-attachment": "%E0%A4%A" }))).status, 400, "malformed header is a refusal, not a crash");
   assert.equal((await room.fetch(new Request("https://cinema-room/other"))).status, 404);
   assert.equal(state.sockets.length, 0, "none of the refusals attached anything");
+});
+
+test("the room tells every newcomer where the video is", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const [hostSocket] = state.sockets;
+
+  const initial = hostSocket.sent.find((frame) => frame.type === "state");
+  assert.deepEqual(initial.playback, { positionSeconds: 0, isPlaying: false, updatedAt: 0, durationSeconds: 0 });
+
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [, guestSocket] = state.sockets;
+  assert.equal(guestSocket.sent.filter((frame) => frame.type === "state").length, 1, "the newcomer is told");
+  assert.equal(hostSocket.sent.filter((frame) => frame.type === "state").length, 1, "and nobody else is");
+});
+
+test("the host's play lands on every socket with the object's own instant", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "play", time: 42.5, duration: 300 }));
+
+  const hostEcho = hostSocket.sent.at(-1);
+  const guestCopy = guestSocket.sent.at(-1);
+  assert.equal(hostEcho.type, "state");
+  assert.equal(hostEcho.playback.positionSeconds, 42.5);
+  assert.equal(hostEcho.playback.isPlaying, true);
+  assert.equal(hostEcho.playback.durationSeconds, 300);
+  assert.ok(hostEcho.playback.updatedAt > 0, "the instant is the object's, not the sender's");
+  assert.deepEqual(guestCopy, hostEcho);
+  // The anchor is what advanced; the position itself is not rewritten.
+  assert.equal(state.stored.get("playback").positionSeconds, 42.5);
+});
+
+test("a seek keeps the room's play state, and a pause keeps its position", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const [socket] = state.sockets;
+
+  await room.webSocketMessage(socket, JSON.stringify({ type: "play", time: 10, duration: 300 }));
+  await room.webSocketMessage(socket, JSON.stringify({ type: "seek", time: 120, duration: 300 }));
+  assert.equal(socket.sent.at(-1).playback.positionSeconds, 120);
+  assert.equal(socket.sent.at(-1).playback.isPlaying, true, "a seek mid-playback does not stop the video");
+
+  await room.webSocketMessage(socket, JSON.stringify({ type: "pause", time: 121.5 }));
+  assert.equal(socket.sent.at(-1).playback.isPlaying, false);
+  assert.equal(socket.sent.at(-1).playback.positionSeconds, 121.5);
+});
+
+test("a member's action is refused, and the room does not move", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "play", time: 50 }));
+
+  assert.equal(guestSocket.sent.at(-1).type, "error");
+  assert.match(guestSocket.sent.at(-1).message, /host/i);
+  assert.equal(hostSocket.sent.some((frame) => frame.type === "state" && frame.playback.positionSeconds === 50), false, "nothing reached the room");
+});
+
+test("an action built on an old state is answered with the current one, not applied", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const [socket] = state.sockets;
+
+  await room.webSocketMessage(socket, JSON.stringify({ type: "play", time: 10, duration: 300 }));
+  const accepted = socket.sent.at(-1).playback;
+  await room.webSocketMessage(socket, JSON.stringify({ type: "seek", time: 200, stateAt: accepted.updatedAt - 5_000 }));
+
+  const answer = socket.sent.at(-1);
+  assert.equal(answer.type, "state");
+  assert.equal(answer.playback.positionSeconds, 10, "the stale action was dropped, not applied");
+  assert.equal(answer.playback.updatedAt, accepted.updatedAt);
+});
+
+test("a position outside the video is refused when the room knows its length", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const [socket] = state.sockets;
+
+  await room.webSocketMessage(socket, JSON.stringify({ type: "play", time: 10, duration: 300 }));
+  await room.webSocketMessage(socket, JSON.stringify({ type: "seek", time: 400, duration: 300 }));
+  assert.equal(socket.sent.at(-1).type, "error");
+  assert.equal(state.stored.get("playback").positionSeconds, 10);
+
+  await room.webSocketMessage(socket, JSON.stringify({ type: "seek", time: -3 }));
+  assert.equal(socket.sent.at(-1).type, "error");
+  assert.equal(state.stored.get("playback").positionSeconds, 10);
+});
+
+test("a room that woke from hibernation still knows where the video is", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.webSocketMessage(state.sockets[0], JSON.stringify({ type: "play", time: 77, duration: 900 }));
+  const accepted = state.stored.get("playback");
+
+  // A new instance over the same storage is what a wake looks like: no memory,
+  // all of the disk. The next socket must still be told the right position.
+  const { CinemaRoom } = await vite.ssrLoadModule("/worker/cinema-room.ts");
+  const woken = new CinemaRoom(state);
+  await woken.fetch(upgrade({ "x-cinema-attachment": identity("guest-3", "New Guest") }));
+  const newcomer = state.sockets.at(-1);
+  assert.deepEqual(newcomer.sent.find((frame) => frame.type === "state").playback, accepted);
 });

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { CinemaPresenceMember, CinemaServerMessage } from "@/lib/cinema-engine/protocol";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage } from "@/lib/cinema-engine/protocol";
 
 export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed";
 
@@ -27,6 +27,14 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const { roomId, enabled } = input;
   const [state, setState] = useState<CinemaConnectionState>(enabled ? "connecting" : "closed");
   const [members, setMembers] = useState<CinemaPresenceMember[]>([]);
+  const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+
+  /** Sends one frame if the room is listening; a closed socket drops it. */
+  const send = useCallback((message: CinemaClientMessage) => {
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+  }, []);
 
   useEffect(() => {
     // Disabled is not a state the effect writes; it is derived at the return.
@@ -59,6 +67,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
       const scheme = window.location.protocol === "https:" ? "wss" : "ws";
       const instance = new WebSocket(`${scheme}://${window.location.host}/api/cinema/sessions/${encodeURIComponent(roomId)}/ws`);
       socket = instance;
+      socketRef.current = instance;
 
       instance.onopen = () => {
         if (socket !== instance) return;
@@ -79,6 +88,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
           return;
         }
         if (message.type === "presence") setMembers(message.members || []);
+        if (message.type === "state") setPlayback(message.playback);
         if (message.type === "closed") {
           ended = true;
           setState("closed");
@@ -91,6 +101,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (pingTimer) clearInterval(pingTimer);
         pingTimer = null;
         if (socket !== instance || disposed || ended) return;
+        if (socketRef.current === instance) socketRef.current = null;
         setState("offline");
         const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** attempts) + Math.floor(Math.random() * 250);
         attempts += 1;
@@ -105,9 +116,12 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
       disposed = true;
       clearTimers();
       socket?.close();
+      socketRef.current = null;
       socket = null;
     };
   }, [roomId, enabled]);
 
-  return enabled ? { state, members } : { state: "closed" as CinemaConnectionState, members: [] };
+  return enabled
+    ? { state, members, playback, send }
+    : { state: "closed" as CinemaConnectionState, members: [], playback: null, send };
 }

@@ -1181,6 +1181,15 @@ Session marked ended
 Cleanup process
 ```
 
+## Video That Refuses Embedding
+
+YouTube answers `onError` with 101 or 150 when a video's owner has not allowed
+embedding, and some videos are also region-restricted. The room cannot play what
+YouTube will not serve, so the player reports the failure, keeps the room link
+and the host's controls intact, and offers the watch page instead of pretending
+to be broken. A room is not ended by it: the host may retitle or end the room
+deliberately.
+
 ---
 
 # 22. Phase 1 MVP Development Plan
@@ -1198,9 +1207,9 @@ the part with the unknowns.
 |---|---|---|
 | 1 | Room create/read/patch routes on `requireStudent` | High | ✅ M1 |
 | 2 | Join, membership row, link-join and host lock | High | ✅ M1 |
-| 3 | YouTube URL/id validation and the official player | High |
+| 3 | YouTube URL/id validation and the official player | High | ✅ validation M1, player M3 |
 | 4 | `CinemaRoom` Durable Object, hibernatable sockets, `/ws` route | High | ✅ M2 |
-| 5 | Play/pause/seek with the §11 drift rule | High |
+| 5 | Play/pause/seek with the §11 drift rule | High | ✅ M3 |
 | 6 | Presence: join, leave, rejoin, "who is here" | High | ✅ M2 |
 | 7 | Chat with `atSeconds`, last fifty on reconnect | Medium |
 | 8 | Host controls: open, lock, end | High | ✅ M1 |
@@ -1211,14 +1220,17 @@ the part with the unknowns.
 | 13 | `rateLimit()` on create, join, chat and socket connect | Medium | ✅ create/join/socket |
 | 14 | Tests: sync arithmetic, state machine, membership, cleanup | High |
 
-**Status: M1 and M2 delivered.** A signed-in student creates a room, shares the
-link, and everyone in it sees presence live: the `CinemaRoom` object accepts
+**Status: M1, M2 and M3 delivered.** A signed-in student creates a room, shares
+the link, and everyone in it sees presence live; the `CinemaRoom` object accepts
 hibernatable sockets at `/api/cinema/sessions/{id}/ws`, the Worker route
 authenticates the cookie and checks membership before the upgrade, and the client
-reconnects with backoff across a deploy. Verified against workerd locally: two
-sockets see each other, a closed tab leaves the list, and a socket dropped by a
-restart reconnects to the same room. Playback (M3) and chat (M4) are not built
-yet, and the room copy says so.
+reconnects with backoff across a deploy. The room is in sync: the official
+YouTube player is driven by the object's state, the host's play, pause and seek
+carry the §11 arithmetic, a member's own pause is undone, and a refresh rejoins
+mid-playback. Verified against workerd and in headless Chrome locally: two
+sockets follow the host within a second, a new socket catches up on connect, a
+browser page follows a seek to 120s and a pause, and a member's pause is pulled
+back. Chat (M4) and the console list (M5) are not built yet.
 
 ### Phase 2 — temporary uploads
 

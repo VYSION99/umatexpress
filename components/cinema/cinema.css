@@ -25,10 +25,19 @@
 
 .cinema-room{width:min(1220px,100%);margin:0 auto;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:18px;align-items:start}
 .cinema-stage{display:grid;gap:14px}
-.cinema-video{border:1px solid #d8e4dc;border-radius:20px;background:#0f2b21;color:#e9f5ef;padding:22px;box-shadow:var(--ui-depth-sm)}
-.cinema-video strong{display:block;font:500 20px Georgia,serif}
-.cinema-video span{display:block;margin-top:6px;color:#a9c4b8;font-size:12px;font-weight:700}
-.cinema-video a{display:inline-flex;margin-top:14px;padding:11px 15px;border-radius:12px;background:var(--ui-yellow);color:#3a2c05;font-weight:900;font-size:12px}
+.cinema-video{border:1px solid #d8e4dc;border-radius:20px;background:#0f2b21;color:#e9f5ef;padding:16px;box-shadow:var(--ui-depth-sm)}
+.cinema-video-head{display:grid;gap:5px;padding:4px 6px 14px}
+.cinema-video-head strong{display:block;font:500 20px Georgia,serif}
+.cinema-video-head span{display:block;color:#a9c4b8;font-size:12px;font-weight:700}
+.cinema-player{position:relative;border-radius:14px;overflow:hidden;background:#000}
+.cinema-player-frame{position:relative;width:100%;aspect-ratio:16/9}
+.cinema-player-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.cinema-player-note{margin:12px 4px 2px;color:#cfe3d9;font-size:12px;font-weight:700}
+.cinema-player-note a{color:var(--ui-yellow)}
+.cinema-player-veil{position:absolute;inset:0;display:grid;place-content:center;gap:10px;padding:18px;text-align:center;background:rgba(6,20,15,.78)}
+.cinema-player-veil button{border:0;border-radius:12px;background:var(--ui-yellow);color:#3a2c05;padding:12px 16px;font-weight:900;cursor:pointer}
+.cinema-player-veil span{max-width:34ch;margin:0 auto;color:#cfe3d9;font-size:12px;font-weight:700}
+.cinema-video-closed{margin:0;padding:36px 18px;border:1px dashed #2c4a3d;border-radius:14px;text-align:center;color:#a9c4b8;font-size:13px;font-weight:800}
 .cinema-share{display:grid;gap:8px;border:1px solid #dce5de;border-radius:18px;background:white;padding:15px}
 .cinema-share code{overflow-wrap:anywhere;font-size:12px;color:#3c5a4c;font-weight:700}
 .cinema-share button{border:1px solid #cddbd3;border-radius:11px;background:#f7fbf8;color:var(--green);padding:10px 12px;font-weight:900;cursor:pointer;justify-self:start}

@@ -11,7 +11,15 @@
  * Like the rate limiter, this file deliberately avoids `cloudflare:workers`
  * imports so the class can be unit-tested with plain doubles.
  */
-import { parseClientMessage, type CinemaPresenceMember, type CinemaServerMessage } from "@/lib/cinema-engine/protocol";
+import {
+  CINEMA_PLAYBACK_START,
+  parseClientMessage,
+  type CinemaPlaybackAction,
+  type CinemaPlaybackState,
+  type CinemaPresenceMember,
+  type CinemaServerMessage,
+} from "@/lib/cinema-engine/protocol";
+import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
 
 /** What the Worker route learned from the database before it forwarded here. */
 export type CinemaRoomSnapshot = {
@@ -50,6 +58,7 @@ export type CinemaRoomState = {
 type WebSocketPairConstructor = new () => { 0: CinemaRoomSocket; 1: CinemaRoomSocket };
 
 const ROOM_KEY = "room";
+const PLAYBACK_KEY = "playback";
 const CLOSE_NORMAL = 1000;
 /** One frame is tiny; anything larger is not a message this room speaks. */
 const MAX_MESSAGE_BYTES = 4_000;
@@ -72,6 +81,7 @@ function jsonResponse(body: unknown, status: number) {
 
 export class CinemaRoom {
   private hostStudentId = "";
+  private playback: CinemaPlaybackState | null = null;
 
   constructor(private readonly state: CinemaRoomState) {}
 
@@ -113,6 +123,9 @@ export class CinemaRoom {
     // The whole room learns about the arrival, the newcomer included: its first
     // frame is the current presence rather than an empty list.
     this.broadcast({ type: "presence", members: await this.presence() });
+    // Only the newcomer needs the current playback: everyone else already has
+    // it, and a page that just loaded is exactly what M3 has to catch up.
+    this.send(server, { type: "state", playback: await this.playbackState() });
     return new Response(null, { status: 101, webSocket: client } as ResponseInit);
   }
 
@@ -140,7 +153,61 @@ export class CinemaRoom {
     }
     // One case today. Playback actions arrive in M3, where the same switch
     // grows play, pause and seek behind the sender-is-host check.
-    if (parsed.type === "ping") this.send(socket, { type: "pong", at: Date.now() });
+    if (parsed.type === "ping") {
+      this.send(socket, { type: "pong", at: Date.now() });
+      return;
+    }
+    await this.applyPlayback(socket, parsed);
+  }
+
+  /**
+   * The one place a client's word becomes the room's state, so the checks are
+   * deliberately strict: the sender must be the host (the socket is the wider
+   * door than the HTTP route), the position must be a position, and the action
+   * must have been built on the state the room is still in. A refusal answers
+   * the sender with the truth — the current state — rather than broadcasting
+   * anything, because the room did not change.
+   */
+  private async applyPlayback(socket: CinemaRoomSocket, action: CinemaPlaybackAction): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment || attachment.studentId !== await this.hostId()) {
+      console.warn(JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "warn",
+        event: "cinema_playback_refused",
+        roomId: (await this.roomSnapshot())?.roomId || "",
+        reason: "not-host",
+      }));
+      this.send(socket, { type: "error", message: "Only the host controls playback." });
+      return;
+    }
+
+    const current = await this.playbackState();
+    if (isStaleAction(action.stateAt, current.updatedAt)) {
+      this.send(socket, { type: "state", playback: current });
+      return;
+    }
+
+    const duration = Number.isFinite(Number(action.duration)) && Number(action.duration) > current.durationSeconds
+      ? Number(action.duration)
+      : current.durationSeconds;
+    const time = acceptableTime(action.time, duration);
+    if (time === null) {
+      this.send(socket, { type: "error", message: "That playback position is not one the room can take." });
+      return;
+    }
+
+    const next: CinemaPlaybackState = {
+      positionSeconds: time,
+      isPlaying: action.type === "play" ? true : action.type === "pause" ? false : current.isPlaying,
+      updatedAt: Date.now(),
+      durationSeconds: duration,
+    };
+    this.playback = next;
+    await this.state.storage.put(PLAYBACK_KEY, next);
+    // Back to everyone, the sender included: its echo is how it learns the
+    // instant the room accepted, which is the anchor every client derives from.
+    this.broadcast({ type: "state", playback: next });
   }
 
   /** A closed tab is not a message, but it changes presence just the same. */
@@ -226,10 +293,22 @@ export class CinemaRoom {
    */
   private async hostId(): Promise<string> {
     if (!this.hostStudentId) {
-      const snapshot = await this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
-      this.hostStudentId = String(snapshot?.hostStudentId || "");
+      this.hostStudentId = String((await this.roomSnapshot())?.hostStudentId || "");
     }
     return this.hostStudentId;
+  }
+
+  private roomSnapshot() {
+    return this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
+  }
+
+  /** The room's playback, from memory, or from storage after a wake. */
+  private async playbackState(): Promise<CinemaPlaybackState> {
+    if (!this.playback) {
+      const stored = await this.state.storage.get<CinemaPlaybackState>(PLAYBACK_KEY);
+      this.playback = stored ? { ...CINEMA_PLAYBACK_START, ...stored } : { ...CINEMA_PLAYBACK_START };
+    }
+    return this.playback;
   }
 }
 

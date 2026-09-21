@@ -6,6 +6,7 @@ import { Lock, LockOpen, Play, Radio, Square } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { useCinemaSocket } from "./useCinemaSocket";
+import { YouTubePlayer } from "./YouTubePlayer";
 import "./cinema.css";
 
 /**
@@ -90,18 +91,29 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     }
   };
 
-  const watchUrl = room.sourceType === "YOUTUBE" && room.videoId ? `https://www.youtube.com/watch?v=${room.videoId}` : "";
   const people = peopleOf(room, live);
 
   return <div className="cinema-room">
     <div className="cinema-stage">
       <section className="cinema-video">
-        <strong>{room.title}</strong>
-        <span>
-          {room.sourceType === "YOUTUBE" ? "One YouTube video is attached to this room." : "This room has an uploaded video."}
-          {active ? " The synced player arrives in the next update — open the video from here in the meantime." : " This room is closed."}
-        </span>
-        {watchUrl && active && <a href={watchUrl} target="_blank" rel="noreferrer">Open the video on YouTube</a>}
+        <div className="cinema-video-head">
+          <strong>{room.title}</strong>
+          <span>
+            {active
+              ? "The host's play, pause and seek land on every screen. Anyone in the room can watch; only the host drives."
+              : "This room has ended."}
+          </span>
+        </div>
+        {active && room.sourceType === "YOUTUBE" && room.videoId
+          ? <YouTubePlayer
+            videoId={room.videoId}
+            isHost={room.isHost}
+            playback={live.playback}
+            onAction={live.send}
+          />
+          : <p className="cinema-video-closed">
+            {room.sourceType === "YOUTUBE" ? "The video is not playing while the room is closed." : "This room's video is an upload, which arrives with the next phase."}
+          </p>}
       </section>
 
       <section className="cinema-share">
