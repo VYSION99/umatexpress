@@ -28,7 +28,7 @@ const empty = { cols: [], rows: [] };
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 const affected = (count) => ok({ affected_row_count: count });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 
 function handle(sql, args) {
@@ -67,10 +67,12 @@ function handle(sql, args) {
   }
 
   if (/^INSERT INTO cinema_sessions/.test(sql)) {
-    const [id, hostStudentId, title, sourceType, videoId, createdAt, updatedAt] = args;
+    const [id, hostStudentId, title, sourceType, videoId, status, visibility, startsAt, endsAt, durationMinutes, startedAt, createdAt, updatedAt] = args;
     state.rooms.push({
       id, host_student_id: hostStudentId, title, video_source_type: sourceType, video_id: videoId,
-      status: "CREATED", join_locked: 0, visibility: "PUBLIC", started_at: "", ended_at: "", created_at: createdAt, updated_at: updatedAt,
+      status: status || "CREATED", join_locked: 0, visibility: visibility || "PUBLIC",
+      starts_at: startsAt || "", ends_at: endsAt || "", duration_minutes: Number(durationMinutes || 0),
+      started_at: startedAt || "", ended_at: "", created_at: createdAt, updated_at: updatedAt,
     });
     return affected(1);
   }
@@ -79,7 +81,7 @@ function handle(sql, args) {
     if (index >= 0) state.rooms.splice(index, 1);
     return affected(index >= 0 ? 1 : 0);
   }
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
     return ok(row ? table(ROOM_COLUMNS, [row]) : empty);
   }
@@ -123,11 +125,16 @@ function handle(sql, args) {
     return affected(before - state.members.length);
   }
   if (/^UPDATE cinema_sessions SET status = 'LIVE'/.test(sql)) {
-    const [startedAt, updatedAt, id] = args;
+    const opening = /starts_at = ''/.test(sql);
+    const [startedAt, updatedAt, id] = opening ? [args[0], args[3], args[4]] : args;
     const room = state.rooms.find((row) => row.id === id);
     if (room && (room.status === "CREATED" || room.status === "LIVE")) {
       room.status = "LIVE";
       room.started_at = room.started_at || startedAt;
+      if (opening) {
+        room.starts_at = "";
+        if (Number(args[1]) > 0) room.ends_at = args[2];
+      }
       room.updated_at = updatedAt;
     }
     return affected(room ? 1 : 0);
@@ -291,6 +298,80 @@ test("a room with no name still has one, and a title longer than the cap is cut"
   assert.equal(room.title, "Study room");
   const long = await createRoom({ student: host, title: "x".repeat(200), video: "dQw4w9WgXcQ" });
   assert.equal(long.title.length, CINEMA_TITLE_MAX);
+});
+
+test("a room created for now is live before anyone presses play", async () => {
+  const room = await createRoom({ student: host, title: "Starts now", video: VIDEO, startInMinutes: 0, durationMinutes: 60 });
+  assert.equal(room.status, "LIVE", "a start of now is the room's own play press");
+  assert.ok(room.startedAt, "the row records the moment it went live");
+  const startsAt = Date.parse(room.startsAt);
+  const endsAt = Date.parse(room.endsAt);
+  assert.ok(Number.isFinite(startsAt) && Number.isFinite(endsAt), "both instants are on the row");
+  assert.equal(Math.round((endsAt - startsAt) / 60_000), 60, "the run time is the host's, to the minute");
+  assert.equal(room.durationMinutes, 60);
+});
+
+test("a room with a start waits for its minute", async () => {
+  const room = await createRoom({ student: host, title: "Later", video: VIDEO, startInMinutes: 30 });
+  assert.equal(room.status, "CREATED");
+  assert.equal(room.startedAt, "");
+  assert.equal(room.endsAt, "", "no run time means only the host ends it");
+  assert.ok(Math.abs(Date.parse(room.startsAt) - (Date.now() + 30 * 60_000)) < 5_000, "the start is thirty minutes out, on the server's clock");
+
+  const legacy = await createRoom({ student: host, title: "No clock", video: VIDEO });
+  assert.equal(legacy.startsAt, "", "a create call that never mentions a clock keeps the room it always made");
+  assert.equal(legacy.status, "CREATED");
+});
+
+test("a due room goes live when the first reader arrives, and an overrun one ends", async () => {
+  const due = await createRoom({ student: host, title: "Due", video: VIDEO, startInMinutes: 10 });
+  const promised = new Date(Date.now() - 60_000).toISOString();
+  state.rooms.find((row) => row.id === due.id).starts_at = promised;
+  const read = await readRoom({ id: due.id, studentId: host.id });
+  assert.equal(read.status, "LIVE", "the minute moved the room without an alarm");
+  assert.equal(read.startedAt, promised, "it went live when it was promised, not when it was read");
+
+  const overrun = await createRoom({ student: host, title: "Overrun", video: VIDEO, startInMinutes: 30, durationMinutes: 30 });
+  const row = state.rooms.find((item) => item.id === overrun.id);
+  row.starts_at = new Date(Date.now() - 90 * 60_000).toISOString();
+  row.ends_at = new Date(Date.now() - 60 * 60_000).toISOString();
+  const ended = await readRoom({ id: overrun.id, studentId: host.id });
+  assert.equal(ended.status, "ENDED");
+  assert.ok(ended.endedAt, "the row says when it ended");
+});
+
+test("a room refuses a clock it cannot keep", async () => {
+  await expectRefusal(createRoom({ student: host, title: "Too far", video: VIDEO, startInMinutes: 60 * 24 * 9 }), "VALIDATION_ERROR", 400);
+  await expectRefusal(createRoom({ student: host, title: "Too short", video: VIDEO, durationMinutes: 5 }), "VALIDATION_ERROR", 400);
+  await expectRefusal(createRoom({ student: host, title: "Too long", video: VIDEO, durationMinutes: 500 }), "VALIDATION_ERROR", 400);
+});
+
+test("a room asked for at creation as invite-only is private before anyone knocks", async () => {
+  const room = await createRoom({ student: host, title: "Private revision", video: VIDEO, visibility: "PRIVATE" });
+  assert.equal(room.visibility, "PRIVATE");
+  assert.equal(room.isPrivate, true);
+  assert.equal(room.sourceType, "YOUTUBE", "the door choice does not touch the video");
+  assert.equal(room.videoId, "dQw4w9WgXcQ");
+  assert.equal(room.joinable, true, "the host can always walk into their own room");
+  await expectRefusal(readRoom({ id: room.id, studentId: guest.id }), "FORBIDDEN", 403);
+  await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
+});
+
+test("an upload room is created empty, private, and waiting for its file", async () => {
+  const room = await createRoom({ student: host, title: "Field trip", source: "UPLOAD", visibility: "PUBLIC" });
+  assert.equal(room.sourceType, "UPLOAD");
+  assert.equal(room.videoId, "", "the upload that follows is what fills this in");
+  assert.equal(room.visibility, "PRIVATE", "a file can never open the door it will close");
+  assert.equal(room.status, "CREATED");
+  assert.equal(room.joinable, true);
+  await expectRefusal(readRoom({ id: room.id, studentId: guest.id }), "FORBIDDEN", 403);
+});
+
+test("a source no room understands, and a YouTube room with no link, are both refused", async () => {
+  await expectRefusal(createRoom({ student: host, video: VIDEO, source: "STREAM" }), "VALIDATION_ERROR", 400);
+  await expectRefusal(createRoom({ student: host, video: VIDEO, source: "UPLOADISH" }), "VALIDATION_ERROR", 400);
+  await expectRefusal(createRoom({ student: host, video: "" }), "VALIDATION_ERROR", 400);
+  await expectRefusal(createRoom({ student: host, source: "YOUTUBE", video: "https://example.com/watch?v=x" }), "VALIDATION_ERROR", 400);
 });
 
 test("a second student joins once: a reload does not move the join time or duplicate the row", async () => {
@@ -582,6 +663,44 @@ test("the routes require the platform account, and create a room for it once sig
   const listPayload = await listed.json();
   assert.equal(listPayload.rooms.length, 1);
   assert.equal(listPayload.rooms[0].id, payload.room.id);
+});
+
+test("the create route carries the lobby's two choices without losing the upload rule", async () => {
+  const request = new Request("https://umatexpress.test/api/cinema/sessions", { headers: { cookie: await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/")) } });
+  const response = await sessionsRoute.POST(new Request(request.url, {
+    method: "POST",
+    headers: { cookie: request.headers.get("cookie"), "content-type": "application/json" },
+    body: JSON.stringify({ title: "Upload night", source: "UPLOAD", visibility: "PUBLIC" }),
+  }));
+  const payload = await response.json();
+  assert.equal(response.status, 201, JSON.stringify(payload));
+  assert.equal(payload.room.sourceType, "UPLOAD");
+  assert.equal(payload.room.videoId, "", "the room waits for the file the lobby is about to send");
+  assert.equal(payload.room.visibility, "PRIVATE", "the route cannot be talked out of the upload rule");
+
+  const privateResponse = await sessionsRoute.POST(new Request(request.url, {
+    method: "POST",
+    headers: { cookie: request.headers.get("cookie"), "content-type": "application/json" },
+    body: JSON.stringify({ title: "Invite only", video: VIDEO, visibility: "PRIVATE" }),
+  }));
+  const privatePayload = await privateResponse.json();
+  assert.equal(privateResponse.status, 201, JSON.stringify(privatePayload));
+  assert.equal(privatePayload.room.visibility, "PRIVATE");
+  assert.equal(privatePayload.room.sourceType, "YOUTUBE");
+});
+
+test("the create route hands the lobby's clock to the engine", async () => {
+  const cookie = await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/"));
+  const response = await sessionsRoute.POST(new Request("https://umatexpress.test/api/cinema/sessions", {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ title: "Later", video: VIDEO, startInMinutes: 15, durationMinutes: 30 }),
+  }));
+  const payload = await response.json();
+  assert.equal(response.status, 201, JSON.stringify(payload));
+  assert.equal(payload.room.status, "CREATED");
+  assert.equal(payload.room.durationMinutes, 30);
+  assert.ok(Math.abs(Date.parse(payload.room.startsAt) - (Date.now() + 15 * 60_000)) < 5_000, "the engine computes the instant, not the browser");
 });
 
 test("the socket route refuses anyone the room itself would refuse", async () => {

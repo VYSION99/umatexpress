@@ -54,8 +54,10 @@ function handle(sql, args) {
   }
 
   if (/^SELECT id,status,updated_at,created_at FROM cinema_sessions/.test(sql)) {
+    const nowStamp = String(args[1] || "");
     const rows = state.sessions
       .filter((session) => ["CREATED", "LIVE"].includes(session.status) && session.updated_at <= args[0])
+      .filter((session) => !session.starts_at || session.starts_at <= nowStamp)
       .sort((left, right) => String(left.updated_at).localeCompare(String(right.updated_at)))
       .slice(0, Number((sql.match(/LIMIT (\d+)/) || [])[1] || 4));
     return ok(rows.length ? table(["id", "status", "updated_at", "created_at"], rows) : empty);
@@ -160,6 +162,20 @@ test("a room created and never opened ends after the idle window", async () => {
   assert.equal(result.idleEnded, 1);
   assert.equal(state.sessions[0].status, "ENDED");
   assert.ok(state.sessions[0].ended_at, "the tombstone records when it ended");
+});
+
+test("a room still waiting for its scheduled minute is not idle", async () => {
+  const created = minutesAgo(90);
+  state.sessions = [session({
+    id: "waiting",
+    status: "CREATED",
+    starts_at: new Date(NOW + 60 * 60_000).toISOString(),
+    updated_at: created,
+    created_at: created,
+  })];
+  const result = await runCinemaCleanup({ now: NOW, presence: attached(0) });
+  assert.equal(result.idleEnded, 0, "the room's own alarm opens it, not a visitor");
+  assert.equal(state.sessions[0].status, "CREATED");
 });
 
 test("a live room with someone attached is left alone", async () => {

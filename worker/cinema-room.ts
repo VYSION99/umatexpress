@@ -30,6 +30,7 @@ import {
 } from "@/lib/cinema-engine/protocol";
 import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 import { CINEMA_CHAT_REPLAY_LIMIT, recentCinemaMessages, writeCinemaMessage } from "@/lib/cinema-engine/messages";
+import { markCinemaRoomEnded, markCinemaRoomLive } from "@/lib/cinema-engine/schedule";
 import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
 import { logEvent } from "@/lib/observability";
 import { rateLimitSubject } from "@/lib/rate-limit";
@@ -41,6 +42,10 @@ export type CinemaRoomSnapshot = {
   title: string;
   sourceType: string;
   videoId: string;
+  /** When the room is due to go live, or '' for a room with no clock. */
+  startsAt: string;
+  /** When the host's run time ends the room, or '' when only the host does. */
+  endsAt: string;
 };
 
 /** What is written onto each accepted socket, and read back after a wake. */
@@ -64,6 +69,9 @@ export type CinemaRoomSocket = {
 export type CinemaRoomStorage = {
   get<T>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
+  /** Optional so a plain test double can still run the room. */
+  setAlarm?(at: number): Promise<void>;
+  deleteAlarm?(): Promise<void>;
 };
 
 export type CinemaRoomState = {
@@ -78,9 +86,15 @@ const ROOM_KEY = "room";
 const PLAYBACK_KEY = "playback";
 const EMPTY_KEY = "emptySince";
 const BOARD_POLICY_KEY = "boardPolicy";
+const SCHEDULE_KEY = "schedule";
 /** Before any host touches the switch, the whole room may ask. */
 const DEFAULT_BOARD_POLICY: CinemaBoardPolicy = "MEMBERS";
 const CLOSE_NORMAL = 1000;
+/** The room ends itself when the host's run time is up; the screen says why. */
+const SCHEDULE_CLOSE_REASON = "This room's set time is up.";
+
+/** The room's clock, in epoch milliseconds; zero means "no such moment". */
+type CinemaRoomSchedule = { liveAt: number; endsAt: number };
 /**
  * The frame ceiling. A handshake leg is a few kilobytes, which is why the old
  * four-kilobyte cap moved up when M8 began relaying them.
@@ -134,6 +148,7 @@ export class CinemaRoom {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/socket") return this.openSocket(request);
+    if (url.pathname === "/schedule") return this.applySchedule(request);
     if (url.pathname === "/close") return this.closeRoom();
     if (url.pathname === "/purge-message") return this.purgeMessage(request);
     if (url.pathname === "/source") return this.updateSource(request);
@@ -164,6 +179,17 @@ export class CinemaRoom {
     // seen and a reconnect after a retitle picks the new title up for free.
     await this.state.storage.put(ROOM_KEY, snapshot);
     this.hostStudentId = snapshot.hostStudentId;
+    // Every connection also re-hands the object its clock. A missed nudge is
+    // repaired here, and a room whose minute passed while the object slept is
+    // already live and playing before the newcomer's first frame.
+    const schedule = scheduleFromSnapshot(snapshot);
+    await this.state.storage.put(SCHEDULE_KEY, schedule);
+    if (schedule.liveAt && schedule.liveAt <= Date.now()) {
+      await this.promoteFromSchedule(snapshot);
+      schedule.liveAt = 0;
+      await this.state.storage.put(SCHEDULE_KEY, schedule);
+    }
+    await this.armAlarm(schedule);
 
     const WebSocketPairClass = (globalThis as { WebSocketPair?: WebSocketPairConstructor }).WebSocketPair;
     if (!WebSocketPairClass) return jsonResponse({ error: "Sockets are not available here." }, 500);
@@ -279,11 +305,16 @@ export class CinemaRoom {
     const snapshot = await this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
     if (snapshot) await this.state.storage.put(ROOM_KEY, { ...snapshot, sourceType, videoId });
     this.broadcast({ type: "source", sourceType, videoId });
+    // The file landed after the room's minute, so the room starts it now and
+    // from the top: nothing has watched a frame of it yet, which is exactly
+    // what makes an upload's auto-play different from a YouTube link's.
+    await this.ensureAutoPlay(snapshot ? { ...snapshot, sourceType, videoId } : undefined, { fromZero: true });
     return jsonResponse({ ok: true, sourceType, videoId }, 200);
   }
 
   /** The host ended the room over HTTP; the sockets should not outlive it. */
   private async closeRoom(): Promise<Response> {
+    await this.clearSchedule();
     this.broadcast({ type: "closed", reason: "The host ended this room." });
     for (const socket of this.state.getWebSockets()) {
       try {
@@ -291,6 +322,134 @@ export class CinemaRoom {
       } catch { /* an already-closing socket is not an error worth surfacing */ }
     }
     return jsonResponse({ ok: true, closed: true }, 200);
+  }
+
+  /**
+   * The room's clock, handed over by the Worker. The snapshot travels with it
+   * so an object that has never seen a socket still knows the room's video and
+   * can start it alone; `startsAt` empty means "no start alarm", which is what
+   * a host opening a scheduled room early sends.
+   */
+  private async applySchedule(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null);
+    const snapshot = this.snapshotFromObject(body);
+    if (!snapshot) return jsonResponse({ error: "A room snapshot is required." }, 400);
+    await this.state.storage.put(ROOM_KEY, snapshot);
+    this.hostStudentId = snapshot.hostStudentId;
+    const schedule = scheduleFromSnapshot(snapshot);
+    await this.state.storage.put(SCHEDULE_KEY, schedule);
+    if (schedule.liveAt && schedule.liveAt <= Date.now()) {
+      await this.promoteFromSchedule(snapshot);
+      schedule.liveAt = 0;
+      await this.state.storage.put(SCHEDULE_KEY, schedule);
+    }
+    await this.armAlarm(schedule);
+    return jsonResponse({ ok: true, liveAt: schedule.liveAt, endsAt: schedule.endsAt }, 200);
+  }
+
+  /**
+   * The room's own clock. An alarm is the only thing that presses play with
+   * nobody in the room, so the object wakes at the scheduled minute, promotes
+   * the row, starts the video, and then arms the run time's end — or closes
+   * the room when that minute is the one that arrived.
+   */
+  async alarm(): Promise<void> {
+    const schedule = await this.scheduleValue();
+    const now = Date.now();
+    const snapshot = await this.roomSnapshot();
+    // The end is checked first: an object that slept through both instants
+    // should close the room, not start a film and then close it in the same
+    // breath. Ending works from CREATED just as well as from LIVE.
+    if (schedule.endsAt && schedule.endsAt <= now) {
+      await this.clearSchedule();
+      try {
+        if (snapshot) await markCinemaRoomEnded(snapshot.roomId, now);
+      } catch (error) {
+        logEvent("warn", "cinema_room_auto_end_failed", {
+          roomId: snapshot?.roomId || "",
+          reason: error instanceof Error ? error.message : "unknown",
+        });
+      }
+      logEvent("info", "cinema_room_auto_ended", { roomId: snapshot?.roomId || "" });
+      this.broadcast({ type: "closed", reason: SCHEDULE_CLOSE_REASON });
+      for (const socket of this.state.getWebSockets()) {
+        try {
+          socket.close(CLOSE_NORMAL, SCHEDULE_CLOSE_REASON);
+        } catch { /* an already-closing socket is not an error worth surfacing */ }
+      }
+      return;
+    }
+    if (schedule.liveAt && schedule.liveAt <= now) {
+      // Promote before clearing: the object's own play press reads the minute
+      // the room is starting at, so the clock is cleared once it has been used.
+      if (snapshot) await this.promoteFromSchedule(snapshot);
+      schedule.liveAt = 0;
+      await this.state.storage.put(SCHEDULE_KEY, schedule);
+    }
+    await this.armAlarm(schedule);
+  }
+
+  /**
+   * The room's own play press. A due room with a video starts playing at the
+   * minute it was promised, whether or not anybody is attached — the position
+   * is derived from the clock, so the first screen to arrive lands where the
+   * room already is rather than at the start. A host who has touched playback
+   * is never overridden.
+   */
+  private async ensureAutoPlay(snapshot: CinemaRoomSnapshot | undefined, options: { fromZero?: boolean } = {}) {
+    if (!snapshot || !snapshot.videoId) return;
+    const schedule = await this.scheduleValue();
+    const liveAt = schedule.liveAt || instantFrom(snapshot.startsAt);
+    if (!liveAt || Date.now() < liveAt) return;
+    const current = await this.playbackState();
+    if (current.isPlaying || current.updatedAt > 0) return;
+    const now = Date.now();
+    const positionSeconds = options.fromZero ? 0 : Math.max(0, (now - liveAt) / 1000);
+    const next: CinemaPlaybackState = {
+      positionSeconds,
+      isPlaying: true,
+      updatedAt: now,
+      durationSeconds: current.durationSeconds,
+    };
+    this.playback = next;
+    await this.state.storage.put(PLAYBACK_KEY, next);
+    this.broadcast({ type: "state", playback: next });
+    logEvent("info", "cinema_room_auto_play", { roomId: snapshot.roomId, positionSeconds: Math.round(positionSeconds) });
+  }
+
+  /** Goes live in the row, then presses play in the room. */
+  private async promoteFromSchedule(snapshot: CinemaRoomSnapshot) {
+    try {
+      await markCinemaRoomLive(snapshot.roomId, Date.now());
+    } catch (error) {
+      logEvent("warn", "cinema_room_auto_live_failed", {
+        roomId: snapshot.roomId,
+        reason: error instanceof Error ? error.message : "unknown",
+      });
+    }
+    await this.ensureAutoPlay(snapshot);
+  }
+
+  /** Wakes at the earliest future moment; nothing future means no alarm. */
+  private async armAlarm(schedule: CinemaRoomSchedule) {
+    const storage = this.state.storage;
+    const moments = [schedule.liveAt, schedule.endsAt].filter((at) => at > Date.now());
+    if (!moments.length) {
+      if (storage.deleteAlarm) await storage.deleteAlarm();
+      return;
+    }
+    if (storage.setAlarm) await storage.setAlarm(Math.min(...moments));
+  }
+
+  /** The room is over or has no clock left; no alarm should outlive it. */
+  private async clearSchedule() {
+    await this.state.storage.put(SCHEDULE_KEY, { liveAt: 0, endsAt: 0 });
+    if (this.state.storage.deleteAlarm) await this.state.storage.deleteAlarm();
+  }
+
+  private async scheduleValue(): Promise<CinemaRoomSchedule> {
+    const stored = await this.state.storage.get<Partial<CinemaRoomSchedule>>(SCHEDULE_KEY);
+    return { liveAt: Number(stored?.liveAt || 0), endsAt: Number(stored?.endsAt || 0) };
   }
 
   /**
@@ -644,8 +803,13 @@ export class CinemaRoom {
 
   /** The snapshot header is percent-encoded JSON so any title survives headers. */
   private snapshotFromHeader(value: string | null): CinemaRoomSnapshot | null {
-    const parsed = decodeHeaderJson(value);
-    if (!parsed) return null;
+    return this.snapshotFromObject(decodeHeaderJson(value));
+  }
+
+  /** One snapshot shape for both doors: the socket header and the clock body. */
+  private snapshotFromObject(value: unknown): CinemaRoomSnapshot | null {
+    if (!value || typeof value !== "object") return null;
+    const parsed = value as Record<string, unknown>;
     const roomId = String(parsed.roomId || "");
     const hostStudentId = String(parsed.hostStudentId || "");
     if (!roomId || !hostStudentId) return null;
@@ -655,6 +819,8 @@ export class CinemaRoom {
       title: String(parsed.title || "").slice(0, 120),
       sourceType: String(parsed.sourceType || "YOUTUBE"),
       videoId: String(parsed.videoId || ""),
+      startsAt: String(parsed.startsAt || ""),
+      endsAt: String(parsed.endsAt || ""),
     };
   }
 
@@ -730,4 +896,15 @@ function decodeHeaderJson(value: string | null): Record<string, unknown> | null 
   } catch {
     return null;
   }
+}
+
+/** An ISO instant as epoch milliseconds, or 0 when it is not one. */
+function instantFrom(value: unknown): number {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** The clock the Worker handed over, as the two instants the object alarms on. */
+function scheduleFromSnapshot(snapshot: CinemaRoomSnapshot): CinemaRoomSchedule {
+  return { liveAt: instantFrom(snapshot.startsAt), endsAt: instantFrom(snapshot.endsAt) };
 }

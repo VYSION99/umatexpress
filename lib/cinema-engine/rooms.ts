@@ -1,5 +1,16 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { closeCinemaRoom, removeCinemaMemberFromRoom } from "@/lib/cinema-engine/realtime";
+import { closeCinemaRoom, removeCinemaMemberFromRoom, scheduleCinemaRoom } from "@/lib/cinema-engine/realtime";
+import {
+  CINEMA_DURATION_MAX_MINUTES,
+  CINEMA_DURATION_MIN_MINUTES,
+  CINEMA_START_MAX_MINUTES,
+  hasSchedule,
+  markCinemaRoomEnded,
+  markCinemaRoomLive,
+  parseDurationMinutes,
+  parseStartInMinutes,
+  scheduleFromNow,
+} from "@/lib/cinema-engine/schedule";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { consoleAudit } from "@/lib/console-audit";
 import { incrementMetric, logEvent } from "@/lib/observability";
@@ -19,7 +30,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * membership row rather than being joined in from the account on every read.
  */
 
-export const CINEMA_SCHEMA_VERSION = "033_cinema_private_rooms";
+export const CINEMA_SCHEMA_VERSION = "034_cinema_scheduled_rooms";
 
 export const CINEMA_ROOM_STATUSES = ["CREATED", "LIVE", "ENDED", "EXPIRED", "DELETED"] as const;
 export type CinemaRoomStatus = (typeof CINEMA_ROOM_STATUSES)[number];
@@ -78,6 +89,12 @@ const CINEMA_SCHEMA_STATEMENTS = [
   // Last, because a database created from the statement above already has the
   // column and `runSchemaPass` tolerates exactly this duplicate-column reply.
   `ALTER TABLE cinema_sessions ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC'`,
+  // M12: the host's clock. `starts_at` is the schedule, never the actual start
+  // — that is `started_at` — and an empty pair keeps every room made before
+  // this column existed behaving exactly as it did.
+  `ALTER TABLE cinema_sessions ADD COLUMN starts_at TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE cinema_sessions ADD COLUMN ends_at TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE cinema_sessions ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 0`,
 ];
 
 let cinemaTablesReady: Promise<void> | null = null;
@@ -119,6 +136,12 @@ export type CinemaRoom = {
   isPrivate: boolean;
   isHost: boolean;
   isMember: boolean;
+  /** When the host scheduled the room to go live, or '' for a room with no clock. */
+  startsAt: string;
+  /** When the host's run time ends the room, or '' when only the host ends it. */
+  endsAt: string;
+  /** The host's chosen run time in minutes; 0 means "until I end it". */
+  durationMinutes: number;
   /** Whether this student holds an invitation to a private room. */
   invited: boolean;
   /** Whether a student who is not a member yet may join right now. */
@@ -195,6 +218,9 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
     joinable: isRoomActive(status) && (isMember || (!joinLocked && (invited || !isPrivate))),
     verifiedCount: input.memberCount ?? participants.filter((member) => !member.leftAt).length,
     participants,
+    startsAt: String(row.starts_at || ""),
+    endsAt: String(row.ends_at || ""),
+    durationMinutes: Math.max(0, Number(row.duration_minutes || 0)),
     startedAt: String(row.started_at || ""),
     endedAt: String(row.ended_at || ""),
     createdAt: String(row.created_at || ""),
@@ -202,7 +228,7 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
   };
 }
 
-const ROOM_COLUMNS = "id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,started_at,ended_at,created_at,updated_at";
+const ROOM_COLUMNS = "id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at";
 
 async function membersOf(sessionIds: string[]): Promise<Map<string, CinemaRoomRow[]>> {
   const grouped = new Map<string, CinemaRoomRow[]>();
@@ -265,28 +291,107 @@ async function roomRow(sessionId: string): Promise<CinemaRoomRow | undefined> {
 async function requireVisibleRoom(sessionId: string) {
   const id = String(sessionId || "").trim();
   if (!id) throw new CampusEngineError("NOT_FOUND", "That room does not exist.", 404);
-  const row = await roomRow(id);
+  let row = await roomRow(id);
   if (!row || !isRoomVisible(row.status)) throw new CampusEngineError("NOT_FOUND", "That room does not exist.", 404);
+  // A room can be read before its alarm rings — or after a deployment that
+  // never armed one — so the clock is reconciled here, where every surface
+  // already passes. The UPDATEs are conditional: whoever arrives second is a
+  // no-op, and a room the host opened early is left exactly as it is.
+  if (await reconcileRoomClock(row)) row = (await roomRow(id)) || row;
   return row;
+}
+
+/**
+ * Moves a room whose minute has arrived, and only that room: CREATED past its
+ * `starts_at` becomes LIVE, anything past `ends_at` becomes ENDED. The row's
+ * own ISO strings compare as text, which is why the schedule stores UTC.
+ */
+async function reconcileRoomClock(row: CinemaRoomRow): Promise<boolean> {
+  const status = String(row.status || "");
+  if (!isRoomActive(status)) return false;
+  const now = Date.now();
+  const endsAt = String(row.ends_at || "");
+  if (endsAt && Date.parse(endsAt) <= now) return markCinemaRoomEnded(String(row.id || ""), now);
+  const startsAt = String(row.starts_at || "");
+  if (status === "CREATED" && startsAt && Date.parse(startsAt) <= now) {
+    return markCinemaRoomLive(String(row.id || ""), Date.parse(startsAt));
+  }
+  return false;
 }
 
 /**
  * Creating a room also joins it: the host is a participant from the first
  * second, which is what makes "who is here" a single source of truth.
+ *
+ * The two choices a room is made of are made here, once, because the room
+ * itself carries neither control: where the video comes from — a YouTube link,
+ * or a file the host uploads from the lobby next — and who may walk in. An
+ * upload room is created private and empty on purpose: the door is shut before
+ * the first byte arrives, and `video_id` is filled by the upload that follows.
  */
-export async function createRoom(input: { student: { id: string; name?: string }; title?: unknown; video?: unknown }) {
+export async function createRoom(input: {
+  student: { id: string; name?: string };
+  title?: unknown;
+  video?: unknown;
+  source?: unknown;
+  visibility?: unknown;
+  /** Minutes from now the room goes live; absent keeps the legacy CREATED room. */
+  startInMinutes?: unknown;
+  /** The host's run time in minutes; 0 or absent means "until I end it". */
+  durationMinutes?: unknown;
+}) {
   await requireTurso();
   await ensureCinemaTables();
-  const lookup = parseYouTubeId(input.video);
-  if (!lookup.ok) throw new CampusEngineError("VALIDATION_ERROR", lookup.reason, 400);
+  const source = String(input.source ?? "YOUTUBE").trim().toUpperCase();
+  if (!(CINEMA_SOURCE_TYPES as readonly string[]).includes(source)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "That is not a video source a room understands.", 400);
+  }
+  // A YouTube room needs its video now; an upload room gets its file from the
+  // lobby, so it is created with nothing attached yet.
+  let videoId = "";
+  if (source === "YOUTUBE") {
+    const lookup = parseYouTubeId(input.video);
+    if (!lookup.ok) throw new CampusEngineError("VALIDATION_ERROR", lookup.reason, 400);
+    videoId = lookup.id;
+  }
+  // A file can never open the door it will close: the upload rule wins over
+  // whatever the caller asked for.
+  const visibility: CinemaRoomVisibility = source === "UPLOAD" || String(input.visibility ?? "").trim().toUpperCase() === "PRIVATE"
+    ? "PRIVATE"
+    : "PUBLIC";
 
-  const stamp = new Date().toISOString();
+  // The clock is optional: a create call that mentions neither a start nor a
+  // run time keeps the room this engine has always made — CREATED, waiting for
+  // the host to open it. A room with a start of "now" is live before the first
+  // socket, which is what lets the lobby's default room play on arrival.
+  const duration = parseDurationMinutes(input.durationMinutes);
+  if (duration === null) {
+    throw new CampusEngineError(
+      "VALIDATION_ERROR",
+      `A room runs for ${CINEMA_DURATION_MIN_MINUTES} minutes to ${CINEMA_DURATION_MAX_MINUTES / 60} hours, or until the host ends it.`,
+      400,
+    );
+  }
+  const clocked = hasSchedule(input.startInMinutes) || duration > 0;
+  const startIn = clocked ? parseStartInMinutes(input.startInMinutes ?? 0) : 0;
+  if (startIn === null) {
+    throw new CampusEngineError(
+      "VALIDATION_ERROR",
+      `A room can start now or up to ${CINEMA_START_MAX_MINUTES / (24 * 60)} days from now.`,
+      400,
+    );
+  }
+  const now = Date.now();
+  const { startsAt, endsAt } = clocked ? scheduleFromNow(startIn, duration, now) : { startsAt: "", endsAt: "" };
+  const goesLive = clocked && startIn === 0;
+  const stamp = new Date(now).toISOString();
+  const status: CinemaRoomStatus = goesLive ? "LIVE" : "CREATED";
   const id = crypto.randomUUID();
   const title = roomTitle(input.title);
   await turso(
-    `INSERT INTO cinema_sessions (id,host_student_id,title,video_source_type,video_id,status,created_at,updated_at)
-     VALUES (?,?,?,?,?,'CREATED',?,?)`,
-    [id, String(input.student.id), title, "YOUTUBE", lookup.id, stamp, stamp],
+    `INSERT INTO cinema_sessions (id,host_student_id,title,video_source_type,video_id,status,visibility,starts_at,ends_at,duration_minutes,started_at,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [id, String(input.student.id), title, source, videoId, status, visibility, startsAt, endsAt, duration, goesLive ? stamp : "", stamp, stamp],
   );
   try {
     await turso(
@@ -299,8 +404,21 @@ export async function createRoom(input: { student: { id: string; name?: string }
     await turso("DELETE FROM cinema_sessions WHERE id = ?", [id]).catch(() => undefined);
     throw error;
   }
-  logEvent("info", "cinema_room_created", { roomId: id });
+  logEvent("info", "cinema_room_created", { roomId: id, source, visibility, scheduled: clocked, startInMinutes: clocked ? startIn : 0, durationMinutes: duration });
   await incrementMetric("cinema_rooms_created");
+  // The row is the truth; the room's object is the alarm clock. Best-effort
+  // like every other nudge, because a deployment without the binding still
+  // promotes a due room the moment anybody reads it.
+  if (clocked) {
+    await scheduleCinemaRoom(id, {
+      hostStudentId: String(input.student.id),
+      title,
+      sourceType: source,
+      videoId,
+      startsAt,
+      endsAt,
+    });
+  }
   return roomView(
     (await roomRow(id)) || {},
     { studentId: input.student.id, participants: (await membersOf([id])).get(id) || [] },
@@ -334,7 +452,7 @@ export async function listMyRooms(studentId: string) {
   const rows = rowsToObjects(await turso(
     `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.visibility,
             CASE WHEN i.student_id IS NULL THEN 0 ELSE 1 END AS invited,
-            s.started_at,s.ended_at,s.created_at,s.updated_at
+            s.starts_at,s.ends_at,s.duration_minutes,s.started_at,s.ended_at,s.created_at,s.updated_at
        FROM cinema_sessions s
        LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = ?
        LEFT JOIN cinema_room_invites i ON i.session_id = s.id AND i.student_id = ?
@@ -420,10 +538,29 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
 
   if (action === "OPEN") {
     if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+    // A room with a run time gains its end when it actually opens: a host who
+    // starts their 19:00 room at 18:40 still gets the full run.
+    const runMinutes = Math.max(0, Number(row.duration_minutes || 0));
+    const endsAt = runMinutes > 0 ? new Date(Date.now() + runMinutes * 60_000).toISOString() : "";
+    const wasCreated = String(row.status || "") === "CREATED";
     await turso(
-      "UPDATE cinema_sessions SET status = 'LIVE', started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",
-      [stamp, stamp, id],
+      wasCreated
+        ? "UPDATE cinema_sessions SET status = 'LIVE', started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END, starts_at = '', ends_at = CASE WHEN ? > 0 THEN ? ELSE ends_at END, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')"
+        : "UPDATE cinema_sessions SET status = 'LIVE', started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",
+      wasCreated ? [stamp, runMinutes, endsAt, stamp, id] : [stamp, stamp, id],
     );
+    if (wasCreated) {
+      // The object's start alarm is moot now that the host is here; its end
+      // alarm is not, and a room with no run time clears both.
+      await scheduleCinemaRoom(id, {
+        hostStudentId: String(row.host_student_id || ""),
+        title: String(row.title || ""),
+        sourceType: String(row.video_source_type || "YOUTUBE"),
+        videoId: String(row.video_id || ""),
+        startsAt: "",
+        endsAt,
+      });
+    }
   } else if (action === "END") {
     await turso(
       "UPDATE cinema_sessions SET status = 'ENDED', ended_at = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",

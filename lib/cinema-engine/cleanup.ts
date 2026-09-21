@@ -103,6 +103,10 @@ export async function runCinemaCleanup(input: CleanupInput = {}): Promise<Cinema
  * Rows old enough to be worth asking about. `updated_at` is the cheap filter,
  * not the verdict: a room can be live with no joins for hours, which is why
  * the Durable Object is asked before anything ends.
+ *
+ * A room still waiting for its scheduled minute is not idle, however long ago
+ * it was written: the clock that opens it is the room's own alarm, not a
+ * visitor, so the sweep leaves it alone until its start has passed.
  */
 async function endIdleRooms(input: {
   limit: number;
@@ -111,11 +115,13 @@ async function endIdleRooms(input: {
   presence: (roomId: string) => Promise<CinemaRoomPresence | null>;
 }) {
   const cutoff = new Date(input.now - input.idleMs).toISOString();
+  const nowStamp = new Date(input.now).toISOString();
   const rows = rowsToObjects(await turso(
     `SELECT id,status,updated_at,created_at FROM cinema_sessions
       WHERE status IN ('CREATED','LIVE') AND updated_at <= ?
+        AND (starts_at = '' OR starts_at <= ?)
       ORDER BY updated_at ASC LIMIT ${input.limit}`,
-    [cutoff],
+    [cutoff, nowStamp],
   ));
   let ended = 0;
   let presenceUnavailable = false;

@@ -3,21 +3,22 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Flag, Globe, Lock, LockOpen, Mail, MessagesSquare, Mic, MicOff, NotebookPen, Play, Radio, Send, Sparkles, Square, Upload, UserPlus, X,
+  Flag, Lock, LockOpen, Mail, MessagesSquare, MicOff, NotebookPen, Play, Radio, Send, Sparkles, Square, Timer, UserPlus, X,
 } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
+import { CinemaCallButtons } from "./CinemaCallButtons";
 import { CinemaInvites } from "./CinemaInvites";
-import { CinemaMediaPanel } from "./CinemaMediaPanel";
 import { CinemaMediaStrip } from "./CinemaMediaStrip";
 import { CinemaNotes } from "./CinemaNotes";
+import { CinemaRecorderPanel } from "./CinemaRecorderPanel";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
-import { UploadPanel } from "./UploadPanel";
 import { UploadPlayer } from "./UploadPlayer";
 import { YouTubePlayer } from "./YouTubePlayer";
 import { useCinemaMedia } from "./useCinemaMedia";
+import { useCinemaRecorder } from "./useCinemaRecorder";
 import "./cinema.css";
 
 /**
@@ -32,13 +33,19 @@ import "./cinema.css";
  * Host controls are hidden from everyone else, but that is a courtesy: the
  * engine refuses a non-host's action regardless.
  *
+ * The two choices a room is made of — where its video comes from and who may
+ * walk in — are made in the lobby before the room opens, so this page shows
+ * them rather than offering them: no upload, no door switch. A host changes
+ * either from the Cinema lobby, where the room list carries both.
+ *
  * On a phone the room is the video first: a floating rail at the top right
- * opens one panel at a time as a bottom sheet, and a Zoom-shaped dock holds
- * who is here and the host's actions at the bottom. The member's own camera
- * card floats beside the rail, and the call itself is owned here rather than
- * inside a panel, because a panel that unmounted would take the call with it.
+ * holds the call's buttons (mic, camera, recorder) and opens one panel at a
+ * time as a bottom sheet, and a Zoom-shaped dock holds who is here and the
+ * host's actions at the bottom. The call and the recorder are owned here
+ * rather than inside a panel, because a panel that unmounted would take them
+ * with it — the mic can be muted, and a take kept running, with no card open.
  */
-type CinemaSheet = "" | "upload" | "board" | "notes" | "media" | "invite" | "chat" | "people";
+type CinemaSheet = "" | "board" | "notes" | "record" | "invite" | "chat" | "people";
 
 /** A room notice that is worth interrupting a video for: an automatic board. */
 type CinemaToast = { id: string; title: string; body: string };
@@ -81,9 +88,9 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const openSheet = (next: CinemaSheet) => setSheet((current) => (current === next ? "" : next));
   const closeSheet = useCallback(() => setSheet(""), []);
 
-  // The call belongs to the room, not to the panel: the member's own camera
-  // card renders beside the host controls, outside the Voice & video panel, and
-  // a second copy of this hook would open a second call. The panel receives it.
+  // The call belongs to the room, not to a card: the strip draws the pictures
+  // and the call buttons in the rail and beside the strip work the switches,
+  // and a second copy of this hook would open a second call. They receive it.
   const roomMember = account && active && live.members.length > 0 ? account : null;
   const media = useCinemaMedia({
     roomId: room.id,
@@ -93,6 +100,15 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     send: live.send,
     subscribeSignals: live.subscribeSignals,
     muteAllSignal: live.muteAllSignal,
+  });
+  // The recorder belongs to the room for the same reason the call does: its
+  // card may open and close, but a take in flight must not go with it.
+  const recorder = useCinemaRecorder({
+    roomId: room.id,
+    enabled: Boolean(roomMember) && live.state === "live" && media.policy.recordings,
+    maxMinutes: media.policy.maxRecordingMinutes,
+    stream: media.localStream,
+    send: live.send,
   });
   const releaseDevices = media.releaseDevices;
   const subscribeBoards = live.subscribeBoards;
@@ -110,6 +126,17 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     setMuteSent(true);
     if (muteTimer.current) clearTimeout(muteTimer.current);
     muteTimer.current = setTimeout(() => setMuteSent(false), 3200);
+  };
+
+  /** The board is a sheet on a phone and a card on a desktop; both are here. */
+  const showBoard = () => {
+    openSheet("board");
+    // On a desktop every panel is already on the page, so "open" means bring
+    // it into view; on a phone the sheet comes to the room and the page holds
+    // still.
+    if (window.matchMedia("(min-width:901px)").matches) {
+      document.getElementById("cinema-sheet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   };
 
   // A pending notice is cleared on the way out; the room may unmount mid-count.
@@ -168,10 +195,39 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     try {
       const response = await fetch(`/api/cinema/sessions/${initialRoom.id}`, { credentials: "same-origin", cache: "no-store" });
       if (!response.ok) return;
-      const data = await response.json() as { room?: Room };
+    const data = await response.json() as { room?: Room };
       if (data.room) setRoom(data.room);
     } catch { /* a failed refresh leaves the last known room on screen */ }
   }, [initialRoom.id]);
+
+  // The room's own clock. Only a room still waiting for its minute ticks, and
+  // the tick is also what notices the minute arriving: the row is read once so
+  // the header stops offering "Open the room" to a room that is already live.
+  const startsAtMs = room.startsAt ? Date.parse(room.startsAt) : 0;
+  const endsAtMs = room.endsAt ? Date.parse(room.endsAt) : 0;
+  const waiting = room.status === "CREATED" && startsAtMs > 0;
+  const [clockNow, setClockNow] = useState(0);
+  useEffect(() => {
+    if (!waiting) return;
+    let reloaded = false;
+    const tick = () => {
+      const now = Date.now();
+      setClockNow(now);
+      if (!reloaded && startsAtMs <= now) { reloaded = true; void load(); }
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [waiting, startsAtMs, load]);
+  // A playing room is live whatever the last read said: the object started it,
+  // and the header should say so without waiting for a reload the student can
+  // hear but not see.
+  const playbackRunning = Boolean(live.playback?.isPlaying);
+  useEffect(() => {
+    if (playbackRunning && room.status === "CREATED") queueMicrotask(load);
+  }, [playbackRunning, room.status, load]);
+  const pendingStart = waiting && startsAtMs > clockNow;
+  const startsInSeconds = pendingStart && clockNow > 0 ? Math.max(0, Math.ceil((startsAtMs - clockNow) / 1000)) : 0;
 
   useEffect(() => {
     if (!ready || !account || joined.current) return;
@@ -266,22 +322,12 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
 
   return <div className="cinema-room">
     <nav className="cinema-rail" aria-label="Room features">
-      {room.isHost && active && <button
-        type="button"
-        className={muteSent ? "is-active" : ""}
-        aria-label="Mute everyone"
-        title="Mute everyone"
-        onClick={askMuteAll}
-      ><MicOff size={18} aria-hidden /></button>}
-      {room.isHost && active && sourceType !== "UPLOAD" && <button
-        type="button"
-        className={sheet === "upload" ? "is-active" : ""}
-        aria-label="Play a file"
-        title="Play a file"
-        aria-expanded={sheet === "upload"}
-        aria-controls="cinema-sheet-upload"
-        onClick={() => openSheet("upload")}
-      ><Upload size={18} aria-hidden /></button>}
+      {roomMember && <CinemaCallButtons
+        media={media}
+        recorder={recorder}
+        recordOpen={sheet === "record"}
+        onToggleRecord={() => openSheet("record")}
+      />}
       {account && <button
         type="button"
         className={sheet === "board" ? "is-active" : ""}
@@ -289,7 +335,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         title="AI whiteboard"
         aria-expanded={sheet === "board"}
         aria-controls="cinema-sheet-board"
-        onClick={() => openSheet("board")}
+        onClick={showBoard}
       ><Sparkles size={18} aria-hidden /></button>}
       <button
         type="button"
@@ -300,15 +346,6 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         aria-controls="cinema-sheet-notes"
         onClick={() => openSheet("notes")}
       ><NotebookPen size={18} aria-hidden /></button>
-      {active && account && live.members.length > 0 && <button
-        type="button"
-        className={sheet === "media" ? "is-active" : ""}
-        aria-label="Mic and camera"
-        title="Mic and camera"
-        aria-expanded={sheet === "media"}
-        aria-controls="cinema-sheet-media"
-        onClick={() => openSheet("media")}
-      ><Mic size={18} aria-hidden /></button>}
       <button
         type="button"
         className={sheet === "invite" ? "is-active" : ""}
@@ -336,10 +373,14 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             <strong>{room.title}</strong>
             {room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Private</span>}
             {room.isPrivate && !room.isHost && <span className="cinema-chip is-private"><Mail size={11} aria-hidden /> Invited guest</span>}
+            {pendingStart && startsInSeconds > 0 && <span className="cinema-chip is-scheduled"><Timer size={11} aria-hidden /> Starts in {clockTime(startsInSeconds)}</span>}
+            {room.status === "LIVE" && endsAtMs > 0 && <span className="cinema-chip is-scheduled"><Timer size={11} aria-hidden /> Runs until {clockCopy(room.endsAt)}</span>}
           </div>
           <span className="cinema-video-hint">
             {active
-              ? "The host's play, pause and seek land on every screen. Anyone in the room can watch; only the host drives."
+              ? pendingStart
+                ? "The room opens by itself at its minute: it goes live and the video starts on every screen that is waiting. You can take your seat now."
+                : "The host's play, pause and seek land on every screen. Anyone in the room can watch; only the host drives."
               : "This room has ended."}
           </span>
         </div>
@@ -359,20 +400,35 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             />
             : <p className="cinema-video-closed">
               {active
-                ? "No video is attached right now. The host can add one."
+                ? room.isHost
+                  ? "No video is attached yet. Add one from the Cinema lobby — the room picks it up as soon as it is ready."
+                  : "No video is attached yet. The host adds it from the Cinema lobby."
                 : "This room has ended."}
             </p>}
       </section>
 
-      {roomMember && <CinemaMediaStrip media={media} members={live.members} selfId={roomMember.id} />}
+      {roomMember && <CinemaMediaStrip
+        media={media}
+        members={live.members}
+        selfId={roomMember.id}
+        actions={<div className="cinema-strip-actions">
+          <CinemaCallButtons
+            media={media}
+            recorder={recorder}
+            recordOpen={sheet === "record"}
+            onToggleRecord={() => openSheet("record")}
+          />
+        </div>}
+      />}
+      {/* The old Voice & video card is gone; what it had to say that the
+          buttons cannot is one line here, where the call's pictures live. */}
+      {roomMember && media.error && <p className="cinema-error">{media.error}</p>}
+      {roomMember && !media.error && media.policyLoaded && !media.policy.voice && !media.policy.camera && <p className="cinema-note">
+        Voice and camera are switched off on this deployment. Chat and the video still work.
+      </p>}
 
-      <Sheet open={sheet === "media"} id="cinema-sheet-media" label="Mic and camera" onClose={closeSheet}>
-        {roomMember && <CinemaMediaPanel
-          roomId={room.id}
-          enabled={live.state === "live"}
-          send={live.send}
-          media={media}
-        />}
+      <Sheet open={sheet === "record"} id="cinema-sheet-record" label="Recorder" onClose={closeSheet}>
+        {sheet === "record" && roomMember && <CinemaRecorderPanel media={media} recorder={recorder} connected={live.state === "live"} />}
       </Sheet>
 
       <Sheet open={sheet === "board"} id="cinema-sheet-board" label="AI whiteboard" onClose={closeSheet}>
@@ -414,30 +470,25 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       {room.isHost && active && <section className="cinema-card cinema-host-card">
         <h2>Host controls</h2>
         <div className="cinema-controls">
-          {room.status === "CREATED" && <button disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={15} /> Open the room</button>}
+          {room.status === "CREATED" && !pendingStart && <button disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={15} /> Open the room</button>}
           {room.status === "LIVE" && <span className="cinema-chip is-live"><Radio size={12} /> Live</span>}
           {!room.isPrivate && (room.joinLocked
             ? <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("UNLOCK")}><LockOpen size={15} /> Let people in again</button>
             : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("LOCK")}><Lock size={15} /> Lock the door</button>)}
-          {room.isPrivate
-            ? <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("PUBLIC")}><Globe size={15} /> Make it public</button>
-            : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("PRIVATE")}><Lock size={15} /> Make it private</button>}
           <button className="secondary" onClick={askMuteAll}><MicOff size={15} /> Mute everyone</button>
+          <button className="secondary" onClick={showBoard}><Sparkles size={15} /> AI whiteboard</button>
           <button className="danger" disabled={Boolean(busy)} onClick={() => void act("END")}><Square size={15} /> End the room</button>
           {muteSent && <span className="cinema-chip is-live" role="status"><MicOff size={11} aria-hidden /> Room asked to mute</span>}
         </div>
         <p className="cinema-note cinema-sub">
           {room.isPrivate
-            ? "The room is private: only your guest list can read or join it. Manage the list from Invite; removing a guest takes back the invitation and the seat. An uploaded video makes the room private automatically."
+            ? "The room is private: only your guest list can read or join it. Manage the list from Invite; removing a guest takes back the invitation and the seat."
             : room.joinLocked
               ? "The door is locked: only students already in can come back in."
               : "Anyone with the link and a UMaT account can join."}
+          {" "}The lobby is where the door and the video are chosen.
         </p>
       </section>}
-
-      <Sheet open={sheet === "upload"} id="cinema-sheet-upload" label="Play a file" onClose={closeSheet}>
-        {room.isHost && active && sourceType !== "UPLOAD" && <UploadPanel roomId={room.id} onUploaded={() => void load()} />}
-      </Sheet>
 
       {error && <p className="cinema-error">{error}</p>}
     </div>
@@ -594,13 +645,12 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         <span className="cinema-dock-count">{people.length} {people.length === 1 ? "person" : "people"} here</span>
       </button>
       {room.isHost && active && <div className="cinema-dock-actions">
-        {room.status === "CREATED" && <button type="button" disabled={Boolean(busy)} aria-label="Open the room" title="Open the room" onClick={() => void act("OPEN")}><Play size={17} aria-hidden /></button>}
+        {room.status === "CREATED" && !pendingStart && <button type="button" disabled={Boolean(busy)} aria-label="Open the room" title="Open the room" onClick={() => void act("OPEN")}><Play size={17} aria-hidden /></button>}
         {!room.isPrivate && (room.joinLocked
           ? <button type="button" disabled={Boolean(busy)} aria-label="Let people in again" title="Let people in again" onClick={() => void act("UNLOCK")}><LockOpen size={17} aria-hidden /></button>
           : <button type="button" disabled={Boolean(busy)} aria-label="Lock the door" title="Lock the door" onClick={() => void act("LOCK")}><Lock size={17} aria-hidden /></button>)}
-        {room.isPrivate
-          ? <button type="button" disabled={Boolean(busy)} aria-label="Make it public" title="Make it public" onClick={() => void act("PUBLIC")}><Globe size={17} aria-hidden /></button>
-          : <button type="button" disabled={Boolean(busy)} aria-label="Make it private" title="Make it private" onClick={() => void act("PRIVATE")}><Lock size={17} aria-hidden /></button>}
+        <button type="button" className={muteSent ? "is-active" : ""} aria-label="Mute everyone" title="Mute everyone" onClick={askMuteAll}><MicOff size={17} aria-hidden /></button>
+        <button type="button" aria-label="AI whiteboard" title="AI whiteboard" aria-expanded={sheet === "board"} aria-controls="cinema-sheet-board" onClick={showBoard}><Sparkles size={17} aria-hidden /></button>
         <button type="button" className="danger" disabled={Boolean(busy)} aria-label="End the room" title="End the room" onClick={() => void act("END")}><Square size={17} aria-hidden /></button>
       </div>}
     </nav>
@@ -613,7 +663,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         </header>
         <strong>{toast.title}</strong>
         <p>{toast.body}</p>
-        <button type="button" className="cinema-toast-open" onClick={() => { openSheet("board"); dismissToast(toast.id); }}>Open the board</button>
+        <button type="button" className="cinema-toast-open" onClick={() => { showBoard(); dismissToast(toast.id); }}>Open the board</button>
       </article>)}
     </div>
   </div>;
@@ -643,6 +693,13 @@ function clockTime(seconds: number) {
   const remainder = total % 60;
   const pad = (value: number) => String(value).padStart(2, "0");
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${pad(minutes)}:${pad(remainder)}`;
+}
+
+/** A schedule instant on the reader's own clock, e.g. "19:05"; '' when absent. */
+function clockCopy(iso: string) {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 /** The presence list: live when the room has spoken, the page's list until then. */

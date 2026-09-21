@@ -58,6 +58,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       title: room.title,
       sourceType: room.sourceType,
       videoId: room.videoId,
+      // The clock travels with the room so the object can arm its alarms from
+      // the same row the route just read, even if the create-time nudge was lost.
+      startsAt: room.startsAt,
+      endsAt: room.endsAt,
     })));
 
     const stub = namespace.get(namespace.idFromName(room.id));

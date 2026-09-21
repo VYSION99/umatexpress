@@ -109,12 +109,18 @@ and the sections after it were rewritten to match.
     `cinema_whiteboard_enabled` (default on) and
     `cinema_whiteboard_generations_per_hour` (default 12, per student) are
     console settings, because every board is a model call billed to this account.
-14. **Private rooms — decided in M10.** A room is `PUBLIC` until its host says
-    otherwise, and the host may flip it at any time from the room's controls.
-    A room that receives an uploaded video flips itself to `PRIVATE` the moment
-    the upload is READY: an upload is the host's own copy, and a share link that
-    once pointed at a YouTube video should not quietly open it to everyone the
-    link reaches. `cinema_room_invites` is the guest list; an invitation is
+14. **Private rooms — decided in M10, chosen at creation in M11.** The two
+    choices a room is made of — where its video comes from, and who may walk in
+    — are made in the Cinema lobby before the room opens, and the room page
+    carries neither control: no upload button, no door switch. A host flips the
+    door from the room list on the same lobby page (the engine's
+    `PRIVATE`/`PUBLIC` actions), and resumes an unfinished upload there too. A
+    room created for an upload is `PRIVATE` from the moment it exists — the
+    door is shut before the first byte arrives — and the upload that makes the
+    video READY restates that rule rather than trusting the form that started
+    it: an upload is the host's own copy, and a share link that once pointed at
+    a YouTube video should not quietly open it to everyone the link reaches.
+    `cinema_room_invites` is the guest list; an invitation is
     created from a `@st.umat.edu.gh` address that resolves to a real account, so
     a row can never name a student who does not exist. A private room refuses
     the read and the join of anyone not on the list with an explicit 403 rather
@@ -988,7 +994,7 @@ room that simply expired from counting as a strike against its host.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| POST | `/api/cinema/sessions` | Create a room |
+| POST | `/api/cinema/sessions` | Create a room — choose its video source (a YouTube link, or a file to upload from the lobby), who may join, and since M12 its clock: `startInMinutes` (absent means no schedule) and `durationMinutes` (`0` means "until the host ends it") |
 | GET | `/api/cinema/sessions/:id` | Read a room — the public fields only |
 | PATCH | `/api/cinema/sessions/:id` | Open, end, lock, retitle, make private or public (host only) |
 | POST | `/api/cinema/sessions/:id/join` | Join, which writes the membership row |
@@ -1063,7 +1069,10 @@ For large videos, do not route the complete file through the Worker.
 **Decided in M6: Worker-proxied multipart over the R2 binding.** The client
 splits the file into eight-mebibyte parts and sends each one to
 `PUT /api/cinema/sessions/:id/upload/part?n=…`, and the Worker writes it with the
-`PRIVATE_BUCKET` binding it already has. The three options that were weighed:
+`PRIVATE_BUCKET` binding it already has. The upload runs from the Cinema lobby,
+not from inside the room: the lobby creates the room (private and empty) and
+then fills it, so the transport lives one page away from the video it feeds.
+The three options that were weighed:
 
 1. **Presigned PUT (S3 keys).** The diagram as drawn. Uploads never touch a Worker,
    which is what makes a 2 GB file practical; the price is a new secret pair and a
@@ -1609,6 +1618,8 @@ the same shape the Hostel Finder rollout used.
 | **M8 — the room talks, and takes notes** ✅ | WebRTC mesh over the room socket, TURN credentials, console switches, mic/camera panel, the private recorder and its retention | two browsers exchange audio through a relayed handshake; a take is recorded, uploaded, and deleted by retention with its room |
 | **M9 — the room explains itself** ✅ | the session-aware AI whiteboard: bounded scenes, the dependency-free renderer, `cinema_whiteboards`, socket broadcast and the two console switches | a member asks a question mid-video and every open screen draws the diagram; a prose answer still lands; a cleared board leaves every screen |
 | **M10 — the room closes, and the board gets graphs** ✅ | `visibility` and `cinema_room_invites`, the host's private/public control, the guest list and its route, the upload flipping its room private, plus `chart` blocks drawn by Plotly and `geo` blocks run by a GeoGebra allow-list | a host makes a room private and a stranger with the link is refused while an invited address walks in; a finished upload closes the room; a chart and a graph both survive the parser, the row and a reload |
+| **M11 — the choices move to the lobby** ✅ | a create form that takes the video source (YouTube link or file) and the door up front, the upload as a lobby step against a room created private and empty, a resume-upload action and a door toggle on the room list, and a room page with neither upload nor door switch | a host picks "Play a file" and walks away before the upload finishes; the room waits, the lobby offers to finish it, and the room itself never grows an upload button or a private/public control |
+| **M12 — the room runs itself** ✅ | `starts_at`, `ends_at` and `duration_minutes` on the room row, the lobby's Starts/Runs-for choices, a Durable Object alarm that goes live and presses play at the promised minute, auto-end when the run time is up, and lazy clock reconciliation for any read that arrives before the alarm | a host schedules a room for fifteen minutes out and leaves; the room goes live and plays on the screens that are waiting, a reader who arrives after the minute lands at the elapsed position, and the room ends itself at the host's run time |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
 use it. M6 opens Phase 2 with the decision made and the upload path built end to
@@ -1627,6 +1638,41 @@ data it explains and hand the room a graph it can drag. Both additions are bound
 by the same rule M9 set — the model describes, the engine validates, the client
 draws — so a new kind of block widened the parser's allow-list rather than its
 trust.
+
+M11 moves the two room-defining choices out of the room and into the lobby where
+the room is made: the source (a YouTube link, or a file the lobby uploads) and
+the door. The room shows both and offers neither, the lobby list carries the
+door toggle and the way to finish an abandoned upload, and the engine keeps the
+last word — a room created for a file is private before the first byte, and the
+upload cannot reopen it. The call lost its card in the same pass: mic, camera
+and recorder are buttons — in the phone's rail, and beside the cameras on a
+desktop where there is no rail — with the host's mute-all and a board button in
+the dock's host bar. The recorder hook lives in the room rather than the card,
+so closing the card cannot end a take.
+
+M12 gives the room a clock. A host can create a room that goes live straight
+away — the lobby's default, so the first screen to arrive is already playing —
+or one that opens at a chosen minute and ends after a chosen run. The row keeps
+the calendar (`starts_at`, `ends_at`, `duration_minutes`), the room's Durable
+Object keeps the alarm, and every socket re-hands the object the same clock, so
+a lost nudge costs an alarm rather than a schedule. Reads reconcile a due room
+too, which is what keeps the lobby honest when the object was never awake. The
+arithmetic is deliberately small: a scheduled room is not idle before its
+minute, auto-play never overrides a host who has touched playback, and an
+uploaded file that lands after the minute starts from the top rather than
+jumping into a film nobody has seen.
+
+## 23.1 The room's own clock (M12)
+
+| Decision | Why |
+|---|---|
+| The clock is three columns on the row: `starts_at`, `ends_at`, `duration_minutes`. `started_at` still means when the room actually went live. | The row is what every surface reads and what survives a deploy; a schedule that only lived in an alarm would be invisible to the lobby and the console. |
+| The alarm is the room's own Durable Object, not a cron trigger. | One object per room is already the room's lifecycle; an alarm wakes exactly the room that is due, for exactly one minute's work, and Cloudflare collapses nothing the way it would two cron triggers on the same minute. |
+| Every socket re-hands the object the clock, and every read reconciles a due room. | An alarm is at-least-once, not a promise. A missed one costs a nudge, never a schedule, because the next reader's conditional UPDATE moves the row the same way. |
+| Bounds are engine constants, not client validation: a start 0–7 days out, a run of 0 or 15–240 minutes. `0` for the run means "until the host ends it". | A client can lie; the engine cannot. The numbers are also the copy the lobby shows back. |
+| A create call that mentions no clock keeps the room it always made — `CREATED`, no schedule, opened by the host. | Rooms and tests written before M12 must not change behaviour because an optional field appeared. |
+| Auto-play never overrides a host who has touched playback, and an upload that lands after the minute starts from zero. | The room may start itself; it may not overrule a person, and a film nobody has seen should not begin five minutes in. |
+| The idle sweep skips a room whose `starts_at` is still ahead. | A scheduled room is not abandoned — the thing that opens it is the alarm, not a visitor. |
 
 ---
 

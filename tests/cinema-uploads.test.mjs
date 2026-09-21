@@ -29,7 +29,7 @@ const empty = { cols: [], rows: [] };
 const affected = (count) => ok({ affected_row_count: count });
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
 
@@ -55,7 +55,7 @@ function handle(sql, args) {
     return ok(row ? table(["id", "host_student_id", "status", "title"], [row]) : empty);
   }
   // The room read the playback lease makes.
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
     return ok(row ? table(ROOM_COLUMNS, [row]) : empty);
   }
@@ -317,7 +317,8 @@ function mp4Head(seconds, { timescale = 1000, version = 0 } = {}) {
 function room(overrides = {}) {
   return {
     id: "room-1", host_student_id: "host-a", title: "Signals", video_source_type: "YOUTUBE", video_id: "M7lc1UVf-VE",
-    status: "LIVE", join_locked: 0, visibility: "PUBLIC", started_at: stamp(30), ended_at: "", created_at: stamp(60), updated_at: stamp(1), ...overrides,
+    status: "LIVE", join_locked: 0, visibility: "PUBLIC", starts_at: "", ends_at: "", duration_minutes: 0,
+    started_at: stamp(30), ended_at: "", created_at: stamp(60), updated_at: stamp(1), ...overrides,
   };
 }
 
@@ -445,6 +446,23 @@ test("finishing checks R2's own report, and the room only then points at the vid
   assert.equal(state.rooms[0].video_id, started.upload.id);
   assert.equal(state.rooms[0].visibility, "PRIVATE", "an uploaded video closes the room behind it");
   assert.equal(bucket.objects.size, 1);
+});
+
+test("an empty upload room, the kind the lobby creates, takes the first file it is given", async () => {
+  // The lobby creates the room before it has a file: upload, then create the
+  // room, then upload into it. This is the shape that second step sees.
+  state.rooms = [room({ video_source_type: "UPLOAD", video_id: "", visibility: "PRIVATE" })];
+  const bucket = fakeBucket();
+  const started = await begin({ bucket, sizeBytes: 52 });
+  assert.equal(started.upload.status, "UPLOADING");
+  assert.equal(state.rooms[0].video_id, "", "the room is untouched until the file is whole");
+
+  const file = mp4Head(92);
+  await putCinemaUploadPart({ roomId: "room-1", studentId: "host-a", partNumber: 1, body: file.buffer.slice(0, file.byteLength), bucket });
+  const finished = await completeCinemaUpload({ roomId: "room-1", studentId: "host-a", parts: [{ partNumber: 1, etag: "etag-1" }], bucket });
+  assert.equal(finished.upload.status, "READY");
+  assert.equal(state.rooms[0].video_id, started.upload.id, "the empty room now points at the file");
+  assert.equal(state.rooms[0].visibility, "PRIVATE", "and the door it was created with stays shut");
 });
 
 test("a stored size that disagrees with the declared one fails the upload, not the room", async () => {

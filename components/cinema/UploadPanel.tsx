@@ -7,13 +7,14 @@ type UploadLimits = { maxBytes: number; partBytes: number; maxParts: number; typ
 type UploadState = { id: string; status: string; filename: string; sizeBytes: number; mimeType: string; durationSeconds: number } | null;
 
 /**
- * The host's one upload.
+ * The host's one upload, as a lobby step rather than a room control.
  *
  * The file is split into parts and each part is sent through the Worker, which
  * is what the transport decision in §17 chose: no S3 key exists, and the room's
  * rules are checked on every part rather than trusted from a URL. The ownership
  * question is asked before the first byte, because that answer is the platform's
- * record of who said the video could be shared.
+ * record of who said the video could be shared. The panel is a body, not a
+ * card: the lobby owns the heading and the room it is filling.
  */
 export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
   const [limits, setLimits] = useState<UploadLimits | null>(null);
@@ -124,17 +125,15 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
   };
 
   if (upload?.status === "READY") {
-    return <section className="cinema-card">
-      <h2>Uploaded video</h2>
+    return <section className="cinema-upload-panel">
       <p className="cinema-note">
-        This room plays <strong>{upload.filename || "an uploaded video"}</strong>{upload.sizeBytes ? ` (${humanSize(upload.sizeBytes)})` : ""}.
+        This room already plays <strong>{upload.filename || "an uploaded video"}</strong>{upload.sizeBytes ? ` (${humanSize(upload.sizeBytes)})` : ""}.
         It stays in the private bucket until the room is deleted, then it is removed automatically.
       </p>
     </section>;
   }
 
-  return <section className="cinema-card">
-    <h2>Play a file</h2>
+  return <section className="cinema-upload-panel">
     <p className="cinema-note">
       One video per room, MP4, MOV or WebM, up to {limits ? humanSize(limits.maxBytes) : "2 GB"}. It is stored privately and
       deleted when the room is; members watch it here and nowhere else.

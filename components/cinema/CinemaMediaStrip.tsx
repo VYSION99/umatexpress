@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Camera, CameraOff, ChevronRight, Circle, Mic, MicOff, X } from "lucide-react";
 import type { CinemaPresenceMember } from "@/lib/cinema-engine/protocol";
-import { MediaStreamVideo } from "./CinemaMediaPanel";
+import { MediaStreamVideo } from "./CinemaMediaVideo";
 import type { CinemaMedia } from "./useCinemaMedia";
 
 /** How many people the strip shows before the rest move behind the button. */
@@ -18,16 +18,19 @@ const INLINE_TILES = 5;
  * to float over the header, where it hid the one thing the header says; the
  * tile belongs in the room's own flow, next to the faces it belongs with.
  *
- * This is also where audio-only peers get the element they play through, which
- * used to live in the Voice & video panel. The panel keeps the switches, the
- * policy copy and the recorder; the pictures live here.
+ * This is also where audio-only peers get the element they play through.
+ * The call's switches live in the rail on a phone; on a desktop, where there
+ * is no rail, the room passes them in as `actions` so the strip carries them
+ * beside the pictures they turn on.
  */
 export function CinemaMediaStrip(input: {
   media: CinemaMedia;
   members: CinemaPresenceMember[];
   selfId: string;
+  /** The call buttons, on surfaces that have no rail to put them in. */
+  actions?: ReactNode;
 }) {
-  const { media, members, selfId } = input;
+  const { media, members, selfId, actions } = input;
   const [more, setMore] = useState(false);
 
   // Escape closes the popup; it is a list of faces, not a modal to get stuck in.
@@ -115,6 +118,7 @@ export function CinemaMediaStrip(input: {
       <span>+{overflow.length}</span>
       <ChevronRight size={14} aria-hidden />
     </button>}
+    {actions}
 
     {more && <>
       <button type="button" className="cinema-strip-scrim" aria-label="Close the camera list" onClick={() => setMore(false)} />

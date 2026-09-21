@@ -122,6 +122,41 @@ export async function announceCinemaWhiteboard(roomId: string, board: CinemaWhit
   }
 }
 
+/**
+ * Hands a room's clock to its Durable Object: the minute it should go live and
+ * the minute its run time ends. Sent when the room is created and again when a
+ * host opens a scheduled room early, so the object's alarms always describe
+ * the row rather than a decision the object made on its own.
+ *
+ * Best-effort like every other nudge: the row is the calendar, and a socket
+ * that connects re-hands the same clock to the object, so a failed call costs
+ * an alarm rather than the schedule.
+ */
+export async function scheduleCinemaRoom(roomId: string, schedule: {
+  hostStudentId: string;
+  title: string;
+  sourceType: string;
+  videoId: string;
+  startsAt: string;
+  endsAt: string;
+}) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/schedule", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ roomId: String(roomId), ...schedule }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_schedule_announce_failed", {
+      roomId: String(roomId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
 /** A board left the room; the open screens drop it too. */
 export async function removeCinemaWhiteboardFromRoom(roomId: string, boardId: string) {
   const namespace = await cinemaRoomNamespace();

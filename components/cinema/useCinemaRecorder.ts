@@ -31,6 +31,9 @@ export type CinemaRecordingView = {
   createdAt: string;
 };
 
+/** What the hook hands back, so the room can own the take and the panel can draw it. */
+export type CinemaRecorder = ReturnType<typeof useCinemaRecorder>;
+
 type RecordingLimits = { maxBytes: number; maxMinutes: number; partBytes: number; maxParts: number; types: string[] };
 
 /** The container the browser will actually produce, in preference order. */

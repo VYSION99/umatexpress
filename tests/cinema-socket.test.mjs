@@ -44,12 +44,16 @@ function fakeSocket() {
 function fakeState() {
   const sockets = [];
   const stored = new Map();
-  return {
+  const state = {
     sockets,
     stored,
+    /** The single alarm the runtime would keep for this object, 0 when none. */
+    alarm: 0,
     storage: {
       async get(key) { return stored.get(key); },
       async put(key, value) { stored.set(key, value); },
+      async setAlarm(at) { state.alarm = Number(at) || 0; },
+      async deleteAlarm() { state.alarm = 0; },
     },
     acceptWebSocket(socket) { sockets.push(socket); },
     getWebSockets() { return [...sockets]; },
@@ -59,6 +63,7 @@ function fakeState() {
       if (index >= 0) sockets.splice(index, 1);
     },
   };
+  return state;
 }
 
 // The DO reads WebSocketPair from the global, exactly as it does in workerd.
@@ -72,9 +77,18 @@ globalThis.WebSocketPair = class WebSocketPair {
   }
 };
 
-const SNAPSHOT = { roomId: "room-1", hostStudentId: "host-1", title: "Signals", sourceType: "YOUTUBE", videoId: "dQw4w9WgXcQ" };
+const SNAPSHOT = { roomId: "room-1", hostStudentId: "host-1", title: "Signals", sourceType: "YOUTUBE", videoId: "dQw4w9WgXcQ", startsAt: "", endsAt: "" };
 const identity = (studentId, displayName) => encodeURIComponent(JSON.stringify({ studentId, displayName }));
-const snapshotHeader = () => encodeURIComponent(JSON.stringify(SNAPSHOT));
+const snapshotHeader = (overrides = {}) => encodeURIComponent(JSON.stringify({ ...SNAPSHOT, ...overrides }));
+
+/** The Worker's clock hand-off: a snapshot and the two instants it carries. */
+function scheduleRequest(overrides = {}) {
+  return new Request("https://cinema-room/schedule", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...SNAPSHOT, startsAt: "", endsAt: "", ...overrides }),
+  });
+}
 
 function upgrade(headers = {}) {
   return new Request("https://cinema-room/socket", {
@@ -590,4 +604,55 @@ test("an AI board reaches every open screen, and a cleared one leaves by id", as
   assert.equal(last(hostSocket, "whiteboard_removed").id, "board-1");
   assert.equal(last(guestSocket, "whiteboard_removed").id, "board-1");
   assert.equal((await room.fetch(new Request("https://cinema-room/whiteboard-remove", { method: "POST" }))).status, 400);
+});
+
+test("a future start is left to the room's own alarm", async () => {
+  const { room, state } = await newRoom();
+  const startsAt = new Date(Date.now() + 15 * 60_000).toISOString();
+  const response = await room.fetch(scheduleRequest({ startsAt }));
+
+  assert.equal(response.status, 200);
+  assert.equal(state.stored.get("schedule").liveAt, Date.parse(startsAt), "the clock is stored, not guessed");
+  assert.equal(state.alarm, Date.parse(startsAt), "the object wakes at the room's minute");
+});
+
+test("the room's alarm goes live and presses play by itself", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const socket = state.sockets[0];
+  socket.sent.length = 0;
+  state.stored.set("schedule", { liveAt: Date.now() - 1_000, endsAt: 0 });
+
+  await room.alarm();
+
+  const playback = last(socket, "state").playback;
+  assert.equal(playback.isPlaying, true, "the room plays without a host");
+  assert.ok(playback.positionSeconds >= 0 && playback.positionSeconds < 5, "the frame lands at the room's own minute");
+  assert.equal(state.stored.get("schedule").liveAt, 0, "the start alarm does not ring twice");
+  assert.equal(state.alarm, 0, "there is nothing left to wake for");
+});
+
+test("a scheduled room is already playing when the first screen arrives", async () => {
+  const { room, state } = await newRoom();
+  const startsAt = new Date(Date.now() - 5 * 60_000).toISOString();
+  await room.fetch(scheduleRequest({ startsAt }));
+  const response = await room.fetch(upgrade({ "x-cinema-room": snapshotHeader({ startsAt }) }));
+
+  assert.equal(response.status, 101);
+  const playback = last(state.sockets[0], "state").playback;
+  assert.equal(playback.isPlaying, true);
+  assert.ok(playback.positionSeconds >= 295 && playback.positionSeconds <= 305, "the room derives the position it never got to send");
+});
+
+test("the room's run time ends it, and every screen is told why", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const socket = state.sockets[0];
+  state.stored.set("schedule", { liveAt: 0, endsAt: Date.now() - 1_000 });
+
+  await room.alarm();
+
+  assert.equal(last(socket, "closed").reason, "This room's set time is up.");
+  assert.ok(socket.closed, "the sockets do not outlive the room");
+  assert.equal(state.stored.get("schedule").endsAt, 0);
 });
