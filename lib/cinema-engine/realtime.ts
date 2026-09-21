@@ -1,4 +1,5 @@
 import { cinemaRoomNamespace } from "@/lib/cloudflare-bindings";
+import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 import { logEvent } from "@/lib/observability";
 
 /** What a room's Durable Object knows about who is attached right now. */
@@ -69,6 +70,49 @@ export async function announceCinemaSource(roomId: string, source: { sourceType:
   } catch (error) {
     logEvent("warn", "cinema_source_announce_failed", {
       roomId: String(roomId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
+/**
+ * Tells a live room that a new board is on the whiteboard. Best-effort for the
+ * same reason as every other announcement: the row is the truth and a missing
+ * socket must not turn a stored board into a failed request.
+ */
+export async function announceCinemaWhiteboard(roomId: string, board: CinemaWhiteboardView) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/whiteboard", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ board }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_whiteboard_announce_failed", {
+      roomId: String(roomId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
+/** A board left the room; the open screens drop it too. */
+export async function removeCinemaWhiteboardFromRoom(roomId: string, boardId: string) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/whiteboard-remove", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: String(boardId) }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_whiteboard_remove_failed", {
+      roomId: String(roomId),
+      boardId: String(boardId),
       reason: error instanceof Error ? error.message : "unknown",
     });
   }

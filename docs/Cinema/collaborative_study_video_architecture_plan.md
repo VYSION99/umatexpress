@@ -77,6 +77,38 @@ and the sections after it were rewritten to match.
    the room is deleted. The byte ceiling is the upload ceiling
    (`cinema_max_upload_bytes`); the length ceiling is its own
    `cinema_max_recording_minutes` switch, enforced by the client's stopwatch.
+9. **Whiteboard output — decided in M9.** The model never returns markup. It
+   returns one JSON scene — text, maths, code, diagrams and simulated steps —
+   which the engine parses and bounds field by field (12 blocks, 24 nodes, 40
+   edges, 10 steps, bounded strings) before it is stored or sent. A reply that
+   cannot be read as a scene gets one repair attempt, then becomes a single
+   plain-text block and is flagged `unparsed` rather than refused: the room still
+   gets its answer. The client renders only what the parser kept.
+10. **Diagrams — decided in M9.** The model says what connects to what and may
+    hint at a grid (`column`, `row`); the client computes a left-to-right
+    longest-path layered layout, discovering order within a layer. No drawing
+    coordinates come from the model, and no new dependency comes into the
+    repository for it.
+11. **Maths — decided in M9.** A small LaTeX subset (`\frac`, `\sqrt`, `^`, `_`,
+    Greek and operator names) is rendered by the engine's own escape-first
+    renderer into a few styled spans. Everything else is shown as written. KaTeX
+    and MathJax were rejected for a study room that needs a dozen expressions,
+    not a typesetting engine.
+12. **Offensive-security topics — decided in M9.** Teaching pentesting,
+    exploitation and malware is allowed as education: the prompt requires the
+    concept, the defence and the ethics, frames the exercise as a simulated lab
+    on systems the student owns or is authorised to test, sets `lab` on those
+    blocks and adds a lab callout. A chain aimed at a live third-party system is
+    refused and answered with the defensive explanation and the safe lab
+    alternative. The UI shows a "Simulated lab" banner whenever `lab` is set.
+13. **Whiteboard context and pace — decided in M9.** Each board is generated with
+    the room's title, source type, playhead, member count, the last sixteen chat
+    lines and the previous board's title and summary. Boards live in
+    `cinema_whiteboards` and expire with `cinema_retention_hours`, are deleted
+    with their room, and are broadcast to open screens over the room socket.
+    `cinema_whiteboard_enabled` (default on) and
+    `cinema_whiteboard_generations_per_hour` (default 12, per student) are
+    console settings, because every board is a model call billed to this account.
 
 ## 0.3 What this revision changes
 
@@ -928,6 +960,7 @@ room that simply expired from counting as a strike against its host.
 | POST | `/api/cinema/sessions/:id/recordings/:recordingId/complete` | Finish a take; the bucket's report decides (M8) |
 | GET/DELETE | `/api/cinema/recordings/:id` | Read or delete a take, recorder only (M8) |
 | GET | `/api/cinema/recordings/:id/file` | Download the take, streamed by the Worker (M8) |
+| GET/POST/DELETE | `/api/cinema/sessions/:id/whiteboard` | List the room's AI boards, ask for one, or clear one (M9) |
 
 There is no `/api/auth/login`: the account cookie the rest of the client uses is the
 only credential, and every route above calls the same `requireStudent`-style guard
@@ -953,8 +986,14 @@ Events:
 
 ```text
 client → room   play | pause | seek | chat_message | ping | signal | media_state | recording_state
-room → client   state | chat | chat_removed | source | presence | pong | signal | closed | error
+room → client   state | chat | chat_removed | source | presence | signal | whiteboard | whiteboard_removed | pong | closed | error
 ```
+
+`whiteboard` carries a finished AI board — already parsed and bounded by the
+Worker, so an open screen renders it without another round trip — and
+`whiteboard_removed` names a board the host (or its asker) cleared, which every
+open screen drops by id. Boards also survive a reconnect: the panel reads the
+room's history from `GET .../whiteboard` when it mounts.
 
 `signal` is one leg of a WebRTC handshake (`offer`, `answer` or `candidate`)
 addressed to one member; the room relays it blind and stamps `from` from the
@@ -1427,6 +1466,11 @@ and the audio and video flow between the members' browsers.
 | 7 | The recorder: `MediaRecorder` of the recorder's own tracks, consent checkbox, room-wide notice, pause/resume, length cap, multipart upload to the private bucket | High | ✅ M8 |
 | 8 | `cinema_recordings`, recorder-scoped list/read/delete/download, and retention on the cleanup job | High | ✅ M8 |
 | 9 | Tests: relay routing and spoofing, frame ceilings, presence flags, the recording transport, and the TURN fallbacks | High | ✅ M8 |
+| 10 | The scene protocol: bounded JSON blocks (text, maths, code, diagrams, simulated steps), parsed and bounded server-side, with a prose fallback | High | ✅ M9 |
+| 11 | The renderer: dependency-free LaTeX subset, computed layered diagram layout, and the "Simulated lab" banner | High | ✅ M9 |
+| 12 | `cinema_whiteboards`, session-aware generation (title, playhead, last chat, previous board), retention with the room, socket broadcast and removal | High | ✅ M9 |
+| 13 | Console switches `cinema_whiteboard_enabled` and `cinema_whiteboard_generations_per_hour`, enforced per student per hour | High | ✅ M9 |
+| 14 | Tests: scene parsing and bounds, layout layering, maths escaping, generation, permissions and retention | High | ✅ M9 |
 
 **Status: M8 delivered.** A member turns on a mic and the room hears it; turns
 on a camera and the room sees it, one peer connection at a time. A stranger with
@@ -1444,6 +1488,24 @@ row second, with a bucket that refuses leaving the row for the next tick.
 The honest limits are recorded here: a mesh carries a handful of participants
 well and a lecture hall not at all; a take lost to a crashed tab is lost; the
 length cap is enforced by the client's clock, and the byte cap by the server.
+
+**Status: M9 delivered.** A member asks a question and the room gets a board
+that knows where it is: the room's title, the playhead the question was asked at,
+the last sixteen chat lines and the board before it are the context. The model
+answers with a bounded JSON scene — an explanation, a derivation, a short
+snippet, a diagram whose layout the client computes, or a simulated walkthrough
+with its steps tagged LAB, DEFENCE or CHECK. The parser is the guard: a block it
+does not recognise is dropped, every string is bounded, an edge that names a
+missing node disappears with the edge, and a model that answers in prose gets
+one repair attempt before the prose is shown as a plain-text board marked
+`unparsed`. Offensive-security questions are answered as education — concept,
+defence, ethics, simulated lab — and any board with a simulated exercise wears
+the lab banner so nobody mistakes it for a live target. Boards are stored in
+`cinema_whiteboards`, broadcast to every open screen over the room socket,
+dropped on every screen by id when the host or the asker clears one, and deleted
+by the same retention job and room deletion that already handle chat, video and
+recordings. The pace is a console setting: each board is a model call, and the
+per-student hourly limit says so.
 
 ### Acceptance for Phase 1
 
@@ -1473,6 +1535,7 @@ the same shape the Hostel Finder rollout used.
 | **M6 — Phase 2 opens** ✅ | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
 | **M7 — the upload is accountable** ✅ | video reports, the moderator's takedown, its audit, and the repeat-uploader limit | a reported upload is deleted from the bucket, the room falls back, and the uploader's next upload is refused |
 | **M8 — the room talks, and takes notes** ✅ | WebRTC mesh over the room socket, TURN credentials, console switches, mic/camera panel, the private recorder and its retention | two browsers exchange audio through a relayed handshake; a take is recorded, uploaded, and deleted by retention with its room |
+| **M9 — the room explains itself** ✅ | the session-aware AI whiteboard: bounded scenes, the dependency-free renderer, `cinema_whiteboards`, socket broadcast and the two console switches | a member asks a question mid-video and every open screen draws the diagram; a prose answer still lands; a cleared board leaves every screen |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
 use it. M6 opens Phase 2 with the decision made and the upload path built end to
@@ -1480,6 +1543,10 @@ end; M7 makes the uploaded video accountable — reportable, removable, audited 
 limited for repeat offenders — and closes Phase 2. M8 opens Phase 3: the room
 speaks, appears, and can record the recorder's own contribution, with the media
 staying out of the platform's hands and the recording's fate tied to its room.
+M9 keeps Phase 3 open and makes the room able to explain itself: a question
+asked in the room is answered from the room's own context, as a scene the client
+draws rather than markup it trusts, and the board belongs to the room's record —
+retained, broadcast, clearable, and paced by a console setting.
 
 ---
 

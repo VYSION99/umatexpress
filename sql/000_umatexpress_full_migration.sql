@@ -1474,3 +1474,40 @@ CREATE TABLE IF NOT EXISTS cinema_recordings (
 CREATE INDEX IF NOT EXISTS idx_cinema_recordings_session ON cinema_recordings(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cinema_recordings_recorder ON cinema_recordings(recorder_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cinema_recordings_status ON cinema_recordings(status, expires_at ASC);
+
+-- 032: cinema whiteboards — the room's AI answers, kept with the room.
+--
+-- A board is born from a question plus the room's context: the title, where the
+-- video is, the last few chat lines and the board before it. The scene column
+-- holds a bounded JSON document — text, maths, code, diagrams, simulated steps —
+-- never markup: the engine parses and bounds the model's reply before it is
+-- stored, and the row is what every screen renders from.
+--
+-- Retention is the room's own `cinema_retention_hours`, like chat and
+-- recordings. Deleting is a status change rather than a delete so the socket
+-- can name the board that left the screen; cleanup and room deletion mark whole
+-- sets of rows the same way.
+
+CREATE TABLE IF NOT EXISTS cinema_whiteboards (
+  id             TEXT PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  requester_id   TEXT NOT NULL DEFAULT '',
+  requester_name TEXT NOT NULL DEFAULT '',
+  question       TEXT NOT NULL DEFAULT '',
+  mode           TEXT NOT NULL DEFAULT 'AUTO',
+  title          TEXT NOT NULL DEFAULT '',
+  summary        TEXT NOT NULL DEFAULT '',
+  topic          TEXT NOT NULL DEFAULT 'GENERAL',
+  lab            INTEGER NOT NULL DEFAULT 0,
+  scene          TEXT NOT NULL DEFAULT '{}',
+  model          TEXT NOT NULL DEFAULT '',
+  at_seconds     INTEGER NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'READY',
+  expires_at     TEXT NOT NULL DEFAULT '',
+  deleted_at     TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cinema_whiteboards_session ON cinema_whiteboards(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cinema_whiteboards_status ON cinema_whiteboards(status, expires_at ASC);

@@ -1,7 +1,19 @@
 import { aiBinding } from "@/lib/cloudflare-bindings";
 import { envValue } from "@/lib/runtime-env";
 
-export const DEFAULT_CLOUDFLARE_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+// The 3.1 8B instruct model was retired on 2026-05-30; the console assistant
+// already defaulted to this one, and structured answers (the Cinema whiteboard
+// schema, the assistant's JSON) need the larger model anyway.
+export const DEFAULT_CLOUDFLARE_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
+/**
+ * The model a call will use, resolved the same way `callCloudflareAi` resolves
+ * it. Callers that store which model answered (the Cinema whiteboard does) read
+ * this rather than re-deriving it and recording a guess.
+ */
+export async function cloudflareAiModelName() {
+  return await envValue("CLOUDFLARE_AI_MODEL") || DEFAULT_CLOUDFLARE_AI_MODEL;
+}
 
 export async function isCloudflareAiConfigured() {
   // The Worker binding is the preferred path: no token travels with the
@@ -26,7 +38,15 @@ export async function cloudflareAiConfigStatus() {
   };
 }
 
-function normalizeCloudflareAiText(payload: unknown): string {
+/**
+ * The text out of a Workers AI reply, in either shape the service returns.
+ *
+ * The older models answer `{ response }`; the newer ones answer the
+ * OpenAI-compatible `{ choices: [{ message: { content } }] }`. Both are read
+ * here because which one arrives depends on the model named in the setting,
+ * and a model swap must not silently turn every answer into "empty response".
+ */
+export function normalizeCloudflareAiText(payload: unknown): string {
   if (typeof payload === "string") return payload.trim();
   if (Array.isArray(payload)) {
     const text = payload
@@ -37,6 +57,14 @@ function normalizeCloudflareAiText(payload: unknown): string {
   }
   if (payload && typeof payload === "object") {
     const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.choices)) {
+      const choiceText = normalizeCloudflareAiText(record.choices.map((choice) => {
+        if (!choice || typeof choice !== "object") return "";
+        const entry = choice as Record<string, unknown>;
+        return entry.message ?? entry.text ?? entry.delta ?? "";
+      }));
+      if (choiceText) return choiceText;
+    }
     const candidates = [
       record.response,
       record.text,
@@ -57,7 +85,7 @@ function normalizeCloudflareAiText(payload: unknown): string {
 }
 
 export async function callCloudflareAi(systemPrompt: string, userPrompt: string) {
-  const model = await envValue("CLOUDFLARE_AI_MODEL") || DEFAULT_CLOUDFLARE_AI_MODEL;
+  const model = await cloudflareAiModelName();
 
   const binding = await aiBinding();
   if (binding) {
@@ -66,6 +94,10 @@ export async function callCloudflareAi(systemPrompt: string, userPrompt: string)
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
+      // The platform default reply budget is small enough to cut a structured
+      // scene in half; the whiteboard's JSON needs room to close its braces.
+      max_tokens: 2_048,
+      temperature: 0.2,
     });
     const boundText = normalizeCloudflareAiText(data);
     if (!boundText) throw new Error("Cloudflare AI returned an empty response.");
@@ -90,6 +122,8 @@ export async function callCloudflareAi(systemPrompt: string, userPrompt: string)
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
+      max_tokens: 2_048,
+      temperature: 0.2,
     }),
   });
 

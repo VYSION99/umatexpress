@@ -517,3 +517,45 @@ test("a malformed media or recording switch is dropped rather than half-applied"
   assert.equal(state.sockets[0].attachment.recording, false);
   assert.equal(last(hostSocket, "presence").members[0].mic, false);
 });
+
+test("an AI board reaches every open screen, and a cleared one leaves by id", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  const board = {
+    id: "board-1", roomId: "room-1", requesterId: "guest-2", requesterName: "Kwesi Guest",
+    title: "TCP handshake", summary: "SYN, SYN-ACK, ACK.", topic: "FLOWCHART", lab: false,
+    blocks: [{ kind: "text", text: "Sequence numbers are agreed first." }], atSeconds: 12,
+    createdAt: "2026-09-21T09:00:00.000Z",
+  };
+  const published = await room.fetch(new Request("https://cinema-room/whiteboard", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ board }),
+  }));
+  assert.equal(published.status, 200);
+  assert.deepEqual(last(hostSocket, "whiteboard").board, board);
+  assert.deepEqual(last(guestSocket, "whiteboard").board, board);
+
+  // The route must never broadcast something it could not render: an object
+  // without an id or a block list is refused before it reaches a screen.
+  const refused = await room.fetch(new Request("https://cinema-room/whiteboard", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ board: { id: 7, blocks: "no" } }),
+  }));
+  assert.equal(refused.status, 400);
+  assert.equal(last(hostSocket, "whiteboard").board.id, "board-1", "the bad payload did not replace the good one");
+
+  const removed = await room.fetch(new Request("https://cinema-room/whiteboard-remove", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "board-1" }),
+  }));
+  assert.equal(removed.status, 200);
+  assert.equal(last(hostSocket, "whiteboard_removed").id, "board-1");
+  assert.equal(last(guestSocket, "whiteboard_removed").id, "board-1");
+  assert.equal((await room.fetch(new Request("https://cinema-room/whiteboard-remove", { method: "POST" }))).status, 400);
+});

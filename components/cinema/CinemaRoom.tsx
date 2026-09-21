@@ -8,6 +8,7 @@ import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
 import { CinemaMediaPanel } from "./CinemaMediaPanel";
+import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
 import { UploadPanel } from "./UploadPanel";
 import { UploadPlayer } from "./UploadPlayer";
 import { YouTubePlayer } from "./YouTubePlayer";
@@ -193,6 +194,17 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         enabled={live.state === "live"}
         send={live.send}
         subscribeSignals={live.subscribeSignals}
+      />}
+
+      {account && <CinemaWhiteboardPanel
+        roomId={room.id}
+        selfId={account.id}
+        isHost={room.isHost}
+        active={active}
+        connected={live.state === "live"}
+        board={live.whiteboard}
+        removedIds={live.removedWhiteboards}
+        playback={live.playback}
       />}
 
       <section className="cinema-share">

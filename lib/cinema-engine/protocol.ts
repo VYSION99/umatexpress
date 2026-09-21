@@ -1,3 +1,5 @@
+import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
+
 /**
  * The Cinema socket protocol.
  *
@@ -78,6 +80,9 @@ export type CinemaServerMessage =
   | { type: "chat_removed"; id: string }
   | { type: "source"; sourceType: string; videoId: string }
   | { type: "signal"; from: string; payload: CinemaSignalPayload }
+  /** A new AI board for the room; the scene is already parsed and bounded. */
+  | { type: "whiteboard"; board: CinemaWhiteboardView }
+  | { type: "whiteboard_removed"; id: string }
   | { type: "pong"; at: number }
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };

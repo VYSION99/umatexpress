@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
+import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 
 export type CinemaSignalHandler = (from: string, payload: CinemaSignalPayload) => void;
 
@@ -13,6 +14,8 @@ const RETRY_BASE_MS = 800;
 const RETRY_MAX_MS = 15_000;
 /** The window keeps the last hundred; the server replays fifty. */
 const CHAT_KEEP = 100;
+/** Board ids a reconnect should not re-show if the room cleared them meanwhile. */
+const WHITEBOARD_REMOVED_KEEP = 50;
 
 /**
  * The room's live connection.
@@ -34,6 +37,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
   const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
   const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
+  const [whiteboard, setWhiteboard] = useState<CinemaWhiteboardView | null>(null);
+  const [removedWhiteboards, setRemovedWhiteboards] = useState<string[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   /**
    * Signaling consumers register here rather than in the socket's state: a
@@ -136,6 +141,17 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         // A moderator removed a message: the open room drops it too, so the
         // screens and the replay agree about what the room now contains.
         if (message.type === "chat_removed") setMessages((current) => current.filter((item) => item.id !== message.id));
+        // The room's AI answered: the scene is already parsed and bounded, so
+        // the panel renders it without another round trip.
+        if (message.type === "whiteboard") setWhiteboard(message.board);
+        // Someone cleared a board: screens that are showing it drop it, and the
+        // id is remembered so the fetched history does not bring it back.
+        if (message.type === "whiteboard_removed") {
+          setWhiteboard((current) => (current?.id === message.id ? null : current));
+          setRemovedWhiteboards((current) => current.includes(message.id)
+            ? current
+            : [...current, message.id].slice(-WHITEBOARD_REMOVED_KEEP));
+        }
         if (message.type === "closed") {
           ended = true;
           setState("closed");
@@ -169,6 +185,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, members, playback, messages, source, send, sendChat, subscribeSignals }
-    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, send, sendChat, subscribeSignals };
+    ? { state, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals }
+    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals };
 }

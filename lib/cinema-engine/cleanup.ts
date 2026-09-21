@@ -7,6 +7,11 @@ import {
 } from "@/lib/cinema-engine/recordings";
 import { ensureCinemaTables } from "@/lib/cinema-engine/rooms";
 import { purgeCinemaUploadForRoom } from "@/lib/cinema-engine/uploads";
+import {
+  ensureCinemaWhiteboardTables,
+  purgeCinemaWhiteboardsForRoom,
+  purgeExpiredCinemaWhiteboards,
+} from "@/lib/cinema-engine/whiteboard";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { platformSettingNumber } from "@/lib/platform-settings";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
@@ -35,6 +40,8 @@ export type CinemaCleanupResult = {
   deleted: number;
   /** Recordings past their retention window that were removed this run. */
   recordingsDeleted: number;
+  /** AI boards past their retention window that were removed this run. */
+  whiteboardsDeleted: number;
   /** True when the Durable Object could not be asked about live rooms. */
   presenceUnavailable: boolean;
 };
@@ -52,12 +59,13 @@ const MAX_LIMIT = 20;
 export async function runCinemaCleanup(input: CleanupInput = {}): Promise<CinemaCleanupResult> {
   const limit = Math.min(Math.max(Math.round(Number(input.limit) || DEFAULT_LIMIT), 1), MAX_LIMIT);
   const now = Number.isFinite(Number(input.now)) ? Number(input.now) : Date.now();
-  const empty: CinemaCleanupResult = { configured: false, idleEnded: 0, deleted: 0, recordingsDeleted: 0, presenceUnavailable: false };
+  const empty: CinemaCleanupResult = { configured: false, idleEnded: 0, deleted: 0, recordingsDeleted: 0, whiteboardsDeleted: 0, presenceUnavailable: false };
   try {
     if (!await isTursoConfiguredRuntime()) return empty;
     await ensureCinemaTables();
     await ensureCinemaMessageTables();
     await ensureCinemaRecordingTables();
+    await ensureCinemaWhiteboardTables();
     const idleMinutes = await platformSettingNumber("cinema_room_idle_minutes");
     const retentionHours = await platformSettingNumber("cinema_retention_hours");
     const presence = input.presence ?? cinemaRoomPresence;
@@ -67,11 +75,13 @@ export async function runCinemaCleanup(input: CleanupInput = {}): Promise<Cinema
     // kept for a room that still exists is purged here rather than waiting for
     // the room itself to be deleted.
     const recordings = await purgeExpiredCinemaRecordings({ limit: 12, now });
-    if (idle.ended || expired.deleted || recordings.deleted || idle.presenceUnavailable) {
+    const whiteboards = await purgeExpiredCinemaWhiteboards({ limit: 20, now });
+    if (idle.ended || expired.deleted || recordings.deleted || whiteboards.deleted || idle.presenceUnavailable) {
       logEvent("info", "cinema_cleanup_run", {
         idleEnded: idle.ended,
         deleted: expired.deleted,
         recordingsDeleted: recordings.deleted,
+        whiteboardsDeleted: whiteboards.deleted,
         presenceUnavailable: idle.presenceUnavailable,
       });
     }
@@ -80,6 +90,7 @@ export async function runCinemaCleanup(input: CleanupInput = {}): Promise<Cinema
       idleEnded: idle.ended,
       deleted: expired.deleted,
       recordingsDeleted: recordings.deleted,
+      whiteboardsDeleted: whiteboards.deleted,
       presenceUnavailable: idle.presenceUnavailable,
     };
   } catch (error) {
@@ -183,6 +194,7 @@ async function deleteExpiredRooms(input: { limit: number; now: number; retention
     // the platform did not keep.
     const recordings = await purgeCinemaRecordingsForRoom(id, { now: input.now });
     if (recordings.status === "retry") continue;
+    await purgeCinemaWhiteboardsForRoom(id, { now: input.now });
     await purgeCinemaMessages(id);
     await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
     const result = await turso(

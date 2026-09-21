@@ -25,6 +25,7 @@ import {
   type CinemaServerMessage,
   type CinemaSignalInput,
 } from "@/lib/cinema-engine/protocol";
+import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 import { CINEMA_CHAT_REPLAY_LIMIT, recentCinemaMessages, writeCinemaMessage } from "@/lib/cinema-engine/messages";
 import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
 import { logEvent } from "@/lib/observability";
@@ -125,6 +126,8 @@ export class CinemaRoom {
     if (url.pathname === "/close") return this.closeRoom();
     if (url.pathname === "/purge-message") return this.purgeMessage(request);
     if (url.pathname === "/source") return this.updateSource(request);
+    if (url.pathname === "/whiteboard") return this.publishWhiteboard(request);
+    if (url.pathname === "/whiteboard-remove") return this.removeWhiteboard(request);
     if (url.pathname === "/presence") return this.presenceResponse();
     return new Response("Not found", { status: 404 });
   }
@@ -209,6 +212,30 @@ export class CinemaRoom {
     const id = String(body?.messageId || "").trim();
     if (!id) return jsonResponse({ error: "A message id is required." }, 400);
     this.broadcast({ type: "chat_removed", id });
+    return jsonResponse({ ok: true, id }, 200);
+  }
+
+  /**
+   * A new board from the room's AI. The Worker route built and parsed it; the
+   * object only carries it to the screens that are open, so a member does not
+   * have to reload to see the answer their question produced.
+   */
+  private async publishWhiteboard(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null) as { board?: unknown } | null;
+    const board = body?.board as CinemaWhiteboardView | undefined;
+    if (!board || typeof board !== "object" || typeof board.id !== "string" || !Array.isArray(board.blocks)) {
+      return jsonResponse({ error: "A parsed board is required." }, 400);
+    }
+    this.broadcast({ type: "whiteboard", board });
+    return jsonResponse({ ok: true, id: board.id }, 200);
+  }
+
+  /** The host cleared a board; every open screen drops it by id. */
+  private async removeWhiteboard(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null) as { id?: unknown } | null;
+    const id = String(body?.id || "").trim();
+    if (!id) return jsonResponse({ error: "A board id is required." }, 400);
+    this.broadcast({ type: "whiteboard_removed", id });
     return jsonResponse({ ok: true, id }, 200);
   }
 

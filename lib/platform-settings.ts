@@ -41,7 +41,9 @@ export type PlatformSettingKey =
   | "cinema_voice_enabled"
   | "cinema_camera_enabled"
   | "cinema_recordings_enabled"
-  | "cinema_max_recording_minutes";
+  | "cinema_max_recording_minutes"
+  | "cinema_whiteboard_enabled"
+  | "cinema_whiteboard_generations_per_hour";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -180,6 +182,26 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: 120,
     min: 1,
     max: 600,
+  },
+  {
+    key: "cinema_whiteboard_enabled",
+    kind: "toggle",
+    label: "Cinema AI whiteboard",
+    summary: "Let a study room ask the AI for a diagram, a derivation or a simulated lab.",
+    detail: "On, any member may ask a question and the room's context — title, video position, the last few chat lines and the previous board — is sent to Cloudflare's AI, which answers with a bounded scene: text, maths, code, diagrams or simulated steps. The board is stored with the room and deleted by the same retention window. Off hides the panel and refuses new boards; boards already on screen stay readable until retention deletes them.",
+    env: "CINEMA_WHITEBOARD_ENABLED",
+    fallback: true,
+  },
+  {
+    key: "cinema_whiteboard_generations_per_hour",
+    kind: "number",
+    label: "Cinema whiteboard pace",
+    summary: "How many AI boards one student may ask for in an hour.",
+    detail: "Each board is a model call billed to this account, so the pace is a setting rather than a constant. The limit is per student and the room's other members are unaffected; a refused request answers with the seconds to wait. The default is deliberately modest for a classroom.",
+    env: "CINEMA_WHITEBOARD_GENERATIONS_PER_HOUR",
+    fallback: 12,
+    min: 1,
+    max: 60,
   },
 ];
 
