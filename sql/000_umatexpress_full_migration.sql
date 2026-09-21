@@ -1428,3 +1428,18 @@ CREATE TABLE IF NOT EXISTS cinema_uploads (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_uploads_session ON cinema_uploads(session_id);
 CREATE INDEX IF NOT EXISTS idx_cinema_uploads_status ON cinema_uploads(status, created_at DESC);
+
+-- 030: cinema upload takedowns — who removed a video, and why.
+--
+-- A moderator's removal is written on the row, and only a moderator's: the
+-- retention job deletes the object without touching these columns, which is
+-- what keeps an expired room from counting as a strike against its host. The
+-- count of non-empty `removed_by` per uploader is what the upload guard reads
+-- against the `cinema_upload_takedown_limit` platform setting.
+--
+-- SQLite has no ADD COLUMN IF NOT EXISTS, so these are the one part of this
+-- file that is not safe to run twice; the engine's own schema pass tolerates
+-- the duplicate and the runtime does this for you.
+
+ALTER TABLE cinema_uploads ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE cinema_uploads ADD COLUMN removed_reason TEXT NOT NULL DEFAULT '';

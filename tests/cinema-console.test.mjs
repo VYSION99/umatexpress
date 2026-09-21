@@ -18,7 +18,7 @@ process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-ch
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
 const state = {
-  sessions: [], participants: [], messages: [], signals: [], audits: [],
+  sessions: [], participants: [], messages: [], signals: [], uploads: [], audits: [],
   schema: new Map(), windows: new Map(), metrics: [],
 };
 
@@ -45,6 +45,7 @@ const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), row
 const SESSION_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "started_at", "ended_at", "created_at", "updated_at"];
 const MESSAGE_COLUMNS = ["id", "session_id", "sender_id", "sender_name", "content", "metadata", "created_at"];
 const SIGNAL_COLUMNS = ["id", "signal_key", "severity", "entity_type", "entity_id", "session_id", "reporter_id", "reporter_name", "report_count", "title", "detail", "evidence", "status", "reviewed_by", "reviewed_at", "review_note", "created_at", "updated_at"];
+const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
 
 function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) {
@@ -116,6 +117,34 @@ function handle(sql, args) {
       if (session.id === args[2] && ["CREATED", "LIVE"].includes(session.status)) { session.status = "ENDED"; session.ended_at = args[0]; session.updated_at = args[1]; count += 1; }
     }
     return affected(count);
+  }
+  if (/^UPDATE cinema_sessions SET video_source_type = 'YOUTUBE', video_id = '', updated_at = \?/.test(sql)) {
+    const [updatedAt, id, videoId] = args;
+    const session = state.sessions.find((row) => row.id === id);
+    if (!session || session.video_source_type !== "UPLOAD" || session.video_id !== videoId) return affected(0);
+    Object.assign(session, { video_source_type: "YOUTUBE", video_id: "", updated_at: updatedAt });
+    return affected(1);
+  }
+
+  if (/^SELECT id,session_id,uploader_id,r2_object_key/.test(sql)) {
+    const row = state.uploads.find((upload) => upload.session_id === args[0]);
+    return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
+  }
+  if (/^SELECT COUNT\(\*\) AS removals FROM cinema_uploads/.test(sql)) {
+    const [uploaderId, excludeId] = args;
+    const removals = state.uploads.filter((upload) => upload.uploader_id === uploaderId && upload.removed_by && upload.id !== excludeId).length;
+    return ok(table(["removals"], [{ removals }]));
+  }
+  if (/^UPDATE cinema_uploads SET status = 'DELETING'/.test(sql)) {
+    const upload = state.uploads.find((row) => row.id === args[1]);
+    if (upload) Object.assign(upload, { status: "DELETING", updated_at: args[0] });
+    return affected(upload ? 1 : 0);
+  }
+  if (/^UPDATE cinema_uploads SET status = 'DELETED', deleted_at = \?, removed_by = \?, removed_reason = \?, updated_at = \?/.test(sql)) {
+    const upload = state.uploads.find((row) => row.id === args[4] && row.status === "DELETING");
+    if (!upload) return affected(0);
+    Object.assign(upload, { status: "DELETED", deleted_at: args[0], removed_by: args[1], removed_reason: args[2], updated_at: args[3] });
+    return affected(1);
   }
 
   if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at FROM cinema_participants/.test(sql)) {
@@ -223,6 +252,7 @@ beforeEach(() => {
   state.participants = [{ session_id: "room-1", student_id: "student-a", display_name: "Ama", joined_at: stamp(90), last_seen_at: stamp(1), left_at: "" }];
   state.messages = [{ id: "message-1", session_id: "room-1", sender_id: "student-b", sender_name: "Kwesi", content: "This is off topic", metadata: "", created_at: stamp(5) }];
   state.signals = [];
+  state.uploads = [];
   state.audits = [];
   state.windows.clear();
   state.metrics = [];
@@ -391,4 +421,41 @@ test("a student in the room can report; a stranger cannot", async () => {
   });
   const refused = await reportRoute.POST(stranger, { params: Promise.resolve({ id: "room-1" }) });
   assert.equal(refused.status, 403, "reporting is something said from inside the room");
+});
+
+test("a moderator takes an uploaded video down through the console API", async () => {
+  state.sessions[0].video_source_type = "UPLOAD";
+  state.sessions[0].video_id = "upload-1";
+  state.uploads = [{
+    id: "upload-1", session_id: "room-1", uploader_id: "student-a", r2_object_key: "cinema/room-1/video/upload-1/original.mp4",
+    r2_upload_id: "", original_filename: "party.mp4", file_size_bytes: 1024, mime_type: "video/mp4", duration_seconds: 30,
+    ownership_confirmed: 1, status: "READY", expires_at: "", deleted_at: "", removed_by: "", removed_reason: "",
+    created_at: stamp(30), updated_at: stamp(5),
+  }];
+
+  const moderator = await consoleCookie("console-moderator");
+  const organizer = await consoleCookie("console-organizer");
+  const student = await studentCookie("student-a");
+  const call = (cookie, body) => sessionRoute.POST(
+    new Request("https://console.example.test/api/console/cinema/sessions/room-1", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) }),
+    { params: Promise.resolve({ id: "room-1" }) },
+  );
+
+  assert.equal((await call(organizer, { action: "REMOVE_VIDEO" })).status, 403, "an organizer is not a moderator");
+  assert.equal((await call(student, { action: "REMOVE_VIDEO" })).status, 401, "a student cookie is not a console session");
+  assert.equal(state.uploads[0].status, "READY", "a refused caller changed nothing");
+
+  const removed = await call(moderator, { action: "REMOVE_VIDEO", reason: "Copyright complaint" });
+  assert.equal(removed.status, 200);
+  const body = await removed.json();
+  assert.equal(body.removal.uploaderRemovals, 1);
+  assert.equal(body.removal.filename, "party.mp4");
+  assert.equal(state.uploads[0].status, "DELETED");
+  assert.equal(state.uploads[0].removed_by, "mod@umat.edu.gh");
+  assert.equal(state.sessions[0].video_source_type, "YOUTUBE");
+  assert.equal(state.sessions[0].video_id, "");
+  assert.equal(state.audits.at(-1).action, "cinema_upload_removed");
+  assert.equal(JSON.parse(state.audits.at(-1).details).reason, "Copyright complaint");
+
+  assert.equal((await call(moderator, { action: "REMOVE_VIDEO" })).status, 409, "a second takedown reports the truth");
 });

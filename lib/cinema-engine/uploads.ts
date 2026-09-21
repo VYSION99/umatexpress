@@ -1,5 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { privateBucket } from "@/lib/cloudflare-bindings";
+import { consoleAudit } from "@/lib/console-audit";
 import { announceCinemaSource } from "@/lib/cinema-engine/realtime";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { platformSettingEnabled, platformSettingNumber } from "@/lib/platform-settings";
@@ -21,7 +22,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * client; playback goes through a short-lived signed URL (media.ts).
  */
 
-export const CINEMA_UPLOAD_SCHEMA_VERSION = "029_cinema_uploads";
+export const CINEMA_UPLOAD_SCHEMA_VERSION = "030_cinema_upload_removals";
 
 export const CINEMA_UPLOAD_STATUSES = ["UPLOADING", "READY", "DELETING", "DELETED", "FAILED"] as const;
 export type CinemaUploadStatus = (typeof CINEMA_UPLOAD_STATUSES)[number];
@@ -54,6 +55,11 @@ const CINEMA_UPLOAD_SCHEMA_STATEMENTS = [
   )`,
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_uploads_session ON cinema_uploads(session_id)",
   "CREATE INDEX IF NOT EXISTS idx_cinema_uploads_status ON cinema_uploads(status, created_at DESC)",
+  // A moderator's removal is remembered on the row, and only a moderator's:
+  // retention deletes the object without setting `removed_by`, which is what
+  // keeps an expired room from counting as a strike against its host.
+  "ALTER TABLE cinema_uploads ADD COLUMN removed_by TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE cinema_uploads ADD COLUMN removed_reason TEXT NOT NULL DEFAULT ''",
 ];
 
 let uploadTablesReady: Promise<void> | null = null;
@@ -91,7 +97,8 @@ const UPLOAD_COLUMNS = `id,session_id,uploader_id,r2_object_key,COALESCE(r2_uplo
   COALESCE(original_filename,'') AS original_filename,COALESCE(file_size_bytes,0) AS file_size_bytes,
   COALESCE(mime_type,'') AS mime_type,COALESCE(duration_seconds,0) AS duration_seconds,
   COALESCE(ownership_confirmed,0) AS ownership_confirmed,COALESCE(status,'UPLOADING') AS status,
-  COALESCE(expires_at,'') AS expires_at,COALESCE(deleted_at,'') AS deleted_at,created_at,updated_at`;
+  COALESCE(expires_at,'') AS expires_at,COALESCE(deleted_at,'') AS deleted_at,
+  COALESCE(removed_by,'') AS removed_by,COALESCE(removed_reason,'') AS removed_reason,created_at,updated_at`;
 
 export type CinemaUpload = {
   id: string;
@@ -106,6 +113,9 @@ export type CinemaUpload = {
   status: CinemaUploadStatus;
   expiresAt: string;
   deletedAt: string;
+  /** Set only by a moderator's takedown; empty for retention and failures. */
+  removedBy: string;
+  removedReason: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -124,6 +134,8 @@ function uploadView(row: Record<string, unknown>): CinemaUpload {
     status: String(row.status || "UPLOADING") as CinemaUploadStatus,
     expiresAt: String(row.expires_at || ""),
     deletedAt: String(row.deleted_at || ""),
+    removedBy: String(row.removed_by || ""),
+    removedReason: String(row.removed_reason || ""),
     createdAt: String(row.created_at || ""),
     updatedAt: String(row.updated_at || ""),
   };
@@ -215,6 +227,14 @@ export async function beginCinemaUpload(input: {
     throw new CampusEngineError("VALIDATION_ERROR", "Confirm you have the right to share this video before uploading.", 400);
   }
   await requireUploadRoom(input.roomId, input.studentId);
+  // Repeated takedowns cost the account its upload rights, not the room: the
+  // room still works with YouTube, and the platform's own account tools are
+  // untouched. A room that simply expired is not a strike — only a moderator's
+  // removal sets `removed_by`.
+  const strikeLimit = Math.max(1, Math.floor(await platformSettingNumber("cinema_upload_takedown_limit")));
+  if (await countCinemaUploaderRemovals(String(input.studentId)) >= strikeLimit) {
+    throw new CampusEngineError("FORBIDDEN", "Uploading is turned off for this account after repeated takedowns.", 403);
+  }
 
   const contentType = String(input.contentType || "").trim().toLowerCase();
   if (!(CINEMA_UPLOAD_TYPES as readonly string[]).includes(contentType)) {
@@ -257,7 +277,8 @@ export async function beginCinemaUpload(input: {
     upload: created || uploadView({
       id: uploadId, session_id: String(input.roomId), uploader_id: String(input.studentId), r2_object_key: key,
       original_filename: filename, file_size_bytes: sizeBytes, mime_type: contentType, duration_seconds: 0,
-      ownership_confirmed: 1, status: "UPLOADING", expires_at: "", deleted_at: "", created_at: stamp, updated_at: stamp,
+      ownership_confirmed: 1, status: "UPLOADING", expires_at: "", deleted_at: "", removed_by: "", removed_reason: "",
+      created_at: stamp, updated_at: stamp,
     }),
     partBytes: CINEMA_UPLOAD_PART_BYTES,
     parts,
@@ -425,6 +446,109 @@ async function abortMultipart(bucket: CinemaUploadBucket | null | undefined, key
   } catch (error) {
     logEvent("warn", "cinema_upload_abort_failed", { key, reason: error instanceof Error ? error.message : "unknown" });
   }
+}
+
+/**
+ * How many videos this account has had taken down by a moderator.
+ *
+ * Retention deletions leave `removed_by` empty, so a room that simply expired
+ * is not held against its host. This is the number the upload guard reads and
+ * the number a report card shows beside the uploader's name.
+ */
+export async function countCinemaUploaderRemovals(uploaderId: string, options: { excludeUploadId?: string } = {}) {
+  await requireTurso();
+  await ensureCinemaUploadTables();
+  const row = rowsToObjects(await turso(
+    "SELECT COUNT(*) AS removals FROM cinema_uploads WHERE uploader_id = ? AND removed_by <> '' AND id <> ?",
+    [String(uploaderId || ""), String(options.excludeUploadId || "")],
+  ))[0];
+  return Math.max(0, Math.floor(Number(row?.removals || 0)));
+}
+
+/**
+ * A moderator takes the room's video down, and the room keeps going without it.
+ *
+ * The order is the one M5 set for messages and M6 for retention: the object
+ * goes first, then the row, then the room. The deleted row stops a playback
+ * lease from being signed at all — a member's already-issued URL answers 404
+ * because the media route re-reads the status on every request. A bucket that
+ * refuses leaves the row DELETING and the video unplayable, and the moderator
+ * can try again, rather than a row that says DELETED over an object still in
+ * the bucket.
+ */
+export async function takeDownCinemaUpload(input: {
+  roomId: string;
+  actor: string;
+  reason?: unknown;
+  bucket?: CinemaUploadBucket | null;
+  now?: number;
+}) {
+  await requireTurso();
+  await ensureCinemaUploadTables();
+  const roomId = String(input.roomId || "");
+  const row = rowsToObjects(await turso(
+    `SELECT ${UPLOAD_COLUMNS} FROM cinema_uploads WHERE session_id = ? LIMIT 1`,
+    [roomId],
+  ))[0];
+  if (!row) throw new CampusEngineError("NOT_FOUND", "This room has no video attached.", 404);
+  const upload = uploadView(row);
+  if (upload.status === "DELETED") throw new CampusEngineError("INVALID_STATE", "That video has already been removed.", 409);
+  const reason = String(input.reason ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+  const stamp = new Date(input.now ?? Date.now()).toISOString();
+
+  if (upload.status !== "DELETING") {
+    await turso("UPDATE cinema_uploads SET status = 'DELETING', updated_at = ? WHERE id = ? AND status <> 'DELETED'", [stamp, upload.id]);
+  }
+  const bucket = input.bucket === undefined ? await cinemaUploadBucket() : input.bucket;
+  if (upload.status === "UPLOADING") await abortMultipart(bucket, upload.objectKey, String(row.r2_upload_id || ""));
+  if (bucket) {
+    try {
+      await bucket.delete(upload.objectKey);
+    } catch (error) {
+      logEvent("warn", "cinema_upload_takedown_failed", { roomId, uploadId: upload.id, reason: error instanceof Error ? error.message : "unknown" });
+      throw new CampusEngineError("ENGINE_ERROR", "The bucket refused the deletion, so the video is still there. Try again.", 502);
+    }
+  }
+  await turso(
+    "UPDATE cinema_uploads SET status = 'DELETED', deleted_at = ?, removed_by = ?, removed_reason = ?, updated_at = ? WHERE id = ? AND status = 'DELETING'",
+    [stamp, String(input.actor || ""), reason, stamp, upload.id],
+  );
+  // The room follows the video. Guarded, so a room that attached a different
+  // video between the read and the write is left exactly as it is.
+  const flipped = await turso(
+    "UPDATE cinema_sessions SET video_source_type = 'YOUTUBE', video_id = '', updated_at = ? WHERE id = ? AND video_source_type = 'UPLOAD' AND video_id = ?",
+    [stamp, roomId, upload.id],
+  );
+  await announceCinemaSource(roomId, { sourceType: "YOUTUBE", videoId: "" });
+  const uploaderRemovals = await countCinemaUploaderRemovals(upload.uploaderId);
+  await consoleAudit({
+    actor: input.actor,
+    action: "cinema_upload_removed",
+    targetType: "cinema_upload",
+    targetReference: upload.id,
+    details: {
+      roomId,
+      uploaderId: upload.uploaderId,
+      filename: upload.originalFilename,
+      sizeBytes: upload.fileSizeBytes,
+      reason,
+      uploaderRemovals,
+    },
+  });
+  logEvent("info", "cinema_upload_removed", { roomId, uploadId: upload.id, uploaderId: upload.uploaderId, uploaderRemovals, actor: input.actor });
+  await incrementMetric("cinema_uploads_removed");
+  return {
+    id: upload.id,
+    roomId,
+    uploaderId: upload.uploaderId,
+    filename: upload.originalFilename,
+    sizeBytes: upload.fileSizeBytes,
+    reason,
+    removedBy: String(input.actor || ""),
+    removedAt: stamp,
+    uploaderRemovals,
+    roomReset: Number(flipped.affected_row_count || 0) > 0,
+  };
 }
 
 async function activeUploadRow(roomId: string) {

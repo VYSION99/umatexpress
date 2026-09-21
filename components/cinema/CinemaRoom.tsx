@@ -31,7 +31,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState("");
-  const [report, setReport] = useState<{ messageId?: string; label: string } | null>(null);
+  const [report, setReport] = useState<{ messageId?: string; video?: boolean; label: string } | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportNotice, setReportNotice] = useState("");
@@ -139,7 +139,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messageId: report.messageId, reason: reportReason }),
+        body: JSON.stringify({ messageId: report.messageId, video: report.video, reason: reportReason }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "The report could not be sent.");
@@ -179,7 +179,9 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
               onAction={live.send}
             />
             : <p className="cinema-video-closed">
-              {sourceType === "YOUTUBE" ? "The video is not playing while the room is closed." : "The host has not attached a video to this room yet."}
+              {active
+                ? "No video is attached right now. The host can add one."
+                : "This room has ended."}
             </p>}
       </section>
 
@@ -324,6 +326,9 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
                 <button type="button" className="secondary" onClick={() => { setReport({ label: "Report this room" }); setReportReason(""); setReportNotice(""); }}>
                   <Flag size={13} aria-hidden /> Report this room
                 </button>
+                {sourceType === "UPLOAD" && videoId && <button type="button" className="secondary" onClick={() => { setReport({ video: true, label: "Report the video" }); setReportReason(""); setReportNotice(""); }}>
+                  <Flag size={13} aria-hidden /> Report the video
+                </button>}
               </div>}
           </>}
       </section>

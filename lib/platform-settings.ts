@@ -36,7 +36,8 @@ export type PlatformSettingKey =
   | "cinema_retention_hours"
   | "cinema_uploads_enabled"
   | "cinema_max_upload_bytes"
-  | "cinema_max_upload_minutes";
+  | "cinema_max_upload_minutes"
+  | "cinema_upload_takedown_limit";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -126,6 +127,17 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: 120,
     min: 1,
     max: 600,
+  },
+  {
+    key: "cinema_upload_takedown_limit",
+    kind: "number",
+    label: "Cinema upload strikes",
+    summary: "How many videos a student may have taken down before uploads are refused.",
+    detail: "A moderator's removal counts against the uploader, not the room: when the count reaches this number, that student's new uploads are refused while their rooms keep working with YouTube. A video deleted by retention is not a strike, and the count never touches the rest of the platform.",
+    env: "CINEMA_UPLOAD_TAKEDOWN_LIMIT",
+    fallback: 2,
+    min: 1,
+    max: 10,
   },
 ];
 

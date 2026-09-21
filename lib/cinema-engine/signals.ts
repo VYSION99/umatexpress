@@ -1,5 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { readCinemaMessage } from "@/lib/cinema-engine/messages";
+import { cinemaUploadForRoom, countCinemaUploaderRemovals, type CinemaUpload } from "@/lib/cinema-engine/uploads";
 import { consoleAudit } from "@/lib/console-audit";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
@@ -22,6 +23,8 @@ export const CINEMA_SIGNAL_SEVERITIES = ["LOW", "MEDIUM", "HIGH"] as const;
 export const CINEMA_SIGNAL_STATUSES = ["OPEN", "REVIEWED", "DISMISSED"] as const;
 export type CinemaSignalSeverity = (typeof CINEMA_SIGNAL_SEVERITIES)[number];
 export type CinemaSignalStatus = (typeof CINEMA_SIGNAL_STATUSES)[number];
+/** What a report is about: the room, one message, or the room's uploaded video. */
+export type CinemaSignalEntityType = "ROOM" | "MESSAGE" | "UPLOAD";
 
 /** How many reports of one thing turn a card amber, then red. */
 const MEDIUM_AT = 2;
@@ -75,7 +78,7 @@ export type CinemaSignal = {
   id: string;
   signalKey: string;
   severity: CinemaSignalSeverity;
-  entityType: "ROOM" | "MESSAGE";
+  entityType: CinemaSignalEntityType;
   entityId: string;
   sessionId: string;
   reporterId: string;
@@ -102,11 +105,12 @@ function parseEvidence(value: unknown): Record<string, unknown> {
 }
 
 function signalView(row: Record<string, unknown>): CinemaSignal {
+  const entityType = String(row.entity_type || "ROOM");
   return {
     id: String(row.id || ""),
     signalKey: String(row.signal_key || ""),
     severity: String(row.severity || "MEDIUM") as CinemaSignalSeverity,
-    entityType: String(row.entity_type || "ROOM") === "MESSAGE" ? "MESSAGE" : "ROOM",
+    entityType: (entityType === "MESSAGE" || entityType === "UPLOAD" ? entityType : "ROOM") as CinemaSignalEntityType,
     entityId: String(row.entity_id || ""),
     sessionId: String(row.session_id || ""),
     reporterId: String(row.reporter_id || ""),
@@ -151,6 +155,7 @@ export async function fileCinemaReport(input: {
   sessionTitle: string;
   reporter: { id: string; name?: string };
   messageId?: unknown;
+  video?: unknown;
   reason?: unknown;
 }): Promise<CinemaReportResult> {
   await requireTurso();
@@ -159,6 +164,10 @@ export async function fileCinemaReport(input: {
   const reporterId = String(input.reporter?.id || "").trim();
   if (!sessionId || !reporterId) throw new CampusEngineError("VALIDATION_ERROR", "A report needs a room and a reporter.", 400);
   const messageId = String(input.messageId || "").trim();
+  const wantsVideo = input.video === true;
+  if (wantsVideo && messageId) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Report the video or one message, not both.", 400);
+  }
   let message = null;
   if (messageId) {
     message = await readCinemaMessage(messageId);
@@ -168,8 +177,23 @@ export async function fileCinemaReport(input: {
   }
   const roomTitle = String(input.sessionTitle || "").slice(0, 120) || "Study room";
   const reason = reasonFrom(input.reason);
-  const signalKey = message ? "CINEMA_MESSAGE_REPORT" : "CINEMA_ROOM_REPORT";
-  const entityId = message ? message.id : sessionId;
+  // A video report names the upload, not the room, so the card can carry the
+  // uploader's history without anyone having to join the room to find it.
+  let video: { upload: CinemaUpload; uploaderName: string; uploaderRemovals: number } | null = null;
+  if (wantsVideo) {
+    const upload = await cinemaUploadForRoom(sessionId);
+    if (!upload || upload.status !== "READY") {
+      throw new CampusEngineError("NOT_FOUND", "This room has no video to report.", 404);
+    }
+    const uploaderName = String(rowsToObjects(await turso(
+      "SELECT display_name FROM cinema_participants WHERE session_id = ? AND student_id = ? LIMIT 1",
+      [sessionId, upload.uploaderId],
+    ))[0]?.display_name || "");
+    video = { upload, uploaderName, uploaderRemovals: await countCinemaUploaderRemovals(upload.uploaderId) };
+  }
+  const signalKey = message ? "CINEMA_MESSAGE_REPORT" : video ? "CINEMA_VIDEO_REPORT" : "CINEMA_ROOM_REPORT";
+  const entityType: CinemaSignalEntityType = message ? "MESSAGE" : video ? "UPLOAD" : "ROOM";
+  const entityId = message ? message.id : video ? video.upload.id : sessionId;
   const stamp = new Date().toISOString();
 
   const existing = rowsToObjects(await turso(
@@ -177,7 +201,7 @@ export async function fileCinemaReport(input: {
     [signalKey, entityId],
   ))[0];
 
-  const detail = reason || (message ? "A student reported this message." : "A student reported this room.");
+  const detail = reason || (message ? "A student reported this message." : video ? "A student reported the video." : "A student reported this room.");
   const previousReporters = (() => {
     const previous = existing ? parseEvidence(existing.evidence).reports : [];
     return Array.isArray(previous) ? previous as Array<Record<string, unknown>> : [];
@@ -191,6 +215,15 @@ export async function fileCinemaReport(input: {
     sessionId,
     roomTitle,
     ...(message ? { messageId: message.id, messageExcerpt: message.content.slice(0, 200), messageSenderId: message.senderId, messageSenderName: message.senderName } : {}),
+    ...(video ? {
+      uploadId: video.upload.id,
+      uploadFilename: video.upload.originalFilename,
+      uploadSizeBytes: video.upload.fileSizeBytes,
+      uploadDurationSeconds: video.upload.durationSeconds,
+      uploaderId: video.upload.uploaderId,
+      uploaderName: video.uploaderName,
+      uploaderRemovals: video.uploaderRemovals,
+    } : {}),
     reports: reporters,
   };
 
@@ -201,7 +234,7 @@ export async function fileCinemaReport(input: {
       "UPDATE cinema_risk_signals SET severity = ?, reporter_id = ?, reporter_name = ?, report_count = ?, detail = ?, evidence = ?, updated_at = ? WHERE id = ?",
       [severity, reporterId, String(input.reporter?.name || "").slice(0, 80), count, detail, JSON.stringify(evidence), stamp, String(existing.id)],
     );
-    logEvent("info", "cinema_report_filed", { sessionId, signalId: String(existing.id), messageId: message?.id || "", count });
+    logEvent("info", "cinema_report_filed", { sessionId, signalId: String(existing.id), messageId: message?.id || "", uploadId: video?.upload.id || "", count });
     await incrementMetric("cinema_reports_filed");
     return { signalId: String(existing.id), severity, reportCount: count };
   }
@@ -216,20 +249,20 @@ export async function fileCinemaReport(input: {
       id,
       signalKey,
       severityFor(reportCount),
-      message ? "MESSAGE" : "ROOM",
+      entityType,
       entityId,
       sessionId,
       reporterId,
       String(input.reporter?.name || "").slice(0, 80),
       reportCount,
-      message ? `Message reported in ${roomTitle}` : `Room reported: ${roomTitle}`,
+      message ? `Message reported in ${roomTitle}` : video ? `Video reported in ${roomTitle}` : `Room reported: ${roomTitle}`,
       detail,
       JSON.stringify(evidence),
       stamp,
       stamp,
     ],
   );
-  logEvent("info", "cinema_report_filed", { sessionId, signalId: id, messageId: message?.id || "", count: reportCount });
+  logEvent("info", "cinema_report_filed", { sessionId, signalId: id, messageId: message?.id || "", uploadId: video?.upload.id || "", count: reportCount });
   await incrementMetric("cinema_reports_filed");
   return { signalId: id, severity: severityFor(reportCount), reportCount };
 }

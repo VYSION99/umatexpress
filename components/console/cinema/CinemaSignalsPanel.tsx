@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, Flag, Loader2, MessageSquareX, RefreshCw, Square, X } from "lucide-react";
+import { CheckCheck, Flag, Loader2, MessageSquareX, RefreshCw, Square, TriangleAlert, VideoOff, X } from "lucide-react";
 
 type Signal = {
   id: string;
   signalKey: string;
   severity: string;
-  entityType: "ROOM" | "MESSAGE";
+  entityType: "ROOM" | "MESSAGE" | "UPLOAD";
   entityId: string;
   sessionId: string;
   reporterName: string;
@@ -27,6 +27,14 @@ const when = (iso: string) => (iso ? new Date(iso).toLocaleString("en-GB", { day
 const FILTERS = ["OPEN", "REVIEWED", "DISMISSED"] as const;
 const severityBadge = (severity: string) => severity === "HIGH" ? "rejected" : severity === "MEDIUM" ? "pending" : "draft";
 const text = (value: unknown) => (value === null || value === undefined || value === "" ? "—" : String(value));
+const entityLabel = (signal: Signal) => signal.entityType === "MESSAGE" ? "message" : signal.entityType === "UPLOAD" ? "video" : "room";
+const fileSize = (value: unknown) => {
+  const bytes = Number(value || 0);
+  if (!(bytes > 0)) return "";
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
 
 /**
  * The watch-report desk. Every card is a student's report, not a rule's
@@ -82,7 +90,7 @@ export function CinemaSignalsPanel() {
     }
   }
 
-  async function act(signal: Signal, action: "REMOVE_MESSAGE" | "END_ROOM") {
+  async function act(signal: Signal, action: "REMOVE_MESSAGE" | "REMOVE_VIDEO" | "END_ROOM") {
     setBusy(signal.id);
     setError("");
     setNotice("");
@@ -91,11 +99,19 @@ export function CinemaSignalsPanel() {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(action === "REMOVE_MESSAGE" ? { action, messageId: signal.entityId } : { action }),
+        body: JSON.stringify(action === "REMOVE_MESSAGE"
+          ? { action, messageId: signal.entityId }
+          : action === "REMOVE_VIDEO"
+            ? { action, reason: (notes[signal.id] || "").trim() }
+            : { action }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "That action was refused.");
-      setNotice(action === "REMOVE_MESSAGE" ? "The message was removed from the room and the replay." : "The room was ended and its sockets closed.");
+      setNotice(action === "REMOVE_MESSAGE"
+        ? "The message was removed from the room and the replay."
+        : action === "REMOVE_VIDEO"
+          ? "The video was deleted from the bucket, and the room now plays nothing until another is attached."
+          : "The room was ended and its sockets closed.");
     } catch (actError) {
       setError(actError instanceof Error ? actError.message : "That action was refused.");
     } finally {
@@ -129,13 +145,17 @@ export function CinemaSignalsPanel() {
           <header>
             <span className={`console-badge console-badge-${severityBadge(signal.severity)}`}><Flag size={11} aria-hidden />{signal.severity}</span>
             <strong>{signal.title}</strong>
-            <small>{signal.entityType === "MESSAGE" ? "message" : "room"} · {signal.reportCount} report{signal.reportCount === 1 ? "" : "s"} · {when(signal.createdAt)}</small>
+            <small>{entityLabel(signal)} · {signal.reportCount} report{signal.reportCount === 1 ? "" : "s"} · {when(signal.createdAt)}</small>
           </header>
           <p>{signal.detail}</p>
           <p className="console-note">
             {text(signal.evidence.roomTitle)}
             {signal.entityType === "MESSAGE" ? ` · “${text(signal.evidence.messageExcerpt)}” — ${text(signal.evidence.messageSenderName)}` : ""}
+            {signal.entityType === "UPLOAD" ? ` · ${text(signal.evidence.uploadFilename)}${fileSize(signal.evidence.uploadSizeBytes) ? ` (${fileSize(signal.evidence.uploadSizeBytes)})` : ""} — uploaded by ${text(signal.evidence.uploaderName)}` : ""}
           </p>
+          {signal.entityType === "UPLOAD" && Number(signal.evidence.uploaderRemovals || 0) > 0 && <p className="console-note">
+            <TriangleAlert size={12} aria-hidden /> This uploader has {Number(signal.evidence.uploaderRemovals)} earlier video takedown{Number(signal.evidence.uploaderRemovals) === 1 ? "" : "s"} on this platform.
+          </p>}
           <small>Last reported by {signal.reporterName || "a student"}.</small>
           {signal.status === "OPEN"
             ? <div className="console-row-actions">
@@ -151,6 +171,9 @@ export function CinemaSignalsPanel() {
           {signal.status === "OPEN" && <div className="console-row-actions">
             {signal.entityType === "MESSAGE" && <button type="button" disabled={busy === signal.id} onClick={() => void act(signal, "REMOVE_MESSAGE")}>
               <MessageSquareX size={14} aria-hidden /> Remove message
+            </button>}
+            {signal.entityType === "UPLOAD" && <button type="button" className="console-danger" disabled={busy === signal.id} onClick={() => void act(signal, "REMOVE_VIDEO")}>
+              <VideoOff size={14} aria-hidden /> Remove video
             </button>}
             <button type="button" disabled={busy === signal.id} onClick={() => void act(signal, "END_ROOM")}>
               <Square size={14} aria-hidden /> End room

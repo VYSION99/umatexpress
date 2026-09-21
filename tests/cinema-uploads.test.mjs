@@ -17,7 +17,7 @@ process.env.TURSO_DATABASE_URL = "https://cinema-uploads-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const state = { rooms: [], members: [], uploads: [], metrics: new Map(), settings: new Map() };
+const state = { rooms: [], members: [], uploads: [], signals: [], audits: [], metrics: new Map(), settings: new Map() };
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -31,7 +31,7 @@ const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), row
 
 const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "started_at", "ended_at", "created_at", "updated_at"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
-const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "created_at", "updated_at"];
+const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
 
 function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
@@ -93,8 +93,43 @@ function handle(sql, args) {
     state.uploads.push({
       id, session_id: sessionId, uploader_id: uploaderId, r2_object_key: objectKey, r2_upload_id: uploadId,
       original_filename: filename, file_size_bytes: sizeBytes, mime_type: mimeType, duration_seconds: 0,
-      ownership_confirmed: 1, status: "UPLOADING", expires_at: expiresAt, deleted_at: "", created_at: createdAt, updated_at: updatedAt,
+      ownership_confirmed: 1, status: "UPLOADING", expires_at: expiresAt, deleted_at: "", removed_by: "", removed_reason: "",
+      created_at: createdAt, updated_at: updatedAt,
     });
+    return affected(1);
+  }
+  // The strike count a takedown writes and the upload guard reads.
+  if (/^SELECT COUNT\(\*\) AS removals FROM cinema_uploads WHERE uploader_id = \? AND removed_by <> '' AND id <> \?/.test(sql)) {
+    const [uploaderId, excludeId] = args;
+    const removals = state.uploads.filter((upload) => upload.uploader_id === uploaderId && upload.removed_by && upload.id !== excludeId).length;
+    return ok(table(["removals"], [{ removals }]));
+  }
+  if (/^SELECT display_name FROM cinema_participants WHERE session_id = \? AND student_id = \? LIMIT 1/.test(sql)) {
+    const row = state.members.find((member) => member.session_id === args[0] && member.student_id === args[1]);
+    return ok(row ? table(["display_name"], [{ display_name: row.display_name }]) : empty);
+  }
+  if (/^INSERT INTO cinema_risk_signals/.test(sql)) {
+    const [id, signal_key, severity, entity_type, entity_id, session_id, reporter_id, reporter_name, report_count, title, detail, evidence] = args;
+    state.signals.push({
+      id, signal_key, severity, entity_type, entity_id, session_id, reporter_id, reporter_name,
+      report_count, title, detail, evidence, status: "OPEN", reviewed_by: "", reviewed_at: "", review_note: "",
+      created_at: args[12], updated_at: args[13],
+    });
+    return affected(1);
+  }
+  if (/^SELECT id,report_count,evidence FROM cinema_risk_signals WHERE signal_key = \?/.test(sql)) {
+    const row = state.signals.find((signal) => signal.signal_key === args[0] && signal.entity_id === args[1] && signal.status === "OPEN");
+    return ok(row ? table(["id", "report_count", "evidence"], [row]) : empty);
+  }
+  if (/^UPDATE cinema_risk_signals SET severity = \?/.test(sql)) {
+    const [severity, reporterId, reporterName, reportCount, detail, evidence, updatedAt, id] = args;
+    const signal = state.signals.find((row) => row.id === id);
+    if (signal) Object.assign(signal, { severity, reporter_id: reporterId, reporter_name: reporterName, report_count: reportCount, detail, evidence, updated_at: updatedAt });
+    return affected(signal ? 1 : 0);
+  }
+  if (/^INSERT INTO admin_audit_logs/.test(sql)) {
+    const [, adminEmail, action, targetType, targetReference, details] = args;
+    state.audits.push({ adminEmail, action, targetType, targetReference, details });
     return affected(1);
   }
   if (/^UPDATE cinema_uploads SET status = 'READY', duration_seconds = \?, updated_at = \? WHERE id = \? AND status = 'UPLOADING'/.test(sql)) {
@@ -122,11 +157,25 @@ function handle(sql, args) {
     if (upload) Object.assign(upload, { status: "DELETING", updated_at: updatedAt });
     return affected(upload ? 1 : 0);
   }
+  if (/^UPDATE cinema_uploads SET status = 'DELETED', deleted_at = \?, removed_by = \?, removed_reason = \?, updated_at = \? WHERE id = \? AND status = 'DELETING'/.test(sql)) {
+    const [deletedAt, removedBy, removedReason, updatedAt, id] = args;
+    const upload = state.uploads.find((row) => row.id === id && row.status === "DELETING");
+    if (!upload) return affected(0);
+    Object.assign(upload, { status: "DELETED", deleted_at: deletedAt, removed_by: removedBy, removed_reason: removedReason, updated_at: updatedAt });
+    return affected(1);
+  }
   if (/^UPDATE cinema_uploads SET status = 'DELETED', deleted_at = \?, updated_at = \? WHERE id = \? AND status = 'DELETING'/.test(sql)) {
     const [deletedAt, updatedAt, id] = args;
     const upload = state.uploads.find((row) => row.id === id && row.status === "DELETING");
     if (!upload) return affected(0);
     Object.assign(upload, { status: "DELETED", deleted_at: deletedAt, updated_at: updatedAt });
+    return affected(1);
+  }
+  if (/^UPDATE cinema_sessions SET video_source_type = 'YOUTUBE', video_id = '', updated_at = \?/.test(sql)) {
+    const [updatedAt, id, videoId] = args;
+    const room = state.rooms.find((row) => row.id === id);
+    if (!room || room.video_source_type !== "UPLOAD" || room.video_id !== videoId) return affected(0);
+    Object.assign(room, { video_source_type: "YOUTUBE", video_id: "", updated_at: updatedAt });
     return affected(1);
   }
   if (/^DELETE FROM cinema_uploads WHERE session_id = \?/.test(sql)) {
@@ -219,12 +268,14 @@ after(async () => vite.close());
 
 const {
   CINEMA_UPLOAD_PART_BYTES, abortCinemaUpload, beginCinemaUpload, cinemaUploadKey,
-  cinemaUploadLimits, completeCinemaUpload, parseMp4Duration, purgeCinemaUploadForRoom, putCinemaUploadPart,
+  cinemaUploadLimits, completeCinemaUpload, countCinemaUploaderRemovals, parseMp4Duration,
+  purgeCinemaUploadForRoom, putCinemaUploadPart, takeDownCinemaUpload,
 } = await vite.ssrLoadModule("/lib/cinema-engine/uploads.ts");
 const {
   issueCinemaPlayback, parseCinemaByteRange, readCinemaMediaObject, signCinemaMediaToken, verifyCinemaMediaToken, cinemaUploadForToken,
 } = await vite.ssrLoadModule("/lib/cinema-engine/media.ts");
 const { resetPlatformSettingsCache } = await vite.ssrLoadModule("/lib/platform-settings.ts");
+const { fileCinemaReport } = await vite.ssrLoadModule("/lib/cinema-engine/signals.ts");
 
 const stamp = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 
@@ -260,6 +311,8 @@ beforeEach(() => {
   state.rooms = [room()];
   state.members = [{ session_id: "room-1", student_id: "host-a", display_name: "Ama Host", joined_at: stamp(60), last_seen_at: stamp(1), left_at: "" }];
   state.uploads = [];
+  state.signals = [];
+  state.audits = [];
   state.metrics.clear();
   state.settings.clear();
   resetPlatformSettingsCache();
@@ -499,4 +552,141 @@ test("a lease names the upload the row still holds, and serves the range it aske
 
   const gone = await readCinemaMediaObject({ upload, bucket: fakeBucket() });
   assert.equal(gone, null, "an object the retention job deleted answers nothing");
+});
+
+test("the video can be reported, and the card carries the uploader's history", async () => {
+  const bucket = fakeBucket();
+  const started = await begin({ bucket });
+  state.uploads[0].status = "READY";
+  state.uploads[0].duration_seconds = 92;
+  state.uploads[0].original_filename = "lecture.mp4";
+
+  const report = await fileCinemaReport({
+    sessionId: "room-1", sessionTitle: "Signals", reporter: { id: "guest-a", name: "Kwesi" },
+    video: true, reason: "This is a bootleg recording.",
+  });
+  assert.equal(report.reportCount, 1);
+  assert.equal(state.signals.length, 1);
+  const card = state.signals[0];
+  assert.equal(card.signal_key, "CINEMA_VIDEO_REPORT");
+  assert.equal(card.entity_type, "UPLOAD");
+  assert.equal(card.entity_id, started.upload.id, "the card names the upload, not the room");
+  assert.equal(card.title, "Video reported in Signals");
+  const evidence = JSON.parse(card.evidence);
+  assert.equal(evidence.uploadFilename, "lecture.mp4");
+  assert.equal(evidence.uploadDurationSeconds, 92);
+  assert.equal(evidence.uploaderName, "Ama Host");
+  assert.equal(evidence.uploaderRemovals, 0);
+
+  // A prior takedown is on the card the next reporter files.
+  state.uploads.push({
+    ...state.uploads[0], id: "upload-old", session_id: "room-9", status: "DELETED",
+    removed_by: "mod@umat.edu.gh", deleted_at: stamp(30),
+  });
+  const folded = await fileCinemaReport({
+    sessionId: "room-1", sessionTitle: "Signals", reporter: { id: "guest-b", name: "Efua" }, video: true,
+  });
+  assert.equal(folded.signalId, report.signalId, "one open card per upload");
+  assert.equal(JSON.parse(state.signals[0].evidence).uploaderRemovals, 1);
+
+  const both = await fileCinemaReport({
+    sessionId: "room-1", sessionTitle: "Signals", reporter: { id: "guest-a" }, video: true, messageId: "message-1",
+  }).then(() => null, (error) => error);
+  assert.equal(both?.code, "VALIDATION_ERROR", "a report is about the video or a message, not both");
+
+  state.uploads[0].status = "DELETED";
+  const gone = await fileCinemaReport({ sessionId: "room-1", sessionTitle: "Signals", reporter: { id: "guest-a" }, video: true })
+    .then(() => null, (error) => error);
+  assert.equal(gone?.code, "NOT_FOUND", "a video that is not playing cannot be reported");
+});
+
+test("a takedown deletes the object, stops the lease and turns the room back to YouTube", async () => {
+  const bucket = fakeBucket();
+  const started = await begin({ bucket });
+  const clip = mp4Head(2);
+  await putCinemaUploadPart({ roomId: "room-1", studentId: "host-a", partNumber: 1, body: clip.buffer, bucket });
+  await completeCinemaUpload({ roomId: "room-1", studentId: "host-a", parts: [{ partNumber: 1, etag: "etag-1" }], bucket });
+  assert.equal(bucket.objects.size, 1);
+  assert.equal(state.rooms[0].video_source_type, "UPLOAD");
+
+  const removal = await takeDownCinemaUpload({ roomId: "room-1", actor: "mod@umat.edu.gh", reason: "Copyright complaint", bucket });
+  assert.equal(removal.uploaderRemovals, 1);
+  assert.equal(removal.roomReset, true);
+  assert.equal(removal.removedBy, "mod@umat.edu.gh");
+  assert.equal(bucket.objects.size, 0, "the object is gone from the bucket");
+  assert.equal(state.uploads[0].status, "DELETED");
+  assert.equal(state.uploads[0].removed_by, "mod@umat.edu.gh");
+  assert.equal(state.uploads[0].removed_reason, "Copyright complaint");
+  assert.equal(state.rooms[0].video_source_type, "YOUTUBE");
+  assert.equal(state.rooms[0].video_id, "");
+  assert.equal(state.audits.length, 1);
+  assert.equal(state.audits[0].action, "cinema_upload_removed");
+  assert.equal(state.audits[0].targetReference, started.upload.id);
+  assert.equal(JSON.parse(state.audits[0].details).filename, "lecture.mp4");
+  assert.equal(JSON.parse(state.audits[0].details).uploaderRemovals, 1);
+
+  // A lease signed before the takedown stops working, because the media route
+  // re-reads the row rather than trusting the token.
+  const lease = await signCinemaMediaToken({ roomId: "room-1", uploadId: started.upload.id, studentId: "host-a" });
+  const refused = await cinemaUploadForToken({ roomId: "room-1", uploadId: started.upload.id, studentId: "host-a", expiresAt: lease.expiresAt })
+    .then(() => null, (error) => error);
+  assert.equal(refused?.code, "NOT_FOUND");
+
+  const again = await takeDownCinemaUpload({ roomId: "room-1", actor: "mod@umat.edu.gh", bucket }).then(() => null, (error) => error);
+  assert.equal(again?.code, "INVALID_STATE", "a second takedown reports the truth");
+  const nowhere = await takeDownCinemaUpload({ roomId: "room-2", actor: "mod@umat.edu.gh", bucket }).then(() => null, (error) => error);
+  assert.equal(nowhere?.code, "NOT_FOUND");
+});
+
+test("a bucket that refuses the takedown leaves the row DELETING and the video unplayable", async () => {
+  const failing = fakeBucket({ failDelete: true });
+  await begin({ bucket: failing });
+  state.uploads[0].status = "READY";
+
+  const refused = await takeDownCinemaUpload({ roomId: "room-1", actor: "mod@umat.edu.gh", bucket: failing }).then(() => null, (error) => error);
+  assert.equal(refused?.code, "ENGINE_ERROR");
+  assert.equal(state.uploads[0].status, "DELETING", "the row never claims a deletion the bucket refused");
+  assert.equal(state.uploads[0].deleted_at, "");
+  assert.equal(state.rooms[0].video_source_type, "YOUTUBE", "the room was never touched");
+  assert.equal(state.audits.length, 0, "a failed takedown is not audited as a removal");
+
+  const stopped = await issueCinemaPlayback({ roomId: "room-1", studentId: "host-a" }).then(() => null, (error) => error);
+  assert.equal(stopped?.code, "NOT_FOUND", "the lease refuses a row that is not READY");
+
+  const retry = await takeDownCinemaUpload({ roomId: "room-1", actor: "mod@umat.edu.gh", bucket: fakeBucket() });
+  assert.equal(retry.uploaderRemovals, 1);
+  assert.equal(state.uploads[0].status, "DELETED");
+});
+
+test("repeated takedowns end a student's upload rights, and retention is not a strike", async () => {
+  const strike = (id, sessionId, removedBy) => ({
+    id, session_id: sessionId, uploader_id: "host-a", r2_object_key: `cinema/${sessionId}/video/${id}/original.mp4`,
+    r2_upload_id: "", original_filename: "old.mp4", file_size_bytes: 10, mime_type: "video/mp4", duration_seconds: 0,
+    ownership_confirmed: 1, status: "DELETED", expires_at: "", deleted_at: stamp(30),
+    removed_by: removedBy, removed_reason: removedBy ? "Copyright complaint" : "", created_at: stamp(90), updated_at: stamp(30),
+  });
+
+  // A room that simply expired carries no `removed_by`, so it is not a strike.
+  state.uploads.push(strike("expired-upload", "room-old", ""));
+  assert.equal(await countCinemaUploaderRemovals("host-a"), 0);
+  const first = await begin({ bucket: fakeBucket() });
+  assert.ok(first.upload.id, "three strikes is not two");
+
+  state.uploads.push(strike("strike-1", "room-a", "mod@umat.edu.gh"));
+  assert.equal(await countCinemaUploaderRemovals("host-a"), 1);
+  const allowed = await begin({ bucket: fakeBucket() });
+  assert.ok(allowed.upload.id, "one takedown is still under the default limit");
+
+  state.uploads.push(strike("strike-2", "room-b", "mod@umat.edu.gh"));
+  assert.equal(await countCinemaUploaderRemovals("host-a"), 2);
+  const refused = await begin({ bucket: fakeBucket() }).then(() => null, (error) => error);
+  assert.equal(refused?.code, "FORBIDDEN");
+  assert.match(refused.message, /turned off for this account/);
+
+  // The limit is a setting, not a constant: at one strike the same account is refused.
+  state.uploads = state.uploads.filter((row) => row.id !== "strike-1");
+  state.settings.set("cinema_upload_takedown_limit", "1");
+  resetPlatformSettingsCache();
+  const stricter = await begin({ bucket: fakeBucket() }).then(() => null, (error) => error);
+  assert.equal(stricter?.code, "FORBIDDEN");
 });

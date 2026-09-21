@@ -26,7 +26,7 @@ and the sections after it were rewritten to match.
 | Console | One console, every service: Cinema registers a service entry, a live-room list and the report/deletion queue. Staff surfaces are console routes; nothing staff-facing is public. |
 | Audit | `consoleAudit(...)` and the platform audit tables. Cinema writes no `audit_logs` of its own. |
 | Trust | Reports feed the existing moderation desk (the `hostel_risk_signals` pattern), not a bespoke takedown mechanism. |
-| Limits and toggles | `platform_settings` keys, all live and edited on the console settings page: `cinema_room_idle_minutes`, `cinema_retention_hours`, `cinema_uploads_enabled`, `cinema_max_upload_bytes` and `cinema_max_upload_minutes`. Nothing is hard-coded. |
+| Limits and toggles | `platform_settings` keys, all live and edited on the console settings page: `cinema_room_idle_minutes`, `cinema_retention_hours`, `cinema_uploads_enabled`, `cinema_max_upload_bytes`, `cinema_max_upload_minutes` and `cinema_upload_takedown_limit`. Nothing is hard-coded. |
 | Types and vocabulary | TEXT ISO-8601 timestamps, INTEGER booleans, UPPERCASE status values, `crypto.randomUUID()` ids. |
 | Scheduled work | Cleanup rides an existing cron trigger. The Worker already runs four, and Cloudflare collapses triggers that share a minute (see `lib/campus-engine/crons.ts`). |
 | Durable Object | One new class, `CinemaRoom`, exported from `worker/index.ts` with its binding and a `v2` migration in `build/cloudflare-binding-plan.ts`. Hibernatable WebSockets, so an idle room costs storage rather than wall-clock duration. |
@@ -810,17 +810,17 @@ fifty per room, purged when the room is deleted. This is not an archive.
 ```sql
 CREATE TABLE IF NOT EXISTS cinema_risk_signals (
   id            TEXT PRIMARY KEY,
-  signal_key    TEXT NOT NULL,                      -- CINEMA_ROOM_REPORT | CINEMA_MESSAGE_REPORT
+  signal_key    TEXT NOT NULL,                      -- CINEMA_ROOM_REPORT | CINEMA_MESSAGE_REPORT | CINEMA_VIDEO_REPORT
   severity      TEXT NOT NULL DEFAULT 'MEDIUM',     -- LOW | MEDIUM | HIGH
-  entity_type   TEXT NOT NULL,                      -- ROOM | MESSAGE
-  entity_id     TEXT NOT NULL,                      -- session id or message id
+  entity_type   TEXT NOT NULL,                      -- ROOM | MESSAGE | UPLOAD
+  entity_id     TEXT NOT NULL,                      -- session id, message id or upload id
   session_id    TEXT NOT NULL,
   reporter_id   TEXT NOT NULL DEFAULT '',           -- student_accounts.id
   reporter_name TEXT NOT NULL DEFAULT '',
   report_count  INTEGER NOT NULL DEFAULT 1,         -- distinct reporters, not clicks
   title         TEXT NOT NULL,
   detail        TEXT NOT NULL,
-  evidence      TEXT NOT NULL DEFAULT '{}',         -- { reports: [...], messageExcerpt }
+  evidence      TEXT NOT NULL DEFAULT '{}',         -- { reports: [...], messageExcerpt | uploadFilename, uploaderRemovals }
   status        TEXT NOT NULL DEFAULT 'OPEN',       -- OPEN | REVIEWED | DISMISSED
   reviewed_by   TEXT NOT NULL DEFAULT '',
   reviewed_at   TEXT NOT NULL DEFAULT '',
@@ -834,12 +834,14 @@ CREATE INDEX IF NOT EXISTS idx_cinema_signals_status ON cinema_risk_signals(stat
 CREATE INDEX IF NOT EXISTS idx_cinema_signals_session ON cinema_risk_signals(session_id, status);
 ```
 
-The unique index is the "one open card per room or message" rule, enforced by the
-database rather than the route: a second reporter folds into the open row, the
-count is distinct reporters, and severity rises at the second and fourth. Nothing
-here is rule-generated — every card names the student who filed it. Reviewing or
-dismissing requires a note and records who decided, so the row reads as a decision
-as well as a complaint.
+The unique index is the "one open card per room, message or video" rule, enforced
+by the database rather than the route: a second reporter folds into the open row,
+the count is distinct reporters, and severity rises at the second and fourth.
+Nothing here is rule-generated — every card names the student who filed it.
+Reviewing or dismissing requires a note and records who decided, so the row reads
+as a decision as well as a complaint. A video report names the upload, so the card
+carries the uploader, the filename and the uploader's prior takedown count without
+a moderator having to join the room (M7).
 
 ## Temporary uploads (Phase 2)
 
@@ -858,6 +860,8 @@ CREATE TABLE IF NOT EXISTS cinema_uploads (
   status            TEXT NOT NULL DEFAULT 'UPLOADING', -- UPLOADING | READY | DELETING | DELETED | FAILED
   expires_at        TEXT NOT NULL DEFAULT '',
   deleted_at        TEXT NOT NULL DEFAULT '',
+  removed_by        TEXT NOT NULL DEFAULT '',      -- set only by a moderator's takedown (M7)
+  removed_reason    TEXT NOT NULL DEFAULT '',      -- the moderator's note, carried into the audit
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL
 );
@@ -870,6 +874,9 @@ layer to remember it. The status vocabulary is the platform's uppercase one, and
 the retention dates come from `cinema_retention_hours` at creation time.
 `r2_upload_id` is bucket state, not client state: it is what lets the Worker
 resume a part or abort an upload, and it never leaves the server.
+`removed_by` and `removed_reason` are written only by a moderator's takedown
+(M7): retention deletes the object without filling them, which is what keeps a
+room that simply expired from counting as a strike against its host.
 
 ---
 
@@ -886,7 +893,7 @@ resume a part or abort an upload, and it never leaves the server.
 | POST | `/api/cinema/sessions/:id/ws-ticket` | Mint a single-use socket ticket (§6) |
 | GET | `/api/cinema/sessions/:id/messages` | The last fifty messages |
 | GET | `/api/cinema/sessions/:id/video-url` | Short-lived playback URL (Phase 2) |
-| POST | `/api/cinema/sessions/:id/report` | Report a room or a message |
+| POST | `/api/cinema/sessions/:id/report` | Report a room, a message or the uploaded video |
 
 There is no `/api/auth/login`: the account cookie the rest of the client uses is the
 only credential, and every route above calls the same `requireStudent`-style guard
@@ -900,7 +907,7 @@ Staff routes follow the house pattern instead of a second surface:
 |---|---|---|
 | GET | `/api/console/cinema/sessions` | Live and recent rooms, with filters |
 | GET | `/api/console/cinema/signals` | The moderation queue |
-| POST | `/api/console/cinema/sessions/:id` | End a room, remove a message |
+| POST | `/api/console/cinema/sessions/:id` | End a room, remove a message, take the video down |
 
 ## WebSocket
 
@@ -1164,18 +1171,41 @@ The platform should require the uploader to confirm that they own the content or
 
 The platform should provide:
 
-- reporting;
-- takedown workflow;
-- audit logs;
-- content removal;
-- account enforcement for repeated violations.
+**Reporting** — a member reports the uploaded video the same way they report a
+message, and the card lands in the console's report queue as `CINEMA_VIDEO_REPORT`.
+It names the upload rather than the room, and its evidence carries the filename,
+the size, the length, the uploader and how many of that uploader's videos have
+already been taken down.
+
+**Takedown workflow** — the card offers Remove video. A moderator's action marks
+the row DELETING, aborts a multipart upload that is still in flight, deletes the
+object from the private bucket and then marks the row DELETED with `removed_by`
+and the moderator's note. The room follows the video: it returns to YouTube with
+no source, the open screens are told over the socket, and the old playback lease
+answers 404 from the next request, because the media route re-reads the row rather
+than trusting a token. A bucket that refuses the deletion leaves the row DELETING
+and the moderator can retry — a row never claims a deletion it did not make.
+
+**Audit logs** — every takedown writes `cinema_upload_removed` to
+`admin_audit_logs` with the room, the uploader, the filename, the reason and the
+uploader's running removal count.
+
+**Content removal** — the object is deleted, not hidden: the bucket's own report
+of the object is gone before the row changes, and retention's lifecycle rule
+remains the second net for anything that slips past.
+
+**Account enforcement for repeated violations** — a takedown counts against the
+uploader, not the room. When the count reaches `cinema_upload_takedown_limit`
+(default 2), that student's new uploads are refused while their rooms keep working
+with YouTube. A video deleted by retention is not a strike: only `removed_by`
+counts, and the count never touches the rest of the platform's account tools.
 
 Temporary storage does not itself make unauthorized copyrighted material lawful.
 
 Phase 1 has none of this surface: a YouTube room embeds YouTube's player, and
 YouTube's own reporting and takedown apply. The upload confirmation, reporting and
-takedown steps below are Phase 2 work, and the takedown itself is the platform's
-moderation desk acting on a signal — not a Cinema-specific workflow.
+takedown steps are Phase 2 work — the takedown is the platform's moderation desk
+acting on a signal, not a Cinema-specific workflow — and they are delivered at M7.
 
 ---
 
@@ -1308,9 +1338,9 @@ both console pages and both console routes are gated to ADMIN and MODERATOR.
 | 4 | Size/MIME enforcement, duration question answered (§0.2) | High | ✅ M6 |
 | 5 | Ownership confirmation before the upload starts | High | ✅ M6 |
 | 6 | Cleanup of the object, and the bucket lifecycle rule | High | ✅ M6 |
-| 7 | Report/takedown enrichment for uploaded video | Medium |
+| 7 | Report/takedown enrichment for uploaded video | Medium | ✅ M7 |
 
-**Status: M6 delivered, and Phase 2 is open.** A host attaches one video to a
+**Status: M6–M7 delivered, and Phase 2 is complete.** A host attaches one video to a
 room: the client asks for the limits, answers the ownership question, splits the
 file into eight-mebibyte parts and sends each part through the Worker to the
 private bucket, and the room becomes playable only when the bucket's own report
@@ -1325,6 +1355,18 @@ bucket that refuses leaves the room EXPIRED for the next tick rather than
 promising a deletion it did not make. The deploy script adds the bucket's own
 lifecycle net: `cinema/` objects expire after 48 hours and unfinished multipart
 uploads are aborted after one day.
+
+**M7 closes it.** A member reports the video itself and the card lands with the
+upload's filename, size, length, uploader and the uploader's prior takedown
+count. The card offers Remove video: the object goes first, then the row records
+DELETED with `removed_by` and the moderator's note, then the room returns to
+YouTube with no source and its open screens are told over the socket. An
+already-issued playback lease stops working at the next request, because the
+media route re-reads the row rather than trusting the token. The takedown is
+audited with the room, the uploader, the reason and the running count, and a
+student whose removals reach `cinema_upload_takedown_limit` loses the ability to
+attach new videos while their rooms keep working with YouTube. Retention is not
+a strike: only a moderator's removal sets `removed_by`.
 
 ### Acceptance for Phase 1
 
@@ -1352,11 +1394,12 @@ the same shape the Hostel Finder rollout used.
 | **M4 — the room is safe** ✅ | chat with timestamps, rate limits, lock, end, idle expiry, cleanup job, tests | a flooded socket is limited, an abandoned room expires and serves nothing |
 | **M5 — the room is watched** ✅ | console service entry, live-room list, end-room action, report queue | a moderator ends a reported room from the console and the sockets close |
 | **M6 — Phase 2 opens** ✅ | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
+| **M7 — the upload is accountable** ✅ | video reports, the moderator's takedown, its audit, and the repeat-uploader limit | a reported upload is deleted from the bucket, the room falls back, and the uploader's next upload is refused |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
 use it. M6 opens Phase 2 with the decision made and the upload path built end to
-end; M7 is the report and takedown enrichment for uploaded video, which is the
-first thing that needs the upload row rather than the transport.
+end; M7 makes the uploaded video accountable — reportable, removable, audited and
+limited for repeat offenders — and closes Phase 2.
 
 ---
 
@@ -1384,6 +1427,7 @@ Upload is the Phase 2 gate, and the copyright line under Security is Phase 2's.
 - Participants receive access only after membership verification.
 - Signed playback URLs expire.
 - Video is deleted after session cleanup.
+- A reported upload can be taken down from the console, and the room keeps working without it.
 
 ### Collaboration
 

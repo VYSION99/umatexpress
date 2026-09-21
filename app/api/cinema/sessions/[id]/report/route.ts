@@ -8,7 +8,7 @@ import { requireStudent } from "@/lib/student-auth";
 const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
- * A student reports a room, or one message in it, to the moderation desk.
+ * A student reports a room, one message in it, or the room's uploaded video.
  *
  * Membership is required: a report is something said from inside the room, and
  * requiring the join means the reporter is a person the platform can account
@@ -23,12 +23,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     const room = await readRoom({ id, studentId: student.id });
     if (!room.isMember) throw new CampusEngineError("FORBIDDEN", "Only someone in the room can report it.", 403);
-    const body = await request.json() as { messageId?: unknown; reason?: unknown };
+    const body = await request.json() as { messageId?: unknown; reason?: unknown; video?: unknown };
     const report = await fileCinemaReport({
       sessionId: room.id,
       sessionTitle: room.title,
       reporter: { id: student.id, name: student.name },
       messageId: body.messageId,
+      video: body.video,
       reason: body.reason,
     });
     return ok({ report }, { status: 201, headers: NO_STORE }, request);
