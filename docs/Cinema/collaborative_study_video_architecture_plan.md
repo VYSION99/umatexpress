@@ -1658,9 +1658,13 @@ the host's actions (open, lock, mute all, end) in one row, sticky so the
 sidebar can scroll under it. The host's card keeps only what the bar cannot
 say — which door the room has and where it is changed; the strip is pictures
 only. Under 1180px the host's buttons go back to circles so the row stays one
-row, and below 900px the bar disappears entirely: the same actions become a row
-of circles on the video card itself — where they cannot cover the letterhead —
-and the dock at the foot of the screen keeps who is here and the host's moves.
+row, and below 900px the bar disappears entirely: the call and the panel
+buttons become a floating column of circles at the room's top right, pinned
+below the letterhead rather than to the viewport so the room's own name stays
+readable, and the dock at the foot of the screen keeps who is here and the
+host's moves. The whiteboard is not in that column — it keeps the desktop bar
+and the host's dock button — and the camera tiles keep a gutter under it, so
+the column floats over the video's right edge and never over a face.
 
 Every action in the room names itself on hover and on keyboard focus — one
 tooltip style over the control bar, the rail, the dock and the camera strip,
