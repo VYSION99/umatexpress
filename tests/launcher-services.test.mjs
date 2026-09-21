@@ -13,7 +13,7 @@ import { createServer } from "vite";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
-const { services, defaultPreferences, normalizePreferences, homepageServices, isServiceHidden } = await vite.ssrLoadModule("/components/launcher/services.ts");
+const { services, defaultPreferences, normalizePreferences, homepageServices, isServiceHidden, navServices, navLabel } = await vite.ssrLoadModule("/components/launcher/services.ts");
 const { default: CampusLauncher } = await vite.ssrLoadModule("/components/launcher/CampusLauncher.tsx");
 
 const ACCENTS = new Set(["cyan", "green", "yellow"]);
@@ -81,6 +81,43 @@ test("the homepage and the services sheet only carry live services", () => {
 
   const pinned = homepageServices(normalizePreferences([{ id: "cinema", pinned: true }]));
   assert.ok(pinned.findIndex((service) => service.id === "cinema") < pinned.findIndex((service) => service.id === "hostels"), "pinned cards lead the rail");
+});
+
+test("the bottom bar carries the live in-app services the student kept", () => {
+  const internal = services
+    .filter((service) => service.available && service.destination?.startsWith("/"))
+    .map((service) => service.id);
+  assert.deepEqual(navServices(defaultPreferences()).map((service) => service.id), internal, "the bar mirrors the live in-app services");
+  assert.ok(internal.includes("cinema"), "a service that is open belongs in the bar");
+  for (const id of Object.keys(PARTNERS)) assert.ok(!internal.includes(id), `${id} runs outside the app and stays off the bar`);
+  assert.ok(!internal.includes("food"), "coming-soon services stay off the bar");
+
+  const hidden = normalizePreferences([{ id: "cinema", hidden: true, pinned: false }]);
+  assert.deepEqual(navServices(hidden).map((service) => service.id), internal.filter((id) => id !== "cinema"), "hiding a service drops it from the bar");
+
+  const pinned = navServices(normalizePreferences([{ id: "cinema", pinned: true }]));
+  assert.equal(pinned[0].id, "cinema", "the bar follows the rail's pinned-first order");
+});
+
+test("every bar label is short enough for a phone", () => {
+  for (const service of services) {
+    const label = navLabel(service);
+    assert.ok(label.trim(), `${service.id} needs a bar label`);
+    assert.ok(label.length <= 14, `${service.id}'s bar label is too long: ${label}`);
+  }
+  assert.equal(navLabel(services.find((service) => service.id === "hostels")), "Hostels");
+  assert.equal(navLabel(services.find((service) => service.id === "cinema")), "Cinema");
+});
+
+test("the shell's bottom bar renders Home plus the live in-app services", async () => {
+  const { CampusNav } = await vite.ssrLoadModule("/components/campusRide/shared/CampusNav.tsx");
+  const html = renderToStaticMarkup(createElement(CampusNav, { area: "CINEMA", variant: "mobile" }));
+  for (const label of ["Home", "CampusRide", "VacationRide", "Hostels", "Cinema"]) {
+    assert.ok(html.includes(`>${label}<`), `the bar is missing ${label}`);
+  }
+  assert.ok(!html.includes("Food"), "a coming-soon service stays off the bar");
+  for (const url of Object.values(PARTNERS)) assert.ok(!html.includes(url), `${url} opens another origin and stays off the bar`);
+  assert.match(html, /<a[^>]*aria-current="page"[^>]*href="\/cinema"/, "the area the shell is in is marked current");
 });
 
 test("each partner carries the banner its spotlight card renders", () => {

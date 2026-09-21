@@ -364,4 +364,6 @@ test("the launcher and the public nav send students to /hostel", async () => {
   assert.equal(campusNavState("HOSTELFINDER").activeHref, "/hostel");
   assert.equal(campusNavState("CAMPUSRIDE").activeHref, "/campus");
   assert.equal(campusNavState("ACCOUNT").activeHref, "");
+  assert.equal(campusNavState("CINEMA").activeHref, "/cinema");
+  assert.equal(campusNavState("VACATION").activeHref, "/vacation");
 });
