@@ -344,15 +344,18 @@
 
   /* Three cameras to a row on a phone: five inline would be stamps, and the
      strip is under the video now rather than floating over the header. */
-  .cinema-strip-rail{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-  .cinema-strip-rail.is-pop{grid-template-columns:repeat(3,minmax(0,1fr))}
-  /* Fewer faces than a row are centred, not left-aligned: one person in the
-     room should not look like the first cell of a table. */
+  .cinema-strip-rail{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .cinema-strip-rail.is-pop{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* Two faces to a row, so a face is a face and not a stamp: three to a row
+     made the pictures too small to read. Fewer faces than a row are centred,
+     not left-aligned — one person should not look like the first cell of a
+     table. */
   .cinema-strip-rail:not(.is-pop){display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
-  .cinema-strip-rail:not(.is-pop) .cinema-strip-tile{flex:0 1 31%}
+  .cinema-strip-rail:not(.is-pop) .cinema-strip-tile{flex:0 1 47%}
   .cinema-strip{padding-right:44px}
   .cinema-strip-tile{padding:5px}
-  .cinema-strip-tile footer{font-size:10px}
+  .cinema-strip-placeholder{font-size:12.5px}
+  .cinema-strip-tile footer{font-size:11px}
   .cinema-strip-more{width:44px}
   .cinema-strip-pop{width:min(320px,calc(100vw - 20px));max-height:56vh}
   /* The control bar is the desktop's; a phone gets the same actions from the
