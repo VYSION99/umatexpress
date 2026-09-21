@@ -14,7 +14,7 @@ type Entry = {
   releaseAfter: string; status: string; transferReference: string; releasedAt: string; lastError: string;
   reversedAt: string; reversedReason: string; createdAt: string;
 };
-type Batch = { id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdAt: string };
+type Batch = { id: string; totalAmount: number; transferFee: number; entryCount: number; transferReference: string; note: string; createdAt: string };
 type TripPerformance = {
   tripId: string; title: string; from: string; to: string; travelDate: string; departureTime: string;
   reviewStatus: string; active: boolean; capacity: number; booked: number; sellThrough: number;
@@ -29,6 +29,10 @@ type Statement = { totals: Totals; entries: Entry[]; batches: Batch[] };
 
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
+/** The release gate is minutes now, so a date alone would hide the hour that matters. */
+const whenDue = (iso: string) => (iso
+  ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+  : "—");
 const percent = (value: number) => `${Math.round(Number(value || 0) * 100)}%`;
 
 export default function OrganizerEarningsPage() {
@@ -43,6 +47,8 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [statement, setStatement] = useState<Statement | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [trips, setTrips] = useState<TripPerformance[]>([]);
+  const [transferFee, setTransferFee] = useState(0);
+  const [releaseMinutes, setReleaseMinutes] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -53,6 +59,8 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       setStatement(data.statement);
       setInsights(data.insights || null);
       setTrips(data.trips || []);
+      setTransferFee(Number(data.transferFee || 0));
+      setReleaseMinutes(Number(data.releaseMinutes || 0));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Your statement could not be loaded.");
     }
@@ -66,7 +74,13 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     service="earnings"
     label="EARNINGS"
     title="What you have earned"
-    blurb="Each fare is split into the platform commission and your share. A booking's payout becomes ready 24 hours after it was paid."
+    blurb={`Each fare is split into the platform commission and your share. A booking's payout becomes ready ${
+      releaseMinutes === null
+        ? "once its release window has passed"
+        : releaseMinutes === 0
+          ? "as soon as the platform's balance can cover it"
+          : `${releaseMinutes} minute${releaseMinutes === 1 ? "" : "s"} after it was paid`
+    }.`}
     actions={<Link href="/console/trips">My trips</Link>}
   >
 
@@ -74,7 +88,7 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
 
     {totals && <section className="console-totals">
       <article><span><Wallet size={13}/> Balance</span><strong>{cedis(totals.balance)}</strong><small>{totals.debt > 0 ? "After a refunded payout" : "Owed to you today"}</small></article>
-      <article><span><Clock3 size={13}/> Ready to pay</span><strong>{cedis(totals.ready)}</strong><small>Released after the trip</small></article>
+      <article><span><Clock3 size={13}/> Ready to pay</span><strong>{cedis(totals.ready)}</strong><small>Past its release window</small></article>
       <article><span><Banknote size={13}/> Awaiting release</span><strong>{cedis(Math.max(0, totals.accrued - totals.ready))}</strong><small>Still inside the release gate</small></article>
       <article><span><Banknote size={13}/> Paid out</span><strong>{cedis(totals.released)}</strong><small>{statement?.batches.length || 0} payout{statement?.batches.length === 1 ? "" : "s"} recorded</small></article>
     </section>}
@@ -129,7 +143,7 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
             {statement.entries.map((entry) => (
               <tr key={entry.id}>
                 <td><span>{entry.bookingReference || "—"}</span><small>{when(entry.createdAt)}</small></td>
-                <td><span>{entry.from && entry.to ? `${entry.from} → ${entry.to}` : entry.title || "Trip"}</span><small>Releases {when(entry.releaseAfter)}</small></td>
+                <td><span>{entry.from && entry.to ? `${entry.from} → ${entry.to}` : entry.title || "Trip"}</span><small>Releases {whenDue(entry.releaseAfter)}</small></td>
                 <td>{cedis(entry.grossAmount)}</td>
                 <td><span>{cedis(entry.commissionAmount)}</span><small>{(entry.commissionBps / 100).toFixed(2)}%</small></td>
                 <td><strong>{cedis(entry.netAmount)}</strong></td>
@@ -150,7 +164,7 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       {!statement || statement.batches.length === 0
         ? <p className="console-empty">No payout has been recorded yet.</p>
         : <table className="console-table">
-          <thead><tr><th>Date</th><th>Transfer reference</th><th>Entries</th><th>Amount</th><th>Note</th></tr></thead>
+          <thead><tr><th>Date</th><th>Transfer reference</th><th>Entries</th><th>Amount</th><th>Received</th><th>Note</th></tr></thead>
           <tbody>
             {statement.batches.map((batch) => (
               <tr key={batch.id}>
@@ -158,13 +172,19 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
                 <td>{batch.transferReference || "—"}</td>
                 <td>{batch.entryCount}</td>
                 <td><strong>{cedis(batch.totalAmount)}</strong></td>
+                <td>
+                  <strong>{cedis(batch.totalAmount - batch.transferFee)}</strong>
+                  {batch.transferFee > 0 && <small>after the {cedis(batch.transferFee)} mobile money transfer fee</small>}
+                </td>
                 <td>{batch.note || "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>}
       <p className="console-note">
-        Payouts go out automatically to the account on your profile once an entry passes its release date. If a statement looks wrong, contact the team with the booking reference.
+        Payouts go out automatically to the mobile money account on your profile once an entry passes its release date. Paystack charges{" "}
+        {cedis(transferFee)} to send a payout, and that fee is deducted from what you receive — it is the only charge on a payout. If a statement looks wrong,
+        contact the team with the booking reference.
       </p>
     </section>
   </ConsoleShell>;

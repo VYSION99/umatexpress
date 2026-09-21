@@ -61,7 +61,8 @@ The commission base is the fare (`payments.fare_amount`), never
 `bookings.amount`, which carries Paystack's pass-through charge; the rate is
 copied onto the booking and the ledger row, so a later rate change cannot
 rewrite what an organizer earned, and the owner is copied onto the booking at
-creation for the same reason. `release_after` is 24 hours after the booking was
+creation for the same reason. `release_after` is the configured release window
+(twenty minutes by default) after the booking was
 paid. An administrator makes the transfer by hand and records the reference,
 which releases every ready entry in one batch; Phase 5 replaces the human
 transfer with Paystack Transfers. Cancelling a booking reverses its entry —
@@ -70,7 +71,7 @@ refused while a debt stands.
 
 **Phase 5, as built.** The ledger now pays out. An entry in flight is its own
 status (`PROCESSING`), because money that has left for Paystack has not arrived
-yet and must not be released twice. The release job runs every fifteen minutes,
+yet and must not be released twice. The release job runs on nearly every minute of the hour,
 which cannot pay anyone early: `release_after` is still the gate, so running
 more often only drains a backlog faster and keeps each run inside one
 invocation's subrequest budget. Only the settled Paystack balance, less a

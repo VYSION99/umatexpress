@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS organizer_payout_batches (
   id TEXT PRIMARY KEY,
   organizer_id TEXT NOT NULL,
   total_amount INTEGER NOT NULL DEFAULT 0,
+  transfer_fee INTEGER NOT NULL DEFAULT 0,
   entry_count INTEGER NOT NULL DEFAULT 0,
   transfer_reference TEXT NOT NULL DEFAULT '',
   mode TEXT NOT NULL DEFAULT 'MANUAL',
@@ -729,6 +730,7 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE organizer_payouts        ADD COLUMN payout_attempts INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE organizer_payouts        ADD COLUMN last_error TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE organizer_payout_batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'MANUAL';
+-- ALTER TABLE organizer_payout_batches ADD COLUMN transfer_fee INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE organizer_payout_batches ADD COLUMN status TEXT NOT NULL DEFAULT 'RECORDED';
 -- ALTER TABLE organizer_payout_batches ADD COLUMN transfer_code TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE organizer_payout_batches ADD COLUMN recipient_code TEXT NOT NULL DEFAULT '';
@@ -737,6 +739,7 @@ WHERE flyer_promo LIKE '%GHS 190%';
 -- ALTER TABLE organizer_payout_batches ADD COLUMN initiated_at TEXT;
 -- ALTER TABLE organizer_payout_batches ADD COLUMN settled_at TEXT;
 -- ALTER TABLE organizer_payout_batches ADD COLUMN updated_at TEXT;
+-- ALTER TABLE hostel_payout_batches    ADD COLUMN transfer_fee INTEGER NOT NULL DEFAULT 0;
 -- ALTER TABLE bookings                 ADD COLUMN booking_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT';
 -- ALTER TABLE bookings                 ADD COLUMN hold_expires_at TEXT;
 -- ALTER TABLE bookings                 ADD COLUMN confirmed_at TEXT;
@@ -1088,6 +1091,9 @@ CREATE TABLE IF NOT EXISTS hostel_payout_batches (
   id TEXT PRIMARY KEY,
   landlord_id TEXT NOT NULL,
   total_amount INTEGER NOT NULL DEFAULT 0,
+  -- What Paystack charged to send the batch. The landlord's cost, deducted
+  -- from the transfer, so the statement can show what actually arrived.
+  transfer_fee INTEGER NOT NULL DEFAULT 0,
   entry_count INTEGER NOT NULL DEFAULT 0,
   transfer_reference TEXT NOT NULL DEFAULT '',
   note TEXT NOT NULL DEFAULT '',

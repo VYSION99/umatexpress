@@ -32,7 +32,14 @@ together, and suspension sets both to `SUSPENDED` and revokes live sessions.
 
 ### Stage 2: Payout Account Setup
 
-- Organizer enters bank or MoMo details.
+- Organizer enters **mobile money** details. Rides pay out on the mobile money
+  rail only: Paystack charges GHS 1.00 per mobile money transfer against
+  GHS 8.00 per bank transfer, and the fee is deducted from the payout, so the
+  cheaper rail is the one that leaves the organizer more of their fare.
+  (Hostels keep both rails.)
+- The form states the charges before the account is saved: the transfer fee that
+  is deducted from each payout, the platform commission taken from each fare,
+  and the fact that Paystack's checkout charge is paid by the passenger.
 - Details are stored **masked** by default.
 - Encryption is a single policy applied to every payout row, never an opt-in:
   a partly encrypted column means nobody can tell which rows are protected.
@@ -99,7 +106,9 @@ bookable until a reviewer approves it.
 ### Stage 6: Payout Activation
 
 - Once `kyc_status = VERIFIED` and at least one trip has been approved, the organizer becomes eligible for payouts.
-- The release job begins processing their earnings 24 hours after each booking is paid.
+- The release job begins processing their earnings minutes after each booking is
+  paid (twenty by default), as soon as the platform's settled balance can cover
+  the transfer.
 
 ---
 

@@ -55,8 +55,13 @@ type PayoutEntry = {
   status: string; releaseAfter: string; releasedAt: string; transferReference: string; createdAt: string;
 };
 type PayoutBatch = {
-  id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdBy: string; createdAt: string;
+  id: string; totalAmount: number; transferFee?: number; entryCount: number; transferReference: string; note: string; createdBy: string; createdAt: string;
 };
+
+/** What reached the landlord: the ledger amount less the rail's fee. */
+function received(batch: PayoutBatch) {
+  return Math.max(0, Number(batch.totalAmount || 0) - Number(batch.transferFee || 0));
+}
 type PayoutStatement = {
   entries: PayoutEntry[];
   batches: PayoutBatch[];
@@ -781,12 +786,13 @@ function PayoutsPanel({ account, statement, destinations, isOwner, busy, onSaveA
     {statement && statement.batches.length > 0 && <>
       <h3 className="console-subhead">Transfers recorded</h3>
       <table className="console-table">
-        <thead><tr><th>Reference</th><th>Bookings</th><th>Amount</th><th>Recorded</th><th>By</th></tr></thead>
+        <thead><tr><th>Reference</th><th>Bookings</th><th>Amount</th><th>Received</th><th>Recorded</th><th>By</th></tr></thead>
         <tbody>
           {statement.batches.map((batch) => <tr key={batch.id}>
             <td><strong>{batch.transferReference}</strong>{batch.note ? <small>{batch.note}</small> : null}</td>
             <td>{batch.entryCount}</td>
-            <td>{cedis(batch.totalAmount)}</td>
+            <td>{cedis(batch.totalAmount)}{batch.transferFee ? <small>fee {cedis(batch.transferFee)}</small> : null}</td>
+            <td>{cedis(received(batch))}</td>
             <td>{when(batch.createdAt)}</td>
             <td>{batch.createdBy}</td>
           </tr>)}

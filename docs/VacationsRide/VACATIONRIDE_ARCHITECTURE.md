@@ -14,8 +14,9 @@ In this model:
 - **Trip Organizers** (individuals or companies) create and manage their own scheduled long-distance trips.
 - Students book seats directly through the platform.
 - The platform handles payments, takes a **3% commission**, and transfers the remaining **97%** to the trip organizer via **Paystack Transfers**.
-- A payout becomes payable **24 hours after the booking was paid**, and never
-  against unsettled funds (see `VACATIONRIDE_PAYOUTS.md`).
+- A payout becomes payable **20 minutes after the booking was paid** (a console
+  setting, `0` for as-soon-as-settled), and never against unsettled funds (see
+  `VACATIONRIDE_PAYOUTS.md`).
 
 This is a significant architectural shift that brings vacationRide closer in structure to the planned **Hostel Finder** (marketplace with payouts), while retaining its core strength in scheduled, seat-based bookings.
 
@@ -52,8 +53,9 @@ organizer and driver activity instead of four partial histories.
 ### Commission & Payout Model
 
 - **Commission Rate**: Fixed at **3%** per booking (platform keeps 3%, organizer receives 97%).
-- **Payout Timing**: Payable 24 hours after the booking is paid; the release job
-  sweeps every fifteen minutes.
+- **Payout Timing**: Payable 20 minutes after the booking is paid by default;
+  the release job sweeps on nearly every minute, so the window — not the schedule — is
+  what the organizer waits for.
 - **Payout Method**: Paystack Transfers to organizer’s registered recipient account.
 
 ---
@@ -76,7 +78,7 @@ organizer and driver activity instead of four partial histories.
 |------|-------------|
 | **Organizer Self-Service** | Organizers work inside the existing console (`/console/*`); no second portal and no second sign-in |
 | **Commission Calculation** | Must be calculated and recorded at booking confirmation time |
-| **Payout Ledger** | New `organizer_payouts` table + release job, every fifteen minutes |
+| **Payout Ledger** | New `organizer_payouts` table + release job, on nearly every minute |
 | **KYC & Trust** | Organizers must complete verification before receiving payouts |
 | **Permission Scoping** | Organizers can only manage their own trips |
 | **Reconcile Job** | Failed or stuck transfers must be retried (similar to Hostel Finder) |
@@ -103,7 +105,7 @@ System calculates:
         ↓
 Creates record in organizer_payouts
         ↓
-Release job runs every fifteen minutes:
+Release job runs on nearly every minute of the hour:
    - Finds eligible payouts (confirmed, settled, and 24h past payment)
    - Initiates Paystack Transfer to organizer
    - Updates payout status

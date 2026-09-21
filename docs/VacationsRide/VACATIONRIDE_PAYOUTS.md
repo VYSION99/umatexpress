@@ -1,6 +1,6 @@
 # vacationRide — Payout Architecture (Trip Organizers)
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Phase 4 and Phase 5 built — sections 2 to 6 describe what now runs, including the automated transfer and its reconcile job
 
 ---
@@ -12,7 +12,16 @@ This document defines the **payout system** for trip organizers in the new marke
 Key rules:
 - Platform takes a **fixed 3% commission** per booking.
 - Organizers receive **97%** of the booking amount.
-- A payout becomes payable **24 hours after the booking was paid**.
+- Payouts go to **mobile money only**. A bank transfer costs Paystack GHS 8.00
+  against GHS 1.00, and the fee is the organizer's, so the ride side keeps the
+  cheap rail. Hostels keep both rails; a landlord's payout is a term's rent.
+- The **Paystack transfer fee is deducted from the payout**, not charged to the
+  platform: an organizer owed GHS 174.60 to mobile money receives GHS 173.60.
+  The organizer's business profile states this before they save an account.
+- A payout becomes payable **20 minutes after the booking was paid**, a window
+  the admin console can change (`organizer_payout_release_minutes`, including
+  `0` for as-soon-as-settled). Paystack's mobile money transfers land in
+  seconds, so this wait is the platform's own reversal window, not the rail's.
 - All payouts go through **Paystack Transfers**.
 
 Automated transfers are the end state, not the first step: Phase 4 ships the
@@ -20,13 +29,14 @@ ledger and admin-triggered batches, Phase 5 automates them (section 8).
 
 Two safety rules override the schedule below:
 
-1. **A payout waits a full day after the payment that created it.** The anchor
-   is the moment the booking was paid: `release_after` is paid + 24 hours,
-   computed when the ledger entry is written. The day is the reversal window —
-   long enough for a mistaken or duplicated payment to be refunded before any
-   money moves, and for Paystack's charge to settle. Eligibility is deliberately
-   **not** tied to the coach's departure: a seat sold a month before travel
-   still becomes payable the next day.
+1. **A payout waits out its release window after the payment that created it.**
+   The anchor is the moment the booking was paid: `release_after` is paid + the
+   configured window, computed when the ledger entry is written. That window is
+   the reversal one — the only stretch in which a mistaken or duplicated
+   payment can be undone by refusing the payout instead of clawing it back
+   afterwards. It is twenty minutes by default and can be zero. Eligibility is
+   deliberately **not** tied to the coach's departure: a seat sold a month
+   before travel becomes payable at the same pace as one sold today.
 2. **Release waits for settlement.** Paystack settles payments on its own
    schedule; a transfer attempted against unsettled funds can fail. The release
    job only picks up payouts whose funds are settled, and a failed transfer is
@@ -103,9 +113,9 @@ System calculates:
    - net = gross - commission
         ↓
 Insert into organizer_payouts with:
-   - release_after = paid_at + 24h
+   - release_after = paid_at + organizer_payout_release_minutes
         ↓
-Release job runs every fifteen minutes:
+Release job runs on nearly every minute of the hour:
    - Finds all ACCRUED payouts where release_after <= now
    - Initiates a Paystack Transfer for the organizer's ready total
    - Sets the batch to SUCCESS (entries RELEASED) or PENDING while in flight,
@@ -125,13 +135,14 @@ Release job runs every fifteen minutes:
 
 **Idempotency:** The job must be safe to run multiple times without creating duplicate transfers.
 
-**As built.** The job runs every fifteen minutes (`7,22,37,52 * * * *`) because
+**As built.** The job runs on every minute the other triggers leave free (a cron list computed
+from theirs, so no two triggers share a minute) because
 `release_after` is the gate, not the schedule: running more often only drains a
 backlog sooner, and the query that picks entries up already refuses one whose
-day has not passed. Each run takes at most four organizers, which keeps it
+window has not passed. Each run takes at most four organizers, which keeps it
 inside the free plan's fifty subrequests per invocation, and it stops when the
-settled balance runs out of headroom — every transfer also costs a fee, budgeted
-with `PAYOUT_TRANSFER_FEE_PESEWAS`.
+settled balance runs out of headroom — every transfer also costs a fee, which is
+deducted from the payout (`PAYOUT_TRANSFER_FEE_MOMO_PESEWAS`).
 
 Idempotency is the claim, not a check: the batch row is written first, then a
 conditional `UPDATE ... WHERE status = 'ACCRUED' AND batch_id = ''` moves the
@@ -194,7 +205,7 @@ them apart:
 **As built.** The ledger is `organizer_payouts`, written once per confirmed
 booking at confirmation time (verification and the webhook both call
 `accrueForBooking`, and a unique index on `booking_id` makes the second write a
-no-op). `release_after` is 24 hours after the moment the booking was paid,
+no-op). `release_after` is the configured release window after the moment the booking was paid,
 anchored on `bookings.confirmed_at`, then `payments.completed_at`, then
 `payments.created_at`, then `bookings.created_at` for entries whose payment row
 has not recorded a confirmation. An administrator records a payout from
@@ -205,13 +216,18 @@ statement at `/console/earnings`.
 Two rules this document set out, as implemented:
 
 1. **A payout is never released before its reversal window has closed**:
-   `release_after` is the payment time plus 24 hours, computed when the entry is
-   written. A booking made at 23:59 is not payable a minute later; it is payable
-   at 23:59 the next day.
+   `release_after` is the payment time plus the configured window, computed when
+   the entry is written, so a booking is never payable in the same breath as its
+   payment. The window is a console setting (`0` pays as soon as the settled
+   balance allows) and it is written onto each entry, so shortening it pays
+   future bookings sooner and never re-times money already earned.
 2. **Release waits for settlement.** The release job reads Paystack's balance
-   and stops when a transfer plus its fee would not be covered, so a payout is
-   only attempted against money that has actually settled. An administrator
-   recording a manual batch is still their own settlement check for that batch.
+   and stops when it cannot cover what the ledger owes, so a payout is only
+   attempted against money that has actually settled. The transfer fee is
+   deducted from the payout itself, so Paystack's debit — the amount sent plus
+   its own fee — is exactly the amount the ledger owed, and the balance never
+   has to carry the fee on top. An administrator recording a manual batch is
+   still their own settlement check for that batch.
 
 A refund before release reverses the entry and nothing else happens. A refund
 after release reverses the entry and leaves a debt, because `released_at` is

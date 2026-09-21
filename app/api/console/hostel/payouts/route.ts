@@ -5,6 +5,7 @@ import {
   getHostelPayoutAccount, hostelPayoutStatement, hostelPayoutAutoState, listHostelPayoutLandlords, platformHostelPayoutBalance,
   recordHostelPayoutBatch, runHostelPayoutReconcileJob, sendHostelPayoutBatch,
 } from "@/lib/hostel-engine/payouts";
+import { paystackPayoutBalance } from "@/lib/payout-balance";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -21,12 +22,20 @@ export async function GET(request: Request) {
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const landlordId = String(new URL(request.url).searchParams.get("landlordId") || "").trim();
     if (!landlordId) {
-      const [{ landlords, totals }, balance, auto] = await Promise.all([
+      const [settled, { landlords, totals }, balance, auto] = await Promise.all([
+        paystackPayoutBalance(),
         listHostelPayoutLandlords(),
         platformHostelPayoutBalance(),
         hostelPayoutAutoState(),
       ]);
-      return Response.json({ ok: true, landlords, totals, balance, auto: { enabled: auto.enabled, source: auto.source } }, { headers: NO_STORE });
+      return Response.json({
+        ok: true, landlords, totals, balance,
+        // What Paystack can actually send today, so the desk can explain a
+        // refused Send before an administrator presses it. Null is "could not
+        // read", not "nothing there".
+        settledBalance: settled ? settled.balance : null,
+        auto: { enabled: auto.enabled, source: auto.source },
+      }, { headers: NO_STORE });
     }
     const [landlord, statement, account] = await Promise.all([
       getHostelLandlord(landlordId),

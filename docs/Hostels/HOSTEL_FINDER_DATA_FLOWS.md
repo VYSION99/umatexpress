@@ -38,34 +38,50 @@ Student                          System                              Paystack
 
 ---
 
-## 2. Payout Release Flow
+## 2. Payout Release Flow (built)
 
 ```
-Admin / Cron                     System                              Paystack
+Release job / Admin              System                              Paystack
 ───────────────────────────────────────────────────────────────────────────────
-1. Daily job runs
-                              2. Find payouts where:
-                                 - status = PENDING
-                                 - release_after <= today
-                                 - booking is confirmed
-3. Admin reviews (optional)
-4. Admin clicks "Release"
-                              5. Update payout → APPROVED
-                              6. Call Paystack Transfer API
-                              7. Receive transfer_reference
-                              8. Update payout → TRANSFERRED
-                              9. Write audit log
-
-                              (Failure path)
-                              10. Transfer fails
-                              11. Update payout → FAILED
-                              12. Schedule retry (reconcile job)
+1. Release cron fires
+                              2. Queue one row per landlord:
+                                 - status = ACCRUED, release_after <= now
+                                 - no batch in flight, no released-debt row
+                                 - payout_attempts below the ceiling
+                              3. Read the settled Paystack balance once
+                              4. Gate each landlord before writing a batch:
+                                 ACTIVE, KYC verified, destination saved,
+                                 amount above the fee and the minimum,
+                                 balance covers the amount
+5. Admin may press Send
+                              6. Insert batch (PENDING), claim entries
+                                 (ACCRUED → PROCESSING) in the same breath
+                              7. Transfer amount = claimed balance − rail
+                                 fee (MOMO GHS 1.00 / bank GHS 8.00)
+                              8. Store transfer_code, recipient_code,
+                                 transfer_fee; write the audit log
+                              9. Paystack settles inline or by webhook
 ```
 
 **Key Rules:**
-- Payouts are released **3 days before school reopening** by default.
-- Admin can manually release earlier or delay.
-- Failed transfers are retried via the reconcile job.
+- A payout releases when its window closes: `release_after` defaults to three
+  days before the academic year starts and is written onto each entry when the
+  booking is paid. A shorter window is a policy change, not a migration.
+- The fee is the landlord's: the transfer carries the ledger amount **less**
+  Paystack's charge for that rail, so the platform's debit is exactly the
+  balance owed. `hostel_payout_batches.transfer_fee` records it and both payout
+  screens show Amount, fee and Received.
+- Unattended release is opt-in (`hostel_payout_auto`, fallback
+  `HOSTEL_PAYOUT_AUTO_ENABLED`). Off keeps the ledger and statements; Send with
+  Paystack in the payout desk is attended and still works.
+- The job never sends what the settled balance cannot cover, and never retries
+  past `HOSTEL_PAYOUT_MAX_ATTEMPTS` — those entries go to `FAILED` and wait for
+  a person. A failed transfer returns its entries to `ACCRUED`.
+- An administrator recording a transfer by hand is the settlement check for
+  that batch: the ledger records the full amount and the notification discloses
+  the rail's fee rather than inventing a deduction.
+- The reconcile job and the transfer webhook both settle `PENDING` batches, so
+  a missed webhook is noticed rather than leaving money in limbo.
 
 ---
 

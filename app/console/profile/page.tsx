@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, CreditCard, IdCard, ShieldAlert } from "lucide-react";
+import { BadgeCheck, CreditCard, IdCard, Info, ShieldAlert } from "lucide-react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -13,18 +13,19 @@ const ID_TYPES = [
   { value: "VOTER_ID", label: "Voter ID" },
 ] as const;
 
-const PAYOUT_METHODS = [
-  { value: "BANK", label: "Bank account" },
-  { value: "MOMO", label: "Mobile money" },
-] as const;
-
 type PayoutDestination = { code: string; name: string };
-type Destinations = { BANK: PayoutDestination[]; MOMO: PayoutDestination[] };
+type Destinations = { MOMO: PayoutDestination[] };
+type Fees = { transferFee: number; checkoutPercent: number };
 
-const EMPTY_DESTINATIONS: Destinations = { BANK: [], MOMO: [] };
+const EMPTY_DESTINATIONS: Destinations = { MOMO: [] };
+const EMPTY_FEES: Fees = { transferFee: 0, checkoutPercent: 0 };
+
+/** `GH₵ 1.00` — the same money format the rest of the console uses. */
+const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
+const percent = (basisPoints: number) => `${(Number(basisPoints || 0) / 100).toFixed(Number(basisPoints || 0) % 100 === 0 ? 0 : 2)}%`;
 
 type Profile = {
-  organizerId: string; kycStatus: string; kycIdType: string; kycIdNumberMasked: string; kycReason: string;
+  organizerId: string; commissionBps: number; kycStatus: string; kycIdType: string; kycIdNumberMasked: string; kycReason: string;
   payoutMethod: string; payoutAccountName: string; payoutAccountMasked: string;
   payoutBankCode: string; payoutBankName: string; payoutRecipientReady: boolean;
 };
@@ -42,6 +43,7 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [kyc, setKyc] = useState({ idType: "GHANA_CARD", idNumber: "" });
   const [payout, setPayout] = useState({ method: "MOMO", accountName: "", accountNumber: "", bankCode: "" });
   const [destinations, setDestinations] = useState<Destinations>(EMPTY_DESTINATIONS);
+  const [fees, setFees] = useState<Fees>(EMPTY_FEES);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
@@ -53,13 +55,16 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
       if (!response.ok) throw new Error(data.error || "Your profile could not be loaded.");
       setProfile(data.profile);
       setDestinations(data.destinations || EMPTY_DESTINATIONS);
+      setFees(data.fees || EMPTY_FEES);
       if (data.profile?.kycIdType) setKyc((current) => ({ ...current, idType: data.profile.kycIdType }));
       if (data.profile?.payoutMethod) {
         setPayout((current) => ({
           ...current,
-          method: data.profile.payoutMethod,
+          // The rail is fixed: a saved bank account from before the rule is
+          // shown for what it is and replaced by the next save.
+          method: "MOMO",
           accountName: data.profile.payoutAccountName || "",
-          bankCode: data.profile.payoutBankCode || "",
+          bankCode: data.profile.payoutMethod === "MOMO" ? data.profile.payoutBankCode || "" : "",
         }));
       }
     } catch (loadError) {
@@ -125,14 +130,12 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
       <h2><CreditCard size={18}/>Payout account</h2>
       <form className="console-form" onSubmit={(event) => { event.preventDefault(); void save("payout"); }}>
         <label>Method
-          <select value={payout.method} onChange={(event) => setPayout({ ...payout, method: event.target.value, bankCode: "" })}>
-            {PAYOUT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
-          </select>
+          <input type="text" value="Mobile money only" readOnly aria-readonly="true" />
         </label>
-        <label>{payout.method === "MOMO" ? "Network" : "Bank"}
+        <label>Network
           <select required value={payout.bankCode} onChange={(event) => setPayout({ ...payout, bankCode: event.target.value })}>
-            <option value="">{payout.method === "MOMO" ? "Choose the network" : "Choose the bank"}</option>
-            {(destinations[payout.method as "BANK" | "MOMO"] || []).map((destination) => (
+            <option value="">Choose the network</option>
+            {(destinations.MOMO || []).map((destination) => (
               <option key={destination.code} value={destination.code}>{destination.name}</option>
             ))}
           </select>
@@ -140,7 +143,7 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <label>Account holder
           <input type="text" required value={payout.accountName} onChange={(event) => setPayout({ ...payout, accountName: event.target.value })} />
         </label>
-        <label>{payout.method === "MOMO" ? "Mobile money number" : "Account number"}
+        <label>Mobile money number
           <input type="text" required value={payout.accountNumber} onChange={(event) => setPayout({ ...payout, accountNumber: event.target.value })} placeholder={profile?.payoutAccountMasked || "0240000000"} />
         </label>
         <button disabled={busy === "payout"}><CreditCard size={16}/>{busy === "payout" ? "Saving…" : "Save payout details"}</button>
@@ -150,6 +153,20 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
       </p>
       <p className="console-note">
         Payouts are addressed to this exact account, so changing any detail here retires the saved payee and the next payout is addressed again.
+      </p>
+      {profile?.payoutMethod && profile.payoutMethod !== "MOMO" && <div className="console-alert" role="alert">
+        The saved account is a bank account, and rides no longer pay out to banks. Save a mobile money account to be paid again.
+      </div>}
+      <p className="console-note"><Info size={13}/> <strong>What a payout costs you</strong></p>
+      <p className="console-note">
+        <strong>{cedis(fees.transferFee)}</strong> is Paystack&rsquo;s charge for sending money to mobile money, and it is deducted from what you receive: a{" "}
+        {cedis(10000)} payout arrives as {cedis(10000 - fees.transferFee)}. That fee is the reason rides pay out to mobile money only — the same transfer
+        to a bank account costs GHS 8.00.
+      </p>
+      <p className="console-note">
+        <strong>{profile ? percent(profile.commissionBps) : "—"}</strong> platform commission is taken out of each fare before the amount above reaches
+        your statement. Nothing else comes out of your earnings: Paystack&rsquo;s <strong>{fees.checkoutPercent}%</strong> checkout charge is paid by the
+        passenger on top of the fare.
       </p>
     </section>
   </ConsoleShell>;

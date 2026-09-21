@@ -29,6 +29,24 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
 export const ORGANIZER_STATUSES = ["PENDING", "APPROVED", "REJECTED", "SUSPENDED"] as const;
 export type OrganizerStatus = (typeof ORGANIZER_STATUSES)[number];
 
+/**
+ * Where a trip organizer may be paid: mobile money, and nothing else.
+ *
+ * Paystack's Ghana schedule charges GHS 1.00 to send to mobile money and
+ * GHS 8.00 to send to a bank account, and that fee comes out of the payout
+ * itself. Fares are small enough that eight times the fee turns a few bookings
+ * into a payout that costs a noticeable share of what it carries, so the ride
+ * side keeps the cheap rail. Hostels are deliberately not bound by this: a
+ * landlord's payout is a term's rent, where a bank account is normal and the
+ * fee is a rounding error.
+ */
+export const ORGANIZER_PAYOUT_METHODS = ["MOMO"] as const;
+export type OrganizerPayoutMethod = (typeof ORGANIZER_PAYOUT_METHODS)[number];
+
+export function isOrganizerPayoutMethod(value: unknown): value is OrganizerPayoutMethod {
+  return (ORGANIZER_PAYOUT_METHODS as readonly string[]).includes(String(value || "").trim().toUpperCase());
+}
+
 export type Organizer = {
   id: string;
   name: string;
@@ -538,6 +556,8 @@ export async function organizerNoticeForTrip(tripId: string): Promise<FlyerPromo
 
 export type OrganizerProfile = {
   organizerId: string;
+  /** The platform's share of each fare, in basis points, for this organizer. */
+  commissionBps: number;
   kycStatus: string;
   kycIdType: string;
   /** Masked. The full number is only ever returned by an audited reveal. */
@@ -569,7 +589,7 @@ export function isKycAction(value: unknown): value is KycAction {
 export async function getOrganizerProfile(organizerId: string): Promise<OrganizerProfile | null> {
   await ensureOrganizerTables();
   const row = rowsToObjects(await turso(
-    `SELECT id,COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(kyc_id_type,'') AS kyc_id_type,
+    `SELECT id,COALESCE(commission_bps,0) AS commission_bps,COALESCE(kyc_status,'PENDING') AS kyc_status,COALESCE(kyc_id_type,'') AS kyc_id_type,
        COALESCE(kyc_id_number,'') AS kyc_id_number,COALESCE(kyc_reason,'') AS kyc_reason,
        COALESCE(kyc_submitted_at,'') AS kyc_submitted_at,COALESCE(kyc_reviewed_at,'') AS kyc_reviewed_at,
        COALESCE(payout_method,'') AS payout_method,COALESCE(payout_account_name,'') AS payout_account_name,
@@ -590,6 +610,7 @@ export async function getOrganizerProfile(organizerId: string): Promise<Organize
   const kycLast4 = last4Of(String(row.kyc_id_number || "")) || lastFour((await openSecret(row.kyc_id_number)) || "");
   return {
     organizerId: String(row.id),
+    commissionBps: Number(row.commission_bps || 0),
     kycStatus: String(row.kyc_status || "PENDING"),
     kycIdType: String(row.kyc_id_type || ""),
     kycIdNumberMasked: maskAccountNumber(kycLast4),
@@ -644,7 +665,17 @@ export async function saveOrganizerPayoutAccount(organizerId: string, input: {
   const accountName = String(input.accountName || "").trim();
   const accountNumber = String(input.accountNumber || "").trim();
   if (!isPayoutMethod(method)) {
-    throw new CampusEngineError("VALIDATION_ERROR", "Choose a bank account or a mobile money account.", 400);
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose the mobile money network that holds this account.", 400);
+  }
+  // The rail is a policy decision, not a destination lookup, so it is checked
+  // before the catalogue: a bank account is a valid Paystack destination and
+  // still not somewhere a trip organizer may be paid.
+  if (!isOrganizerPayoutMethod(method)) {
+    throw new CampusEngineError(
+      "VALIDATION_ERROR",
+      "Rides are paid out to mobile money only. Choose the network that holds this account.",
+      400,
+    );
   }
   if (!accountName) throw new CampusEngineError("VALIDATION_ERROR", "Enter the account holder's name.", 400);
   if (accountNumber.length < 5 || accountNumber.length > 40 || !/^[0-9A-Za-z -]+$/.test(accountNumber)) {
@@ -655,11 +686,7 @@ export async function saveOrganizerPayoutAccount(organizerId: string, input: {
   // resolved against the catalogue so an unknown code cannot be stored.
   const destination = await findPayoutDestination(method as PayoutMethod, input.bankCode);
   if (!destination) {
-    throw new CampusEngineError(
-      "VALIDATION_ERROR",
-      method === "BANK" ? "Choose the bank that holds this account." : "Choose the mobile money network.",
-      400,
-    );
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose the mobile money network that holds this account.", 400);
   }
   const stamp = new Date().toISOString();
   // A recipient code is an address, and the address just changed. Clearing it

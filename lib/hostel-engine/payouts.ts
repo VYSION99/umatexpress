@@ -3,12 +3,13 @@ import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables, getHostelLandlord, HOSTEL_DEFAULT_COMMISSION_BPS } from "@/lib/hostel-engine/landlord";
 import { queueNotification } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
-import { createPaystackRecipient, initiatePaystackTransfer, verifyPaystackTransfer } from "@/lib/paystack";
+import { createPaystackRecipient, getPaymentProviderRuntime, initiatePaystackTransfer, verifyPaystackTransfer } from "@/lib/paystack";
 import { findPayoutDestination, isPayoutMethod, recipientTypeFor, type PayoutMethod } from "@/lib/paystack-banks";
-import { platformSettingEnabled, platformSettingState } from "@/lib/platform-settings";
+import { paystackPayoutBalance } from "@/lib/payout-balance";
+import { payoutRailFee, platformSettingEnabled, platformSettingNumber, platformSettingState } from "@/lib/platform-settings";
 import { envValue } from "@/lib/runtime-env";
 import { lastFour, maskAccountNumber, openSecret, sealSecret } from "@/lib/secret-box";
-import { rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 /**
  * Money out of the hostel ledger.
@@ -73,6 +74,9 @@ const PAYOUT_TRANSFER_STATEMENTS = [
   "ALTER TABLE hostel_payout_batches ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE hostel_payout_batches ADD COLUMN initiated_at TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE hostel_payout_batches ADD COLUMN settled_at TEXT NOT NULL DEFAULT ''",
+  // What the rail charged to send the batch: the landlord's cost, taken out of
+  // the payout, so the statement can show what actually arrived.
+  "ALTER TABLE hostel_payout_batches ADD COLUMN transfer_fee INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE hostel_payouts ADD COLUMN payout_attempts INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE hostel_payouts ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE hostel_landlords ADD COLUMN paystack_recipient_code TEXT NOT NULL DEFAULT ''",
@@ -116,7 +120,7 @@ export function ensureHostelPayoutTables() {
   payoutTablesReady ??= (async () => {
     await ensureHostelTables();
     await runSchemaPass({ id: "hostel_payouts", version: "016_hostel_payouts", statements: PAYOUT_SCHEMA_STATEMENTS });
-    await runSchemaPass({ id: "hostelPayoutTransfers", version: "019_hostel_payout_transfers", statements: PAYOUT_TRANSFER_STATEMENTS });
+    await runSchemaPass({ id: "hostelPayoutTransfers", version: "034_hostel_payout_transfer_fee", statements: PAYOUT_TRANSFER_STATEMENTS });
   })().catch((error: unknown) => {
     payoutTablesReady = null;
     throw error;
@@ -145,7 +149,10 @@ export type HostelPayoutEntry = {
 export type HostelPayoutBatchRecord = {
   id: string;
   landlordId: string;
+  /** The ledger amount the batch claimed, before the rail's fee. */
   totalAmount: number;
+  /** What Paystack charged to send it; the landlord's cost, not the platform's. */
+  transferFee: number;
   entryCount: number;
   transferReference: string;
   note: string;
@@ -237,6 +244,7 @@ function batchView(row: Record<string, unknown>): HostelPayoutBatchRecord {
     id: String(row.id || ""),
     landlordId: String(row.landlord_id || ""),
     totalAmount: Number(row.total_amount || 0),
+    transferFee: Number(row.transfer_fee || 0),
     entryCount: Number(row.entry_count || 0),
     transferReference: String(row.transfer_reference || ""),
     note: String(row.note || ""),
@@ -435,15 +443,25 @@ export async function recordHostelPayoutBatch(input: {
     targetReference: landlordId,
     details: { batchId, reference, totalAmount, entryCount },
   }).catch(() => undefined);
+  // A manual batch is a transfer an administrator already made, so the ledger
+  // records it in full and the platform does not deduct anything from it. The
+  // fee is still disclosed: it is what the rail charges to send on the account
+  // the landlord chose, and they should not learn it from a smaller credit.
+  const fee = await payoutRailFee(account.method);
   await queueNotification(turso, {
     recipient: landlord.email,
     template: "hostel_payout_recorded",
     subject: `Payout sent: GH₵${(totalAmount / 100).toFixed(2)}`,
-    message: `We released ${entryCount} paid booking${entryCount === 1 ? "" : "s"} of hostel earnings to you under transfer reference ${reference}. Your statement in the console shows which residents it covers.`,
+    message: fee > 0
+      ? `We released ${entryCount} paid booking${entryCount === 1 ? "" : "s"} of hostel earnings to you under transfer reference ${reference}. Paystack charges GH₵${(fee / 100).toFixed(2)} to send on the ${String(account.method).toUpperCase() === "BANK" ? "bank" : "mobile money"} rail; where the transfer went through Paystack, that charge comes out of the amount sent rather than being added to it. Your statement in the console shows which residents it covers.`
+      : `We released ${entryCount} paid booking${entryCount === 1 ? "" : "s"} of hostel earnings to you under transfer reference ${reference}. Your statement in the console shows which residents it covers.`,
     reference: batchId,
     nowIso: stamp,
   }).catch(() => undefined);
-  return { id: batchId, landlordId, totalAmount, entryCount, transferReference: reference, note, createdAt: stamp };
+  // No fee is recorded on a manual batch: the administrator's transfer is the
+  // settlement, so the ledger has nothing to deduct. The notification still
+  // discloses the rail's charge.
+  return { id: batchId, landlordId, totalAmount, transferFee: 0, entryCount, transferReference: reference, note, createdAt: stamp };
 }
 
 /**
@@ -615,7 +633,8 @@ async function settleHostelPayoutBatch(input: { batchId: string; stamp: string; 
   );
   await turso("UPDATE hostel_payout_batches SET status='RELEASED', settled_at=?, reason='', updated_at=? WHERE id=?", [input.stamp, input.stamp, input.batchId]);
   const batch = rowsToObjects(await turso(
-    `SELECT COALESCE(b.total_amount,0) AS total_amount,COALESCE(b.entry_count,0) AS entry_count,COALESCE(b.transfer_reference,'') AS transfer_reference,
+    `SELECT COALESCE(b.total_amount,0) AS total_amount,COALESCE(b.transfer_fee,0) AS transfer_fee,
+       COALESCE(b.entry_count,0) AS entry_count,COALESCE(b.transfer_reference,'') AS transfer_reference,
        COALESCE(l.email,'') AS email,COALESCE(b.note,'') AS note
      FROM hostel_payout_batches b LEFT JOIN hostel_landlords l ON l.id = b.landlord_id WHERE b.id = ? LIMIT 1`,
     [input.batchId],
@@ -623,13 +642,18 @@ async function settleHostelPayoutBatch(input: { batchId: string; stamp: string; 
   const email = String(batch?.email || "");
   if (!email) return;
   const totalAmount = Number(batch?.total_amount || 0);
+  const transferFee = Number(batch?.transfer_fee || 0);
+  const received = Math.max(0, totalAmount - transferFee);
   const entryCount = Number(batch?.entry_count || 0);
   const reference = String(batch?.transfer_reference || "");
+  const plural = entryCount === 1 ? "" : "s";
   await queueNotification(turso, {
     recipient: email,
     template: "hostel_payout_recorded",
-    subject: `Payout sent: GH₵${(totalAmount / 100).toFixed(2)}`,
-    message: `We released ${entryCount} paid booking${entryCount === 1 ? "" : "s"} of hostel earnings to you. Paystack transfer ${reference} has settled, and your statement in the console shows which residents it covers.`,
+    subject: `Payout sent: GH₵${(received / 100).toFixed(2)}`,
+    message: transferFee > 0
+      ? `We released ${entryCount} paid booking${plural} of hostel earnings to you. Paystack transfer ${reference} has settled: GH₵${(totalAmount / 100).toFixed(2)} left the ledger and, after the GH₵${(transferFee / 100).toFixed(2)} transfer fee on this rail, GH₵${(received / 100).toFixed(2)} reached your account. Your statement in the console shows which residents it covers.`
+      : `We released ${entryCount} paid booking${plural} of hostel earnings to you. Paystack transfer ${reference} has settled, and your statement in the console shows which residents it covers.`,
     reference: input.batchId,
     nowIso: input.stamp,
   }).catch(() => undefined);
@@ -653,10 +677,10 @@ async function failHostelPayoutBatch(input: { batchId: string; reason: string; s
   await turso("UPDATE hostel_payout_batches SET status='FAILED', reason=?, settled_at=?, updated_at=? WHERE id=?", [reason, input.stamp, input.stamp, input.batchId]);
 }
 
-/** The refusal an administrator sees when Paystack would not send the money. */
+/** What the send path answers with, settled, in flight, or refused. */
 export type HostelPayoutSendResult = {
   batch: HostelPayoutBatchRecord;
-  /** RELEASED when Paystack settled inline, PENDING while it is in flight. */
+  /** RELEASED when Paystack settled inline, PENDING while it is in flight, FAILED when it refused. */
   status: string;
   reason: string;
 };
@@ -681,6 +705,10 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
   if (!account.ready) {
     throw new CampusEngineError("INVALID_STATE", "The landlord has not saved a payout account yet.", 409);
   }
+  // The fee follows the destination and comes off the payout itself: the
+  // landlord receives the amount less the fee, and Paystack's debit — what is
+  // sent plus its own fee — is then exactly the amount the ledger owed.
+  const fee = await payoutRailFee(account.method);
   const debt = await hostelPayoutDebt(landlordId);
   if (debt > 0) {
     throw new CampusEngineError("INVALID_STATE", "A refund after a payout left this landlord in debt. Settle it before sending another transfer.", 409);
@@ -695,15 +723,41 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
     throw new CampusEngineError("INVALID_STATE", "A transfer for this landlord is still in flight. Reconcile it before sending another.", 409);
   }
   const eligible = rowsToObjects(await turso(
-    "SELECT COUNT(*) AS entry_count, COALESCE(SUM(net_amount),0) AS total_amount FROM hostel_payouts WHERE landlord_id = ? AND status = 'ACCRUED' AND release_after <= ?",
-    [landlordId, stamp],
+    `SELECT COUNT(*) AS entry_count,
+       COALESCE(SUM(net_amount),0) AS total_amount,
+       COALESCE(SUM(CASE WHEN payout_attempts >= ? THEN 1 ELSE 0 END),0) AS exhausted_count,
+       COALESCE(SUM(CASE WHEN payout_attempts >= ? THEN net_amount ELSE 0 END),0) AS exhausted_amount
+     FROM hostel_payouts WHERE landlord_id = ? AND status = 'ACCRUED' AND release_after <= ?`,
+    [HOSTEL_PAYOUT_MAX_ATTEMPTS, HOSTEL_PAYOUT_MAX_ATTEMPTS, landlordId, stamp],
   ))[0];
-  const eligibleCount = Number(eligible?.entry_count || 0);
+  const eligibleCount = Number(eligible?.entry_count || 0) - Number(eligible?.exhausted_count || 0);
+  const eligibleAmount = Number(eligible?.total_amount || 0) - Number(eligible?.exhausted_amount || 0);
   if (!eligibleCount) {
+    if (Number(eligible?.exhausted_count || 0) > 0) {
+      // Defensive rather than expected: the failure path marks a row FAILED at
+      // the ceiling, so it should not still be ACCRUED. If one is, a person has
+      // to look before it can be sent again.
+      throw new CampusEngineError("INVALID_STATE", "Every payout ready for this landlord has reached its transfer attempt ceiling. A person must review it before another transfer.", 409);
+    }
     throw new CampusEngineError("INVALID_STATE", "No hostel payout is ready yet: an entry releases three days before the academic year starts.", 409);
   }
   if (eligibleCount > HOSTEL_PAYOUT_BATCH_MAX_ENTRIES) {
     throw new CampusEngineError("INVALID_STATE", "More entries are ready than one batch should carry. Send them in smaller batches.", 409);
+  }
+  // A payout that does not survive its own transfer fee is not a payout: it
+  // stays on the ledger and joins the next batch that clears the fee.
+  if (eligibleAmount <= fee) {
+    throw new CampusEngineError("INVALID_STATE", `The payable balance is GH₵${(eligibleAmount / 100).toFixed(2)} and the transfer fee on this rail is GH₵${(fee / 100).toFixed(2)}. It stays on the ledger until the next payout carries it.`, 409);
+  }
+  // Paystack settles on its own schedule, so the balance — not the ledger —
+  // is what can actually be sent today. A known balance that cannot cover this
+  // payout refuses it before anything is written, so an administrator pressing
+  // Send does not burn an attempt on a transfer Paystack would reject. An
+  // unreadable balance leaves the judgement to the person who pressed it, with
+  // Paystack still the backstop.
+  const settledBalance = await paystackPayoutBalance();
+  if (settledBalance && eligibleAmount > Number(settledBalance.balance || 0)) {
+    throw new CampusEngineError("INVALID_STATE", `Paystack's settled balance is GH₵${(Number(settledBalance.balance || 0) / 100).toFixed(2)} and this payout is GH₵${(eligibleAmount / 100).toFixed(2)}, so nothing was sent. It stays on the ledger until the balance can cover it.`, 409);
   }
 
   // The address is resolved before anything is written: an unverified landlord
@@ -727,8 +781,8 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
   );
   await turso(
     `UPDATE hostel_payouts SET status = 'PROCESSING', batch_id = ?, transfer_reference = ?, updated_at = ?
-     WHERE landlord_id = ? AND status = 'ACCRUED' AND release_after <= ?`,
-    [batchId, reference, stamp, landlordId, stamp],
+     WHERE landlord_id = ? AND status = 'ACCRUED' AND release_after <= ? AND payout_attempts < ?`,
+    [batchId, reference, stamp, landlordId, stamp, HOSTEL_PAYOUT_MAX_ATTEMPTS],
   );
   const claimed = rowsToObjects(await turso(
     "SELECT COUNT(*) AS entry_count, COALESCE(SUM(net_amount),0) AS total_amount FROM hostel_payouts WHERE batch_id = ?",
@@ -740,10 +794,26 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
     await turso("DELETE FROM hostel_payout_batches WHERE id = ?", [batchId]).catch(() => undefined);
     throw new CampusEngineError("CONFLICT", "Another payout just claimed those entries. Reload the statement.", 409);
   }
+  // The claim decides the amount, not the eligibility read: if a concurrent run
+  // took most of the rows, what is left may not survive its own fee. Nothing is
+  // sent and no attempt is burned — the entries go straight back to being owed.
+  if (claimedAmount <= fee) {
+    await turso(
+      `UPDATE hostel_payouts SET status='ACCRUED', batch_id='', transfer_reference='', updated_at=?
+       WHERE batch_id = ? AND status = 'PROCESSING'`,
+      [stamp, batchId],
+    ).catch(() => undefined);
+    await turso("DELETE FROM hostel_payout_batches WHERE id = ?", [batchId]).catch(() => undefined);
+    throw new CampusEngineError("INVALID_STATE", "What is left after another payout is smaller than the transfer fee, so nothing was sent. It stays on the ledger.", 409);
+  }
 
   try {
+    // What the landlord receives: their share, less what Paystack charges to
+    // send it. The batch keeps both numbers so the statement can say where the
+    // difference went rather than quietly paying less than it recorded.
+    const payable = claimedAmount - fee;
     const transfer = await initiatePaystackTransfer({
-      amount: claimedAmount,
+      amount: payable,
       recipientCode: recipient.recipientCode,
       reference,
       reason: "UMaTeXPRESS hostel earnings",
@@ -751,8 +821,8 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
     const settled = transfer.status === "SUCCESS";
     const failed = transfer.status === "FAILED" || transfer.status === "REVERSED";
     await turso(
-      "UPDATE hostel_payout_batches SET total_amount=?,entry_count=?,transfer_code=?,recipient_code=?,status=?,reason=?,updated_at=? WHERE id=?",
-      [claimedAmount, claimedCount, transfer.transferCode, recipient.recipientCode, settled ? "RELEASED" : failed ? "FAILED" : "PENDING", transfer.reason, stamp, batchId],
+      "UPDATE hostel_payout_batches SET total_amount=?,entry_count=?,transfer_fee=?,transfer_code=?,recipient_code=?,status=?,reason=?,updated_at=? WHERE id=?",
+      [claimedAmount, claimedCount, fee, transfer.transferCode, recipient.recipientCode, settled ? "RELEASED" : failed ? "FAILED" : "PENDING", transfer.reason, stamp, batchId],
     );
     if (settled) await settleHostelPayoutBatch({ batchId, stamp, actor });
     if (failed) await failHostelPayoutBatch({ batchId, reason: transfer.reason || transfer.rawStatus || "TRANSFER_FAILED", stamp });
@@ -761,11 +831,11 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
       action: settled ? "HOSTEL_PAYOUT_SENT" : "HOSTEL_PAYOUT_TRANSFER_INITIATED",
       targetType: "hostel_landlord",
       targetReference: landlordId,
-      details: { batchId, reference, totalAmount: claimedAmount, entryCount: claimedCount, status: transfer.status },
+      details: { batchId, reference, totalAmount: claimedAmount, transferFee: fee, amountSent: payable, entryCount: claimedCount, status: transfer.status },
     }).catch(() => undefined);
     const saved = rowsToObjects(await turso(`SELECT * FROM hostel_payout_batches WHERE id = ? LIMIT 1`, [batchId]))[0];
     return {
-      batch: batchView(saved ?? { id: batchId, landlord_id: landlordId, total_amount: claimedAmount, entry_count: claimedCount, transfer_reference: reference, note, created_by: actor, created_at: stamp }),
+      batch: batchView(saved ?? { id: batchId, landlord_id: landlordId, total_amount: claimedAmount, transfer_fee: fee, entry_count: claimedCount, transfer_reference: reference, note, created_by: actor, created_at: stamp }),
       status: settled ? "RELEASED" : failed ? "FAILED" : "PENDING",
       reason: transfer.reason,
     };
@@ -830,39 +900,139 @@ export async function runHostelPayoutReconcileJob(options: { limit?: number; now
   return summary;
 }
 
-/** The cron path: send every landlord who is due, unless the switch is off. */
-export async function runHostelPayoutReleaseJob(options: { limit?: number; now?: Date; actor?: string } = {}) {
-  const summary = { considered: 0, sent: 0, released: 0, pending: 0, skipped: [] as { landlordId: string; reason: string }[], failed: [] as { landlordId: string; reason: string }[], status: "RAN", reason: "" };
+export type HostelPayoutReleaseSummary = {
+  status: "RAN" | "SKIPPED";
+  reason?: string;
+  considered: number;
+  /** Batches whose transfer Paystack accepted, settled or in flight. */
+  sent: number;
+  released: number;
+  pending: number;
+  skipped: Array<{ landlordId: string; reason: string }>;
+  failed: Array<{ landlordId: string; reason: string }>;
+  totalSent: number;
+  balance: number | null;
+  /** The floor a payout had to clear to be sent, so a skip can be explained. */
+  minimum: number;
+};
+
+/**
+ * The cron path: send every landlord who is due, and only what the settled
+ * balance can cover.
+ *
+ * The same two rules as the trip side, because both pay out of one Paystack
+ * balance: a payout is never attempted against money that has not settled, and
+ * a transfer's fee is the landlord's — it is deducted from the payout rather
+ * than budgeted on top of it. The checks run before a batch is written, so a
+ * skipped landlord is a sentence in the log rather than a burned attempt.
+ */
+export async function runHostelPayoutReleaseJob(options: { limit?: number; now?: Date; actor?: string } = {}): Promise<HostelPayoutReleaseSummary> {
+  const empty: HostelPayoutReleaseSummary = { status: "RAN", considered: 0, sent: 0, released: 0, pending: 0, skipped: [], failed: [], totalSent: 0, balance: null, minimum: 0 };
+  if (!(await isTursoConfiguredRuntime())) return { ...empty, status: "SKIPPED", reason: "TURSO_NOT_CONFIGURED" };
+  await ensureHostelPayoutTables();
+  if ((await getPaymentProviderRuntime()) !== "PAYSTACK") {
+    // Money collected by another provider is not in the Paystack balance, so
+    // there would be nothing to transfer from.
+    return { ...empty, status: "SKIPPED", reason: "PAYMENT_PROVIDER_NOT_PAYSTACK" };
+  }
+  const minimum = await platformSettingNumber("payout_min_amount");
+  empty.minimum = minimum;
   const manual = Boolean(options.actor);
   if (!manual && !(await hostelPayoutAutoEnabled())) {
-    return { ...summary, status: "SKIPPED", reason: "AUTO_DISABLED" };
+    return { ...empty, status: "SKIPPED", reason: "AUTO_DISABLED" };
   }
-  await ensureHostelPayoutTables();
   const now = options.now ?? new Date();
   const stamp = now.toISOString();
   const limit = Math.max(1, Math.min(10, Math.round(Number(options.limit) || 4)));
+
+  // One query decides the queue: due entries, an active and verified landlord,
+  // somewhere to send the money, no standing debt, no entries the automation
+  // has given up on, and no transfer already in flight. Oldest first, so a
+  // backlog pays out in the order it was earned.
   const candidates = rowsToObjects(await turso(
-    `SELECT p.landlord_id, MIN(p.release_after) AS oldest
+    `SELECT p.landlord_id,
+       MIN(p.release_after) AS oldest,
+       COUNT(*) AS entry_count,
+       COALESCE(SUM(p.net_amount),0) AS total_amount,
+       COALESCE(l.status,'') AS landlord_status,
+       COALESCE(l.kyc_status,'') AS kyc_status,
+       COALESCE(l.payout_method,'') AS payout_method,
+       COALESCE(l.payout_bank_code,'') AS payout_bank_code
      FROM hostel_payouts p
+     LEFT JOIN hostel_landlords l ON l.id = p.landlord_id
      WHERE p.status = 'ACCRUED' AND COALESCE(p.batch_id,'') = '' AND p.release_after <= ?
+       AND p.payout_attempts < ?
        AND NOT EXISTS (SELECT 1 FROM hostel_payout_batches b WHERE b.landlord_id = p.landlord_id AND b.status = 'PENDING')
+       AND NOT EXISTS (SELECT 1 FROM hostel_payouts d WHERE d.landlord_id = p.landlord_id AND d.status = 'REVERSED' AND COALESCE(d.released_at,'') <> '')
      GROUP BY p.landlord_id ORDER BY oldest ASC LIMIT ?`,
-    [stamp, limit],
+    [stamp, HOSTEL_PAYOUT_MAX_ATTEMPTS, limit],
   ));
-  summary.considered = candidates.length;
+  empty.considered = candidates.length;
+  if (!candidates.length) return empty;
+
+  const balance = await paystackPayoutBalance();
+  empty.balance = balance ? balance.balance : null;
+  let budget = balance ? balance.balance : 0;
+
+  const summary: HostelPayoutReleaseSummary = { ...empty, skipped: [], failed: [] };
   for (const candidate of candidates) {
     const landlordId = String(candidate.landlord_id || "");
-    if (!landlordId) continue;
+    const skip = (reason: string) => { summary.skipped.push({ landlordId, reason }); };
+    if (!landlordId) { skip("NO_LANDLORD"); continue; }
+    if (String(candidate.landlord_status) !== "ACTIVE") { skip("NOT_ACTIVE"); continue; }
+    if (String(candidate.kyc_status) !== "VERIFIED") { skip("KYC_NOT_VERIFIED"); continue; }
+    const method = String(candidate.payout_method || "").toUpperCase();
+    if (!isPayoutMethod(method) || !String(candidate.payout_bank_code || "")) { skip("NO_DESTINATION"); continue; }
+    // The fee follows the destination and comes off the payout itself, so the
+    // balance only has to cover what the ledger owes.
+    const fee = await payoutRailFee(method);
+    const entryCount = Number(candidate.entry_count || 0);
+    const amount = Number(candidate.total_amount || 0);
+    if (!amount) { skip("NOTHING_DUE"); continue; }
+    // A payout that does not survive its own transfer fee is not a payout.
+    // Unreachable behind the minimum floor, and kept because the floor is a
+    // setting someone can turn to zero.
+    if (amount <= fee) { skip("BELOW_FEE"); continue; }
+    // Checked before the balance so a balance that cannot cover a transfer
+    // does not hide the reason that would still stand if it could.
+    if (amount < minimum) { skip("BELOW_MINIMUM"); continue; }
+    if (entryCount > HOSTEL_PAYOUT_BATCH_MAX_ENTRIES) { skip("TOO_MANY_ENTRIES"); continue; }
+    if (!balance) { skip("BALANCE_UNAVAILABLE"); continue; }
+    if (amount > budget) { skip("INSUFFICIENT_BALANCE"); continue; }
+
     try {
       const result = await sendHostelPayoutBatch({ landlordId, note: "Automatic release", actor: String(options.actor || "system:payouts") });
-      summary.sent += 1;
-      if (result.status === "RELEASED") summary.released += 1; else summary.pending += 1;
+      if (result.status === "RELEASED") {
+        summary.released += 1;
+        summary.sent += 1;
+      } else if (result.status === "FAILED") {
+        // Paystack answered and refused: the ledger already has the entries
+        // back, so this is a failed attempt rather than an in-flight one.
+        summary.failed.push({ landlordId, reason: result.reason || "TRANSFER_FAILED" });
+        continue;
+      } else {
+        summary.pending += 1;
+        summary.sent += 1;
+      }
+      // Paystack debits the transfer plus its fee, and the fee came off the
+      // transfer, so what leaves the balance is exactly the ledger amount.
+      summary.totalSent += result.batch.totalAmount;
+      budget -= result.batch.totalAmount;
     } catch (error) {
       const reason = error instanceof Error ? error.message : "unknown";
       summary.failed.push({ landlordId, reason });
       logEvent("error", "hostel_payout_release_failed", { landlordId, reason });
     }
   }
+  logEvent("info", "hostel_payout_release_ran", {
+    considered: summary.considered,
+    sent: summary.sent,
+    released: summary.released,
+    pending: summary.pending,
+    skipped: summary.skipped.length,
+    failed: summary.failed.length,
+    manual,
+  });
   return summary;
 }
 

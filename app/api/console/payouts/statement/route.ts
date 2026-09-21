@@ -1,7 +1,7 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { organizerInsights, organizerTripPerformance } from "@/lib/organizer-insights";
-import { organizerStatement } from "@/lib/organizer-payouts";
+import { organizerStatement, payoutReleaseMinutes, payoutTransferFee } from "@/lib/organizer-payouts";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -19,12 +19,17 @@ export async function GET(request: Request) {
     // The statement answers "what am I owed"; the insights answer "which trips
     // earned it". They read the same ledger, so the numbers agree by
     // construction rather than by being computed twice.
-    const [statement, insights, trips] = await Promise.all([
+    const [statement, insights, trips, transferFee, releaseMinutes] = await Promise.all([
       organizerStatement(account.profileId),
       organizerInsights(account.profileId),
       organizerTripPerformance(account.profileId),
+      // What a payout will cost them, so the statement can say it rather than
+      // leaving the fee to be discovered in the difference between the two
+      // amounts on a batch row.
+      payoutTransferFee("MOMO"),
+      payoutReleaseMinutes(),
     ]);
-    return Response.json({ ok: true, statement, insights, trips }, { headers: NO_STORE });
+    return Response.json({ ok: true, statement, insights, trips, transferFee, releaseMinutes }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

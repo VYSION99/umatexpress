@@ -74,6 +74,7 @@ const paystack = {
   verifyStatus: "success",
   recipients: 0,
   transfers: 0,
+  lastAmount: 0,
 };
 
 const NOW = new Date("2026-01-03T00:00:00.000Z");
@@ -163,15 +164,16 @@ function handle(sql, args) {
     return ok(table(["entry_count", "total_amount"], [{ entry_count: claimed.length, total_amount: claimed.reduce((total, row) => total + row.net_amount, 0) }]));
   }
   if (/^UPDATE organizer_payout_batches SET total_amount=/ && /transfer_code=\?/.test(sql)) {
-    const batch = batches.find((item) => item.id === args[7]);
+    const batch = batches.find((item) => item.id === args[8]);
     if (batch) {
       batch.total_amount = Number(args[0]);
       batch.entry_count = Number(args[1]);
-      batch.transfer_code = String(args[2]);
-      batch.recipient_code = String(args[3]);
-      batch.status = String(args[4]);
-      batch.reason = String(args[5]);
-      batch.updated_at = String(args[6]);
+      batch.transfer_fee = Number(args[2]);
+      batch.transfer_code = String(args[3]);
+      batch.recipient_code = String(args[4]);
+      batch.status = String(args[5]);
+      batch.reason = String(args[6]);
+      batch.updated_at = String(args[7]);
     }
     return okRows(batch ? 1 : 0);
   }
@@ -262,6 +264,7 @@ globalThis.fetch = async (url, init) => {
   }
   if (target.includes("api.paystack.co/transfer")) {
     paystack.transfers += 1;
+    paystack.lastAmount = Number(body?.amount || 0);
     if (paystack.transferError) {
       return { ok: false, status: 400, json: async () => ({ status: false, message: paystack.transferError }) };
     }
@@ -298,7 +301,7 @@ function reset() {
   audits.length = 0;
   organizer.paystack_recipient_code = "";
   organizer.payout_account_number = "";
-  Object.assign(paystack, { balance: 1000000, transferStatus: "pending", transferError: "", verifyStatus: "success", recipients: 0, transfers: 0 });
+  Object.assign(paystack, { balance: 1000000, transferStatus: "pending", transferError: "", verifyStatus: "success", recipients: 0, transfers: 0, lastAmount: 0 });
 }
 
 test.afterEach(async () => { reset(); });
@@ -360,6 +363,11 @@ test("an immediate success releases in the same run", async () => {
   paystack.transferStatus = "success";
   const result = await runPayoutReleaseJob(ATTENDED);
   assert.equal(result.transferred, 1);
+  // The GHS 1.00 mobile money fee comes off the payout rather than being added
+  // to it, so the organizer receives GHS 96.00 of the GHS 97.00 they earned.
+  assert.equal(paystack.lastAmount, 9600);
+  assert.equal(batches[0].transfer_fee, 100);
+  assert.equal(batches[0].total_amount, 9700, "the batch still records what the ledger owed");
   assert.equal(payouts[0].status, "RELEASED");
   assert.equal(batches[0].status, "SUCCESS");
 });

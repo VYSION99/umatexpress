@@ -1,9 +1,10 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { logEvent } from "@/lib/observability";
-import { createPaystackRecipient, fetchPaystackBalance, finalizePaystackTransfer, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
+import { createPaystackRecipient, finalizePaystackTransfer, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
 import { isPayoutMethod, recipientTypeFor, type PayoutMethod } from "@/lib/paystack-banks";
-import { platformSettingEnabled, platformSettingNumber } from "@/lib/platform-settings";
+import { paystackPayoutBalance } from "@/lib/payout-balance";
+import { platformSettingEnabled, platformSettingNumber, payoutRailFee } from "@/lib/platform-settings";
 import { openSecret } from "@/lib/secret-box";
 import { ensureBookingsTable, ensurePaymentsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
@@ -31,15 +32,13 @@ import { ensureBookingsTable, ensurePaymentsTable, isTursoConfiguredRuntime, row
 export const PAYOUT_STATUSES = ["ACCRUED", "PROCESSING", "RELEASED", "REVERSED", "FAILED"] as const;
 export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 
-const PAYOUTS_SCHEMA_VERSION = "2026-09-18.2";
+const PAYOUTS_SCHEMA_VERSION = "2026-09-21.1";
 const DEFAULT_COMMISSION_BPS = 300;
 const MAX_BATCH_ENTRIES = 500;
 /** A transfer that has failed this many times stops retrying and asks for a human. */
 const MAX_TRANSFER_ATTEMPTS = 3;
 const MAX_RELEASE_CANDIDATES = 4;
 const MAX_RECONCILE_BATCHES = 5;
-/** Paystack charges per transfer, and it comes out of the same balance. */
-const DEFAULT_TRANSFER_FEE_PESEWAS = 800;
 /**
  * A batch held because Paystack asked for a one-time password. It rides in
  * `reason` because it is exactly that: why the batch is still pending. The
@@ -80,6 +79,7 @@ const PAYOUTS_SCHEMA_STATEMENTS = [
     id TEXT PRIMARY KEY,
     organizer_id TEXT NOT NULL,
     total_amount INTEGER NOT NULL DEFAULT 0,
+    transfer_fee INTEGER NOT NULL DEFAULT 0,
     entry_count INTEGER NOT NULL DEFAULT 0,
     transfer_reference TEXT NOT NULL DEFAULT '',
     mode TEXT NOT NULL DEFAULT 'MANUAL',
@@ -101,6 +101,10 @@ const PAYOUTS_SCHEMA_STATEMENTS = [
   "ALTER TABLE organizer_payouts ADD COLUMN payout_attempts INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE organizer_payouts ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE organizer_payout_batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'MANUAL'",
+  // What Paystack charged to send the batch, in pesewas. It is taken off the
+  // payout rather than added to it, so `total_amount` is what the ledger owed
+  // and `total_amount - transfer_fee` is what the organizer actually received.
+  "ALTER TABLE organizer_payout_batches ADD COLUMN transfer_fee INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE organizer_payout_batches ADD COLUMN status TEXT NOT NULL DEFAULT 'RECORDED'",
   "ALTER TABLE organizer_payout_batches ADD COLUMN transfer_code TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE organizer_payout_batches ADD COLUMN recipient_code TEXT NOT NULL DEFAULT ''",
@@ -129,19 +133,33 @@ export function ensurePayoutTables() {
 }
 
 /**
- * A booking's earnings become payable 24 hours after the booking was paid.
+ * How long a booking's earnings wait before they may be paid, in minutes.
  *
- * The day is not about the trip: it is the window in which a mistaken or
- * duplicated payment can be reversed before any money moves, and it is long
- * enough for the charge to settle. The release job still refuses to send
- * against funds Paystack has not settled, so the two gates are independent.
- * A timestamp that cannot be read falls back to the moment the entry is
- * written, which pays at the same pace rather than never.
+ * Paystack transfers to mobile money land in seconds, so this is not the rail's
+ * speed: it is the platform's reversal window, the only stretch in which a
+ * mistaken or duplicated payment can be undone by refusing the payout rather
+ * than by clawing it back. It is a console setting, because how much of that
+ * window is worth keeping is a business decision and not a property of the
+ * code. Zero is allowed and means the payout is due the moment it is written.
  */
-export function releaseAfterFor(paidAt: unknown, now = new Date()) {
+export async function payoutReleaseMinutes() {
+  return platformSettingNumber("organizer_payout_release_minutes");
+}
+
+/**
+ * When this booking's earnings become payable.
+ *
+ * The window is written onto the ledger entry here rather than compared at
+ * release time, so an entry keeps the terms it was created under: changing the
+ * setting pays future bookings differently, and never re-times money that has
+ * already been earned. A timestamp that cannot be read falls back to the moment
+ * the entry is written, which pays at the same pace rather than never.
+ */
+export async function releaseAfterFor(paidAt: unknown, now = new Date()) {
+  const minutes = Math.max(0, await payoutReleaseMinutes());
   const paid = Date.parse(String(paidAt || "").trim());
   const anchor = Number.isNaN(paid) ? now.getTime() : paid;
-  return new Date(anchor + 24 * 60 * 60_000).toISOString();
+  return new Date(anchor + minutes * 60_000).toISOString();
 }
 
 /** `round(gross * bps / 10000)`, with the net derived from the two so the split can never be a pesewa out. */
@@ -157,7 +175,7 @@ type AccrualInput = {
   reference: string;
   trip_id: string;
   organizer_id: string;
-  /** When the booking was paid: the anchor the 24-hour release gate counts from. */
+  /** When the booking was paid: the anchor the release window counts from. */
   paid_at: string;
   booking_status: string;
   fare_amount: number;
@@ -208,7 +226,7 @@ export async function accrueForBooking(bookingId: string): Promise<AccrualResult
     const gross = Number(row.fare_amount || 0) > 0 ? Number(row.fare_amount) : Number(row.amount || 0);
     const split = splitCommission(gross, Number(row.commission_bps || DEFAULT_COMMISSION_BPS));
     const stamp = new Date().toISOString();
-    const releaseAfter = releaseAfterFor(row.paid_at, new Date(stamp));
+    const releaseAfter = await releaseAfterFor(row.paid_at, new Date(stamp));
     const payoutId = crypto.randomUUID();
 
     const insert = await turso(
@@ -394,7 +412,10 @@ export type PayoutEntry = {
 
 export type PayoutBatch = {
   id: string;
+  /** What the ledger owed for the entries this batch carries. */
   totalAmount: number;
+  /** Paystack's charge for the transfer, taken off `totalAmount`. */
+  transferFee: number;
   entryCount: number;
   transferReference: string;
   mode: string;
@@ -426,7 +447,7 @@ export async function organizerStatement(organizerId: string) {
     [organizerId],
   ));
   const batches = rowsToObjects(await turso(
-    `SELECT id,total_amount,entry_count,COALESCE(transfer_reference,'') AS transfer_reference,COALESCE(note,'') AS note,
+    `SELECT id,total_amount,COALESCE(transfer_fee,0) AS transfer_fee,entry_count,COALESCE(transfer_reference,'') AS transfer_reference,COALESCE(note,'') AS note,
        COALESCE(mode,'MANUAL') AS mode,COALESCE(status,'RECORDED') AS status,COALESCE(transfer_code,'') AS transfer_code,
        COALESCE(reason,'') AS reason,COALESCE(attempts,0) AS attempts,
        COALESCE(initiated_at,'') AS initiated_at,COALESCE(settled_at,'') AS settled_at,
@@ -461,6 +482,7 @@ export async function organizerStatement(organizerId: string) {
     batches: batches.map((row): PayoutBatch => ({
       id: String(row.id),
       totalAmount: Number(row.total_amount || 0),
+      transferFee: Number(row.transfer_fee || 0),
       entryCount: Number(row.entry_count || 0),
       transferReference: String(row.transfer_reference || ""),
       mode: String(row.mode || "MANUAL"),
@@ -526,7 +548,9 @@ export async function recordPayoutBatch(input: {
   ))[0];
   const eligibleCount = Number(eligible?.entry_count || 0);
   if (!eligibleCount) {
-    throw new CampusEngineError("INVALID_STATE", "No payout is ready yet: entries become ready 24 hours after the booking was paid.", 409);
+    const minutes = Math.max(0, await payoutReleaseMinutes());
+    const window = minutes === 0 ? "the moment it is paid" : `${minutes} minute${minutes === 1 ? "" : "s"} after the booking was paid`;
+    throw new CampusEngineError("INVALID_STATE", `No payout is ready yet: an entry becomes ready ${window}.`, 409);
   }
   if (eligibleCount > MAX_BATCH_ENTRIES) {
     throw new CampusEngineError("INVALID_STATE", "More entries are ready than one batch should carry. Record them in smaller batches.", 409);
@@ -618,12 +642,6 @@ export async function reversePayoutForBooking(input: { bookingId: string; reason
  *      its own state, and the reconcile job — not the send — is what settles.
  * ------------------------------------------------------------------ */
 
-async function envNumber(name: string, fallback: number) {
-  const { envValue } = await import("@/lib/runtime-env");
-  const raw = Number((await envValue(name)).trim());
-  return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : fallback;
-}
-
 /**
  * Unattended transfers are opt-in. The switch exists so that a deployment can
  * hold the ledger and the statements without a cron ever moving money; an
@@ -635,8 +653,36 @@ export async function payoutAutoEnabled() {
   return platformSettingEnabled("organizer_payout_auto");
 }
 
-export async function payoutTransferFee() {
-  return envNumber("PAYOUT_TRANSFER_FEE_PESEWAS", DEFAULT_TRANSFER_FEE_PESEWAS);
+/**
+ * Whether this is a rail a trip organizer may be paid on.
+ *
+ * The rule lives with the organizer domain and is read on demand, like the
+ * other organizer lookups in this module, so the accrual path — which runs on
+ * every confirmed booking — stays light.
+ */
+async function isPayoutRailAllowed(method: string) {
+  const { isOrganizerPayoutMethod } = await import("@/lib/organizers");
+  return isOrganizerPayoutMethod(method);
+}
+
+/**
+ * What one transfer costs, by where the money is going.
+ *
+ * Paystack's Ghana schedule charges GHS 1.00 to send to mobile money and
+ * GHS 8.00 to send to a bank account — eight times as much — so the fee is read
+ * per destination rather than once for the run. It is taken off the payout
+ * itself, so it is the organizer who pays it and not the platform: a GHS 174.60
+ * payout to mobile money arrives as GHS 173.60, and Paystack's debit for
+ * sending it — the amount plus its own fee — is the GHS 174.60 the ledger
+ * already owed. That is also why the job only has to check the balance against
+ * the payout, not against the payout *and* the fee.
+ *
+ * They are console settings rather than variables, because the authority on
+ * the number is a Paystack statement and the person reading it should not need
+ * a deploy. The environment variables remain the fallback.
+ */
+export async function payoutTransferFee(method: PayoutMethod) {
+  return payoutRailFee(method);
 }
 
 /**
@@ -650,20 +696,14 @@ export async function payoutTransferFee() {
  * fallback for a deployment that never opens the page.
  */
 export async function payoutMinimumAmount() {
-  return platformSettingNumber("organizer_payout_min_amount");
+  return platformSettingNumber("payout_min_amount");
 }
 
-/** What Paystack says can be paid right now. Null when Paystack cannot be reached. */
-export async function platformPayoutBalance() {
-  try {
-    const { envValue } = await import("@/lib/runtime-env");
-    const currency = (await envValue("PAYSTACK_CURRENCY")) || "GHS";
-    return await fetchPaystackBalance(currency);
-  } catch (error) {
-    logEvent("warn", "payout_balance_unavailable", { reason: error instanceof Error ? error.message : "unknown" });
-    return null;
-  }
-}
+/**
+ * The shared reading, kept under this module's original name because the
+ * console routes and tests already import it from here.
+ */
+export { paystackPayoutBalance as platformPayoutBalance } from "@/lib/payout-balance";
 
 type OrganizerPayee = {
   status: string;
@@ -704,6 +744,12 @@ export async function ensureOrganizerRecipient(organizerId: string, options: { a
   const method = String(row.payout_method || "").toUpperCase();
   if (!isPayoutMethod(method)) {
     throw new CampusEngineError("INVALID_STATE", "The organizer has not recorded where to be paid.", 409);
+  }
+  // Legacy rows can carry a bank account from before rides settled on mobile
+  // money only. A recipient is an address, so one is not created for a rail the
+  // platform no longer pays on: the organizer has to record a network first.
+  if (!(await isPayoutRailAllowed(method))) {
+    throw new CampusEngineError("INVALID_STATE", "Rides pay out to mobile money. Ask the organizer to save a mobile money account.", 409);
   }
   const bankCode = String(row.payout_bank_code || "").trim();
   if (!bankCode) {
@@ -781,7 +827,6 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
   const now = options.now ?? new Date();
   const stamp = now.toISOString();
   const limit = Math.max(1, Math.min(MAX_RELEASE_CANDIDATES, Math.round(Number(options.limit) || MAX_RELEASE_CANDIDATES)));
-  const fee = await payoutTransferFee();
 
   // One query decides the queue: due entries, an approved and verified
   // organizer, somewhere to send the money, no standing debt, and no transfer
@@ -807,7 +852,7 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
   empty.considered = candidates.length;
   if (!candidates.length) return empty;
 
-  const balance = await platformPayoutBalance();
+  const balance = await paystackPayoutBalance();
   empty.balance = balance ? balance.balance : null;
   let budget = balance ? balance.balance : 0;
 
@@ -818,10 +863,23 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
     if (!organizerId) { skip("NO_ORGANIZER"); continue; }
     if (String(candidate.organizer_status) !== "APPROVED") { skip("NOT_APPROVED"); continue; }
     if (String(candidate.kyc_status) !== "VERIFIED") { skip("KYC_NOT_VERIFIED"); continue; }
-    if (!isPayoutMethod(String(candidate.payout_method || "")) || !String(candidate.payout_bank_code || "")) { skip("NO_DESTINATION"); continue; }
+    const method = String(candidate.payout_method || "").toUpperCase();
+    if (!isPayoutMethod(method) || !String(candidate.payout_bank_code || "")) { skip("NO_DESTINATION"); continue; }
+    // A bank destination saved before rides moved to mobile money only is left
+    // where it is rather than paid, because the transfer fee is eight times the
+    // mobile money one and the payout is what carries it.
+    if (!(await isPayoutRailAllowed(method))) { skip("UNSUPPORTED_DESTINATION"); continue; }
+    // The fee follows the destination and comes off the payout itself: the
+    // organizer receives the amount less the fee, and Paystack's debit — what
+    // is sent plus its own fee — is then exactly the amount the ledger owed.
+    const fee = await payoutTransferFee(method);
     const entryCount = Number(candidate.entry_count || 0);
     const amount = Number(candidate.total_amount || 0);
     if (!amount) { skip("NOTHING_DUE"); continue; }
+    // A payout that does not survive its own transfer fee is not a payout.
+    // Unreachable behind the minimum floor, and kept because the floor is a
+    // setting someone can turn to zero.
+    if (amount <= fee) { skip("BELOW_FEE"); continue; }
     // Checked before the balance so a balance that cannot cover a transfer
     // does not hide the reason that would still stand if it could.
     if (amount < minimum) { skip("BELOW_MINIMUM"); continue; }
@@ -829,7 +887,7 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
     // to be a backlog nobody looked at than a single day's earnings.
     if (entryCount > MAX_BATCH_ENTRIES) { skip("TOO_MANY_ENTRIES"); continue; }
     if (!balance) { skip("BALANCE_UNAVAILABLE"); continue; }
-    if (amount + fee > budget) { skip("INSUFFICIENT_BALANCE"); continue; }
+    if (amount > budget) { skip("INSUFFICIENT_BALANCE"); continue; }
 
     const batchId = crypto.randomUUID();
     const reference = `UMX-PAYOUT-${batchId}`;
@@ -859,18 +917,36 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
         skip("CLAIMED_BY_ANOTHER_RUN");
         continue;
       }
+      // The claim decides the amount, not the candidate read: if a concurrent
+      // run took most of the rows, what is left may not survive its own fee.
+      // Nothing is sent and no attempt is burned — the entries go straight back
+      // to being owed.
+      if (claimedAmount <= fee) {
+        await turso(
+          `UPDATE organizer_payouts SET status='ACCRUED', batch_id='', transfer_reference='', updated_at=?
+           WHERE batch_id = ? AND status = 'PROCESSING'`,
+          [stamp, batchId],
+        ).catch(() => undefined);
+        await turso("DELETE FROM organizer_payout_batches WHERE id = ?", [batchId]).catch(() => undefined);
+        skip("BELOW_FEE");
+        continue;
+      }
 
       const recipient = await ensureOrganizerRecipient(organizerId, { actor: options.actor });
+      // What the organizer receives: their share, less what Paystack charges to
+      // send it. The batch keeps both numbers so the statement can say where
+      // the difference went rather than quietly paying less than it recorded.
+      const payable = claimedAmount - fee;
       const transfer = await initiatePaystackTransfer({
-        amount: claimedAmount,
+        amount: payable,
         recipientCode: recipient.recipientCode,
         reference,
         reason: "UMaTeXPRESS trip earnings",
       });
       await turso(
-        "UPDATE organizer_payout_batches SET total_amount=?,entry_count=?,transfer_code=?,recipient_code=?,status=?,reason=?,updated_at=? WHERE id=?",
+        "UPDATE organizer_payout_batches SET total_amount=?,entry_count=?,transfer_fee=?,transfer_code=?,recipient_code=?,status=?,reason=?,updated_at=? WHERE id=?",
         [
-          claimedAmount, claimedCount, transfer.transferCode, recipient.recipientCode,
+          claimedAmount, claimedCount, fee, transfer.transferCode, recipient.recipientCode,
           transfer.status === "SUCCESS" ? "SUCCESS" : "PENDING",
           transfer.awaitingOtp ? AWAITING_OTP_REASON : transfer.reason,
           stamp, batchId,
@@ -887,8 +963,10 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
         // In flight. The budget stays spent: the money is already committed.
         summary.inFlight += 1;
       }
-      summary.totalTransferred += claimedAmount;
-      budget -= claimedAmount + fee;
+      summary.totalTransferred += payable;
+      // Paystack debits the transfer plus its fee, and the fee came off the
+      // transfer, so what leaves the balance is exactly what the ledger owed.
+      budget -= claimedAmount;
     } catch (error) {
       const reason = error instanceof Error ? error.message : "unknown";
       await failPayoutBatch({ batchId, reason, stamp }).catch(() => undefined);

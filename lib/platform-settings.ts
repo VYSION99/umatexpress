@@ -16,7 +16,9 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  *
  * One key per setting. A toggle stores "1" or "0" so a read cannot confuse a
  * setting with a missing row; a limit stores its number. Every write lands in
- * the audit log with the administrator who made it.
+ * the audit log with the administrator who made it. A setting that has been
+ * renamed carries its old keys as aliases, so an override saved before the
+ * rename keeps deciding until the migration moves the row.
  */
 export const PLATFORM_SETTINGS_SCHEMA_VERSION = "021_platform_settings";
 
@@ -32,7 +34,10 @@ const PLATFORM_SETTINGS_STATEMENTS = [
 export type PlatformSettingKey =
   | "hostel_payout_auto"
   | "organizer_payout_auto"
-  | "organizer_payout_min_amount"
+  | "organizer_payout_release_minutes"
+  | "payout_min_amount"
+  | "payout_fee_momo"
+  | "payout_fee_bank"
   | "cinema_room_idle_minutes"
   | "cinema_retention_hours"
   | "cinema_uploads_enabled"
@@ -51,6 +56,8 @@ export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
 export type PlatformSettingDefinition = {
   key: PlatformSettingKey;
+  /** Keys this setting used to be stored under, read when the key itself has no override. */
+  aliases?: readonly string[];
   kind: PlatformSettingKind;
   label: string;
   summary: string;
@@ -84,15 +91,56 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: false,
   },
   {
-    key: "organizer_payout_min_amount",
+    key: "organizer_payout_release_minutes",
     kind: "number",
-    label: "Organizer payout minimum",
+    label: "Payout release delay",
+    summary: "How long after a booking is paid its earnings become payable, in minutes.",
+    detail: "Paystack transfers to mobile money arrive in seconds, so the wait is the platform's own reversal window and not the rail's. It is what keeps a duplicated or mistaken payment reversible before money leaves: once the transfer is sent, undoing it means raising a debt against the organizer instead of refusing the payout. 20 is the default; 0 pays out as soon as the settled balance allows, which is effectively as soon as the collection settles. It is written onto each ledger entry when it is created, so changing it applies to bookings paid from then on and never re-times money already earned.",
+    env: "PAYOUT_RELEASE_MINUTES",
+    fallback: 20,
+    min: 0,
+    max: 43_200,
+  },
+  {
+    key: "payout_min_amount",
+    // The floor is a fact about a Paystack transfer, not about a product: the
+    // same flat fee makes the same small balance not worth sending, whether it
+    // is trip fares or a term's rent.
+    aliases: ["organizer_payout_min_amount"],
+    kind: "number",
+    label: "Payout minimum",
     summary: "The smallest balance worth a transfer, in pesewas.",
-    detail: "Paystack charges a flat fee per transfer, so a small balance can be worth less than the cost of sending it. Entries below this stay on the ledger and join the next payout, which means an organizer is paid less often but keeps more. Manual batches an administrator records are never held back by it. 5000 is GHS 50.00.",
+    detail: "Paystack charges a flat fee per transfer, so a small balance can be worth less than the cost of sending it. Entries below this stay on the ledger and join the next payout, which means a payee is paid less often but keeps more. It applies to trip organizers and hostel landlords alike, and a manual batch an administrator records is never held back by it. 5000 is GHS 50.00.",
     env: "PAYOUT_MIN_AMOUNT_PESEWAS",
     fallback: 5000,
     min: 0,
     max: 10_000_000,
+  },
+  {
+    key: "payout_fee_momo",
+    // One number per rail, not per product: a transfer to mobile money costs
+    // the same whether the money is a trip's fares or a hostel's rent.
+    aliases: ["organizer_payout_fee_momo"],
+    kind: "number",
+    label: "Transfer fee — mobile money",
+    summary: "Paystack's charge for one transfer to mobile money, in pesewas.",
+    detail: "Paystack's Ghana schedule charges GHS 1.00 per successful transfer to mobile money, so 100. The fee is deducted from the organizer's payout rather than charged to the platform — they receive their balance less this amount — and it is the figure their business profile quotes before they save a payout account. Rides pay out to mobile money only, so this is the rate that applies to every trip payout.",
+    env: "PAYOUT_TRANSFER_FEE_MOMO_PESEWAS",
+    fallback: 100,
+    min: 0,
+    max: 100_000,
+  },
+  {
+    key: "payout_fee_bank",
+    aliases: ["organizer_payout_fee_bank"],
+    kind: "number",
+    label: "Transfer fee — bank account",
+    summary: "Paystack's charge for one transfer to a bank account, in pesewas.",
+    detail: "GHS 8.00 per successful transfer to a bank account, so 800 — eight times the mobile money rate, and the reason rides do not offer a bank account at all. Kept because hostel landlords may still be paid to either rail: it is the rate that applies whenever a bank destination is used.",
+    env: "PAYOUT_TRANSFER_FEE_BANK_PESEWAS",
+    fallback: 800,
+    min: 0,
+    max: 100_000,
   },
   {
     key: "cinema_room_idle_minutes",
@@ -323,10 +371,25 @@ async function storedSettings() {
   return rows;
 }
 
+/**
+ * The row that decides a setting: its own key first, then any key it was
+ * renamed from. A deployment that saved an override before a rename keeps
+ * deciding by it until the next write moves the row onto the current key.
+ */
+function storedSettingFor(rows: Map<string, StoredSetting>, definition: PlatformSettingDefinition) {
+  const own = rows.get(definition.key);
+  if (own) return own;
+  for (const alias of definition.aliases ?? []) {
+    const renamed = rows.get(alias);
+    if (renamed) return renamed;
+  }
+  return undefined;
+}
+
 /** What a switch is right now, and where that answer came from. */
 export async function platformSettingState(key: PlatformSettingKey): Promise<PlatformSettingState> {
   const definition = platformSettingDefinition(key);
-  const stored = (await storedSettings()).get(definition.key);
+  const stored = storedSettingFor(await storedSettings(), definition);
   if (definition.kind === "number") {
     const storedValue = stored ? numberFromText(stored.value) : null;
     if (stored && storedValue !== null) {
@@ -371,6 +434,18 @@ export async function platformSettingNumber(key: PlatformSettingKey) {
   return (await platformSettingState(key)).value;
 }
 
+/**
+ * What Paystack charges to send a payout on a rail, in pesewas.
+ *
+ * One number per rail rather than per product: a transfer to mobile money
+ * costs the same whether the money is a trip's fares or a hostel's rent. Both
+ * domains read this, so a rate corrected in the console is corrected
+ * everywhere at once.
+ */
+export async function payoutRailFee(rail: string) {
+  return platformSettingNumber(String(rail || "").toUpperCase() === "BANK" ? "payout_fee_bank" : "payout_fee_momo");
+}
+
 export async function listPlatformSettings() {
   return Promise.all(PLATFORM_SETTING_DEFINITIONS.map((definition) => platformSettingState(definition.key)));
 }
@@ -399,6 +474,16 @@ export async function setPlatformSetting(input: { key: unknown; enabled?: unknow
     "INSERT INTO platform_settings (key,value,updated_by,updated_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
     [definition.key, storedValue, actor, stamp],
   );
+  // The override now lives on the current key, so an old key's row is a stale
+  // duplicate that only exists to shadow it. Deleting it here is the migration:
+  // the next write finishes the rename in a deployment that never runs the
+  // database by hand.
+  if (definition.aliases?.length) {
+    await turso(
+      `DELETE FROM platform_settings WHERE key IN (${definition.aliases.map(() => "?").join(",")})`,
+      [...definition.aliases],
+    );
+  }
   resetPlatformSettingsCache();
   await consoleAudit({
     actor,

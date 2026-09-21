@@ -25,9 +25,14 @@ type PayoutEntry = {
 };
 
 type PayoutBatch = {
-  id: string; totalAmount: number; entryCount: number; transferReference: string; note: string; createdBy: string; createdAt: string;
+  id: string; totalAmount: number; transferFee: number; entryCount: number; transferReference: string; note: string; createdBy: string; createdAt: string;
   mode: string; status: string; transferCode: string; reason: string; settledAt: string;
 };
+
+/** What the landlord actually receives: the ledger amount less the rail's fee. */
+function received(batch: Pick<PayoutBatch, "totalAmount" | "transferFee"> | undefined) {
+  return Math.max(0, Number(batch?.totalAmount || 0) - Number(batch?.transferFee || 0));
+}
 
 type Statement = {
   landlord: PayoutLandlord;
@@ -41,6 +46,8 @@ type Overview = {
   landlords: PayoutLandlord[];
   totals: { accruedAmount: number; payableAmount: number; releasedAmount: number; payableCount: number };
   balance: { payableAmount: number; accruedAmount: number; releasedAmount: number; commissionAmount: number };
+  /** Paystack's settled balance, or null when it could not be read. */
+  settledBalance: number | null;
   auto?: { enabled: boolean; source: string };
 };
 
@@ -67,7 +74,7 @@ export function HostelPayoutDesk() {
     const response = await fetch("/api/console/hostel/payouts", { credentials: "same-origin", cache: "no-store" });
     const data = await response.json() as Overview & { error?: string };
     if (!response.ok) throw new Error(data.error || "The payout ledger could not be loaded.");
-    setOverview({ landlords: data.landlords || [], totals: data.totals, balance: data.balance, auto: data.auto });
+    setOverview({ landlords: data.landlords || [], totals: data.totals, balance: data.balance, settledBalance: data.settledBalance ?? null, auto: data.auto });
   }, []);
 
   const open = useCallback(async (landlordId: string) => {
@@ -108,7 +115,7 @@ export function HostelPayoutDesk() {
         });
         const data = await response.json() as { batch?: PayoutBatch; error?: string };
         if (!response.ok) throw new Error(data.error || "That payout could not be recorded.");
-        setNotice(`${cedis(data.batch?.totalAmount || 0)} released under ${data.batch?.transferReference || reference}.`);
+        setNotice(`${cedis(received(data.batch))} released under ${data.batch?.transferReference || reference}.`);
         await open(statement.landlord.id);
         await load();
       } finally {
@@ -137,8 +144,8 @@ export function HostelPayoutDesk() {
         const data = await response.json() as { batch?: PayoutBatch; status?: string; error?: string };
         if (!response.ok) throw new Error(data.error || "That transfer could not be sent.");
         setNotice(data.status === "RELEASED"
-          ? `${cedis(data.batch?.totalAmount || 0)} sent to ${statement.landlord.name} through Paystack.`
-          : `${cedis(data.batch?.totalAmount || 0)} is in flight with Paystack. It releases when the transfer settles.`);
+          ? `${cedis(received(data.batch))} sent to ${statement.landlord.name} through Paystack.`
+          : `${cedis(received(data.batch))} is in flight with Paystack. It releases when the transfer settles.`);
         await open(statement.landlord.id);
         await load();
       } finally {
@@ -176,6 +183,9 @@ export function HostelPayoutDesk() {
   if (!overview) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading the payout ledger…</p>;
 
   const now = new Date().toISOString();
+  // A known balance that cannot cover the payout is a refusal waiting to
+  // happen; an unreadable one (null) leaves the decision to the administrator.
+  const shortOfSettled = typeof overview.settledBalance === "number" && statement !== null && statement.totals.payableAmount > overview.settledBalance;
 
   return <>
     <section className="console-totals">
@@ -184,6 +194,10 @@ export function HostelPayoutDesk() {
       <article><span>PAID OUT</span><strong>{cedis(overview.balance.releasedAmount)}</strong><small>recorded transfers</small></article>
       <article><span>PLATFORM 3%</span><strong>{cedis(overview.balance.commissionAmount)}</strong><small>kept from bed payments</small></article>
     </section>
+
+    {typeof overview.settledBalance === "number" && <p className="console-note">
+      Paystack&apos;s settled balance is <strong>{cedis(overview.settledBalance)}</strong>. A Send the balance cannot cover is refused before it can spend an attempt on the ledger.
+    </p>}
 
     {overview.auto && <p className="console-note">
       {overview.auto.enabled
@@ -266,7 +280,8 @@ export function HostelPayoutDesk() {
         </label>
         <button
           type="button"
-          disabled={busy === "send" || !statement.account.ready || statement.totals.payableAmount <= 0}
+          disabled={busy === "send" || !statement.account.ready || statement.totals.payableAmount <= 0 || shortOfSettled}
+          title={shortOfSettled ? `Paystack's settled balance is ${cedis(overview.settledBalance || 0)}; this payout waits until it can be covered.` : undefined}
           onClick={() => void send()}
         >
           {busy === "send" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Banknote size={15} aria-hidden />}
@@ -302,7 +317,7 @@ export function HostelPayoutDesk() {
       {statement.batches.length > 0 && <>
         <h3 className="console-subhead">Transfers</h3>
         <table className="console-table">
-          <thead><tr><th>Reference</th><th>How</th><th>Entries</th><th>Amount</th><th>Recorded</th><th>By</th></tr></thead>
+          <thead><tr><th>Reference</th><th>How</th><th>Entries</th><th>Amount</th><th>Received</th><th>Recorded</th><th>By</th></tr></thead>
           <tbody>
             {statement.batches.map((batch) => <tr key={batch.id}>
               <td><strong>{batch.transferReference}</strong>{batch.note ? <small>{batch.note}</small> : null}</td>
@@ -313,7 +328,8 @@ export function HostelPayoutDesk() {
                 {batch.reason ? <small>{batch.reason}</small> : null}
               </td>
               <td>{batch.entryCount}</td>
-              <td>{cedis(batch.totalAmount)}</td>
+              <td>{cedis(batch.totalAmount)}{batch.transferFee > 0 ? <small>fee {cedis(batch.transferFee)}</small> : null}</td>
+              <td>{cedis(received(batch))}</td>
               <td>{when(batch.createdAt)}</td>
               <td>{batch.createdBy}</td>
             </tr>)}

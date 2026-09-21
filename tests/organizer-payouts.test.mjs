@@ -19,7 +19,7 @@ process.env.PAYSTACK_SECRET_KEY = "sk_test_payout_ledger_key";
 process.env.PAYSTACK_CURRENCY = "GHS";
 process.env.PAYOUT_ENCRYPTION_KEY = "test-payout-encryption-key-at-least-32-characters";
 
-const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
+const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-21.1" };
 const ACCOUNT_COLUMNS = ["id", "email", "name", "phone", "role", "status", "profile_id"];
 
 const accounts = [
@@ -37,7 +37,7 @@ const organizerRows = [
 ];
 
 const profiles = new Map(organizerRows.map((row) => [row.id, {
-  id: row.id, kyc_status: row.kyc_status, kyc_id_type: "GHANA_CARD", kyc_id_number: "", kyc_reason: "",
+  id: row.id, commission_bps: 300, kyc_status: row.kyc_status, kyc_id_type: "GHANA_CARD", kyc_id_number: "", kyc_reason: "",
   kyc_submitted_at: "", kyc_reviewed_at: "", payout_method: "MOMO", payout_account_name: row.name,
   payout_account_number: "", payout_account_last4: "", payout_bank_code: "MTN", payout_updated_at: "",
   paystack_recipient_code: "",
@@ -46,15 +46,17 @@ const profiles = new Map(organizerRows.map((row) => [row.id, {
 /**
  * The accrual fixtures are dated relative to the moment the suite runs.
  *
- * A booking's earnings open exactly 24 hours after it was paid. A fixed date
- * eventually drifts past its own gate, and then those entries quietly join the
- * batches a later test asserts on — which is precisely what happened here.
+ * A booking's earnings open one release window after it was paid, and the
+ * window is minutes now (twenty by default). These are deliberately inside it,
+ * so the entries they produce are *not* ready and do not quietly join the
+ * batches a later test asserts on. A fixed date drifts past its own gate and
+ * does exactly that — which is precisely what happened here once already.
  */
-const HOUR_MS = 60 * 60 * 1_000;
-const hoursAgo = (hours) => new Date(Date.now() - hours * HOUR_MS).toISOString();
-const NEW1_PAID_AT = hoursAgo(3);
-const GAP_PAID_AT = hoursAgo(2);
-const REV_PAID_AT = hoursAgo(1);
+const MINUTE_MS = 60 * 1_000;
+const minutesAgo = (minutes) => new Date(Date.now() - minutes * MINUTE_MS).toISOString();
+const NEW1_PAID_AT = minutesAgo(5);
+const GAP_PAID_AT = minutesAgo(3);
+const REV_PAID_AT = minutesAgo(1);
 
 const bookings = [
   // Confirmed and un-accrued: the accrual tests use these.
@@ -223,15 +225,16 @@ function handle(sql, args) {
   }
   // The release job's own batch writes: claimed, sent, settled, failed, and the
   // OTP marker being cleared once the code is used.
-  if (/^UPDATE organizer_payout_batches SET total_amount=\?,entry_count=\?,transfer_code=\?/.test(sql)) {
-    const batch = batches.find((item) => item.id === args[7]);
+  if (/^UPDATE organizer_payout_batches SET total_amount=\?,entry_count=\?,transfer_fee=\?,transfer_code=\?/.test(sql)) {
+    const batch = batches.find((item) => item.id === args[8]);
     if (batch) {
       batch.total_amount = Number(args[0]);
       batch.entry_count = Number(args[1]);
-      batch.transfer_code = String(args[2]);
-      batch.recipient_code = String(args[3]);
-      batch.status = String(args[4]);
-      batch.reason = String(args[5]);
+      batch.transfer_fee = Number(args[2]);
+      batch.transfer_code = String(args[3]);
+      batch.recipient_code = String(args[4]);
+      batch.status = String(args[5]);
+      batch.reason = String(args[6]);
     }
     return okRows(batch ? 1 : 0);
   }
@@ -403,7 +406,7 @@ function handle(sql, args) {
     ));
   }
   if (/FROM organizer_payout_batches WHERE organizer_id = \?/.test(sql)) {
-    return ok(table(["id", "total_amount", "entry_count", "transfer_reference", "note", "created_by", "created_at"], batches.filter((row) => row.organizer_id === args[0])));
+    return ok(table(["id", "total_amount", "transfer_fee", "entry_count", "transfer_reference", "note", "created_by", "created_at"], batches.filter((row) => row.organizer_id === args[0])));
   }
 
   if (/FROM trip_organizers o LEFT JOIN console_accounts a/.test(sql)) {
@@ -413,7 +416,7 @@ function handle(sql, args) {
       match.map((row) => ({ ...row, account_id: "", account_status: "" })),
     ));
   }
-  if (/^SELECT id,COALESCE\(kyc_status/.test(sql)) {
+  if (/^SELECT id,COALESCE\(commission_bps/.test(sql)) {
     const profile = profiles.get(args[0]);
     return ok(profile ? table(Object.keys(profile), [profile]) : empty);
   }
@@ -510,11 +513,12 @@ after(async () => vite.close());
 
 const { CONSOLE_SESSION_COOKIE, createConsoleSession } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const {
-  accrueForBooking, backfillAccruals, finalizePayoutBatch, organizerTotals, payoutMinimumAmount,
-  releaseAfterFor, reversePayoutForBooking, runPayoutReleaseJob, splitCommission,
+  accrueForBooking, backfillAccruals, ensureOrganizerRecipient, finalizePayoutBatch, organizerTotals, payoutMinimumAmount,
+  payoutReleaseMinutes, payoutTransferFee, releaseAfterFor, reversePayoutForBooking, runPayoutReleaseJob, splitCommission,
 } = await vite.ssrLoadModule("/lib/organizer-payouts.ts");
 const { sealSecret } = await vite.ssrLoadModule("/lib/secret-box.ts");
 const { hashPaymentToken } = await vite.ssrLoadModule("/lib/payment-access.ts");
+const { isOrganizerPayoutMethod, saveOrganizerPayoutAccount } = await vite.ssrLoadModule("/lib/organizers.ts");
 
 // The release tests pay org-b, and a transfer needs a real destination: the
 // account number is stored the way production stores it, sealed.
@@ -539,22 +543,42 @@ async function recordBatch(cookie, body) {
   }));
 }
 
-test("the fare is split by the commission rate and the release gate is a day after the booking was paid", () => {
+test("the fare is split by the commission rate and the release gate counts from the moment it was paid", async () => {
   assert.deepEqual(splitCommission(18000, 300), { gross: 18000, commission: 540, net: 17460 });
   // GHS 180.00 at 3%: 540 pesewas commission, 17460 net.
   assert.deepEqual(splitCommission(1, 300), { gross: 1, commission: 0, net: 1 }, "a rounding must never lose a pesewa of the net");
   assert.deepEqual(splitCommission(18000, 0), { gross: 18000, commission: 0, net: 18000 });
 
+  // The window is a console setting, twenty minutes by default: Paystack's
+  // mobile money transfers land in seconds, so the wait is the platform's own
+  // reversal window rather than the rail's.
+  assert.equal(await payoutReleaseMinutes(), 20, "the fallback is twenty minutes");
   assert.equal(
-    releaseAfterFor("2026-09-20T13:45:00.000Z", new Date("2026-09-20T14:00:00.000Z")),
-    "2026-09-21T13:45:00.000Z",
+    await releaseAfterFor("2026-09-20T13:45:00.000Z", new Date("2026-09-20T14:00:00.000Z")),
+    "2026-09-20T14:05:00.000Z",
     "the gate counts from the moment the booking was paid, not from the trip",
   );
   assert.equal(
-    releaseAfterFor("not-a-timestamp", new Date("2026-09-20T23:30:00.000Z")),
-    "2026-09-21T23:30:00.000Z",
+    await releaseAfterFor("not-a-timestamp", new Date("2026-09-20T23:30:00.000Z")),
+    "2026-09-20T23:50:00.000Z",
     "an unreadable payment time falls back to the moment the entry is written",
   );
+});
+
+test("a shorter window moves the release time without touching entries already written", async () => {
+  const paidAt = "2026-09-20T13:45:00.000Z";
+  process.env.PAYOUT_RELEASE_MINUTES = "0";
+  try {
+    assert.equal(await payoutReleaseMinutes(), 0, "zero is a real setting: pay as soon as the balance allows");
+    assert.equal(await releaseAfterFor(paidAt), paidAt, "an instant window is due the moment it is written");
+    // The window is stamped onto the entry, so an entry written under the old
+    // rule keeps it: shortening the window cannot re-time money already earned.
+    const earlier = payouts.find((row) => row.id === "po-a1");
+    assert.equal(earlier.release_after, "2026-01-02T00:00:00.000Z");
+  } finally {
+    delete process.env.PAYOUT_RELEASE_MINUTES;
+  }
+  assert.equal(await payoutReleaseMinutes(), 20, "the override is the environment variable only while it is set");
 });
 
 test("a confirmed booking accrues exactly one entry from the fare, not the amount charged", async () => {
@@ -567,8 +591,12 @@ test("a confirmed booking accrues exactly one entry from the fare, not the amoun
   const entry = payouts.find((row) => row.booking_id === "bk-new1");
   assert.equal(entry.gross_amount, 18000, "the commission base is the fare, never the pass-through fee");
   assert.equal(entry.net_amount, 17460);
-  // bk-new1 was paid three hours ago, so its earnings open a day after that.
-  assert.equal(entry.release_after, new Date(Date.parse(NEW1_PAID_AT) + 24 * HOUR_MS).toISOString());
+  // bk-new1 was paid minutes ago, so its earnings open one window after that.
+  assert.equal(
+    entry.release_after,
+    new Date(Date.parse(NEW1_PAID_AT) + 20 * MINUTE_MS).toISOString(),
+    "the entry carries the window it was written under",
+  );
   assert.equal(bookings.find((row) => row.id === "bk-new1").commission_amount, 540, "the booking carries the resolved commission");
 
   // Verify and the webhook both confirm a booking; the second write is a no-op.
@@ -721,7 +749,51 @@ test("the release job holds a balance under the minimum instead of spending a fe
   }
 });
 
-test("the release job sends what the balance covers and settles it when Paystack confirms", async () => {
+test("a balance under the payout is refused, never attempted", async () => {
+  // org-b is paid to mobile money, which Paystack charges GHS 1.00 to send to.
+  assert.equal(await payoutTransferFee("MOMO"), 100, "the fallback is Paystack's mobile money rate");
+  // GHS 174.60 is due. The fee comes off the payout rather than being added to
+  // it, so the balance only has to cover what the ledger owes — a pesewa less
+  // is still short, and Paystack would refuse it, so it must not be attempted.
+  paystackStub.balance = 17_459;
+  const before = transferRequests.length;
+  const summary = await runPayoutReleaseJob({ actor: "admin@example.com" });
+  assert.equal(summary.transferred, 0);
+  assert.equal(
+    summary.skipped.some((item) => item.organizerId === "org-b" && item.reason === "INSUFFICIENT_BALANCE"),
+    true,
+    JSON.stringify(summary.skipped),
+  );
+  assert.equal(transferRequests.length, before, "a payout the balance cannot cover must not be attempted");
+});
+
+test("a bank destination saved before the rule is left unpaid, not paid at eight times the fee", async () => {
+  const profile = profiles.get("org-b");
+  const before = transferRequests.length;
+  try {
+    assert.equal(await payoutTransferFee("BANK"), 800, "the fallback is Paystack's bank rate");
+    assert.equal(await payoutTransferFee("MOMO"), 100, "eight times as much to reach a bank account");
+    profile.payout_method = "BANK";
+    profile.payout_bank_code = "030100";
+    paystackStub.balance = 100_000;
+    const refused = await runPayoutReleaseJob({ actor: "admin@example.com" });
+    assert.equal(refused.transferred, 0);
+    assert.equal(
+      refused.skipped.some((item) => item.organizerId === "org-b" && item.reason === "UNSUPPORTED_DESTINATION"),
+      true,
+      JSON.stringify(refused.skipped),
+    );
+    assert.equal(transferRequests.length, before, "rides do not pay out to a bank account");
+    // The same rule holds at the point a recipient would be created, so it
+    // cannot be bypassed by reaching for a bank destination some other way.
+    await assert.rejects(() => ensureOrganizerRecipient("org-b"), /mobile money/i);
+  } finally {
+    profile.payout_method = "MOMO";
+    profile.payout_bank_code = "MTN";
+  }
+});
+
+test("the release job sends the payout less the transfer fee and settles it when Paystack confirms", async () => {
   paystackStub.balance = 100_000;
   paystackStub.transferStatus = "success";
 
@@ -732,11 +804,15 @@ test("the release job sends what the balance covers and settles it when Paystack
   assert.equal(summary.skipped.length, 0, JSON.stringify(summary.skipped));
 
   const batch = batches.find((item) => item.mode === "AUTO");
-  assert.equal(batch.total_amount, 17460);
+  assert.equal(batch.total_amount, 17460, "the batch records what the ledger owed");
+  assert.equal(batch.transfer_fee, 100, "and what Paystack charged to send it");
   assert.equal(batch.entry_count, 1);
   assert.equal(batch.status, "SUCCESS");
-  assert.equal(transferRequests.at(-1).amount, 17460);
+  // The organizer bears the fee: it is taken off the transfer rather than added
+  // to it, so the platform pays out exactly what it owed and nothing more.
+  assert.equal(transferRequests.at(-1).amount, 17360, "the fee is deducted from what the organizer receives");
   assert.equal(transferRequests.at(-1).recipient, paystackStub.recipientCode);
+  assert.equal(summary.totalTransferred, 17360, "the summary counts what was actually sent");
   assert.equal(payouts.find((row) => row.id === "po-b1").status, "RELEASED", "only Paystack's confirmation releases an entry");
 });
 
@@ -798,4 +874,17 @@ test("a refusal from Paystack leaves a held transfer exactly where it was", asyn
   assert.equal(stillHeld.awaitingOtp, true);
   assert.equal(batch.reason, "AWAITING_OTP", "a transfer still waiting for a code stays marked");
   assert.equal(payouts.find((row) => row.id === "po-otp2").status, "PROCESSING");
+});
+
+test("rides pay out to mobile money only, and the rule is enforced where the account is saved", async () => {
+  // The destination list stays the shared Paystack catalogue: a bank account is
+  // still a valid destination in general, and it is not a rail rides pay on.
+  assert.equal(isOrganizerPayoutMethod("MOMO"), true);
+  assert.equal(isOrganizerPayoutMethod("momo"), true, "the check is case-insensitive, like the rest of the payout vocabulary");
+  assert.equal(isOrganizerPayoutMethod("BANK"), false, "hostels keep both rails; trips do not");
+  await assert.rejects(
+    () => saveOrganizerPayoutAccount("org-b", { method: "BANK", accountName: "Organizer B", accountNumber: "0244000002", bankCode: "030100" }),
+    /mobile money/i,
+    "a bank account must be refused before it is ever stored",
+  );
 });

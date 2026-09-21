@@ -1,8 +1,8 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutMinimumAmount, payoutTransferFee, platformPayoutBalance, recordPayoutBatch } from "@/lib/organizer-payouts";
+import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutMinimumAmount, payoutReleaseMinutes, payoutTransferFee, platformPayoutBalance, recordPayoutBatch } from "@/lib/organizer-payouts";
 import { getOrganizer, getOrganizerProfile } from "@/lib/organizers";
-import { getPaymentProviderRuntime } from "@/lib/paystack";
+import { getPaymentProviderRuntime, getPaystackFeePercentRuntime } from "@/lib/paystack";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -18,21 +18,26 @@ export async function GET(request: Request) {
     if (!organizerId) {
       // What the platform can actually pay with, and whether the unattended
       // job is allowed to spend it. Both are read-only here.
-      const [organizers, balance, autoEnabled, provider, fee, minimum] = await Promise.all([
+      const [organizers, balance, autoEnabled, provider, feeMomo, feeBank, minimum, feePercent, releaseMinutes] = await Promise.all([
         listPayoutOrganizers(),
         platformPayoutBalance(),
         payoutAutoEnabled(),
         getPaymentProviderRuntime(),
-        payoutTransferFee(),
+        payoutTransferFee("MOMO"),
+        payoutTransferFee("BANK"),
         payoutMinimumAmount(),
+        getPaystackFeePercentRuntime(),
+        payoutReleaseMinutes(),
       ]);
       return Response.json({
         organizers,
         automation: {
           enabled: autoEnabled,
           provider,
-          transferFee: fee,
+          transferFee: { momo: feeMomo, bank: feeBank },
           minimum,
+          feePercent,
+          releaseMinutes,
           balance: balance ? { currency: balance.currency, amount: balance.balance } : null,
         },
       }, { headers: NO_STORE });

@@ -38,6 +38,10 @@ const affected = (count) => ok({ affected_row_count: count });
 function handle(sql, args) {
   if (/^SELECT version FROM campus_schema_meta|^SELECT version FROM schema_passes/.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO campus_schema_meta|^INSERT OR REPLACE INTO schema_passes/.test(sql)) return affected(1);
+  if (/^DELETE FROM platform_settings WHERE key IN/.test(sql)) {
+    args.map(String).forEach((key) => settings.delete(key));
+    return affected(args.length);
+  }
   if (/^CREATE |^ALTER |^DELETE FROM /.test(sql)) return ok(empty);
   if (/^UPDATE /.test(sql)) return affected(0);
 
@@ -86,7 +90,7 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 
 const {
-  PLATFORM_SETTING_DEFINITIONS, listPlatformSettings, platformSettingState, resetPlatformSettingsCache, setPlatformSetting,
+  PLATFORM_SETTING_DEFINITIONS, listPlatformSettings, payoutRailFee, platformSettingState, resetPlatformSettingsCache, setPlatformSetting,
 } = await vite.ssrLoadModule("/lib/platform-settings.ts");
 const { hostelPayoutAutoEnabled, runHostelPayoutReleaseJob } = await vite.ssrLoadModule("/lib/hostel-engine/payouts.ts");
 const { payoutAutoEnabled } = await vite.ssrLoadModule("/lib/organizer-payouts.ts");
@@ -142,6 +146,24 @@ test("an override in the console wins over the environment", async () => {
   await setPlatformSetting({ key: "hostel_payout_auto", enabled: true, actor: "admin@umat.edu.gh" });
   assert.equal(await hostelPayoutAutoEnabled(), true, "turning it back on is the same write");
   assert.equal(settings.get("hostel_payout_auto").value, "1");
+});
+
+test("a renamed setting keeps the override stored under its old key", async () => {
+  // A deployment that saved a rate before the rename has a row under the old
+  // key; the console must keep deciding by it rather than falling back.
+  settings.set("organizer_payout_fee_momo", { key: "organizer_payout_fee_momo", value: "250", updated_by: "admin@umat.edu.gh", updated_at: "2026-09-01T00:00:00.000Z" });
+  resetPlatformSettingsCache();
+  const before = await platformSettingState("payout_fee_momo");
+  assert.equal(before.value, 250, "the old key decides until the next write moves the row");
+  assert.equal(before.source, "SETTING");
+  assert.equal(await payoutRailFee("MOMO"), 250, "both products read the one rail rate");
+
+  await setPlatformSetting({ key: "payout_fee_momo", value: 300, actor: "admin@umat.edu.gh" });
+  assert.equal(settings.get("payout_fee_momo").value, "300");
+  assert.equal(settings.has("organizer_payout_fee_momo"), false, "the stale alias row is deleted rather than left to shadow the new key");
+  const after = await platformSettingState("payout_fee_momo");
+  assert.equal(after.value, 300);
+  assert.equal(after.source, "SETTING");
 });
 
 test("the two products keep separate switches", async () => {

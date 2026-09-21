@@ -75,9 +75,16 @@ function handle(sql, args) {
     return affected(row ? 1 : 0);
   }
 
-  if (/SELECT COUNT\(\*\) AS entry_count, COALESCE\(SUM\(net_amount\),0\) AS total_amount FROM hostel_payouts WHERE landlord_id = \? AND status = 'ACCRUED' AND release_after <= \?/.test(sql)) {
-    const rows = payouts.filter((item) => item.landlord_id === args[0] && item.status === "ACCRUED" && String(item.release_after) <= args[1]);
-    return ok(table(["entry_count", "total_amount"], [{ entry_count: rows.length, total_amount: rows.reduce((sum, item) => sum + Number(item.net_amount), 0) }]));
+  if (/AS exhausted_count/.test(sql) && /AS exhausted_amount/.test(sql)) {
+    const [maxAttempts, , landlordId, stamp] = args;
+    const due = payouts.filter((item) => item.landlord_id === landlordId && item.status === "ACCRUED" && String(item.release_after) <= stamp);
+    const exhausted = due.filter((item) => Number(item.payout_attempts || 0) >= Number(maxAttempts));
+    return ok(table(["entry_count", "total_amount", "exhausted_count", "exhausted_amount"], [{
+      entry_count: due.length,
+      total_amount: due.reduce((sum, item) => sum + Number(item.net_amount), 0),
+      exhausted_count: exhausted.length,
+      exhausted_amount: exhausted.reduce((sum, item) => sum + Number(item.net_amount), 0),
+    }]));
   }
   if (/SELECT COUNT\(\*\) AS entry_count, COALESCE\(SUM\(net_amount\),0\) AS total_amount FROM hostel_payouts WHERE batch_id = \?/.test(sql)) {
     const rows = payouts.filter((item) => item.batch_id === args[0]);
@@ -90,22 +97,22 @@ function handle(sql, args) {
   if (/^INSERT INTO hostel_payout_batches/.test(sql)) {
     const [id, landlordId, reference, note, actor, initiatedAt, createdAt, updatedAt] = args;
     batches.push({
-      id, landlord_id: landlordId, total_amount: 0, entry_count: 0, transfer_reference: reference, note, created_by: actor,
+      id, landlord_id: landlordId, total_amount: 0, transfer_fee: 0, entry_count: 0, transfer_reference: reference, note, created_by: actor,
       mode: "AUTO", status: "PENDING", transfer_code: "", recipient_code: "", reason: "",
       initiated_at: initiatedAt, settled_at: "", created_at: createdAt, updated_at: updatedAt,
     });
     return affected(1);
   }
   if (/^UPDATE hostel_payouts SET status = 'PROCESSING'/.test(sql)) {
-    const [batchId, reference, updatedAt, landlordId, stamp] = args;
-    const rows = payouts.filter((item) => item.landlord_id === landlordId && item.status === "ACCRUED" && String(item.release_after) <= stamp);
+    const [batchId, reference, updatedAt, landlordId, stamp, maxAttempts] = args;
+    const rows = payouts.filter((item) => item.landlord_id === landlordId && item.status === "ACCRUED" && String(item.release_after) <= stamp && Number(item.payout_attempts || 0) < Number(maxAttempts));
     rows.forEach((item) => Object.assign(item, { status: "PROCESSING", batch_id: batchId, transfer_reference: reference, updated_at: updatedAt }));
     return affected(rows.length);
   }
-  if (/^UPDATE hostel_payout_batches SET total_amount=\?,entry_count=\?,transfer_code=\?,recipient_code=\?,status=\?,reason=\?,updated_at=\? WHERE id=\?/.test(sql)) {
-    const [total, count, transferCode, recipientCode, status, reason, updatedAt, id] = args;
+  if (/^UPDATE hostel_payout_batches SET total_amount=\?,entry_count=\?,transfer_fee=\?,transfer_code=\?,recipient_code=\?,status=\?,reason=\?,updated_at=\? WHERE id=\?/.test(sql)) {
+    const [total, count, fee, transferCode, recipientCode, status, reason, updatedAt, id] = args;
     const row = batches.find((item) => item.id === id);
-    if (row) Object.assign(row, { total_amount: total, entry_count: count, transfer_code: transferCode, recipient_code: recipientCode, status, reason, updated_at: updatedAt });
+    if (row) Object.assign(row, { total_amount: total, entry_count: count, transfer_fee: fee, transfer_code: transferCode, recipient_code: recipientCode, status, reason, updated_at: updatedAt });
     return affected(row ? 1 : 0);
   }
   if (/^UPDATE hostel_payouts SET status = 'RELEASED'/.test(sql)) {
@@ -137,7 +144,7 @@ function handle(sql, args) {
   if (/SELECT COALESCE\(b\.total_amount,0\) AS total_amount/.test(sql)) {
     const row = batches.find((item) => item.id === args[0]);
     const landlord = row && landlords.find((item) => item.id === row.landlord_id);
-    return ok(row ? table(["total_amount", "entry_count", "transfer_reference", "email", "note"], [{ ...row, email: landlord?.email || "" }]) : empty);
+    return ok(row ? table(["total_amount", "transfer_fee", "entry_count", "transfer_reference", "email", "note"], [{ ...row, email: landlord?.email || "" }]) : empty);
   }
   if (/^SELECT \* FROM hostel_payout_batches WHERE id = \? LIMIT 1/.test(sql)) {
     const row = batches.find((item) => item.id === args[0]);
@@ -151,11 +158,23 @@ function handle(sql, args) {
     const row = batches.find((item) => item.transfer_reference === args[0] || item.transfer_code === args[1]);
     return ok(row ? table(["id", "status", "created_by"], [row]) : empty);
   }
-  if (/SELECT p\.landlord_id, MIN\(p\.release_after\) AS oldest/.test(sql)) {
-    const due = payouts.filter((item) => item.status === "ACCRUED" && !item.batch_id && String(item.release_after) <= args[0]);
-    const ids = [...new Set(due.map((item) => item.landlord_id))];
-    const rows = ids.map((id) => ({ p_landlord_id: id, landlord_id: id, oldest: due.filter((item) => item.landlord_id === id).map((item) => item.release_after).sort()[0] }));
-    return ok(rows.length ? table(["landlord_id", "oldest"], rows) : empty);
+  if (/SELECT p\.landlord_id,/.test(sql) && /COALESCE\(SUM\(p\.net_amount\),0\) AS total_amount/.test(sql)) {
+    const [stamp, maxAttempts, limit] = args;
+    const due = payouts.filter((item) => item.status === "ACCRUED" && !item.batch_id && String(item.release_after) <= stamp && Number(item.payout_attempts || 0) < Number(maxAttempts));
+    const ids = [...new Set(due.map((item) => item.landlord_id))].slice(0, Number(limit));
+    const rows = ids.map((id) => {
+      const landlord = landlords.find((item) => item.id === id) || {};
+      const entries = due.filter((item) => item.landlord_id === id);
+      const inflight = batches.some((item) => item.landlord_id === id && item.status === "PENDING");
+      const debt = payouts.some((item) => item.landlord_id === id && item.status === "REVERSED" && item.released_at);
+      return inflight || debt ? null : {
+        landlord_id: id, oldest: entries.map((item) => item.release_after).sort()[0],
+        entry_count: entries.length, total_amount: entries.reduce((sum, item) => sum + Number(item.net_amount), 0),
+        landlord_status: landlord.status || "", kyc_status: landlord.kyc_status || "",
+        payout_method: landlord.payout_method || "", payout_bank_code: landlord.payout_bank_code || "",
+      };
+    }).filter(Boolean);
+    return ok(rows.length ? table(["landlord_id", "oldest", "entry_count", "total_amount", "landlord_status", "kyc_status", "payout_method", "payout_bank_code"], rows) : empty);
   }
   if (/^SELECT \* FROM hostel_payout_batches WHERE landlord_id = \? ORDER BY created_at DESC/.test(sql)) {
     const rows = batches.filter((item) => item.landlord_id === args[0]).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
@@ -282,7 +301,8 @@ test("a sent transfer claims the entries, then releases them when Paystack settl
   assert.equal(result.batch.transferCode, "TRF-1");
   assert.equal(paystack.recipients.length, 1);
   assert.equal(paystack.recipients[0].type, "mobile_money", "a mobile money destination is not sent as a bank transfer");
-  assert.equal(paystack.transfers[0].amount, 164_900);
+  assert.equal(result.batch.transferFee, 100, "the mobile money rail's fee is recorded on the batch");
+  assert.equal(paystack.transfers[0].amount, 164_800, "the transfer carries the ledger amount less the rail's fee");
 
   // The entries are processing, so nothing else can claim them while Paystack
   // has the money in hand.
@@ -299,6 +319,82 @@ test("a sent transfer claims the entries, then releases them when Paystack settl
   assert.equal(after.totals.releasedAmount, 164_900);
   assert.equal((await platformHostelPayoutBalance()).payableAmount, 0);
   assert.equal(outbox.filter((item) => item.template === "hostel_payout_recorded").length, 1, "the landlord is told once");
+});
+
+test("the fee is the rail's, and the landlord is told what actually arrived", async () => {
+  seed();
+  await account();
+  const result = await sendHostelPayoutBatch({ landlordId: "landlord-a", actor: "admin@umat.edu.gh" });
+  assert.equal(result.batch.totalAmount, 164_900, "the ledger still records the full balance claimed");
+  assert.equal(result.batch.transferFee, 100);
+  assert.equal(paystack.transfers[0].amount, 164_800, "the platform's debit is exactly what the ledger owed");
+
+  paystack.transfersByReference.get(result.batch.transferReference).status = "success";
+  await applyHostelPaystackTransferEvent({ event: "transfer.success", data: { reference: result.batch.transferReference } });
+  const mail = outbox.find((item) => item.template === "hostel_payout_recorded");
+  assert.match(mail.message, /GH₵1\.00 transfer fee on this rail/, "the fee is disclosed rather than netted away silently");
+  assert.match(mail.message, /GH₵1648\.00 reached your account/, "the landlord is told the amount to expect");
+});
+
+test("a bank destination is priced at the bank rate", async () => {
+  seed();
+  await saveHostelPayoutAccount({
+    landlordId: "landlord-a", method: "BANK", accountName: "Owusu Hostels Ltd", accountNumber: "0401001234567",
+    bankCode: "040100", actor: "owusu@example.com",
+  });
+  const result = await sendHostelPayoutBatch({ landlordId: "landlord-a", actor: "admin@umat.edu.gh" });
+  assert.equal(result.batch.transferFee, 800, "the bank rail costs eight times the mobile money one");
+  assert.equal(paystack.transfers[0].amount, 164_100);
+});
+
+test("an attended send is refused before it burns an attempt when the balance is short", async () => {
+  seed();
+  await account();
+  paystack.balance = 100_000;
+  await assert.rejects(
+    () => sendHostelPayoutBatch({ landlordId: "landlord-a", actor: "admin@umat.edu.gh" }),
+    (error) => error?.code === "INVALID_STATE" && /settled balance/.test(error.message),
+  );
+  assert.equal(batches.length, 0, "a payout the settled balance cannot cover must not write a batch");
+  assert.deepEqual(payouts.map((entry) => entry.payout_attempts), [0, 0]);
+  assert.deepEqual(payouts.map((entry) => entry.status), ["ACCRUED", "ACCRUED"]);
+  assert.equal(paystack.transfers.length, 0);
+  assert.equal(paystack.recipients.length, 0, "no recipient is created for a send that will not happen");
+});
+
+test("the release job refuses to send beyond the settled Paystack balance", async () => {
+  seed();
+  await account();
+  paystack.balance = 100_000; // GHS 1,000.00 against GHS 1,649.00 owed
+  const blocked = await runHostelPayoutReleaseJob({ limit: 2, actor: "admin@umat.edu.gh" });
+  assert.deepEqual(blocked.skipped, [{ landlordId: "landlord-a", reason: "INSUFFICIENT_BALANCE" }]);
+  assert.equal(blocked.balance, 100_000);
+  assert.equal(blocked.sent, 0);
+  assert.equal(paystack.transfers.length, 0, "a balance that cannot cover the payout must not try");
+  assert.deepEqual(payouts.map((entry) => entry.payout_attempts), [0, 0], "a skip must not burn an attempt");
+  assert.deepEqual(payouts.map((entry) => entry.status), ["ACCRUED", "ACCRUED"], "the money is still owed");
+
+  paystack.balance = 500_000_00;
+  const sent = await runHostelPayoutReleaseJob({ limit: 2, actor: "admin@umat.edu.gh" });
+  assert.equal(sent.sent, 1);
+  assert.equal(sent.pending, 1);
+  assert.equal(sent.totalSent, 164_900, "the budget is spent on the ledger amount, fee included");
+  assert.equal(paystack.transfers[0].amount, 164_800);
+});
+
+test("the release job leaves a payout below the minimum on the ledger", async () => {
+  seed();
+  await account();
+  process.env.PAYOUT_MIN_AMOUNT_PESEWAS = "2000000"; // GHS 20,000.00
+  try {
+    const summary = await runHostelPayoutReleaseJob({ limit: 2, actor: "admin@umat.edu.gh" });
+    assert.deepEqual(summary.skipped, [{ landlordId: "landlord-a", reason: "BELOW_MINIMUM" }]);
+    assert.equal(summary.minimum, 2_000_000, "the floor the skip was judged against is reported");
+    assert.equal(paystack.transfers.length, 0);
+    assert.deepEqual(payouts.map((entry) => entry.payout_attempts), [0, 0]);
+  } finally {
+    delete process.env.PAYOUT_MIN_AMOUNT_PESEWAS;
+  }
 });
 
 test("a second transfer cannot start while one is in flight", async () => {

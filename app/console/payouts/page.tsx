@@ -18,13 +18,14 @@ type Entry = {
   reversedAt: string; reversedReason: string; createdAt: string;
 };
 type Batch = {
-  id: string; totalAmount: number; entryCount: number; transferReference: string; note: string;
+  id: string; totalAmount: number; transferFee: number; entryCount: number; transferReference: string; note: string;
   mode: string; status: string; transferCode: string; reason: string; attempts: number;
   awaitingOtp: boolean;
   initiatedAt: string; settledAt: string; createdAt: string;
 };
 type Automation = {
-  enabled: boolean; provider: string; transferFee: number; minimum: number;
+  enabled: boolean; provider: string; transferFee: { momo: number; bank: number }; minimum: number; feePercent: number;
+  releaseMinutes: number;
   balance: { currency: string; amount: number } | null;
 };
 type Detail = {
@@ -38,6 +39,10 @@ type Detail = {
 
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
+/** The release gate is minutes now, so a date alone would hide the hour that matters. */
+const whenDue = (iso: string) => (iso
+  ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+  : "—");
 
 /**
  * Why the release job left an organizer alone, in words rather than a code.
@@ -46,11 +51,13 @@ const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", {
  */
 const SKIP_REASONS: Record<string, string> = {
   BELOW_MINIMUM: "below the minimum payout",
+  BELOW_FEE: "the payout would not survive its own transfer fee",
   INSUFFICIENT_BALANCE: "the settled balance cannot cover them",
   BALANCE_UNAVAILABLE: "the Paystack balance could not be read",
   NOT_APPROVED: "the organizer is not approved",
   KYC_NOT_VERIFIED: "KYC is not verified",
   NO_DESTINATION: "no payout destination is saved",
+  UNSUPPORTED_DESTINATION: "the saved account is a bank, and rides pay out to mobile money",
   NOTHING_DUE: "nothing is owed",
   TOO_MANY_ENTRIES: "more entries than one batch should carry",
   CLAIMED_BY_ANOTHER_RUN: "another run claimed them first",
@@ -285,12 +292,12 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <div>
           <span>Unattended runs</span>
           <strong>{automation?.enabled ? "On" : "Off"}</strong>
-          <small>{automationReady ? "every 15 minutes" : "Paystack is not the payment provider"}</small>
+          <small>{automationReady ? "on nearly every minute of the hour" : "Paystack is not the payment provider"}</small>
         </div>
         <div>
-          <span>Transfer fee budget</span>
-          <strong>{cedis(automation?.transferFee || 0)}</strong>
-          <small>reserved per transfer</small>
+          <span>Transfer fee</span>
+          <strong>{cedis(automation?.transferFee?.momo || 0)}</strong>
+          <small>deducted from the payout · {cedis(automation?.transferFee?.bank || 0)} to a bank</small>
         </div>
         <div>
           <span>Minimum payout</span>
@@ -300,7 +307,9 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       </div>
       <p className="console-note">
         Running this by hand sends real money now. It pays every organizer whose entries have cleared their release date, in the order they were earned,
-        and stops when the settled balance runs out.
+        and stops when the settled balance runs out. Paystack takes {automation?.feePercent ?? 0}% at checkout, which the passenger pays on top of the fare,
+        and {cedis(automation?.transferFee?.momo || 0)} per mobile money transfer, which is deducted from the payout itself — the organizer receives their
+        balance less that fee, and nothing is charged to the platform. Rides pay out to mobile money only; organizers are told this where they save the account.
       </p>
       <div className="console-row-actions">
         <button disabled={busy === "RELEASE" || !automationReady} onClick={() => void runAutomation("RELEASE")}>
@@ -311,7 +320,8 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
         </button>
       </div>
       {!automation?.enabled && <p className="console-note">
-        Unattended payouts are off, so the cron never sends. Set <code>PAYOUT_AUTO_ENABLED=true</code> as a Worker secret to turn them on.
+        Unattended payouts are off, so the cron never sends. Turn them on in <a href="/console/settings">Platform settings</a>, where the payout fee and
+        minimum live too.
       </p>}
     </section>
 
@@ -385,7 +395,11 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <UserX size={15}/>Reject KYC
         </button>}
       </div>}
-      {kycVerified && !ready && <p className="console-note">Nothing is ready to pay right now. Entries become ready 24 hours after the booking was paid, and a debt blocks the batch.</p>}
+      {kycVerified && !ready && <p className="console-note">
+        Nothing is ready to pay right now. An entry becomes ready{" "}
+        {automation?.releaseMinutes === 0 ? "as soon as the booking is paid" : `${automation?.releaseMinutes ?? 20} minutes after the booking was paid`}, and a
+        debt blocks the batch.
+      </p>}
 
       <h3 className="console-note">Entries</h3>
       {detail.statement.entries.length === 0
@@ -399,7 +413,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
                 <td>{cedis(entry.grossAmount)}</td>
                 <td>{cedis(entry.commissionAmount)}</td>
                 <td><strong>{cedis(entry.netAmount)}</strong></td>
-                <td>{when(entry.releaseAfter)}</td>
+                <td>{whenDue(entry.releaseAfter)}</td>
                 <td>
                   <span className={`console-badge console-badge-${entry.status.toLowerCase()}`}>{entry.status}</span>
                   {entry.transferReference && <small>Ref {entry.transferReference}</small>}
@@ -414,7 +428,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       {detail.statement.batches.length === 0
         ? <p className="console-empty">No payout has been recorded for this organizer.</p>
         : <table className="console-table">
-          <thead><tr><th>Date</th><th>Reference</th><th>Entries</th><th>Amount</th><th>Recorded by</th></tr></thead>
+          <thead><tr><th>Date</th><th>Reference</th><th>Entries</th><th>Amount</th><th>Received</th><th>Recorded by</th></tr></thead>
           <tbody>
             {detail.statement.batches.map((batch) => (
               <tr key={batch.id}>
@@ -422,6 +436,10 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
                 <td><span>{batch.transferReference || "—"}</span><small>{batch.mode}{batch.transferCode ? ` · ${batch.transferCode}` : ""}</small></td>
                 <td>{batch.entryCount}</td>
                 <td><strong>{cedis(batch.totalAmount)}</strong></td>
+                <td>
+                  <strong>{cedis(batch.totalAmount - batch.transferFee)}</strong>
+                  {batch.transferFee > 0 && <small>after {cedis(batch.transferFee)} transfer fee</small>}
+                </td>
                 <td>
                   <span className={`console-badge console-badge-${batch.status === "SUCCESS" ? "released" : batch.status === "FAILED" ? "failed" : "accrued"}`}>{batch.status}</span>
                   <small>{batch.awaitingOtp ? "Waiting for the one-time password Paystack sent you." : batch.reason || batch.note || "—"}</small>
