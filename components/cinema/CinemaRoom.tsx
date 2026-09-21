@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Flag, Globe, Lock, LockOpen, Mail, Play, Radio, Send, Square } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Flag, Globe, Lock, LockOpen, Mail, MessagesSquare, Mic, NotebookPen, Play, Radio, Send, Sparkles, Square, Upload, UserPlus, X,
+} from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
 import { CinemaInvites } from "./CinemaInvites";
 import { CinemaMediaPanel } from "./CinemaMediaPanel";
+import { CinemaNotes } from "./CinemaNotes";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
 import { UploadPanel } from "./UploadPanel";
 import { UploadPlayer } from "./UploadPlayer";
@@ -26,7 +29,15 @@ import "./cinema.css";
  *
  * Host controls are hidden from everyone else, but that is a courtesy: the
  * engine refuses a non-host's action regardless.
+ *
+ * On a phone the room is the video first: a floating rail at the top right
+ * opens one panel at a time as a bottom sheet, and a Zoom-shaped dock holds
+ * who is here and the host's actions at the bottom. The panels are the same
+ * components either way and stay mounted, which matters for the media panel —
+ * unmounting it would drop the call it is holding.
  */
+type CinemaSheet = "" | "upload" | "board" | "notes" | "media" | "invite" | "chat" | "people";
+
 export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const { ready, account } = useStudentAccount();
   const [room, setRoom] = useState<Room>(initialRoom);
@@ -38,6 +49,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [reportReason, setReportReason] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportNotice, setReportNotice] = useState("");
+  const [sheet, setSheet] = useState<CinemaSheet>("");
   const joined = useRef(false);
   const chatEndRef = useRef<HTMLLIElement | null>(null);
   const enteredStatus = useRef(initialRoom.status);
@@ -50,6 +62,22 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   // the `source` frame, which is what switches the player without a reload.
   const sourceType = live.source?.sourceType ?? room.sourceType;
   const videoId = live.source?.videoId ?? room.videoId;
+  const openSheet = (next: CinemaSheet) => setSheet((current) => (current === next ? "" : next));
+  const closeSheet = useCallback(() => setSheet(""), []);
+
+  // A sheet is an overlay on a phone, so the page behind it must hold still and
+  // Escape must close it. Neither effect writes React state during a render.
+  useEffect(() => {
+    if (!sheet) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setSheet(""); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [sheet]);
 
   // A chat that does not follow its own tail is a chat nobody reads.
   useEffect(() => {
@@ -157,6 +185,63 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   };
 
   return <div className="cinema-room">
+    <nav className="cinema-rail" aria-label="Room features">
+      {room.isHost && active && sourceType !== "UPLOAD" && <button
+        type="button"
+        className={sheet === "upload" ? "is-active" : ""}
+        aria-label="Play a file"
+        title="Play a file"
+        aria-expanded={sheet === "upload"}
+        aria-controls="cinema-sheet-upload"
+        onClick={() => openSheet("upload")}
+      ><Upload size={18} aria-hidden /></button>}
+      {account && <button
+        type="button"
+        className={sheet === "board" ? "is-active" : ""}
+        aria-label="AI whiteboard"
+        title="AI whiteboard"
+        aria-expanded={sheet === "board"}
+        aria-controls="cinema-sheet-board"
+        onClick={() => openSheet("board")}
+      ><Sparkles size={18} aria-hidden /></button>}
+      <button
+        type="button"
+        className={sheet === "notes" ? "is-active" : ""}
+        aria-label="My notes"
+        title="My notes"
+        aria-expanded={sheet === "notes"}
+        aria-controls="cinema-sheet-notes"
+        onClick={() => openSheet("notes")}
+      ><NotebookPen size={18} aria-hidden /></button>
+      {active && account && live.members.length > 0 && <button
+        type="button"
+        className={sheet === "media" ? "is-active" : ""}
+        aria-label="Mic and camera"
+        title="Mic and camera"
+        aria-expanded={sheet === "media"}
+        aria-controls="cinema-sheet-media"
+        onClick={() => openSheet("media")}
+      ><Mic size={18} aria-hidden /></button>}
+      <button
+        type="button"
+        className={sheet === "invite" ? "is-active" : ""}
+        aria-label="Invite"
+        title="Invite"
+        aria-expanded={sheet === "invite"}
+        aria-controls="cinema-sheet-invite"
+        onClick={() => openSheet("invite")}
+      ><UserPlus size={18} aria-hidden /></button>
+      <button
+        type="button"
+        className={sheet === "chat" ? "is-active" : ""}
+        aria-label="Room chat"
+        title="Room chat"
+        aria-expanded={sheet === "chat"}
+        aria-controls="cinema-sheet-chat"
+        onClick={() => openSheet("chat")}
+      ><MessagesSquare size={18} aria-hidden /></button>
+    </nav>
+    {sheet && <button type="button" className="cinema-sheet-backdrop" aria-label="Close the open panel" onClick={closeSheet} />}
     <div className="cinema-stage">
       <section className="cinema-video">
         <div className="cinema-video-head">
@@ -192,33 +277,52 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             </p>}
       </section>
 
-      {active && account && live.members.length > 0 && <CinemaMediaPanel
-        roomId={room.id}
-        selfId={account.id}
-        members={live.members}
-        enabled={live.state === "live"}
-        send={live.send}
-        subscribeSignals={live.subscribeSignals}
-      />}
+      <Sheet open={sheet === "media"} id="cinema-sheet-media" label="Mic and camera" onClose={closeSheet}>
+        {active && account && live.members.length > 0 && <CinemaMediaPanel
+          roomId={room.id}
+          selfId={account.id}
+          members={live.members}
+          enabled={live.state === "live"}
+          send={live.send}
+          subscribeSignals={live.subscribeSignals}
+        />}
+      </Sheet>
 
-      {account && <CinemaWhiteboardPanel
-        roomId={room.id}
-        selfId={account.id}
-        isHost={room.isHost}
-        active={active}
-        connected={live.state === "live"}
-        board={live.whiteboard}
-        removedIds={live.removedWhiteboards}
-        playback={live.playback}
-      />}
+      <Sheet open={sheet === "board"} id="cinema-sheet-board" label="AI whiteboard" onClose={closeSheet}>
+        {account && <CinemaWhiteboardPanel
+          roomId={room.id}
+          selfId={account.id}
+          isHost={room.isHost}
+          active={active}
+          connected={live.state === "live"}
+          board={live.whiteboard}
+          removedIds={live.removedWhiteboards}
+          playback={live.playback}
+        />}
+      </Sheet>
 
-      <section className="cinema-share">
-        <strong>Invite</strong>
-        <code>{`/cinema/${room.id}`}</code>
-        <button onClick={() => void share()}>{copied ? "Link copied" : "Copy the room link"}</button>
-      </section>
+      <Sheet open={sheet === "notes"} id="cinema-sheet-notes" label="My notes" onClose={closeSheet}>
+        <CinemaNotes roomId={room.id} />
+      </Sheet>
 
-      {room.isHost && active && <section className="cinema-card">
+      <Sheet open={sheet === "invite"} id="cinema-sheet-invite" label="Invite" onClose={closeSheet}>
+        <section className="cinema-share">
+          <strong>Invite</strong>
+          <code>{`/cinema/${room.id}`}</code>
+          <button onClick={() => void share()}>{copied ? "Link copied" : "Copy the room link"}</button>
+        </section>
+        {room.isHost && room.isPrivate && <section className="cinema-card cinema-invite-card">
+          <CinemaInvites
+            roomId={room.id}
+            members={room.participants
+              .filter((member) => member.studentId !== room.hostStudentId)
+              .map((member) => ({ studentId: member.studentId, displayName: member.displayName }))}
+            onChanged={() => void load()}
+          />
+        </section>}
+      </Sheet>
+
+      {room.isHost && active && <section className="cinema-card cinema-host-card">
         <h2>Host controls</h2>
         <div className="cinema-controls">
           {room.status === "CREATED" && <button disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={15} /> Open the room</button>}
@@ -233,26 +337,23 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         </div>
         <p className="cinema-note cinema-sub">
           {room.isPrivate
-            ? "The room is private: only your guest list can read or join it. Removing a guest takes back the invitation and the seat. An uploaded video makes the room private automatically."
+            ? "The room is private: only your guest list can read or join it. Manage the list from Invite; removing a guest takes back the invitation and the seat. An uploaded video makes the room private automatically."
             : room.joinLocked
               ? "The door is locked: only students already in can come back in."
               : "Anyone with the link and a UMaT account can join."}
         </p>
-        {room.isPrivate && <CinemaInvites
-          roomId={room.id}
-          members={room.participants
-            .filter((member) => member.studentId !== room.hostStudentId)
-            .map((member) => ({ studentId: member.studentId, displayName: member.displayName }))}
-          onChanged={() => void load()}
-        />}
       </section>}
 
-      {room.isHost && active && sourceType !== "UPLOAD" && <UploadPanel roomId={room.id} onUploaded={() => void load()} />}
+      <Sheet open={sheet === "upload"} id="cinema-sheet-upload" label="Play a file" onClose={closeSheet}>
+        {room.isHost && active && sourceType !== "UPLOAD" && <UploadPanel roomId={room.id} onUploaded={() => void load()} />}
+      </Sheet>
 
       {error && <p className="cinema-error">{error}</p>}
     </div>
 
-    <aside className="cinema-card">
+    <aside className="cinema-card cinema-side">
+      <Sheet open={sheet === "people"} id="cinema-sheet-people" label="Who's here" onClose={closeSheet}>
+      <section className="cinema-side-people">
       <div className="cinema-presence-head">
         <h2>Who&apos;s here</h2>
         {account && <span className={`cinema-link is-${live.state}`}>{connectionCopy(live.state)}</span>}
@@ -282,7 +383,21 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       {account && <div className="cinema-controls cinema-sub">
         <button className="secondary" onClick={() => void load()}>Refresh the room</button>
       </div>}
+      <p className="cinema-note cinema-sub">
+        {room.status === "ENDED"
+          ? "This room has ended. Nobody new can join."
+          : room.isPrivate
+            ? room.isHost
+              ? "This room is private. Only your guest list can read it or come in."
+              : "You are an invited guest: you can watch, chat, ask the board and use the media, and the host keeps the room's controls."
+            : room.joinLocked
+              ? "The host locked the door, so only people already in can come back."
+              : "Everyone with the link and a UMaT account can join. A name leaves the list when that person closes the room."}
+      </p>
+      </section>
+      </Sheet>
 
+      <Sheet open={sheet === "chat"} id="cinema-sheet-chat" label="Room chat" onClose={closeSheet}>
       <section className="cinema-chat">
         <div className="cinema-presence-head">
           <h2>Room chat</h2>
@@ -371,19 +486,49 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
               </div>}
           </>}
       </section>
-
-      <p className="cinema-note cinema-sub">
-        {room.status === "ENDED"
-          ? "This room has ended. Nobody new can join."
-          : room.isPrivate
-            ? room.isHost
-              ? "This room is private. Only your guest list can read it or come in."
-              : "You are an invited guest: you can watch, chat, ask the board and use the media, and the host keeps the room's controls."
-            : room.joinLocked
-              ? "The host locked the door, so only people already in can come back."
-              : "Everyone with the link and a UMaT account can join. A name leaves the list when that person closes the room."}
-      </p>
+      </Sheet>
     </aside>
+
+    <nav className="cinema-dock" aria-label="Room bar">
+      <button
+        type="button"
+        className="cinema-dock-people"
+        aria-expanded={sheet === "people"}
+        aria-controls="cinema-sheet-people"
+        onClick={() => openSheet("people")}
+      >
+        <span className="cinema-dock-avatars" aria-hidden>
+          {people.slice(0, 4).map((member) => <span key={member.studentId} className="cinema-dock-avatar">{memberInitial(member.displayName)}</span>)}
+        </span>
+        <span className="cinema-dock-count">{people.length} {people.length === 1 ? "person" : "people"} here</span>
+      </button>
+      {room.isHost && active && <div className="cinema-dock-actions">
+        {room.status === "CREATED" && <button type="button" disabled={Boolean(busy)} aria-label="Open the room" title="Open the room" onClick={() => void act("OPEN")}><Play size={17} aria-hidden /></button>}
+        {!room.isPrivate && (room.joinLocked
+          ? <button type="button" disabled={Boolean(busy)} aria-label="Let people in again" title="Let people in again" onClick={() => void act("UNLOCK")}><LockOpen size={17} aria-hidden /></button>
+          : <button type="button" disabled={Boolean(busy)} aria-label="Lock the door" title="Lock the door" onClick={() => void act("LOCK")}><Lock size={17} aria-hidden /></button>)}
+        {room.isPrivate
+          ? <button type="button" disabled={Boolean(busy)} aria-label="Make it public" title="Make it public" onClick={() => void act("PUBLIC")}><Globe size={17} aria-hidden /></button>
+          : <button type="button" disabled={Boolean(busy)} aria-label="Make it private" title="Make it private" onClick={() => void act("PRIVATE")}><Lock size={17} aria-hidden /></button>}
+        <button type="button" className="danger" disabled={Boolean(busy)} aria-label="End the room" title="End the room" onClick={() => void act("END")}><Square size={17} aria-hidden /></button>
+      </div>}
+    </nav>
+  </div>;
+}
+
+/**
+ * One mobile panel. On a desktop the wrapper is an ordinary div and the panel
+ * inside it sits in the room's grid exactly as it always did; under 900px the
+ * stylesheet turns it into a fixed bottom sheet, hidden until `open`. The close
+ * control is mobile-only, so the desktop never grows a second way to dismiss a
+ * panel that was never modal.
+ */
+function Sheet(input: { open: boolean; id: string; label: string; onClose: () => void; children: ReactNode }) {
+  return <div id={input.id} className={`cinema-sheet${input.open ? " is-open" : ""}`}>
+    <button type="button" className="cinema-sheet-close" aria-label={`Close ${input.label}`} onClick={input.onClose}>
+      <X size={16} aria-hidden />
+    </button>
+    {input.children}
   </div>;
 }
 
@@ -411,6 +556,11 @@ function peopleOf(room: Room, live: { state: string; members: Array<{ studentId:
     displayName: member.displayName,
     isHost: member.studentId === room.hostStudentId,
   }));
+}
+
+/** One letter for a dock avatar, or a dot when the room has no name to show. */
+function memberInitial(name: unknown) {
+  return String(name || "").trim().charAt(0).toUpperCase() || "•";
 }
 
 function connectionCopy(state: string) {

@@ -204,3 +204,71 @@
 .wb-geo-frame{width:100%;min-height:340px;border:1px solid #e2eae5;border-radius:14px;background:white;overflow-x:auto}
 .wb-geo-note{margin:0;color:#6b7a71;font-size:11.5px;font-weight:800}
 .wb-geo-script{margin:0;padding:10px 12px;border-radius:12px;background:#f4f7f5;color:#3c5a4c;font:600 11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}
+
+/* The private notes page: text the student keeps, never the room. */
+.cinema-notes{display:grid;gap:10px}
+.cinema-notes h2{display:inline-flex;align-items:center;gap:7px}
+.cinema-notes-saved{display:inline-flex;align-items:center;gap:4px;color:#6b7a71;font-size:11px;font-weight:800;white-space:nowrap}
+.cinema-notes textarea{width:100%;min-height:150px;border:1px solid #d5ded7;border-radius:12px;background:white;color:var(--ink);padding:12px 13px;font:600 13px/1.6 inherit;resize:vertical}
+.cinema-notes-actions{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
+.cinema-notes-actions button{display:inline-flex;align-items:center;gap:6px;border:1px solid #cddbd3;border-radius:11px;background:white;color:var(--green);padding:9px 12px;font:900 12px inherit;cursor:pointer}
+.cinema-notes-actions button:disabled{opacity:.5;cursor:not-allowed}
+.cinema-notes-count{margin-left:auto;color:#8a978f;font-size:11px;font-weight:800}
+
+/* Mobile room chrome. Above 900px every one of these is display:none and the
+   room is the desktop grid it always was; below it the room becomes the video,
+   a floating action rail at the top right and a Zoom-shaped dock at the foot,
+   with one panel open at a time as a bottom sheet. The panels themselves are
+   the same components, mounted either way — the media panel must never unmount,
+   because the call it holds would go with it. */
+.cinema-rail,.cinema-dock,.cinema-sheet-backdrop,.cinema-sheet-close{display:none}
+
+@media (max-width:900px){
+  /* The shell keeps its own mobile nav at the foot of every page, so the room
+     dock rides just above it and the sheets open above both. */
+  .cinema-room{padding-bottom:calc(148px + env(safe-area-inset-bottom))}
+  .cinema-video-head{padding-right:58px}
+  .cinema-host-card{display:none}
+  aside.cinema-card.cinema-side{display:contents}
+
+  /* Bottom sheets: hidden until the rail or the dock opens one. */
+  .cinema-sheet{display:none}
+  .cinema-sheet.is-open{display:block;position:fixed;left:10px;right:10px;bottom:calc(130px + env(safe-area-inset-bottom));z-index:70;max-height:68vh;max-height:min(68vh,calc(100dvh - 150px));overflow:auto;padding:16px;border-radius:20px;background:#fffefb;box-shadow:0 24px 60px rgba(12,32,24,.32);animation:cinema-sheet-in .18s ease}
+  .cinema-sheet.is-open>*{margin-top:0}
+  .cinema-sheet.is-open>.cinema-card{border:0;padding:0;box-shadow:none;background:transparent}
+  .cinema-sheet-backdrop{display:block;position:fixed;inset:0;z-index:68;border:0;background:rgba(12,32,24,.38);cursor:pointer}
+  .cinema-sheet-close{display:grid;place-items:center;position:absolute;top:10px;right:10px;width:34px;height:34px;border:0;border-radius:999px;background:#eef4f0;color:#2f4a3e;cursor:pointer}
+
+  /* The rail: one action per panel, in the order a room is usually used. */
+  .cinema-rail{display:flex;flex-direction:column;gap:8px;position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:75}
+  .cinema-rail button{display:grid;place-items:center;width:44px;height:44px;border:1px solid #d8e4dc;border-radius:999px;background:rgba(255,255,255,.95);color:var(--green);box-shadow:0 10px 26px rgba(18,46,36,.18);cursor:pointer}
+  .cinema-rail button.is-active{background:var(--green);border-color:var(--green);color:white}
+  .cinema-rail button:disabled{opacity:.45;cursor:not-allowed}
+
+  /* The dock: who is here on the left, the host's actions on the right. */
+  .cinema-dock{display:flex;align-items:center;gap:10px;position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom));z-index:66;padding:9px 12px;border-top:1px solid #dce5de;background:rgba(255,255,255,.97);box-shadow:0 -12px 30px rgba(18,46,36,.12)}
+  .cinema-dock-people{display:flex;align-items:center;gap:9px;min-width:0;border:0;background:none;padding:4px;cursor:pointer}
+  .cinema-dock-avatars{display:flex}
+  .cinema-dock-avatar{display:grid;place-items:center;width:30px;height:30px;margin-left:-8px;border:2px solid white;border-radius:999px;background:var(--mint);color:var(--green);font-size:11px;font-weight:900}
+  .cinema-dock-avatar:first-child{margin-left:0}
+  .cinema-dock-count{color:#3c5a4c;font-size:12px;font-weight:900;white-space:nowrap}
+  .cinema-dock-actions{display:flex;gap:8px;margin-left:auto}
+  .cinema-dock-actions button{display:grid;place-items:center;width:40px;height:40px;border:1px solid #cddbd3;border-radius:999px;background:white;color:var(--green);cursor:pointer}
+  .cinema-dock-actions button.danger{border-color:#a3352a;background:#a3352a;color:white}
+  .cinema-dock-actions button:disabled{opacity:.45;cursor:progress}
+
+  .cinema-notes textarea{min-height:190px}
+}
+
+@keyframes cinema-sheet-in{
+  from{opacity:0;transform:translateY(14px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+@media (max-width:900px){
+  /* Inside a sheet the sheet is the card, so the panels drop their own frames
+     and keep their content clear of the close control. */
+  .cinema-sheet.is-open .cinema-presence-head{padding-right:36px}
+  .cinema-sheet.is-open .cinema-chat{margin-top:0;padding-top:0;border-top:0}
+  .cinema-sheet.is-open .cinema-share{border:0;background:transparent;padding:0}
+}
