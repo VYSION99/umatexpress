@@ -1,6 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutTransferFee, platformPayoutBalance, recordPayoutBatch } from "@/lib/organizer-payouts";
+import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutMinimumAmount, payoutTransferFee, platformPayoutBalance, recordPayoutBatch } from "@/lib/organizer-payouts";
 import { getOrganizer, getOrganizerProfile } from "@/lib/organizers";
 import { getPaymentProviderRuntime } from "@/lib/paystack";
 
@@ -18,12 +18,13 @@ export async function GET(request: Request) {
     if (!organizerId) {
       // What the platform can actually pay with, and whether the unattended
       // job is allowed to spend it. Both are read-only here.
-      const [organizers, balance, autoEnabled, provider, fee] = await Promise.all([
+      const [organizers, balance, autoEnabled, provider, fee, minimum] = await Promise.all([
         listPayoutOrganizers(),
         platformPayoutBalance(),
         payoutAutoEnabled(),
         getPaymentProviderRuntime(),
         payoutTransferFee(),
+        payoutMinimumAmount(),
       ]);
       return Response.json({
         organizers,
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
           enabled: autoEnabled,
           provider,
           transferFee: fee,
+          minimum,
           balance: balance ? { currency: balance.currency, amount: balance.balance } : null,
         },
       }, { headers: NO_STORE });

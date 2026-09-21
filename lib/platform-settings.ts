@@ -32,6 +32,7 @@ const PLATFORM_SETTINGS_STATEMENTS = [
 export type PlatformSettingKey =
   | "hostel_payout_auto"
   | "organizer_payout_auto"
+  | "organizer_payout_min_amount"
   | "cinema_room_idle_minutes"
   | "cinema_retention_hours"
   | "cinema_uploads_enabled"
@@ -81,6 +82,17 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     detail: "The trip side of the same switch: payouts for confirmed bookings are transferred unattended. Off keeps every transfer attended, which is the safe default while an organizer is new.",
     env: "PAYOUT_AUTO_ENABLED",
     fallback: false,
+  },
+  {
+    key: "organizer_payout_min_amount",
+    kind: "number",
+    label: "Organizer payout minimum",
+    summary: "The smallest balance worth a transfer, in pesewas.",
+    detail: "Paystack charges a flat fee per transfer, so a small balance can be worth less than the cost of sending it. Entries below this stay on the ledger and join the next payout, which means an organizer is paid less often but keeps more. Manual batches an administrator records are never held back by it. 5000 is GHS 50.00.",
+    env: "PAYOUT_MIN_AMOUNT_PESEWAS",
+    fallback: 5000,
+    min: 0,
+    max: 10_000_000,
   },
   {
     key: "cinema_room_idle_minutes",

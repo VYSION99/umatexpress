@@ -150,6 +150,14 @@ export function PlatformSettings() {
   </section>;
 }
 
+/** A limit reads better with its unit beside it, and the key carries it. */
+const SETTING_UNITS: Array<[string, string]> = [
+  ["_minutes", "minutes"],
+  ["_hours", "hours"],
+  // Amounts are held in the smallest unit so no rounding is ever invented.
+  ["_amount", "pesewas"],
+];
+
 /** A limit is a number, not a switch: type it, save it, see the new value. */
 function NumberSetting(input: {
   setting: PlatformSetting;
@@ -158,7 +166,7 @@ function NumberSetting(input: {
 }) {
   const { setting, busy, onSave } = input;
   const [draft, setDraft] = useState(String(setting.value));
-  const unit = setting.key.endsWith("_minutes") ? "minutes" : setting.key.endsWith("_hours") ? "hours" : "";
+  const unit = SETTING_UNITS.find(([suffix]) => setting.key.endsWith(suffix))?.[1] || "";
   return <form
     className="console-setting-number"
     onSubmit={(event) => {

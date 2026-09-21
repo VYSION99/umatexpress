@@ -207,12 +207,17 @@ export function normalizeTransferStatus(value: unknown): PaystackTransferStatus 
 function transferPayload(result: PaystackTransferResponse) {
   const data = result.data ?? {};
   const recipient = typeof data.recipient === "string" ? data.recipient : data.recipient?.recipient_code || "";
+  const rawStatus = String(data.status || "");
   return {
     transferCode: String(data.transfer_code || ""),
     reference: String(data.reference || ""),
     amount: Number(data.amount || 0),
-    status: normalizeTransferStatus(data.status),
-    rawStatus: String(data.status || ""),
+    status: normalizeTransferStatus(rawStatus),
+    rawStatus,
+    // Paystack asked the account holder to authorise this one. It is not
+    // pending on the network, it is pending on a human: nothing moves until
+    // `/transfer/finalize_transfer` is called with the OTP.
+    awaitingOtp: rawStatus.toLowerCase() === "otp",
     recipientCode: String(recipient || ""),
     reason: String(data.reason || result.message || ""),
   };
@@ -279,6 +284,36 @@ export async function initiatePaystackTransfer(input: {
   const result = await response.json().catch(() => ({})) as PaystackTransferResponse;
   if (!response.ok || !result.status || !result.data) {
     throw new Error(result.message || `Paystack transfer failed (${response.status}).`);
+  }
+  return transferPayload(result);
+}
+
+/**
+ * Completes a transfer Paystack held for a one-time password.
+ *
+ * `/transfer` answers `otp` when the account has that check switched on, and
+ * the transfer then sits until this is called. The OTP is delivered to the
+ * account holder by Paystack, never to us, so it only ever arrives as input
+ * from the administrator who received it. It is not stored.
+ */
+export async function finalizePaystackTransfer(input: { transferCode: string; otp: string }) {
+  const transferCode = String(input.transferCode || "").trim();
+  const otp = String(input.otp || "").trim();
+  if (!transferCode) throw new Error("A transfer code is required to authorise a transfer.");
+  if (!otp) throw new Error("The one-time password from Paystack is required.");
+  const { secretKey, baseUrl } = await getRuntimeConfig();
+  const response = await fetch(`${baseUrl}/transfer/finalize_transfer`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ transfer_code: transferCode, otp }),
+  });
+  const result = await response.json().catch(() => ({})) as PaystackTransferResponse;
+  if (!response.ok || !result.status || !result.data) {
+    // The OTP is the one thing that must never reach a log or an audit trail.
+    throw new Error(result.message || `Paystack transfer finalization failed (${response.status}).`);
   }
   return transferPayload(result);
 }

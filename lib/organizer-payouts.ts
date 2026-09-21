@@ -1,9 +1,9 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { logEvent } from "@/lib/observability";
-import { createPaystackRecipient, fetchPaystackBalance, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
+import { createPaystackRecipient, fetchPaystackBalance, finalizePaystackTransfer, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
 import { isPayoutMethod, recipientTypeFor, type PayoutMethod } from "@/lib/paystack-banks";
-import { platformSettingEnabled } from "@/lib/platform-settings";
+import { platformSettingEnabled, platformSettingNumber } from "@/lib/platform-settings";
 import { openSecret } from "@/lib/secret-box";
 import { ensureBookingsTable, ensurePaymentsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
@@ -40,6 +40,12 @@ const MAX_RELEASE_CANDIDATES = 4;
 const MAX_RECONCILE_BATCHES = 5;
 /** Paystack charges per transfer, and it comes out of the same balance. */
 const DEFAULT_TRANSFER_FEE_PESEWAS = 800;
+/**
+ * A batch held because Paystack asked for a one-time password. It rides in
+ * `reason` because it is exactly that: why the batch is still pending. The
+ * console reads it back as `awaitingOtp` rather than matching the string.
+ */
+const AWAITING_OTP_REASON = "AWAITING_OTP";
 
 const PAYOUTS_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS organizer_payouts (
@@ -396,6 +402,8 @@ export type PayoutBatch = {
   transferCode: string;
   reason: string;
   attempts: number;
+  /** Paystack is holding this transfer until someone supplies a one-time password. */
+  awaitingOtp: boolean;
   note: string;
   createdBy: string;
   initiatedAt: string;
@@ -460,6 +468,7 @@ export async function organizerStatement(organizerId: string) {
       transferCode: String(row.transfer_code || ""),
       reason: String(row.reason || ""),
       attempts: Number(row.attempts || 0),
+      awaitingOtp: String(row.reason || "") === AWAITING_OTP_REASON,
       note: String(row.note || ""),
       createdBy: String(row.created_by || ""),
       initiatedAt: String(row.initiated_at || ""),
@@ -630,6 +639,20 @@ export async function payoutTransferFee() {
   return envNumber("PAYOUT_TRANSFER_FEE_PESEWAS", DEFAULT_TRANSFER_FEE_PESEWAS);
 }
 
+/**
+ * The floor below which a transfer is not worth making.
+ *
+ * A Paystack transfer costs a flat fee whatever it carries, so sending a few
+ * pesewas of earnings can cost more than it delivers. Anything under this
+ * stays on the ledger and is sent with the next batch that clears it: the
+ * organizer waits longer and keeps more. It is a console setting, so the
+ * policy can move without a deploy, and `PAYOUT_MIN_AMOUNT_PESEWAS` is the
+ * fallback for a deployment that never opens the page.
+ */
+export async function payoutMinimumAmount() {
+  return platformSettingNumber("organizer_payout_min_amount");
+}
+
 /** What Paystack says can be paid right now. Null when Paystack cannot be reached. */
 export async function platformPayoutBalance() {
   try {
@@ -729,6 +752,8 @@ export type PayoutReleaseSummary = {
   failed: Array<{ organizerId: string; reason: string }>;
   totalTransferred: number;
   balance: number | null;
+  /** The floor a balance had to clear to be sent, so a skip can be explained. */
+  minimum: number;
 };
 
 /**
@@ -740,7 +765,7 @@ export type PayoutReleaseSummary = {
  * rather than assumed away.
  */
 export async function runPayoutReleaseJob(options: { limit?: number; actor?: string; now?: Date } = {}): Promise<PayoutReleaseSummary> {
-  const empty: PayoutReleaseSummary = { status: "RAN", considered: 0, transferred: 0, inFlight: 0, skipped: [], failed: [], totalTransferred: 0, balance: null };
+  const empty: PayoutReleaseSummary = { status: "RAN", considered: 0, transferred: 0, inFlight: 0, skipped: [], failed: [], totalTransferred: 0, balance: null, minimum: 0 };
   if (!(await isTursoConfiguredRuntime())) return { ...empty, status: "SKIPPED", reason: "TURSO_NOT_CONFIGURED" };
   await ensurePayoutTables();
   if ((await getPaymentProviderRuntime()) !== "PAYSTACK") {
@@ -748,6 +773,8 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
     // there would be nothing to transfer from.
     return { ...empty, status: "SKIPPED", reason: "PAYMENT_PROVIDER_NOT_PAYSTACK" };
   }
+  const minimum = await payoutMinimumAmount();
+  empty.minimum = minimum;
   const manual = Boolean(options.actor);
   if (!manual && !(await payoutAutoEnabled())) return { ...empty, status: "SKIPPED", reason: "AUTO_DISABLED" };
 
@@ -795,6 +822,9 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
     const entryCount = Number(candidate.entry_count || 0);
     const amount = Number(candidate.total_amount || 0);
     if (!amount) { skip("NOTHING_DUE"); continue; }
+    // Checked before the balance so a balance that cannot cover a transfer
+    // does not hide the reason that would still stand if it could.
+    if (amount < minimum) { skip("BELOW_MINIMUM"); continue; }
     // A batch this size is a data problem, not a payout: it is far more likely
     // to be a backlog nobody looked at than a single day's earnings.
     if (entryCount > MAX_BATCH_ENTRIES) { skip("TOO_MANY_ENTRIES"); continue; }
@@ -839,7 +869,12 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
       });
       await turso(
         "UPDATE organizer_payout_batches SET total_amount=?,entry_count=?,transfer_code=?,recipient_code=?,status=?,reason=?,updated_at=? WHERE id=?",
-        [claimedAmount, claimedCount, transfer.transferCode, recipient.recipientCode, transfer.status === "SUCCESS" ? "SUCCESS" : "PENDING", transfer.reason, stamp, batchId],
+        [
+          claimedAmount, claimedCount, transfer.transferCode, recipient.recipientCode,
+          transfer.status === "SUCCESS" ? "SUCCESS" : "PENDING",
+          transfer.awaitingOtp ? AWAITING_OTP_REASON : transfer.reason,
+          stamp, batchId,
+        ],
       );
       if (transfer.status === "SUCCESS") {
         await settlePayoutBatch({ batchId, stamp });
@@ -904,6 +939,75 @@ async function failPayoutBatch(input: { batchId: string; reason: string; stamp: 
     "UPDATE organizer_payout_batches SET status='FAILED', reason=?, settled_at=?, updated_at=? WHERE id=?",
     [reason, input.stamp, input.stamp, input.batchId],
   );
+}
+
+/**
+ * Authorises a transfer Paystack held for a one-time password.
+ *
+ * The code is sent to whoever owns the Paystack account, so it can only ever
+ * come from a person. It is passed straight through: it is never stored on the
+ * batch, never logged, and never written to the audit trail — only the fact
+ * that the transfer was authorised is.
+ *
+ * A refusal is not a failure. Paystack rejecting the code leaves the transfer
+ * exactly where it was, still waiting, so the batch is untouched and the
+ * administrator can try again with the right one.
+ */
+export async function finalizePayoutBatch(input: { batchId: string; otp: string; actor?: string }) {
+  await ensurePayoutTables();
+  const batchId = String(input.batchId || "").trim();
+  const otp = String(input.otp || "").trim();
+  if (!batchId) throw new CampusEngineError("VALIDATION_ERROR", "Choose the payout that needs authorising.", 400);
+  if (!otp) throw new CampusEngineError("VALIDATION_ERROR", "Enter the one-time password Paystack sent you.", 400);
+
+  const batch = rowsToObjects(await turso(
+    `SELECT id,COALESCE(status,'') AS status,COALESCE(reason,'') AS reason,COALESCE(transfer_code,'') AS transfer_code
+     FROM organizer_payout_batches WHERE id = ? LIMIT 1`,
+    [batchId],
+  ))[0];
+  if (!batch) throw new CampusEngineError("NOT_FOUND", "That payout was not found.", 404);
+  if (String(batch.status) !== "PENDING") {
+    throw new CampusEngineError("INVALID_STATE", "That transfer has already finished, so there is nothing to authorise.", 409);
+  }
+  if (String(batch.reason) !== AWAITING_OTP_REASON) {
+    throw new CampusEngineError("INVALID_STATE", "Paystack is not waiting on a one-time password for that transfer.", 409);
+  }
+  const transferCode = String(batch.transfer_code || "");
+  if (!transferCode) throw new CampusEngineError("INVALID_STATE", "That transfer carries no Paystack code to authorise.", 409);
+
+  const stamp = new Date().toISOString();
+  let transfer;
+  try {
+    transfer = await finalizePaystackTransfer({ transferCode, otp });
+  } catch (error) {
+    throw new CampusEngineError("ENGINE_ERROR", error instanceof Error ? error.message : "Paystack refused that one-time password.", 502);
+  }
+
+  if (transfer.status === "SUCCESS") {
+    await settlePayoutBatch({ batchId, stamp });
+    await consoleAudit({
+      actor: String(input.actor || "system:payouts"),
+      action: "ORGANIZER_PAYOUT_TRANSFER_AUTHORISED",
+      targetType: "organizer_payout_batch",
+      targetReference: batchId,
+      // The code itself stays out of the trail; the transfer it released does not.
+      details: { transferCode, amount: transfer.amount },
+    }).catch(() => undefined);
+    return { status: "RELEASED" as const };
+  }
+  if (transfer.status === "FAILED" || transfer.status === "REVERSED") {
+    await failPayoutBatch({ batchId, reason: transfer.reason || transfer.rawStatus || "TRANSFER_FAILED", stamp });
+    return { status: "FAILED" as const, reason: transfer.reason };
+  }
+  if (transfer.awaitingOtp) {
+    // Accepted but still held: Paystack wants another code.
+    return { status: "PENDING" as const, awaitingOtp: true, reason: transfer.reason };
+  }
+  // The transfer is on its way. Clearing the marker stops the console asking
+  // for a code that has already been used; the webhook or the reconcile job
+  // settles it from here.
+  await turso("UPDATE organizer_payout_batches SET reason='',updated_at=? WHERE id=? AND status='PENDING'", [stamp, batchId]);
+  return { status: "PENDING" as const, awaitingOtp: false };
 }
 
 export type PayoutReconcileSummary = {

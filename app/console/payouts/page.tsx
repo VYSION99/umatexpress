@@ -20,10 +20,11 @@ type Entry = {
 type Batch = {
   id: string; totalAmount: number; entryCount: number; transferReference: string; note: string;
   mode: string; status: string; transferCode: string; reason: string; attempts: number;
+  awaitingOtp: boolean;
   initiatedAt: string; settledAt: string; createdAt: string;
 };
 type Automation = {
-  enabled: boolean; provider: string; transferFee: number;
+  enabled: boolean; provider: string; transferFee: number; minimum: number;
   balance: { currency: string; amount: number } | null;
 };
 type Detail = {
@@ -37,6 +38,34 @@ type Detail = {
 
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
+
+/**
+ * Why the release job left an organizer alone, in words rather than a code.
+ * The job reports the reason; the console owes the reader the sentence, and
+ * the ones worth acting on say what would have to change.
+ */
+const SKIP_REASONS: Record<string, string> = {
+  BELOW_MINIMUM: "below the minimum payout",
+  INSUFFICIENT_BALANCE: "the settled balance cannot cover them",
+  BALANCE_UNAVAILABLE: "the Paystack balance could not be read",
+  NOT_APPROVED: "the organizer is not approved",
+  KYC_NOT_VERIFIED: "KYC is not verified",
+  NO_DESTINATION: "no payout destination is saved",
+  NOTHING_DUE: "nothing is owed",
+  TOO_MANY_ENTRIES: "more entries than one batch should carry",
+  CLAIMED_BY_ANOTHER_RUN: "another run claimed them first",
+  NO_ORGANIZER: "the entry has no organizer",
+};
+
+/** "2 the settled balance cannot cover them, 1 below the minimum payout". */
+function skipBreakdown(skipped: Array<{ reason: string }>) {
+  const counts = new Map<string, number>();
+  for (const item of skipped) counts.set(item.reason, (counts.get(item.reason) || 0) + 1);
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([reason, count]) => `${count} ${SKIP_REASONS[reason] || reason.toLowerCase()}`)
+    .join(", ");
+}
 
 export default function PayoutsConsolePage() {
   return <ConsoleSessionGate label="organizer payouts">
@@ -52,6 +81,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [form, setForm] = useState({ reference: "", note: "" });
+  const [otp, setOtp] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -175,7 +205,10 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       } else if (data.result.status === "SKIPPED") {
         setNotice(`Nothing was sent: ${data.result.reason}.`);
       } else {
-        setNotice(`Considered ${data.result.considered} organizers: ${data.result.transferred} paid, ${data.result.inFlight} in flight, ${data.result.failed.length} failed, ${data.result.skipped.length} skipped.`);
+        const skipped = skipBreakdown(data.result.skipped || []);
+        setNotice(
+          `Considered ${data.result.considered} organizers: ${data.result.transferred} paid, ${data.result.inFlight} in flight, ${data.result.failed.length} failed, ${data.result.skipped.length} skipped${skipped ? ` (${skipped})` : ""}.`,
+        );
       }
       await Promise.all([loadOverview(), detail ? loadDetail(detail.organizer.id) : Promise.resolve()]);
     } catch (runError) {
@@ -184,6 +217,41 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       setBusy("");
     }
   }, [detail, loadDetail, loadOverview]);
+
+  /**
+   * Hands Paystack the code it asked for. The code lives in component state
+   * only: it is sent once, cleared the moment the request returns, and never
+   * kept in the browser or the ledger.
+   */
+  const authoriseTransfer = useCallback(async (batchId: string) => {
+    const code = String(otp[batchId] || "").trim();
+    if (!code) { setError("Enter the one-time password Paystack sent you."); return; }
+    setBusy(`otp-${batchId}`); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/console/payouts/run", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "FINALIZE", batchId, otp: code }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "That transfer could not be authorised.");
+      setOtp((current) => ({ ...current, [batchId]: "" }));
+      const result = data.result || {};
+      setNotice(result.status === "RELEASED"
+        ? "Paystack accepted the code and released the transfer."
+        : result.status === "FAILED"
+          ? `Paystack refused the transfer: ${result.reason || "unknown reason"}. The entries went back to the ledger.`
+          : result.awaitingOtp
+            ? "Paystack is still waiting for a code. Check the one it sent and try again."
+            : "The code was accepted. The transfer is on its way and will settle itself.");
+      await Promise.all([loadOverview(), detail ? loadDetail(detail.organizer.id) : Promise.resolve()]);
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : "That transfer could not be authorised.");
+    } finally {
+      setBusy("");
+    }
+  }, [detail, loadDetail, loadOverview, otp]);
 
   const totals = detail?.statement.totals;
   const ready = useMemo(() => (totals?.ready || 0) > 0 && (totals?.debt || 0) === 0, [totals]);
@@ -223,6 +291,11 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <span>Transfer fee budget</span>
           <strong>{cedis(automation?.transferFee || 0)}</strong>
           <small>reserved per transfer</small>
+        </div>
+        <div>
+          <span>Minimum payout</span>
+          <strong>{cedis(automation?.minimum || 0)}</strong>
+          <small>a smaller balance waits for the next batch</small>
         </div>
       </div>
       <p className="console-note">
@@ -351,7 +424,24 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
                 <td><strong>{cedis(batch.totalAmount)}</strong></td>
                 <td>
                   <span className={`console-badge console-badge-${batch.status === "SUCCESS" ? "released" : batch.status === "FAILED" ? "failed" : "accrued"}`}>{batch.status}</span>
-                  <small>{batch.reason || batch.note || "—"}</small>
+                  <small>{batch.awaitingOtp ? "Waiting for the one-time password Paystack sent you." : batch.reason || batch.note || "—"}</small>
+                  {batch.awaitingOtp && <form
+                    className="console-otp"
+                    onSubmit={(event) => { event.preventDefault(); void authoriseTransfer(batch.id); }}
+                  >
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      aria-label="Paystack one-time password"
+                      placeholder="Paystack OTP"
+                      value={otp[batch.id] || ""}
+                      onChange={(event) => setOtp((current) => ({ ...current, [batch.id]: event.target.value }))}
+                    />
+                    <button disabled={busy === `otp-${batch.id}`}>
+                      {busy === `otp-${batch.id}` ? "Authorising…" : "Authorise"}
+                    </button>
+                  </form>}
                 </td>
               </tr>
             ))}

@@ -17,6 +17,7 @@ process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-ch
 process.env.ADMIN_SESSION_SECRET = "test-admin-session-secret-at-least-32-chars";
 process.env.PAYSTACK_SECRET_KEY = "sk_test_payout_ledger_key";
 process.env.PAYSTACK_CURRENCY = "GHS";
+process.env.PAYOUT_ENCRYPTION_KEY = "test-payout-encryption-key-at-least-32-characters";
 
 const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
 const ACCOUNT_COLUMNS = ["id", "email", "name", "phone", "role", "status", "profile_id"];
@@ -38,14 +39,28 @@ const organizerRows = [
 const profiles = new Map(organizerRows.map((row) => [row.id, {
   id: row.id, kyc_status: row.kyc_status, kyc_id_type: "GHANA_CARD", kyc_id_number: "", kyc_reason: "",
   kyc_submitted_at: "", kyc_reviewed_at: "", payout_method: "MOMO", payout_account_name: row.name,
-  payout_account_number: "", payout_account_last4: "", payout_updated_at: "", paystack_recipient_code: "",
+  payout_account_number: "", payout_account_last4: "", payout_bank_code: "MTN", payout_updated_at: "",
+  paystack_recipient_code: "",
 }]));
+
+/**
+ * The accrual fixtures are dated relative to the moment the suite runs.
+ *
+ * A booking's earnings open exactly 24 hours after it was paid. A fixed date
+ * eventually drifts past its own gate, and then those entries quietly join the
+ * batches a later test asserts on — which is precisely what happened here.
+ */
+const HOUR_MS = 60 * 60 * 1_000;
+const hoursAgo = (hours) => new Date(Date.now() - hours * HOUR_MS).toISOString();
+const NEW1_PAID_AT = hoursAgo(3);
+const GAP_PAID_AT = hoursAgo(2);
+const REV_PAID_AT = hoursAgo(1);
 
 const bookings = [
   // Confirmed and un-accrued: the accrual tests use these.
-  { id: "bk-new1", reference: "UMX-NEW1", passenger_name: "Ama", email: "a@example.com", phone: "0244000001", seat: 3, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: "2026-09-20T10:00:00.000Z", created_at: "2026-09-20T09:58:00.000Z" },
-  { id: "bk-gap", reference: "UMX-GAP1", passenger_name: "Kofi", email: "k@example.com", phone: "0244000002", seat: 4, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: "2026-09-20T11:00:00.000Z", created_at: "2026-09-20T10:58:00.000Z" },
-  { id: "bk-rev", reference: "UMX-REV1", passenger_name: "Yaa", email: "y@example.com", phone: "0244000003", seat: 5, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: "2026-09-20T12:00:00.000Z", created_at: "2026-09-20T11:58:00.000Z" },
+  { id: "bk-new1", reference: "UMX-NEW1", passenger_name: "Ama", email: "a@example.com", phone: "0244000001", seat: 3, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: NEW1_PAID_AT, created_at: NEW1_PAID_AT },
+  { id: "bk-gap", reference: "UMX-GAP1", passenger_name: "Kofi", email: "k@example.com", phone: "0244000002", seat: 4, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: GAP_PAID_AT, created_at: GAP_PAID_AT },
+  { id: "bk-rev", reference: "UMX-REV1", passenger_name: "Yaa", email: "y@example.com", phone: "0244000003", seat: 5, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: REV_PAID_AT, created_at: REV_PAID_AT },
   { id: "bk-plat", reference: "UMX-PLAT", passenger_name: "Adwoa", email: "ad@example.com", phone: "0244000004", seat: 6, trip_id: "trip-plat", travel_date: "2026-10-03", amount: 18360, payment_status: "SUCCESSFUL", booking_status: "CONFIRMED", departure_time: "06:30", organizer_id: "", commission_amount: 0, confirmed_at: "2026-09-20T13:00:00.000Z", created_at: "2026-09-20T12:58:00.000Z" },
   { id: "bk-pending", reference: "UMX-PEND", passenger_name: "Kojo", email: "kj@example.com", phone: "0244000005", seat: 7, trip_id: "trip-a", travel_date: "2026-10-03", amount: 18360, payment_status: "PENDING", booking_status: "AWAITING_PAYMENT", departure_time: "06:30", organizer_id: "org-a", commission_amount: 0, confirmed_at: "", created_at: "2026-09-20T13:58:00.000Z" },
   // The booking behind the verify-route test: Paystack says success below.
@@ -165,7 +180,21 @@ function handle(sql, args) {
     return ok(table(["id"], missing.map((booking) => ({ id: booking.id }))));
   }
   if (/^INSERT INTO organizer_payout_batches/.test(sql)) {
-    batches.push({ id: String(args[0]), organizer_id: String(args[1]), total_amount: 0, entry_count: 0, transfer_reference: String(args[2]), note: String(args[3]), created_by: String(args[4]), created_at: String(args[5]) });
+    // Two shapes: the administrator's manual batch carries a note, the
+    // release job's carries a mode, a status and its own timestamps.
+    const auto = /'AUTO'/.test(sql);
+    batches.push({
+      id: String(args[0]), organizer_id: String(args[1]), total_amount: 0, entry_count: 0,
+      transfer_reference: String(args[2]),
+      note: auto ? "" : String(args[3]),
+      mode: auto ? "AUTO" : "MANUAL",
+      status: auto ? "PENDING" : "RECORDED",
+      transfer_code: "", recipient_code: "", reason: "", attempts: 0,
+      created_by: String(args[4]),
+      initiated_at: auto ? String(args[5]) : "",
+      settled_at: "",
+      created_at: String(auto ? args[6] : args[5]),
+    });
     return okRows(1);
   }
   if (/^UPDATE organizer_payouts SET status = 'RELEASED'/.test(sql)) {
@@ -191,6 +220,115 @@ function handle(sql, args) {
     const batch = batches.find((item) => item.id === args[2]);
     if (batch) { batch.total_amount = Number(args[0]); batch.entry_count = Number(args[1]); }
     return okRows(batch ? 1 : 0);
+  }
+  // The release job's own batch writes: claimed, sent, settled, failed, and the
+  // OTP marker being cleared once the code is used.
+  if (/^UPDATE organizer_payout_batches SET total_amount=\?,entry_count=\?,transfer_code=\?/.test(sql)) {
+    const batch = batches.find((item) => item.id === args[7]);
+    if (batch) {
+      batch.total_amount = Number(args[0]);
+      batch.entry_count = Number(args[1]);
+      batch.transfer_code = String(args[2]);
+      batch.recipient_code = String(args[3]);
+      batch.status = String(args[4]);
+      batch.reason = String(args[5]);
+    }
+    return okRows(batch ? 1 : 0);
+  }
+  if (/^UPDATE organizer_payout_batches SET status='SUCCESS'/.test(sql)) {
+    const batch = batches.find((item) => item.id === args[2]);
+    if (batch) { batch.status = "SUCCESS"; batch.reason = ""; batch.settled_at = String(args[0]); }
+    return okRows(batch ? 1 : 0);
+  }
+  if (/^UPDATE organizer_payout_batches SET status='FAILED'/.test(sql)) {
+    const batch = batches.find((item) => item.id === args[3]);
+    if (batch) { batch.status = "FAILED"; batch.reason = String(args[0]); batch.settled_at = String(args[1]); }
+    return okRows(batch ? 1 : 0);
+  }
+  if (/^UPDATE organizer_payout_batches SET reason='',updated_at=\?/.test(sql)) {
+    const batch = batches.find((item) => item.id === args[1] && item.status === "PENDING");
+    if (batch) { batch.reason = ""; return okRows(1); }
+    return okRows(0);
+  }
+  if (/^SELECT id,COALESCE\(status,''\) AS status,COALESCE\(reason,''\) AS reason,COALESCE\(transfer_code,''\) AS transfer_code\s+FROM organizer_payout_batches WHERE id = \? LIMIT 1/.test(sql)) {
+    const batch = batches.find((item) => item.id === args[0]);
+    return ok(batch ? table(["id", "status", "reason", "transfer_code"], [batch]) : empty);
+  }
+  // Claiming entries for a batch, and releasing them once Paystack confirms.
+  if (/^UPDATE organizer_payouts SET status = 'PROCESSING'/.test(sql)) {
+    let affected = 0;
+    for (const row of payouts) {
+      if (row.organizer_id === args[3] && row.status === "ACCRUED" && !row.batch_id && row.release_after <= String(args[4])) {
+        row.status = "PROCESSING";
+        row.batch_id = String(args[0]);
+        row.transfer_reference = String(args[1]);
+        row.updated_at = String(args[2]);
+        affected += 1;
+      }
+    }
+    return okRows(affected);
+  }
+  if (/^UPDATE organizer_payouts SET status='RELEASED', released_at=\?/.test(sql)) {
+    let affected = 0;
+    for (const row of payouts) {
+      if (row.batch_id === args[3] && row.status === "PROCESSING") {
+        row.status = "RELEASED";
+        row.released_at = String(args[0]);
+        row.transferred_at = String(args[1]);
+        row.updated_at = String(args[2]);
+        affected += 1;
+      }
+    }
+    return okRows(affected);
+  }
+  // The destination an organizer is paid at, read by the recipient helper.
+  if (/FROM trip_organizers WHERE id = \? LIMIT 1/.test(sql)) {
+    const organizer = organizerRows.find((item) => item.id === args[0]);
+    const profile = profiles.get(args[0]);
+    if (!organizer || !profile) return ok(empty);
+    return ok(table(
+      ["id", "status", "kyc_status", "name", "email", "payout_method", "payout_account_name", "payout_account_number", "payout_bank_code", "paystack_recipient_code"],
+      [{
+        id: organizer.id, status: organizer.status, kyc_status: organizer.kyc_status, name: organizer.name,
+        email: organizer.email, payout_method: profile.payout_method, payout_account_name: profile.payout_account_name,
+        payout_account_number: profile.payout_account_number, payout_bank_code: profile.payout_bank_code,
+        paystack_recipient_code: profile.paystack_recipient_code,
+      }],
+    ));
+  }
+  if (/^UPDATE trip_organizers SET paystack_recipient_code/.test(sql)) {
+    const profile = profiles.get(args[2]);
+    if (profile) profile.paystack_recipient_code = String(args[0]);
+    return okRows(profile ? 1 : 0);
+  }
+  // The release job's queue: who is due, approved, verified and reachable.
+  if (/FROM organizer_payouts p\s+LEFT JOIN trip_organizers o ON o\.id = p\.organizer_id/.test(sql)) {
+    const now = String(args[0]);
+    const limit = Number(args[1]) || 10;
+    const due = payouts.filter((row) => row.status === "ACCRUED" && !row.batch_id && row.release_after <= now);
+    const inDebt = new Set(payouts.filter((row) => row.status === "REVERSED" && row.released_at).map((row) => row.organizer_id));
+    const inFlight = new Set(batches.filter((row) => row.status === "PENDING").map((row) => row.organizer_id));
+    const ids = [...new Set(due.map((row) => row.organizer_id))]
+      .filter((id) => !inDebt.has(id) && !inFlight.has(id))
+      .slice(0, limit);
+    return ok(table(
+      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "payout_method", "payout_bank_code"],
+      ids.map((id) => {
+        const mine = due.filter((row) => row.organizer_id === id);
+        const organizer = organizerRows.find((item) => item.id === id);
+        const profile = profiles.get(id);
+        return {
+          organizer_id: id,
+          oldest: mine.map((row) => row.release_after).sort()[0],
+          entry_count: mine.length,
+          total_amount: mine.reduce((total, row) => total + row.net_amount, 0),
+          organizer_status: organizer?.status || "",
+          kyc_status: organizer?.kyc_status || "",
+          payout_method: profile?.payout_method || "",
+          payout_bank_code: profile?.payout_bank_code || "",
+        };
+      }),
+    ));
   }
   if (/^UPDATE organizer_payouts SET status = 'REVERSED'/.test(sql)) {
     let affected = 0;
@@ -313,11 +451,47 @@ function handle(sql, args) {
   return ok(empty);
 }
 
+/**
+ * What the fake Paystack answers. The payout tests drive real transfers, so
+ * these are the only knobs they need: what the settled balance is, the status
+ * a transfer comes back with, and the code Paystack hands out.
+ */
+const paystackStub = {
+  balance: 0,
+  transferStatus: "success",
+  verifyStatus: "success",
+  finalizeStatus: "success",
+  recipientCode: "RCP-TEST",
+};
+const transferRequests = [];
+const finalizeRequests = [];
+
+const paystackResponse = (data) => ({ ok: true, status: 200, json: async () => ({ status: true, data }) });
+
 globalThis.fetch = async (url, init) => {
   const target = String(url);
   if (target.includes("api.paystack.co/transaction/verify/")) {
     return { ok: true, status: 200, json: async () => ({ status: true, data: { id: 9911, status: "success", amount: 18360, currency: "GHS", gateway_response: "Approved" } }) };
   }
+  if (target.endsWith("/balance")) {
+    return paystackResponse([{ currency: "GHS", balance: paystackStub.balance }]);
+  }
+  if (target.endsWith("/transferrecipient")) {
+    return paystackResponse({ recipient_code: paystackStub.recipientCode, type: "mobile_money" });
+  }
+  if (target.endsWith("/transfer/finalize_transfer")) {
+    finalizeRequests.push(JSON.parse(init.body));
+    return paystackResponse({ transfer_code: "TRF-1", status: paystackStub.finalizeStatus });
+  }
+  if (target.includes("/transfer/verify/")) {
+    return paystackResponse({ transfer_code: "TRF-1", status: paystackStub.verifyStatus });
+  }
+  if (target.endsWith("/transfer")) {
+    const transfer = JSON.parse(init.body);
+    transferRequests.push(transfer);
+    return paystackResponse({ transfer_code: "TRF-1", reference: transfer.reference, amount: transfer.amount, status: paystackStub.transferStatus });
+  }
+  // Everything else is Turso.
   const body = JSON.parse(init.body);
   const results = body.requests
     .filter((request) => request.type === "execute")
@@ -335,8 +509,16 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 
 const { CONSOLE_SESSION_COOKIE, createConsoleSession } = await vite.ssrLoadModule("/lib/console-auth.ts");
-const { accrueForBooking, backfillAccruals, releaseAfterFor, reversePayoutForBooking, splitCommission, organizerTotals } = await vite.ssrLoadModule("/lib/organizer-payouts.ts");
+const {
+  accrueForBooking, backfillAccruals, finalizePayoutBatch, organizerTotals, payoutMinimumAmount,
+  releaseAfterFor, reversePayoutForBooking, runPayoutReleaseJob, splitCommission,
+} = await vite.ssrLoadModule("/lib/organizer-payouts.ts");
+const { sealSecret } = await vite.ssrLoadModule("/lib/secret-box.ts");
 const { hashPaymentToken } = await vite.ssrLoadModule("/lib/payment-access.ts");
+
+// The release tests pay org-b, and a transfer needs a real destination: the
+// account number is stored the way production stores it, sealed.
+profiles.get("org-b").payout_account_number = await sealSecret("0244000002");
 const payoutsRoute = await vite.ssrLoadModule("/app/api/console/payouts/route.ts");
 const statementRoute = await vite.ssrLoadModule("/app/api/console/payouts/statement/route.ts");
 const backfillRoute = await vite.ssrLoadModule("/app/api/console/payouts/backfill/route.ts");
@@ -385,8 +567,8 @@ test("a confirmed booking accrues exactly one entry from the fare, not the amoun
   const entry = payouts.find((row) => row.booking_id === "bk-new1");
   assert.equal(entry.gross_amount, 18000, "the commission base is the fare, never the pass-through fee");
   assert.equal(entry.net_amount, 17460);
-  // bk-new1 was confirmed at 2026-09-20T10:00:00.000Z, so its earnings open a day later.
-  assert.equal(entry.release_after, "2026-09-21T10:00:00.000Z");
+  // bk-new1 was paid three hours ago, so its earnings open a day after that.
+  assert.equal(entry.release_after, new Date(Date.parse(NEW1_PAID_AT) + 24 * HOUR_MS).toISOString());
   assert.equal(bookings.find((row) => row.id === "bk-new1").commission_amount, 540, "the booking carries the resolved commission");
 
   // Verify and the webhook both confirm a booking; the second write is a no-op.
@@ -517,4 +699,103 @@ test("the admin overview lists every organizer with a balance and the backfill r
     method: "POST", headers: { cookie: await cookieFor("acc-mod"), "content-type": "application/json" }, body: "{}",
   }));
   assert.equal(refused.status, 403);
+});
+
+test("the release job holds a balance under the minimum instead of spending a fee on it", async () => {
+  const before = transferRequests.length;
+  process.env.PAYOUT_MIN_AMOUNT_PESEWAS = "30000";
+  try {
+    assert.equal(await payoutMinimumAmount(), 30000, "the variable is the fallback when no console override is stored");
+    // A settled balance that could cover the transfer, so the only thing
+    // refusing it is the floor: otherwise this would pass for the wrong reason.
+    paystackStub.balance = 100_000;
+    const held = await runPayoutReleaseJob({ actor: "admin@example.com" });
+    assert.equal(held.status, "RAN");
+    assert.equal(held.minimum, 30000);
+    assert.equal(held.considered, 1);
+    assert.deepEqual(held.skipped, [{ organizerId: "org-b", reason: "BELOW_MINIMUM" }]);
+    assert.equal(held.transferred, 0);
+    assert.equal(transferRequests.length, before, "a balance under the floor must never cost a transfer fee");
+  } finally {
+    delete process.env.PAYOUT_MIN_AMOUNT_PESEWAS;
+  }
+});
+
+test("the release job sends what the balance covers and settles it when Paystack confirms", async () => {
+  paystackStub.balance = 100_000;
+  paystackStub.transferStatus = "success";
+
+  const summary = await runPayoutReleaseJob({ actor: "admin@example.com" });
+  assert.equal(summary.status, "RAN");
+  assert.equal(summary.transferred, 1, JSON.stringify(summary));
+  assert.equal(summary.failed.length, 0, JSON.stringify(summary.failed));
+  assert.equal(summary.skipped.length, 0, JSON.stringify(summary.skipped));
+
+  const batch = batches.find((item) => item.mode === "AUTO");
+  assert.equal(batch.total_amount, 17460);
+  assert.equal(batch.entry_count, 1);
+  assert.equal(batch.status, "SUCCESS");
+  assert.equal(transferRequests.at(-1).amount, 17460);
+  assert.equal(transferRequests.at(-1).recipient, paystackStub.recipientCode);
+  assert.equal(payouts.find((row) => row.id === "po-b1").status, "RELEASED", "only Paystack's confirmation releases an entry");
+});
+
+test("a transfer Paystack holds for a one-time password waits for a person, then releases", async () => {
+  payouts.push({
+    id: "po-otp", organizer_id: "org-b", booking_id: "bk-otp", booking_reference: "UMX-OTP1", trip_id: "trip-a",
+    gross_amount: 18000, commission_amount: 540, net_amount: 17460, commission_bps: 300,
+    release_after: "2026-01-04T00:00:00.000Z", status: "ACCRUED", batch_id: "", transfer_reference: "",
+    released_at: "", transferred_at: "", reversed_at: "", reversed_reason: "",
+    created_at: "2026-01-03T00:00:00.000Z", updated_at: "2026-01-03T00:00:00.000Z",
+  });
+  paystackStub.transferStatus = "otp";
+  paystackStub.balance = 100_000;
+
+  const held = await runPayoutReleaseJob({ actor: "admin@example.com" });
+  assert.equal(held.inFlight, 1, JSON.stringify(held));
+  const batch = batches.find((item) => item.status === "PENDING" && item.mode === "AUTO");
+  assert.ok(batch, "a transfer held for a code must stay pending until it arrives");
+  assert.equal(batch.reason, "AWAITING_OTP");
+  assert.equal(batch.transfer_code, "TRF-1");
+  assert.equal(payouts.find((row) => row.id === "po-otp").status, "PROCESSING", "the money is committed, not released");
+
+  // The entry is spoken for, so a second run must not start a second transfer.
+  const again = await runPayoutReleaseJob({ actor: "admin@example.com" });
+  assert.equal(again.considered, 0, "an unresolved transfer blocks another one for the same organizer");
+
+  // A code is required, and a batch that is not waiting on one is refused.
+  await assert.rejects(() => finalizePayoutBatch({ batchId: batch.id, otp: "  " }), /one-time password/i);
+  await assert.rejects(() => finalizePayoutBatch({ batchId: "batch-missing", otp: "123456" }), /not found/i);
+
+  const code = "482913";
+  paystackStub.finalizeStatus = "success";
+  const result = await finalizePayoutBatch({ batchId: batch.id, otp: code, actor: "admin@example.com" });
+  assert.equal(result.status, "RELEASED");
+  assert.equal(finalizeRequests.at(-1).transfer_code, "TRF-1");
+  assert.equal(finalizeRequests.at(-1).otp, code, "the code is passed straight through to Paystack");
+  assert.equal(batch.status, "SUCCESS");
+  assert.equal(batch.reason, "", "the marker is cleared once the code has been used");
+  assert.equal(payouts.find((row) => row.id === "po-otp").status, "RELEASED");
+  assert.equal(JSON.stringify(audits).includes(code), false, "the code must never reach the audit trail");
+});
+
+test("a refusal from Paystack leaves a held transfer exactly where it was", async () => {
+  payouts.push({
+    id: "po-otp2", organizer_id: "org-b", booking_id: "bk-otp2", booking_reference: "UMX-OTP2", trip_id: "trip-a",
+    gross_amount: 18000, commission_amount: 540, net_amount: 17460, commission_bps: 300,
+    release_after: "2026-01-04T00:00:00.000Z", status: "ACCRUED", batch_id: "", transfer_reference: "",
+    released_at: "", transferred_at: "", reversed_at: "", reversed_reason: "",
+    created_at: "2026-01-03T00:00:00.000Z", updated_at: "2026-01-03T00:00:00.000Z",
+  });
+  paystackStub.transferStatus = "otp";
+  await runPayoutReleaseJob({ actor: "admin@example.com" });
+  const batch = batches.find((item) => item.status === "PENDING" && item.mode === "AUTO");
+  assert.ok(batch);
+
+  paystackStub.finalizeStatus = "otp";
+  const stillHeld = await finalizePayoutBatch({ batchId: batch.id, otp: "000000", actor: "admin@example.com" });
+  assert.equal(stillHeld.status, "PENDING");
+  assert.equal(stillHeld.awaitingOtp, true);
+  assert.equal(batch.reason, "AWAITING_OTP", "a transfer still waiting for a code stays marked");
+  assert.equal(payouts.find((row) => row.id === "po-otp2").status, "PROCESSING");
 });

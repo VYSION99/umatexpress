@@ -1,6 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { retryFailedPayouts, runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
+import { finalizePayoutBatch, retryFailedPayouts, runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -15,7 +15,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export async function POST(request: Request) {
   try {
     const account = await requireConsoleRole(request, ["ADMIN"]);
-    const body = await request.json().catch(() => ({})) as { action?: string; organizerId?: string };
+    const body = await request.json().catch(() => ({})) as { action?: string; organizerId?: string; batchId?: string; otp?: string };
     const action = String(body.action || "RELEASE").trim().toUpperCase();
     if (action === "RETRY") {
       const result = await retryFailedPayouts({ organizerId: String(body.organizerId || ""), actor: account.email });
@@ -23,6 +23,15 @@ export async function POST(request: Request) {
     }
     if (action === "RECONCILE") {
       return Response.json({ ok: true, action, result: await runPayoutReconcileJob({ limit: 4 }) }, { headers: NO_STORE });
+    }
+    // A transfer Paystack held for a one-time password. The code is used and
+    // discarded here: it is never echoed back, stored or audited.
+    if (action === "FINALIZE") {
+      return Response.json({
+        ok: true,
+        action,
+        result: await finalizePayoutBatch({ batchId: String(body.batchId || ""), otp: String(body.otp || ""), actor: account.email }),
+      }, { headers: NO_STORE });
     }
     if (action !== "RELEASE") {
       throw new CampusEngineError("VALIDATION_ERROR", "Unknown payout action.", 400);
