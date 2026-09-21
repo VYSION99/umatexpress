@@ -1,6 +1,7 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { callCloudflareAi, cloudflareAiModelName } from "@/lib/cloudflare-ai";
 import { recentCinemaMessages } from "@/lib/cinema-engine/messages";
+import type { CinemaBoardPolicy } from "@/lib/cinema-engine/protocol";
 import { isRoomActive, readRoom } from "@/lib/cinema-engine/rooms";
 import { announceCinemaWhiteboard } from "@/lib/cinema-engine/realtime";
 import {
@@ -35,6 +36,12 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * Boards are temporary like everything else in Cinema: they expire with the
  * room's retention window, are deleted when the room is, and carry the name of
  * the person who asked so a room can tell whose question a board answers.
+ *
+ * Who may ask is the host's: their screen sends the switch to the live room,
+ * the room tells the route, and the route refuses before a model call is spent.
+ * On `AUTO` nobody asks by hand — the host's screen runs the summaries and the
+ * room's own answers on a cadence — and the question for that pass is written
+ * here, never by a browser.
  */
 
 export const CINEMA_WHITEBOARD_SCHEMA_VERSION = "032_cinema_whiteboards";
@@ -47,6 +54,18 @@ const CONTEXT_MESSAGES = 16;
 const CONTEXT_MESSAGE_CHARS = 240;
 const MAX_QUESTION_CHARS = 500;
 const MAX_BOARD_HISTORY = 20;
+
+/**
+ * What an automatic pass asks. It is fixed here rather than sent by a browser:
+ * the room's own summaries are the platform's words, and a client that could
+ * write this prompt could spend a deployment's model budget on anything.
+ */
+const AUTO_SUMMARY_QUESTION = [
+  "Look at where this session is now: the video position, the room's recent chat and the board before this one.",
+  "If the chat has asked something nobody has answered, answer it.",
+  "Otherwise summarise what this stretch of the session has covered, and the one thing to remember.",
+  "Keep the summary to two sentences.",
+].join(" ");
 
 const CINEMA_WHITEBOARD_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS cinema_whiteboards (
@@ -170,6 +189,8 @@ export async function cinemaWhiteboardLimits() {
     generationsPerHour: Math.max(1, Math.floor(await platformSettingNumber("cinema_whiteboard_generations_per_hour"))),
     modes: [...CINEMA_WHITEBOARD_MODES],
     maxQuestionChars: MAX_QUESTION_CHARS,
+    /** How often an automatic room asks for its next summary, in minutes. */
+    autoMinutes: Math.min(60, Math.max(5, Math.floor(await platformSettingNumber("cinema_board_auto_minutes")))),
   };
 }
 
@@ -260,6 +281,10 @@ export async function askCinemaWhiteboard(input: {
   question: unknown;
   mode?: unknown;
   atSeconds?: unknown;
+  /** The room's asking rule, as the live room reports it; null when unknown. */
+  policy?: CinemaBoardPolicy | null;
+  /** True for the automatic pass a host's screen runs; the question is fixed. */
+  auto?: boolean;
   generate?: (system: string, user: string) => Promise<string>;
   now?: number;
 }): Promise<CinemaWhiteboardRow> {
@@ -268,7 +293,10 @@ export async function askCinemaWhiteboard(input: {
   if (!await platformSettingEnabled("cinema_whiteboard_enabled")) {
     throw new CampusEngineError("INVALID_STATE", "The AI whiteboard is switched off on this deployment.", 409);
   }
-  const question = String(input.question ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_QUESTION_CHARS);
+  const asked = String(input.question ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_QUESTION_CHARS);
+  // An automatic pass carries the fixed instruction, not whatever a browser
+  // sent: `auto` is the route's word, and the route only passes it for a host.
+  const question = input.auto ? AUTO_SUMMARY_QUESTION : asked;
   if (!question) throw new CampusEngineError("VALIDATION_ERROR", "Ask the whiteboard a question first.", 400);
   const mode = whiteboardMode(input.mode);
   const atSeconds = Math.max(0, Math.floor(Number(input.atSeconds) || 0));
@@ -277,6 +305,19 @@ export async function askCinemaWhiteboard(input: {
   if (!isRoomActive(room.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
   if (!room.isMember) {
     throw new CampusEngineError("FORBIDDEN", room.joinLocked ? "The host has locked this room." : "Join the room before asking the whiteboard.", 403);
+  }
+  // Who may ask is the host's switch, and the live room is the only thing that
+  // knows it. An unknown policy means the room could not be reached, and the
+  // rule it has always had — everyone in the room may ask — is the honest
+  // fallback rather than a refusal the room never made.
+  const policy = input.policy ?? "MEMBERS";
+  if (input.auto) {
+    if (!room.isHost) throw new CampusEngineError("FORBIDDEN", "Only the host can ask the room to summarise itself.", 403);
+    if (policy !== "AUTO") throw new CampusEngineError("INVALID_STATE", "This room's board is not on automatic.", 409);
+  } else if (policy === "AUTO") {
+    throw new CampusEngineError("INVALID_STATE", "This room's board answers on its own; the host has it on automatic.", 409);
+  } else if (policy === "HOST" && !room.isHost) {
+    throw new CampusEngineError("FORBIDDEN", "The host keeps the questions in this room.", 403);
   }
 
   const chat = (await recentCinemaMessages(room.id, CONTEXT_MESSAGES))

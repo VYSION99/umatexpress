@@ -1,6 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { fail, ok } from "@/lib/campus-engine/responses";
-import { removeCinemaWhiteboardFromRoom } from "@/lib/cinema-engine/realtime";
+import { cinemaBoardPolicy, removeCinemaWhiteboardFromRoom } from "@/lib/cinema-engine/realtime";
 import { isRoomActive, isRoomVisible, readRoom } from "@/lib/cinema-engine/rooms";
 import {
   askCinemaWhiteboard,
@@ -24,6 +24,11 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * board is a model call billed to this deployment. Clearing is the host's, or
  * the asker taking their own board back; the socket carries both events so
  * every open screen agrees without a reload.
+ *
+ * The live room also decides who may ask — host only, everyone, or automatic —
+ * and the route reads that switch before it calls the model, so a question the
+ * room would refuse never costs a generation. An automatic pass is the host's
+ * own screen asking on a cadence; its question is written in the engine.
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -57,13 +62,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return rateLimitResponse(limited.retryAfter);
     }
     const { id } = await context.params;
-    const body = await request.json() as { question?: unknown; mode?: unknown; atSeconds?: unknown };
+    const body = await request.json() as { question?: unknown; mode?: unknown; atSeconds?: unknown; auto?: unknown };
+    const auto = body.auto === true;
+    const policy = await cinemaBoardPolicy(id);
     const board = await askCinemaWhiteboard({
       roomId: id,
       student: { id: student.id, name: student.name },
       question: body.question,
       mode: body.mode,
       atSeconds: body.atSeconds,
+      policy,
+      auto,
     });
     return ok({ board: board.view }, { status: 201, headers: NO_STORE }, request);
   } catch (error) {

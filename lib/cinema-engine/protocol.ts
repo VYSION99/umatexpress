@@ -85,6 +85,8 @@ export type CinemaServerMessage =
   | { type: "whiteboard_removed"; id: string }
   /** The host asked everyone to mute; each client turns its own mic off. */
   | { type: "mute_all"; by: string }
+  /** Who may ask the room's whiteboard, as the host last set it. */
+  | { type: "board_policy"; policy: CinemaBoardPolicy }
   | { type: "pong"; at: number }
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };
@@ -151,6 +153,24 @@ export type CinemaMuteAllInput = {
   type: "mute_all";
 };
 
+/**
+ * Who may ask the whiteboard.
+ *
+ * `HOST` keeps the questions with the host, `MEMBERS` releases them to
+ * everyone in the room, and `AUTO` takes them away from everybody: the room's
+ * own screen runs the summaries and answers the chat on a cadence, and a manual
+ * ask is refused. The list is one constant so the wire, the object and the
+ * route cannot disagree about what a policy is.
+ */
+export const CINEMA_BOARD_POLICIES = ["HOST", "MEMBERS", "AUTO"] as const;
+export type CinemaBoardPolicy = (typeof CINEMA_BOARD_POLICIES)[number];
+
+/** The host changing who may ask. The object checks the sender; the wire does not. */
+export type CinemaBoardPolicyInput = {
+  type: "board_policy";
+  policy: CinemaBoardPolicy;
+};
+
 export type CinemaClientMessage =
   | { type: "ping" }
   | CinemaChatMessageInput
@@ -158,7 +178,8 @@ export type CinemaClientMessage =
   | CinemaSignalInput
   | CinemaMediaStateInput
   | CinemaRecordingStateInput
-  | CinemaMuteAllInput;
+  | CinemaMuteAllInput
+  | CinemaBoardPolicyInput;
 
 const PLAYBACK_TYPES = new Set<CinemaPlaybackActionType>(["play", "pause", "seek"]);
 const SIGNAL_KINDS = new Set<CinemaSignalPayload["kind"]>(["offer", "answer", "candidate"]);
@@ -199,6 +220,12 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
   const type = (value as { type?: unknown }).type;
   if (type === "ping") return { type };
   if (type === "mute_all") return { type: "mute_all" };
+  if (type === "board_policy") {
+    const policy = String((value as { policy?: unknown }).policy || "").toUpperCase();
+    return (CINEMA_BOARD_POLICIES as readonly string[]).includes(policy)
+      ? { type: "board_policy", policy: policy as CinemaBoardPolicy }
+      : null;
+  }
   if (type === "chat_message") {
     const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown };
     const content = String(source.message ?? source.content ?? "").trim();

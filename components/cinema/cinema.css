@@ -104,16 +104,7 @@
 .cinema-media-toggle{display:inline-flex;align-items:center;gap:7px;border:1px solid #cddbd3;border-radius:999px;background:white;color:var(--green);padding:9px 14px;font:900 12.5px inherit;cursor:pointer}
 .cinema-media-toggle.is-on{background:var(--green);border-color:var(--green);color:white}
 .cinema-media-toggle:disabled{opacity:.5;cursor:not-allowed}
-.cinema-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
-.cinema-media-tile{position:relative;display:grid;gap:6px;border:1px solid #d8e4dc;border-radius:16px;background:#fbfdfc;padding:8px;box-shadow:0 10px 24px rgba(18,46,36,.06);transition:border-color .15s ease,box-shadow .15s ease}
-.cinema-media-tile.is-speaking{border-color:var(--green);box-shadow:0 0 0 2px rgba(16,56,42,.12)}
-.cinema-media-video{display:block;width:100%;aspect-ratio:4/3;border-radius:11px;background:#10382a;object-fit:cover}
-.cinema-media-placeholder{display:grid;place-items:center;gap:6px;aspect-ratio:4/3;border-radius:11px;background:#eef4f0;color:#4d6357;font-size:12px;font-weight:900;text-align:center;padding:8px}
-.cinema-media-tile footer{display:flex;align-items:center;gap:7px;font-size:11.5px}
-.cinema-media-tile footer strong{font-weight:900;color:#3c5a4c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cinema-speaking{margin-left:auto;color:var(--green);font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
 .cinema-media-flags{margin-left:auto;display:inline-flex;align-items:center;gap:5px;color:#6b7a71}
-.cinema-speaking + .cinema-media-flags{margin-left:0}
 .cinema-recording-dot{color:#c0392b;fill:#c0392b}
 .cinema-media-audio{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .cinema-recorder{margin-top:6px;padding-top:12px;border-top:1px solid #e2eae5;display:grid;gap:8px}
@@ -127,15 +118,36 @@
 .cinema-record-delete{display:inline-flex;align-items:center;border:1px solid #e0e7e2;border-radius:10px;background:white;color:#8a2c22;padding:7px 8px;cursor:pointer}
 .cinema-record-delete:hover{border-color:#a3352a}
 
-/* The member's own camera: a card of its own, above the host controls on a
-   desktop and beside the action rail on a phone. It is a preview with two
-   flags; the switches themselves stay in the Voice & video panel. */
-.cinema-self-view{justify-self:start;display:grid;width:184px;padding:8px;border:1px solid #d8e4dc;border-radius:16px;background:#fbfdfc;box-shadow:0 10px 24px rgba(18,46,36,.06)}
-.cinema-self-view.is-speaking{border-color:var(--green);box-shadow:0 0 0 2px rgba(16,56,42,.12)}
-.cinema-self-video{display:block;width:100%;aspect-ratio:4/3;border-radius:11px;background:#10382a;object-fit:cover}
-.cinema-self-placeholder{display:grid;place-items:center;gap:6px;aspect-ratio:4/3;border-radius:11px;background:#eef4f0;color:#4d6357;font-size:12px;font-weight:900}
-.cinema-self-view footer{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:11.5px}
-.cinema-self-view footer strong{font-weight:900;color:#3c5a4c}
+/* The camera strip: your tile first, then the room's, five inline and the rest
+   behind a button at the far right. It sits in the room's flow under the video —
+   the self-view used to float over the header and hide what the header says. */
+.cinema-strip{position:relative;display:flex;align-items:center;gap:8px}
+.cinema-strip-rail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;flex:1;min-width:0}
+.cinema-strip-rail.is-pop{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cinema-strip-tile{position:relative;display:grid;min-width:0;padding:6px;border:1px solid #d8e4dc;border-radius:14px;background:#fbfdfc;box-shadow:0 10px 24px rgba(18,46,36,.06);transition:border-color .15s ease,box-shadow .15s ease}
+.cinema-strip-tile.is-speaking{border-color:var(--green);box-shadow:0 0 0 2px rgba(16,56,42,.12)}
+.cinema-strip-video{display:block;width:100%;aspect-ratio:4/3;border-radius:10px;background:#10382a;object-fit:cover}
+.cinema-strip-placeholder{display:grid;place-items:center;gap:4px;aspect-ratio:4/3;padding:6px;border-radius:10px;background:#eef4f0;color:#4d6357;font-size:11px;font-weight:900;text-align:center;overflow:hidden}
+.cinema-strip-tile footer{display:flex;align-items:center;gap:5px;min-width:0;margin-top:4px;font-size:10.5px}
+.cinema-strip-tile footer strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900;color:#3c5a4c}
+.cinema-strip-more{display:grid;place-items:center;gap:1px;flex:0 0 auto;align-self:center;width:52px;min-height:56px;border:1px solid #cddbd3;border-radius:14px;background:white;color:var(--green);font:900 12px inherit;cursor:pointer}
+.cinema-strip-more.is-open{background:var(--green);border-color:var(--green);color:white}
+.cinema-strip-scrim{position:fixed;inset:0;z-index:40;border:0;background:transparent;cursor:default}
+.cinema-strip-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:41;width:min(360px,calc(100vw - 24px));max-height:min(420px,58vh);overflow:auto;padding:12px;border:1px solid #dce5de;border-radius:18px;background:#fffefb;box-shadow:0 24px 60px rgba(12,32,24,.28)}
+.cinema-strip-pop-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.cinema-strip-pop-head h3{margin:0;font:500 16px Georgia,serif}
+.cinema-strip-pop-head button{margin-left:auto;display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:999px;background:#eef4f0;color:#2f4a3e;cursor:pointer}
+
+/* Automatic boards arrive as toasts: a summary nobody opens a panel to read is
+   not a summary. Top left, clear of the rail on a phone. */
+.cinema-toasts{position:fixed;top:calc(12px + env(safe-area-inset-top));left:12px;z-index:72;display:grid;gap:8px;width:min(340px,calc(100vw - 76px))}
+.cinema-toast{display:grid;gap:6px;padding:12px 13px;border:1px solid #dce5de;border-radius:16px;background:#fffefb;box-shadow:0 20px 50px rgba(12,32,24,.22);animation:cinema-toast-in .2s ease}
+.cinema-toast header{display:flex;align-items:center;gap:8px}
+.cinema-toast header button{margin-left:auto;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:999px;background:#eef4f0;color:#4d6357;cursor:pointer}
+.cinema-toast-tag{display:inline-flex;align-items:center;gap:4px;color:var(--green);font-size:9.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.cinema-toast strong{font-size:13.5px;font-weight:900;color:var(--ink)}
+.cinema-toast p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;margin:0;color:#4d6357;font-size:12px;font-weight:700;line-height:1.5}
+.cinema-toast-open{justify-self:start;border:0;border-radius:10px;background:var(--green);color:white;padding:8px 12px;font:900 11.5px inherit;cursor:pointer}
 
 /* A private room's guest list: addresses in, invitations out. */
 .cinema-invites{display:grid;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid #e2eae5}
@@ -163,6 +175,13 @@
 .wb-mode select{border:1px solid #d5ded7;border-radius:11px;background:white;color:var(--ink);padding:10px 12px;font:800 12.5px inherit;text-transform:capitalize}
 .wb-ask-actions button{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:12px;background:var(--green);color:white;padding:11px 16px;font:900 12.5px inherit;cursor:pointer}
 .wb-ask-actions button:disabled{opacity:.55;cursor:not-allowed}
+.wb-policy{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:12px;padding-top:11px;border-top:1px solid #e2eae5}
+.wb-policy>span:first-child{color:#66766d;font-size:11px;font-weight:900}
+.wb-policy-options{display:flex;flex-wrap:wrap;gap:6px}
+.wb-policy-options button{border:1px solid #cddbd3;border-radius:999px;background:white;color:var(--green);padding:7px 12px;font:900 11.5px inherit;cursor:pointer}
+.wb-policy-options button.is-on{background:var(--green);border-color:var(--green);color:white}
+.wb-policy-options button:disabled{opacity:.5;cursor:not-allowed}
+.wb-policy-note{margin-left:auto;color:#6b7a71;font-size:11px;font-weight:800}
 .wb-history{display:flex;align-items:center;gap:9px;margin-top:14px;padding-top:12px;border-top:1px solid #e2eae5}
 .wb-history span{margin-right:auto;color:#6b7a71;font-size:11.5px;font-weight:800}
 .wb-history button{border:1px solid #cddbd3;border-radius:10px;background:white;color:var(--green);padding:7px 11px;font:900 11.5px inherit;cursor:pointer}
@@ -247,7 +266,7 @@
      room: the logo and the title share one row, the subtitle goes, and the
      right edge is left empty for the camera card that floats over it. The phone
      then spends its height on the video instead. */
-  .campus-shell:has(.cinema-room) .campus-hero{grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:center;padding:9px 130px 9px 11px;margin-bottom:10px;border-radius:18px}
+  .campus-shell:has(.cinema-room) .campus-hero{grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:center;padding:9px 60px 9px 11px;margin-bottom:10px;border-radius:18px}
   .campus-shell:has(.cinema-room) .campus-logo{width:52px;height:44px;border-radius:13px}
   .campus-shell:has(.cinema-room) .campus-logo img{max-width:43px;max-height:37px}
   .campus-shell:has(.cinema-room) .campus-hero p{font-size:9px;letter-spacing:.12em}
@@ -261,15 +280,15 @@
   .cinema-video-title{flex-wrap:nowrap;gap:7px}
   .cinema-video-head .cinema-video-hint{display:none}
 
-  /* The camera card floats over the space the hero now leaves free, in the
-     viewport's top right corner, so the first rail button below it is the
-     host's mute-all at exactly its own height. Under a sheet's backdrop it
-     drops out of the way; it is a preview, not a control. */
-  .cinema-self-view{position:fixed;top:calc(10px + env(safe-area-inset-top));right:62px;z-index:64;width:64px;padding:4px;border-radius:13px;background:rgba(255,255,255,.96);box-shadow:0 10px 26px rgba(18,46,36,.2)}
-  .cinema-self-video,.cinema-self-placeholder{aspect-ratio:1/1;border-radius:10px}
-  .cinema-self-placeholder{gap:2px;font-size:10px}
-  .cinema-self-view footer{justify-content:center;gap:6px;margin-top:3px}
-  .cinema-self-view footer strong{display:none}
+  /* Three cameras to a row on a phone: five inline would be stamps, and the
+     strip is under the video now rather than floating over the header. */
+  .cinema-strip-rail{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .cinema-strip-rail.is-pop{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cinema-strip-tile{padding:5px}
+  .cinema-strip-tile footer{font-size:10px}
+  .cinema-strip-more{width:44px}
+  .cinema-strip-pop{width:min(320px,calc(100vw - 20px));max-height:56vh}
+  .cinema-toasts{width:min(320px,calc(100vw - 76px))}
 
   .cinema-host-card{display:none}
   aside.cinema-card.cinema-side{display:contents}
@@ -305,6 +324,11 @@
 
 @keyframes cinema-sheet-in{
   from{opacity:0;transform:translateY(14px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+@keyframes cinema-toast-in{
+  from{opacity:0;transform:translateY(-8px)}
   to{opacity:1;transform:translateY(0)}
 }
 

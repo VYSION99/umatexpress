@@ -12,9 +12,12 @@
  * imports so the class can be unit-tested with plain doubles.
  */
 import {
+  CINEMA_BOARD_POLICIES,
   CINEMA_FRAME_MAX_BYTES,
   CINEMA_PLAYBACK_START,
   parseClientMessage,
+  type CinemaBoardPolicy,
+  type CinemaBoardPolicyInput,
   type CinemaChatMessage,
   type CinemaChatMessageInput,
   type CinemaMediaStateInput,
@@ -74,6 +77,9 @@ type WebSocketPairConstructor = new () => { 0: CinemaRoomSocket; 1: CinemaRoomSo
 const ROOM_KEY = "room";
 const PLAYBACK_KEY = "playback";
 const EMPTY_KEY = "emptySince";
+const BOARD_POLICY_KEY = "boardPolicy";
+/** Before any host touches the switch, the whole room may ask. */
+const DEFAULT_BOARD_POLICY: CinemaBoardPolicy = "MEMBERS";
 const CLOSE_NORMAL = 1000;
 /**
  * The frame ceiling. A handshake leg is a few kilobytes, which is why the old
@@ -118,6 +124,8 @@ function jsonResponse(body: unknown, status: number) {
 export class CinemaRoom {
   private hostStudentId = "";
   private playback: CinemaPlaybackState | null = null;
+  /** The board's asking policy, cached from storage; empty until it is read. */
+  private boardPolicyValue: CinemaBoardPolicy | "" = "";
   /** When the last socket left, or 0 while somebody is attached. */
   private emptySince = 0;
 
@@ -132,6 +140,7 @@ export class CinemaRoom {
     if (url.pathname === "/whiteboard") return this.publishWhiteboard(request);
     if (url.pathname === "/whiteboard-remove") return this.removeWhiteboard(request);
     if (url.pathname === "/presence") return this.presenceResponse();
+    if (url.pathname === "/policy") return this.policyResponse();
     if (url.pathname === "/remove-member") return this.removeMember(request);
     return new Response("Not found", { status: 404 });
   }
@@ -176,6 +185,9 @@ export class CinemaRoom {
     // Only the newcomer needs the current playback: everyone else already has
     // it, and a page that just loaded is exactly what M3 has to catch up.
     this.send(server, { type: "state", playback: await this.playbackState() });
+    // The room's board rule, so a screen that just loaded renders the right
+    // affordance before anybody asks anything.
+    this.send(server, { type: "board_policy", policy: await this.boardPolicy() });
     // Chat is the one thing a newcomer cannot derive: the room's memory of the
     // conversation, oldest first, sent privately so nobody else re-renders it.
     await this.replayChat(server, snapshot.roomId);
@@ -204,6 +216,15 @@ export class CinemaRoom {
   /** What the cleanup job asks before it ends an apparently abandoned room. */
   private async presenceResponse(): Promise<Response> {
     return jsonResponse({ members: await this.presence(), emptySince: await this.emptySinceValue() }, 200);
+  }
+
+  /**
+   * The board policy for anyone who has to decide before acting — in practice
+   * the Worker route, which asks this before it spends a model call on a
+   * question the room would not have accepted anyway.
+   */
+  private async policyResponse(): Promise<Response> {
+    return jsonResponse({ policy: await this.boardPolicy() }, 200);
   }
 
   /**
@@ -346,6 +367,10 @@ export class CinemaRoom {
       await this.applyMuteAll(socket);
       return;
     }
+    if (parsed.type === "board_policy") {
+      await this.applyBoardPolicy(socket, parsed);
+      return;
+    }
     await this.applyPlayback(socket, parsed);
   }
 
@@ -421,6 +446,33 @@ export class CinemaRoom {
     if (!limited.ok) return;
     this.broadcast({ type: "mute_all", by: attachment.studentId });
     logEvent("info", "cinema_mute_all", { roomId: (await this.roomSnapshot())?.roomId || "" });
+  }
+
+  /**
+   * The host decides who may ask the whiteboard: only themselves, everyone in
+   * the room, or nobody by hand because the room answers on its own.
+   *
+   * The object keeps the switch rather than the row because it is a live rule
+   * with no history worth keeping: the route reads it back before spending a
+   * model call, every open screen renders it, and a socket that reconnects is
+   * told the same rule it left. Only the host may change it, and the change is
+   * broadcast to the room so the asking form appears or disappears at once.
+   */
+  private async applyBoardPolicy(socket: CinemaRoomSocket, frame: CinemaBoardPolicyInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment || attachment.studentId !== await this.hostId()) {
+      this.send(socket, { type: "error", message: "Only the host sets who may ask the board." });
+      return;
+    }
+    const limited = await rateLimitSubject("cinema-board-policy", attachment.studentId, { limit: STATE_LIMIT, windowMs: STATE_WINDOW_MS });
+    if (!limited.ok) return;
+    this.boardPolicyValue = frame.policy;
+    await this.state.storage.put(BOARD_POLICY_KEY, frame.policy);
+    this.broadcast({ type: "board_policy", policy: frame.policy });
+    logEvent("info", "cinema_board_policy", {
+      roomId: (await this.roomSnapshot())?.roomId || "",
+      policy: frame.policy,
+    });
   }
 
   /** The one attached socket for a student id, or null after they left. */
@@ -631,6 +683,21 @@ export class CinemaRoom {
       this.hostStudentId = String((await this.roomSnapshot())?.hostStudentId || "");
     }
     return this.hostStudentId;
+  }
+
+  /**
+   * Who may ask the board, from memory or from storage after a wake. A stored
+   * value that is not one of the three policies is not a rule this version
+   * understands, and the room falls back to the one it shipped with.
+   */
+  private async boardPolicy(): Promise<CinemaBoardPolicy> {
+    if (!this.boardPolicyValue) {
+      const stored = String(await this.state.storage.get<string>(BOARD_POLICY_KEY) || "");
+      this.boardPolicyValue = (CINEMA_BOARD_POLICIES as readonly string[]).includes(stored)
+        ? stored as CinemaBoardPolicy
+        : DEFAULT_BOARD_POLICY;
+    }
+    return this.boardPolicyValue;
   }
 
   private roomSnapshot() {

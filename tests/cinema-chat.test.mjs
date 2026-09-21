@@ -209,6 +209,9 @@ test("a wire frame must be a real message, and a timestamp must be a position", 
   assert.equal(parseClientMessage(JSON.stringify({ type: "chat_message", message: "bad", timestamp: -3 }))?.timestamp, undefined);
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: "mute_all" })), { type: "mute_all" });
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: "mute_all", extra: "ignored" })), { type: "mute_all" });
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "board_policy", policy: "auto" })), { type: "board_policy", policy: "AUTO" });
+  assert.equal(parseClientMessage(JSON.stringify({ type: "board_policy", policy: "ANYONE" })), null);
+  assert.equal(parseClientMessage(JSON.stringify({ type: "board_policy" })), null);
 });
 
 test("the replay window is the newest fifty, in the order they were said", async () => {
@@ -294,4 +297,28 @@ test("only the host can mute the room, and the ask lands on every socket", async
   assert.equal(frame.type, "mute_all");
   assert.equal(frame.by, "host-1");
   assert.deepEqual(guestSocket.sent.at(-1), frame, "the host and the room hear the same ask");
+});
+
+test("only the host sets who may ask the board, and the room remembers it", async () => {
+  const { room, state: roomState } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade("guest-2", "Kwesi Guest"));
+  const [hostSocket, guestSocket] = roomState.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "board_policy", policy: "AUTO" }));
+  assert.equal(guestSocket.sent.at(-1).type, "error");
+  assert.match(guestSocket.sent.at(-1).message, /host/i);
+  assert.equal(hostSocket.sent.filter((frame) => frame.type === "board_policy").length, 1, "a guest's change never reaches the room");
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "board_policy", policy: "AUTO" }));
+  assert.deepEqual(hostSocket.sent.at(-1), { type: "board_policy", policy: "AUTO" });
+  assert.deepEqual(guestSocket.sent.at(-1), { type: "board_policy", policy: "AUTO" }, "the room renders the new rule at once");
+  assert.equal(roomState.stored.get("boardPolicy"), "AUTO", "the rule outlives the sockets that set it");
+
+  const response = await room.fetch(new Request("https://cinema-room/policy"));
+  assert.deepEqual(await response.json(), { policy: "AUTO" }, "the route can read the rule before it spends a model call");
+
+  await room.fetch(upgrade("guest-3", "Esi"));
+  const newcomer = roomState.sockets[2];
+  assert.deepEqual(newcomer.sent.find((frame) => frame.type === "board_policy"), { type: "board_policy", policy: "AUTO" }, "a screen that joins later is told the same rule");
 });

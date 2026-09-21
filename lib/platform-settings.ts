@@ -43,7 +43,8 @@ export type PlatformSettingKey =
   | "cinema_recordings_enabled"
   | "cinema_max_recording_minutes"
   | "cinema_whiteboard_enabled"
-  | "cinema_whiteboard_generations_per_hour";
+  | "cinema_whiteboard_generations_per_hour"
+  | "cinema_board_auto_minutes";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -201,6 +202,17 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     env: "CINEMA_WHITEBOARD_GENERATIONS_PER_HOUR",
     fallback: 12,
     min: 1,
+    max: 60,
+  },
+  {
+    key: "cinema_board_auto_minutes",
+    kind: "number",
+    label: "Cinema automatic board cadence",
+    summary: "How many minutes apart a room on automatic asks for its next summary.",
+    detail: "When a host puts a room's whiteboard on automatic, the room answers its own chat and summarises the session without anyone typing. Each pass is a model call, so the host chooses the behaviour and the console chooses the pace. The host's screen sends the ask; the route refuses a manual question in an automatic room and refuses an automatic pass in any other room.",
+    env: "CINEMA_BOARD_AUTO_MINUTES",
+    fallback: 10,
+    min: 5,
     max: 60,
   },
 ];

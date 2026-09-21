@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
+import type { CinemaBoardPolicy, CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
 import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 
 export type CinemaSignalHandler = (from: string, payload: CinemaSignalPayload) => void;
+export type CinemaBoardHandler = (board: CinemaWhiteboardView) => void;
 
 export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed";
 
@@ -29,6 +30,10 @@ const WHITEBOARD_REMOVED_KEEP = 50;
  *
  * Presence arrives from the server, never from this hook's own guess: whatever
  * the Durable Object last broadcast is what the list shows.
+ *
+ * Two of the room's live rules ride the same wire — the host's mute-all and who
+ * may ask the board — because both are facts about the room that only the room
+ * can change.
  */
 export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const { roomId, enabled } = input;
@@ -43,6 +48,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [closedReason, setClosedReason] = useState("");
   /** Bumped on every host mute-all, so a later request is never the same event twice. */
   const [muteAllSignal, setMuteAllSignal] = useState(0);
+  /** Who may ask the board, as the host last set it; MEMBERS until the room says otherwise. */
+  const [boardPolicy, setBoardPolicy] = useState<CinemaBoardPolicy>("MEMBERS");
   const socketRef = useRef<WebSocket | null>(null);
   /**
    * Signaling consumers register here rather than in the socket's state: a
@@ -50,9 +57,22 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
    * that answers it owns everything else it needs.
    */
   const signalHandlersRef = useRef(new Set<CinemaSignalHandler>());
+  /**
+   * Board consumers register here for the same reason the signal consumers do:
+   * a new board is an event — a toast in an automatic room — not a value to
+   * re-render, and the state above already carries it to the panels.
+   */
+  const boardHandlersRef = useRef(new Set<CinemaBoardHandler>());
 
   const subscribeSignals = useCallback((handler: CinemaSignalHandler) => {
     const handlers = signalHandlersRef.current;
+    handlers.add(handler);
+    return () => { handlers.delete(handler); };
+  }, []);
+
+  /** A new board reached the room; returns the unsubscribe the caller owns. */
+  const subscribeBoards = useCallback((handler: CinemaBoardHandler) => {
+    const handlers = boardHandlersRef.current;
     handlers.add(handler);
     return () => { handlers.delete(handler); };
   }, []);
@@ -147,7 +167,10 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (message.type === "chat_removed") setMessages((current) => current.filter((item) => item.id !== message.id));
         // The room's AI answered: the scene is already parsed and bounded, so
         // the panel renders it without another round trip.
-        if (message.type === "whiteboard") setWhiteboard(message.board);
+        if (message.type === "whiteboard") {
+          setWhiteboard(message.board);
+          for (const handler of boardHandlersRef.current) handler(message.board);
+        }
         // Someone cleared a board: screens that are showing it drop it, and the
         // id is remembered so the fetched history does not bring it back.
         if (message.type === "whiteboard_removed") {
@@ -157,6 +180,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
             : [...current, message.id].slice(-WHITEBOARD_REMOVED_KEEP));
         }
         if (message.type === "mute_all") setMuteAllSignal((current) => current + 1);
+        if (message.type === "board_policy") setBoardPolicy(message.policy);
         if (message.type === "closed") {
           ended = true;
           setState("closed");
@@ -191,6 +215,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, closedReason, muteAllSignal, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals }
-    : { state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals };
+    ? { state, closedReason, muteAllSignal, boardPolicy, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
+    : { state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
 }

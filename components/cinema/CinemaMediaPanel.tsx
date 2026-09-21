@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { Camera, CameraOff, Circle, Download, Mic, MicOff, Pause, Play, Trash2 } from "lucide-react";
-import type { CinemaClientMessage, CinemaPresenceMember } from "@/lib/cinema-engine/protocol";
+import type { CinemaClientMessage } from "@/lib/cinema-engine/protocol";
 import type { CinemaMedia } from "./useCinemaMedia";
 import { useCinemaRecorder } from "./useCinemaRecorder";
 
@@ -15,9 +15,9 @@ import { useCinemaRecorder } from "./useCinemaRecorder";
  * never presses a button — nothing here opens a device on mount.
  *
  * The call itself is owned one level up, in the room, because the member's own
- * camera card renders beside the host controls rather than inside this panel.
- * What stays here is the rest of the room: the tiles, the flags and the
- * recorder, which records the local microphone and camera only.
+ * camera renders in the strip under the video rather than inside this panel.
+ * What stays here is the shape of the call: the switches, what this deployment
+ * allows, and the recorder, which records the local microphone and camera only.
  */
 
 export function MediaStreamVideo({ stream, muted, className }: { stream: MediaStream | null; muted?: boolean; className?: string }) {
@@ -37,13 +37,11 @@ function clockTime(seconds: number) {
 
 export function CinemaMediaPanel(input: {
   roomId: string;
-  selfId: string;
-  members: CinemaPresenceMember[];
   enabled: boolean;
   send: (message: CinemaClientMessage) => void;
   media: CinemaMedia;
 }) {
-  const { roomId, selfId, members, enabled, send, media } = input;
+  const { roomId, enabled, send, media } = input;
   const [consent, setConsent] = useState(false);
 
   const recorder = useCinemaRecorder({
@@ -54,13 +52,6 @@ export function CinemaMediaPanel(input: {
     send,
   });
 
-  const people = (studentId: string) => members.find((member) => member.studentId === studentId);
-  const remoteWithCamera = media.remote.filter((peer) => {
-    const member = people(peer.studentId);
-    return member?.camera === true || peer.stream.getVideoTracks().length > 0;
-  });
-  const remoteAudioOnly = media.remote.filter((peer) => !remoteWithCamera.includes(peer));
-  const others = members.filter((member) => member.studentId !== selfId);
   const anyPolicy = media.policy.voice || media.policy.camera;
 
   const startRecording = () => {
@@ -108,35 +99,9 @@ export function CinemaMediaPanel(input: {
               : "No relay is configured, so this room connects directly. On campus Wi-Fi that works; some mobile networks may not."}
           </p>
           {media.error && <p className="cinema-error cinema-sub">{media.error}</p>}
-
-          <div className="cinema-media-grid">
-            {others.map((member) => {
-              const peer = media.remote.find((entry) => entry.studentId === member.studentId);
-              const level = media.levels[member.studentId] ?? 0;
-              const showVideo = member.camera && peer;
-              return <article key={member.studentId} className={`cinema-media-tile ${level > 0 ? "is-speaking" : ""}`}>
-                {showVideo
-                  ? <MediaStreamVideo stream={peer.stream} className="cinema-media-video" />
-                  : <div className="cinema-media-placeholder"><span>{member.displayName || "Member"}</span></div>}
-                <footer>
-                  <strong>{member.displayName || "Member"}</strong>
-                  {level > 0 && <span className="cinema-speaking">Speaking</span>}
-                  <span className="cinema-media-flags">
-                    {member.mic ? <Mic size={12} aria-label="Microphone on" /> : <MicOff size={12} aria-label="Microphone off" />}
-                    {member.camera ? <Camera size={12} aria-label="Camera on" /> : <CameraOff size={12} aria-label="Camera off" />}
-                    {member.recording && <Circle size={11} className="cinema-recording-dot" aria-label="Recording" />}
-                  </span>
-                </footer>
-              </article>;
-            })}
-          </div>
-          {others.length === 0 && <p className="cinema-note cinema-sub">
-            Nobody else is here yet. Your own camera card sits at the top of the room; the others appear here as they arrive.
-          </p>}
-          {/* Audio-only peers still need an element to play through. */}
-          <div className="cinema-media-audio" aria-hidden>
-            {remoteAudioOnly.map((peer) => <MediaStreamVideo key={peer.studentId} stream={peer.stream} />)}
-          </div>
+          <p className="cinema-note cinema-sub">
+            The cameras are in the strip under the video; this panel is where they are switched.
+          </p>
 
           {(media.policy.recordings || recorder.recordings.length > 0) && <div className="cinema-recorder">
             <h3>Take notes</h3>

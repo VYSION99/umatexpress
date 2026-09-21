@@ -11,8 +11,8 @@ import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
 import { CinemaInvites } from "./CinemaInvites";
 import { CinemaMediaPanel } from "./CinemaMediaPanel";
+import { CinemaMediaStrip } from "./CinemaMediaStrip";
 import { CinemaNotes } from "./CinemaNotes";
-import { CinemaSelfView } from "./CinemaSelfView";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
 import { UploadPanel } from "./UploadPanel";
 import { UploadPlayer } from "./UploadPlayer";
@@ -40,6 +40,14 @@ import "./cinema.css";
  */
 type CinemaSheet = "" | "upload" | "board" | "notes" | "media" | "invite" | "chat" | "people";
 
+/** A room notice that is worth interrupting a video for: an automatic board. */
+type CinemaToast = { id: string; title: string; body: string };
+
+/** How long a toast stays before it folds itself away, in milliseconds. */
+const TOAST_MS = 15_000;
+/** At most this many toasts stack; the newest pushes the oldest out. */
+const TOAST_KEEP = 3;
+
 export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const { ready, account } = useStudentAccount();
   const [room, setRoom] = useState<Room>(initialRoom);
@@ -54,9 +62,12 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [sheet, setSheet] = useState<CinemaSheet>("");
   /** Set for a moment after a mute-all goes out, so the host sees the ask land. */
   const [muteSent, setMuteSent] = useState(false);
+  /** Automatic-board notices; the room's summaries arrive here, not in a panel. */
+  const [toasts, setToasts] = useState<CinemaToast[]>([]);
   const joined = useRef(false);
   const chatEndRef = useRef<HTMLLIElement | null>(null);
   const muteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const enteredStatus = useRef(initialRoom.status);
   const active = room.status === "CREATED" || room.status === "LIVE";
   // The socket is the room's live voice: it opens once the page knows who the
@@ -84,6 +95,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     muteAllSignal: live.muteAllSignal,
   });
   const releaseDevices = media.releaseDevices;
+  const subscribeBoards = live.subscribeBoards;
 
   // An ended room releases the microphone and camera: the panel that used to
   // unmount and clean up is no longer the owner of the call.
@@ -102,6 +114,36 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
 
   // A pending notice is cleared on the way out; the room may unmount mid-count.
   useEffect(() => () => { if (muteTimer.current) clearTimeout(muteTimer.current); }, []);
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => { for (const timer of timers.values()) clearTimeout(timer); timers.clear(); };
+  }, []);
+
+  /** Shows one notice and folds it away on its own; repeated ids only reset it. */
+  const pushToast = useCallback((toast: CinemaToast) => {
+    setToasts((current) => [...current.filter((item) => item.id !== toast.id), toast].slice(-TOAST_KEEP));
+    const pending = toastTimers.current.get(toast.id);
+    if (pending) clearTimeout(pending);
+    toastTimers.current.set(toast.id, setTimeout(() => {
+      toastTimers.current.delete(toast.id);
+      setToasts((current) => current.filter((item) => item.id !== toast.id));
+    }, TOAST_MS));
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    const pending = toastTimers.current.get(id);
+    if (pending) clearTimeout(pending);
+    toastTimers.current.delete(id);
+    setToasts((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  // An automatic room answers and summarises through the socket, and a summary
+  // nobody opens a panel to read is not a summary. Every new board in an
+  // automatic room toasts its own title and two-sentence body.
+  useEffect(() => subscribeBoards((board) => {
+    if (live.boardPolicy !== "AUTO") return;
+    pushToast({ id: board.id, title: board.title, body: board.summary });
+  }), [subscribeBoards, pushToast, live.boardPolicy]);
 
   // A sheet is an overlay on a phone, so the page behind it must hold still and
   // Escape must close it. Neither effect writes React state during a render.
@@ -322,11 +364,11 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             </p>}
       </section>
 
+      {roomMember && <CinemaMediaStrip media={media} members={live.members} selfId={roomMember.id} />}
+
       <Sheet open={sheet === "media"} id="cinema-sheet-media" label="Mic and camera" onClose={closeSheet}>
         {roomMember && <CinemaMediaPanel
           roomId={room.id}
-          selfId={roomMember.id}
-          members={live.members}
           enabled={live.state === "live"}
           send={live.send}
           media={media}
@@ -340,6 +382,8 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
           isHost={room.isHost}
           active={active}
           connected={live.state === "live"}
+          boardPolicy={live.boardPolicy}
+          onBoardPolicy={(policy) => live.send({ type: "board_policy", policy })}
           board={live.whiteboard}
           removedIds={live.removedWhiteboards}
           playback={live.playback}
@@ -366,8 +410,6 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
           />
         </section>}
       </Sheet>
-
-      {roomMember && <CinemaSelfView media={media} />}
 
       {room.isHost && active && <section className="cinema-card cinema-host-card">
         <h2>Host controls</h2>
@@ -562,6 +604,18 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         <button type="button" className="danger" disabled={Boolean(busy)} aria-label="End the room" title="End the room" onClick={() => void act("END")}><Square size={17} aria-hidden /></button>
       </div>}
     </nav>
+
+    <div className="cinema-toasts" aria-live="polite">
+      {toasts.map((toast) => <article key={toast.id} className="cinema-toast">
+        <header>
+          <span className="cinema-toast-tag"><Sparkles size={11} aria-hidden /> Session board</span>
+          <button type="button" aria-label="Dismiss this summary" onClick={() => dismissToast(toast.id)}><X size={13} aria-hidden /></button>
+        </header>
+        <strong>{toast.title}</strong>
+        <p>{toast.body}</p>
+        <button type="button" className="cinema-toast-open" onClick={() => { openSheet("board"); dismissToast(toast.id); }}>Open the board</button>
+      </article>)}
+    </div>
   </div>;
 }
 

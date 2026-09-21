@@ -447,6 +447,52 @@ test("asking requires membership and an open room", async () => {
   await assert.rejects(() => ask({ roomId: "room-9" }), /does not exist/);
 });
 
+test("the host's policy decides who may ask, and an automatic room takes questions from nobody", async () => {
+  let calls = 0;
+  const generate = async () => { calls += 1; return sceneReply(); };
+
+  // Host only: a member is refused before the model is called.
+  await assert.rejects(
+    () => ask({ policy: "HOST", student: { id: "student-b", name: "Kofi" }, generate }),
+    /host keeps the questions/,
+  );
+  assert.equal(calls, 0, "a refused question never reaches the model");
+  const hosted = await ask({ policy: "HOST", generate });
+  assert.equal(hosted.view.requesterId, "student-a", "the host asks in their own room");
+
+  // Automatic: nobody asks by hand, and the automatic pass is the host's.
+  await assert.rejects(() => ask({ policy: "AUTO", generate }), /answers on its own/);
+  await assert.rejects(
+    () => ask({ policy: "AUTO", auto: true, student: { id: "student-b", name: "Kofi" }, generate }),
+    /Only the host/,
+  );
+  await assert.rejects(() => ask({ policy: "MEMBERS", auto: true, generate }), /not on automatic/);
+
+  // The automatic pass carries the engine's question, never the browser's.
+  let seen = "";
+  const auto = await ask({
+    policy: "AUTO",
+    auto: true,
+    atSeconds: 640,
+    generate: async (_system, user) => { seen = user; return sceneReply({ title: "Summary at 10:40" }); },
+  });
+  assert.equal(auto.view.title, "Summary at 10:40");
+  assert.match(seen, /summarise what this stretch of the session/i, "the engine writes the automatic question");
+  assert.match(seen, /10:40/, "the automatic pass says where the room is");
+  const stored = state.whiteboards.find((row) => row.id === auto.id);
+  assert.equal(stored.question.includes("How does a page fault work?"), false, "a client's text never becomes the automatic prompt");
+});
+
+test("the automatic cadence is a console setting with a floor", async () => {
+  assert.equal((await cinemaWhiteboardLimits()).autoMinutes, 10, "the shipped cadence");
+  state.settings.set("cinema_board_auto_minutes", "20");
+  resetPlatformSettingsCache();
+  assert.equal((await cinemaWhiteboardLimits()).autoMinutes, 20);
+  state.settings.set("cinema_board_auto_minutes", "1");
+  resetPlatformSettingsCache();
+  assert.equal((await cinemaWhiteboardLimits()).autoMinutes, 5, "a pace below the floor is the floor");
+});
+
 test("boards list newest first, read by id, and validate their mode", async () => {
   let tick = 0;
   await ask({ now: Date.parse("2026-09-21T09:00:00.000Z"), generate: async () => sceneReply({ title: `Board ${tick += 1}` }) });

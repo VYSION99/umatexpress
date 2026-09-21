@@ -1,4 +1,5 @@
 import { cinemaRoomNamespace } from "@/lib/cloudflare-bindings";
+import { CINEMA_BOARD_POLICIES, type CinemaBoardPolicy } from "@/lib/cinema-engine/protocol";
 import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 import { logEvent } from "@/lib/observability";
 
@@ -164,6 +165,35 @@ export async function cinemaRoomPresence(roomId: string): Promise<CinemaRoomPres
     };
   } catch (error) {
     logEvent("warn", "cinema_room_presence_failed", {
+      roomId: String(roomId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return null;
+  }
+}
+
+/**
+ * The room's whiteboard policy, or null when the room cannot be asked — no
+ * binding, no object, a failed fetch.
+ *
+ * The policy lives with the live room rather than in a column: it is a rule for
+ * the people in the room right now, it has no history worth keeping, and the
+ * object already has to know it to hand it to every socket. A caller that gets
+ * null must fall back to "everyone may ask", which is the rule before a host
+ * ever touches the switch — never to a refusal the room did not make.
+ */
+export async function cinemaBoardPolicy(roomId: string): Promise<CinemaBoardPolicy | null> {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return null;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    const response = await stub.fetch("https://cinema-room/policy", { method: "GET" });
+    if (!response.ok) return null;
+    const data = await response.json() as { policy?: unknown };
+    const policy = String(data.policy || "");
+    return (CINEMA_BOARD_POLICIES as readonly string[]).includes(policy) ? policy as CinemaBoardPolicy : null;
+  } catch (error) {
+    logEvent("warn", "cinema_board_policy_failed", {
       roomId: String(roomId),
       reason: error instanceof Error ? error.message : "unknown",
     });
