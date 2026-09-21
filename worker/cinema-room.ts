@@ -100,6 +100,7 @@ export class CinemaRoom {
     const url = new URL(request.url);
     if (url.pathname === "/socket") return this.openSocket(request);
     if (url.pathname === "/close") return this.closeRoom();
+    if (url.pathname === "/purge-message") return this.purgeMessage(request);
     if (url.pathname === "/presence") return this.presenceResponse();
     return new Response("Not found", { status: 404 });
   }
@@ -172,6 +173,19 @@ export class CinemaRoom {
   /** What the cleanup job asks before it ends an apparently abandoned room. */
   private async presenceResponse(): Promise<Response> {
     return jsonResponse({ members: await this.presence(), emptySince: await this.emptySinceValue() }, 200);
+  }
+
+  /**
+   * A moderator removed a message. The row is already gone — this only asks
+   * the open screens to stop showing it, so a socket that is open now and a
+   * student who reconnects see the same room.
+   */
+  private async purgeMessage(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null) as { messageId?: unknown } | null;
+    const id = String(body?.messageId || "").trim();
+    if (!id) return jsonResponse({ error: "A message id is required." }, 400);
+    this.broadcast({ type: "chat_removed", id });
+    return jsonResponse({ ok: true, id }, 200);
   }
 
   /** The host ended the room over HTTP; the sockets should not outlive it. */

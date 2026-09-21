@@ -147,6 +147,38 @@ export async function purgeCinemaMessages(sessionId: string) {
   return Number(result.affected_row_count || 0);
 }
 
+/** One message, for a report that has to name what it is about. */
+export async function readCinemaMessage(messageId: string): Promise<CinemaChatMessage | null> {
+  await requireTurso();
+  await ensureCinemaMessageTables();
+  const id = String(messageId || "").trim();
+  if (!id) return null;
+  const row = rowsToObjects(await turso(
+    "SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE id = ? LIMIT 1",
+    [id],
+  ))[0];
+  return row ? messageView(row) : null;
+}
+
+/**
+ * Moderator removal. The row goes first, so a reconnect can never replay what
+ * was taken down; the live room is told separately, best-effort, because a
+ * socket that has already received a frame cannot unknow it anyway.
+ */
+export async function removeCinemaMessage(messageId: string, expectedSessionId = "") {
+  await requireTurso();
+  await ensureCinemaMessageTables();
+  const message = await readCinemaMessage(messageId);
+  if (!message) throw new CampusEngineError("NOT_FOUND", "That message no longer exists.", 404);
+  // A console route acts on a room; a message that belongs to another room
+  // reports as missing rather than letting one room's action touch another's.
+  if (expectedSessionId && message.sessionId !== String(expectedSessionId)) {
+    throw new CampusEngineError("NOT_FOUND", "That message is not in this room.", 404);
+  }
+  await turso("DELETE FROM cinema_messages WHERE id = ?", [message.id]);
+  return message;
+}
+
 async function requireTurso() {
   if (await isTursoConfiguredRuntime()) return;
   throw new CampusEngineError("CONFIG_REQUIRED", "Cinema needs the database to be configured.", 503);

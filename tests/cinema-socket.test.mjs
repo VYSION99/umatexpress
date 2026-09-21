@@ -190,6 +190,33 @@ test("closing the room tells every socket, then closes it", async () => {
   }
 });
 
+test("a removed message is taken off every open screen", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  const response = await room.fetch(new Request("https://cinema-room/purge-message", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ messageId: "message-1" }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(await response.text()), { ok: true, id: "message-1" });
+  for (const socket of [hostSocket, guestSocket]) {
+    assert.deepEqual(socket.sent.at(-1), { type: "chat_removed", id: "message-1" });
+  }
+
+  // Nothing to remove is a refusal, not a broadcast of an empty id.
+  const withoutId = await room.fetch(new Request("https://cinema-room/purge-message", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  }));
+  assert.equal(withoutId.status, 400);
+  assert.equal(hostSocket.sent.at(-1).type, "chat_removed");
+});
+
 test("the object answers whether the room is empty, and since when", async () => {
   const { room, state } = await newRoom();
   await room.fetch(upgrade());

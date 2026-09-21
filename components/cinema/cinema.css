@@ -70,6 +70,13 @@
 .cinema-chat-form button{display:inline-flex;align-items:center;justify-content:center;width:46px;border:0;border-radius:12px;background:var(--green);color:white;cursor:pointer}
 .cinema-chat-form button:disabled{opacity:.5;cursor:not-allowed}
 .cinema-chat-end{display:none}
+.cinema-report-flag{margin-left:auto;display:inline-flex;align-items:center;border:1px solid #e0e7e2;border-radius:999px;background:#ffffff;color:#78857d;padding:4px 7px;cursor:pointer}
+.cinema-report-flag:hover{border-color:#a3352a;color:#a3352a}
+.cinema-report{margin-top:10px;display:grid;gap:8px;border:1px solid #f0cfc9;border-radius:14px;background:#fff8f7;padding:12px}
+.cinema-report strong{font-size:12px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;color:#8a2c22}
+.cinema-report p{margin:0;color:#7c5b56;font-size:12px;font-weight:700;line-height:1.5}
+.cinema-report textarea{width:100%;border:1px solid #e6cdc8;border-radius:11px;background:#ffffff;color:var(--ink);padding:10px 12px;font:600 13px/1.5 inherit;resize:vertical}
+.cinema-report-notice{margin:10px 0 0;padding:9px 11px;border-radius:11px;background:var(--mint);color:var(--green);font-size:12px;font-weight:800}
 
 @media (max-width:900px){
   .cinema-lobby,.cinema-room{grid-template-columns:minmax(0,1fr)}

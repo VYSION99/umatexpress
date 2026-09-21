@@ -219,6 +219,8 @@
 .console-row-actions { display: flex; gap: 8px; white-space: nowrap; }
 .console-row-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 11px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 12px; font-weight: 800; cursor: pointer; }
 .console-row-actions button:hover { border-color: var(--ui-green, #0d694d); color: var(--ui-green, #0d694d); }
+.console-row-actions button.console-danger { border-color: #e8c3bd; color: #9c3026; }
+.console-row-actions button.console-danger:hover { border-color: #9c3026; color: #9c3026; }
 .console-row-actions button:disabled { opacity: .6; cursor: progress; }
 .console-row-actions select { min-height: 36px; max-width: 220px; padding: 0 11px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 11px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 12px; font-weight: 700; }
 

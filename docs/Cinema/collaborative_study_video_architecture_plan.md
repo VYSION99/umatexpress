@@ -709,9 +709,9 @@ the client renders it as a chip that seeks the room when the host clicks it. Tha
 the whole "timestamped discussion" feature; a separate notes surface is not in
 Phase 1.
 
-**Reporting rides the trust desk.** A report is a `hostel_risk_signals`-style row
-against the room and the message, with the evidence attached, and it appears in the
-console queue the moderators already work. The room does not grow its own takedown
+**Reporting rides the trust desk.** A report is a `cinema_risk_signals` row against
+the room and the message, with the evidence attached, and it appears in the console
+queue the moderators already work. The room does not grow its own takedown
 machinery: an admin can end the room and remove a message, and repeated reports
 count against the student's standing the same way they do elsewhere.
 
@@ -801,6 +801,42 @@ CREATE INDEX IF NOT EXISTS idx_cinema_messages_session ON cinema_messages(sessio
 
 Rows exist so a reconnect or a late join is not a blank wall, capped at the last
 fifty per room, purged when the room is deleted. This is not an archive.
+
+## Reports
+
+```sql
+CREATE TABLE IF NOT EXISTS cinema_risk_signals (
+  id            TEXT PRIMARY KEY,
+  signal_key    TEXT NOT NULL,                      -- CINEMA_ROOM_REPORT | CINEMA_MESSAGE_REPORT
+  severity      TEXT NOT NULL DEFAULT 'MEDIUM',     -- LOW | MEDIUM | HIGH
+  entity_type   TEXT NOT NULL,                      -- ROOM | MESSAGE
+  entity_id     TEXT NOT NULL,                      -- session id or message id
+  session_id    TEXT NOT NULL,
+  reporter_id   TEXT NOT NULL DEFAULT '',           -- student_accounts.id
+  reporter_name TEXT NOT NULL DEFAULT '',
+  report_count  INTEGER NOT NULL DEFAULT 1,         -- distinct reporters, not clicks
+  title         TEXT NOT NULL,
+  detail        TEXT NOT NULL,
+  evidence      TEXT NOT NULL DEFAULT '{}',         -- { reports: [...], messageExcerpt }
+  status        TEXT NOT NULL DEFAULT 'OPEN',       -- OPEN | REVIEWED | DISMISSED
+  reviewed_by   TEXT NOT NULL DEFAULT '',
+  reviewed_at   TEXT NOT NULL DEFAULT '',
+  review_note   TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_signals_entity ON cinema_risk_signals(signal_key, entity_id, status);
+CREATE INDEX IF NOT EXISTS idx_cinema_signals_status ON cinema_risk_signals(status, severity, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cinema_signals_session ON cinema_risk_signals(session_id, status);
+```
+
+The unique index is the "one open card per room or message" rule, enforced by the
+database rather than the route: a second reporter folds into the open row, the
+count is distinct reporters, and severity rises at the second and fourth. Nothing
+here is rule-generated — every card names the student who filed it. Reviewing or
+dismissing requires a note and records who decided, so the row reads as a decision
+as well as a complaint.
 
 ## Temporary uploads (Phase 2)
 
@@ -1215,12 +1251,12 @@ the part with the unknowns.
 | 8 | Host controls: open, lock, end | High | ✅ M1 |
 | 9 | Idle and end-of-room transitions, cleanup on the existing cron | High | ✅ M4 |
 | 10 | The client room at `/cinema/[id]`, share link, signed-out hop, and the existing `OnlineCinema` launcher card flipped to `available` | High | ✅ M1 |
-| 11 | Console service entry, live-room list, end-room action | Medium |
-| 12 | Report into the moderation queue | Medium |
+| 11 | Console service entry, live-room list, end-room action | Medium | ✅ M5 |
+| 12 | Report into the moderation queue | Medium | ✅ M5 |
 | 13 | `rateLimit()` on create, join, chat and socket connect | Medium | ✅ create/join/socket M1, chat M4 |
-| 14 | Tests: sync arithmetic, state machine, membership, cleanup | High | ✅ M1–M4 |
+| 14 | Tests: sync arithmetic, state machine, membership, cleanup | High | ✅ M1–M5 |
 
-**Status: M1, M2, M3 and M4 delivered.** A signed-in student creates a room, shares
+**Status: M1, M2, M3, M4 and M5 delivered.** A signed-in student creates a room, shares
 the link, and everyone in it sees presence live; the `CinemaRoom` object accepts
 hibernatable sockets at `/api/cinema/sessions/{id}/ws`, the Worker route
 authenticates the cookie and checks membership before the upgrade, and the client
@@ -1236,7 +1272,16 @@ cleanup job on the five-minute reconcile trigger, leaving a tombstone row. Both
 limits are console settings, not constants. Verified against workerd and in
 headless Chrome locally: two sockets follow the host within a second, a new
 socket catches up on connect, a browser page follows a seek to 120s and a pause,
-and a member's pause is pulled back. The console list (M5) is not built yet.
+and a member's pause is pulled back. The console watches it: Cinema registers a
+service entry at `/console/cinema`, whose room list deliberately shows rooms the
+reading moderator is not a member of, filtered by ACTIVE, ENDED or ALL and
+searchable by title, room id or host name. A moderator ends a room through
+`POST /api/console/cinema/sessions/:id` — the host's own end stays
+`PATCH /api/cinema/sessions/:id` — and the object closes the sockets with it;
+removing a message deletes the row before it broadcasts a `chat_removed` frame, so
+a reconnect or a late join cannot replay what a moderator took down. Student
+reports land in `cinema_risk_signals` as one open card per room or message, and
+both console pages and both console routes are gated to ADMIN and MODERATOR.
 
 ### Phase 2 — temporary uploads
 
@@ -1274,7 +1319,7 @@ the same shape the Hostel Finder rollout used.
 | **M2 — the room is live** | `CinemaRoom` Durable Object, `/ws` route with cookie auth, hibernatable sockets, presence | a socket survives a Worker deploy and presence empties when a tab closes |
 | **M3 — the room is in sync** | YouTube player, play/pause/seek, the §11 arithmetic, host-only validation | host seeks, two browsers follow within a second, refresh rejoins mid-playback |
 | **M4 — the room is safe** ✅ | chat with timestamps, rate limits, lock, end, idle expiry, cleanup job, tests | a flooded socket is limited, an abandoned room expires and serves nothing |
-| **M5 — the room is watched** | console service entry, live-room list, end-room action, report queue | a moderator ends a reported room from the console and the sockets close |
+| **M5 — the room is watched** ✅ | console service entry, live-room list, end-room action, report queue | a moderator ends a reported room from the console and the sockets close |
 | **M6 — Phase 2 opens** | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to use

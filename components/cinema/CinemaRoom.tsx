@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Lock, LockOpen, Play, Radio, Send, Square } from "lucide-react";
+import { Flag, Lock, LockOpen, Play, Radio, Send, Square } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
@@ -29,6 +29,10 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState("");
+  const [report, setReport] = useState<{ messageId?: string; label: string } | null>(null);
+  const [reportReason, setReportReason] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportNotice, setReportNotice] = useState("");
   const joined = useRef(false);
   const chatEndRef = useRef<HTMLLIElement | null>(null);
   const enteredStatus = useRef(initialRoom.status);
@@ -117,6 +121,29 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       duration: live.playback.durationSeconds || undefined,
       stateAt: live.playback.updatedAt,
     });
+  };
+
+  /** Reports go to the moderation desk; nothing in the room changes. */
+  const sendReport = async () => {
+    if (!report) return;
+    setReportBusy(true);
+    try {
+      const response = await fetch(`/api/cinema/sessions/${room.id}/report`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId: report.messageId, reason: reportReason }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "The report could not be sent.");
+      setReportNotice("Sent to the moderators. Thank you — nothing in the room changes while they look.");
+      setReport(null);
+      setReportReason("");
+    } catch (reportError) {
+      setError(reportError instanceof Error ? reportError.message : "The report could not be sent.");
+    } finally {
+      setReportBusy(false);
+    }
   };
 
   return <div className="cinema-room">
@@ -221,6 +248,13 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
                         onClick={() => seekTo(message.atSeconds as number)}
                       >{clockTime(message.atSeconds)}</button>
                       : <span className="cinema-timestamp is-static">{clockTime(message.atSeconds)}</span>)}
+                    {message.senderId !== account.id && <button
+                      type="button"
+                      className="cinema-report-flag"
+                      title="Report this message to the moderators"
+                      aria-label="Report this message"
+                      onClick={() => { setReport({ messageId: message.id, label: "Report a message" }); setReportReason(""); setReportNotice(""); }}
+                    ><Flag size={12} aria-hidden /></button>}
                   </header>
                   <p>{message.content}</p>
                 </li>)}
@@ -252,6 +286,29 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
                 ? "Tap a timestamp chip to bring everyone to that moment."
                 : "A timestamp chip shows where the sender was in the video; the host can jump the room to it."}
             </p>
+            {reportNotice && <p className="cinema-report-notice" role="status">{reportNotice}</p>}
+            {report
+              ? <form className="cinema-report" onSubmit={(event) => { event.preventDefault(); void sendReport(); }}>
+                <strong>{report.label}</strong>
+                <p>A moderator reads this. The room keeps going while they look.</p>
+                <textarea
+                  value={reportReason}
+                  maxLength={500}
+                  rows={3}
+                  placeholder="What happened? (optional)"
+                  aria-label="What happened?"
+                  onChange={(event) => setReportReason(event.target.value)}
+                />
+                <div className="cinema-controls">
+                  <button type="submit" disabled={reportBusy}>{reportBusy ? "Sending…" : "Send report"}</button>
+                  <button type="button" className="secondary" disabled={reportBusy} onClick={() => setReport(null)}>Cancel</button>
+                </div>
+              </form>
+              : account && <div className="cinema-controls cinema-sub">
+                <button type="button" className="secondary" onClick={() => { setReport({ label: "Report this room" }); setReportReason(""); setReportNotice(""); }}>
+                  <Flag size={13} aria-hidden /> Report this room
+                </button>
+              </div>}
           </>}
       </section>
 

@@ -1359,3 +1359,40 @@ CREATE TABLE IF NOT EXISTS cinema_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cinema_messages_session ON cinema_messages(session_id, created_at DESC);
+
+-- 028: cinema reports — the cards the console works through.
+--
+-- Students file reports from inside a room; nothing here is rule-generated, so
+-- every row names the reporter. One open card exists per room or message
+-- (`signal_key`, `entity_id`), and the unique index lets a second report fold
+-- into the first instead of opening a duplicate. `report_count` counts distinct
+-- reporters, `severity` escalates with them, and `evidence` holds
+-- {"reports":[{"by","name","at"}],"messageExcerpt":...} so the moderator sees
+-- what was said without rejoining the room. Reviewing or dismissing needs a
+-- note and records who decided; the row is the audit trail's subject, not its
+-- replacement.
+
+CREATE TABLE IF NOT EXISTS cinema_risk_signals (
+  id            TEXT PRIMARY KEY,
+  signal_key    TEXT NOT NULL,
+  severity      TEXT NOT NULL DEFAULT 'MEDIUM',
+  entity_type   TEXT NOT NULL,
+  entity_id     TEXT NOT NULL,
+  session_id    TEXT NOT NULL,
+  reporter_id   TEXT NOT NULL DEFAULT '',
+  reporter_name TEXT NOT NULL DEFAULT '',
+  report_count  INTEGER NOT NULL DEFAULT 1,
+  title         TEXT NOT NULL,
+  detail        TEXT NOT NULL,
+  evidence      TEXT NOT NULL DEFAULT '{}',
+  status        TEXT NOT NULL DEFAULT 'OPEN',
+  reviewed_by   TEXT NOT NULL DEFAULT '',
+  reviewed_at   TEXT NOT NULL DEFAULT '',
+  review_note   TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_signals_entity ON cinema_risk_signals(signal_key, entity_id, status);
+CREATE INDEX IF NOT EXISTS idx_cinema_signals_status ON cinema_risk_signals(status, severity, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cinema_signals_session ON cinema_risk_signals(session_id, status);

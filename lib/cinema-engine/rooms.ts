@@ -1,6 +1,7 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { closeCinemaRoom } from "@/lib/cinema-engine/realtime";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
+import { consoleAudit } from "@/lib/console-audit";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
@@ -379,6 +380,102 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
 
   const fresh = (await membersOf([id])).get(id) || [];
   return roomView((await roomRow(id)) || row, { studentId: input.studentId, participants: fresh });
+}
+
+export type ConsoleCinemaRoom = {
+  id: string;
+  title: string;
+  hostStudentId: string;
+  hostName: string;
+  status: CinemaRoomStatus;
+  joinLocked: boolean;
+  memberCount: number;
+  startedAt: string;
+  endedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const CONSOLE_ROOM_LIMIT = 100;
+
+/**
+ * The staff list. It is deliberately not the student lobby: it shows rooms a
+ * staff member is not a member of, it may include ended ones, and it carries
+ * the host's name so a moderator knows who to talk to. The filter is a closed
+ * set, never a caller-supplied SQL fragment.
+ */
+export async function listRoomsForConsole(input: { status?: unknown; q?: unknown; limit?: number } = {}): Promise<ConsoleCinemaRoom[]> {
+  await requireTurso();
+  await ensureCinemaTables();
+  const wanted = String(input.status || "ACTIVE").trim().toUpperCase();
+  const filter = wanted === "ENDED"
+    ? "s.status IN ('ENDED','EXPIRED')"
+    : wanted === "ALL"
+      ? "s.status <> 'DELETED'"
+      : "s.status IN ('CREATED','LIVE')";
+  const search = String(input.q || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const limit = Math.min(Math.max(Math.round(Number(input.limit) || CONSOLE_ROOM_LIMIT), 1), 200);
+  const args: string[] = [];
+  let where = filter;
+  if (search) {
+    where += " AND (s.title LIKE ? OR s.id LIKE ? OR COALESCE(p.display_name,'') LIKE ?)";
+    args.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  const rows = rowsToObjects(await turso(
+    `SELECT s.id,s.host_student_id,s.title,s.status,s.join_locked,s.started_at,s.ended_at,s.created_at,s.updated_at,COALESCE(p.display_name,'') AS host_name
+       FROM cinema_sessions s
+       LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = s.host_student_id
+      WHERE ${where}
+      ORDER BY CASE WHEN s.status IN ('CREATED','LIVE') THEN 0 ELSE 1 END, s.created_at DESC
+      LIMIT ${limit}`,
+    args,
+  ));
+  const counts = await memberCounts(rows.map((row) => String(row.id || "")));
+  return rows.map((row) => ({
+    id: String(row.id || ""),
+    title: String(row.title || "") || "Study room",
+    hostStudentId: String(row.host_student_id || ""),
+    hostName: String(row.host_name || "") || "The host",
+    status: String(row.status || "CREATED") as CinemaRoomStatus,
+    joinLocked: Number(row.join_locked || 0) === 1,
+    memberCount: counts.get(String(row.id || "")) ?? 0,
+    startedAt: String(row.started_at || ""),
+    endedAt: String(row.ended_at || ""),
+    createdAt: String(row.created_at || ""),
+    updatedAt: String(row.updated_at || ""),
+  }));
+}
+
+/**
+ * A moderator ends a room. The same effect as the host's END action, written
+ * here because the actor is staff rather than the host and because the console
+ * records who did it. The update is conditional, so a room that ended between
+ * the read and the write cannot be ended twice.
+ */
+export async function endRoomAsStaff(input: { roomId: string; actor: string }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireVisibleRoom(input.roomId);
+  const id = String(row.id);
+  if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room is not open.", 409);
+  const stamp = new Date().toISOString();
+  const result = await turso(
+    "UPDATE cinema_sessions SET status = 'ENDED', ended_at = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",
+    [stamp, stamp, id],
+  );
+  if (!Number(result.affected_row_count || 0)) throw new CampusEngineError("INVALID_STATE", "This room is not open.", 409);
+  // The row is the truth; closing the sockets is a courtesy the object performs.
+  await closeCinemaRoom(id);
+  await consoleAudit({
+    actor: input.actor,
+    action: "cinema_room_ended",
+    targetType: "cinema_session",
+    targetReference: id,
+    details: { title: String(row.title || ""), hostStudentId: String(row.host_student_id || "") },
+  });
+  logEvent("info", "cinema_room_ended_by_staff", { roomId: id, actor: input.actor });
+  await incrementMetric("cinema_rooms_ended");
+  return { id, status: "ENDED" as const, endedAt: stamp };
 }
 
 async function requireTurso() {

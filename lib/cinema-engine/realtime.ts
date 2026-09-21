@@ -27,6 +27,31 @@ export async function closeCinemaRoom(roomId: string) {
 }
 
 /**
+ * Tells a live room that a message was taken down, so the open sockets drop it
+ * along with the row. Best-effort for the same reason as `closeCinemaRoom`:
+ * the deletion already happened in the database, and a missing socket must not
+ * make the moderator's action look failed.
+ */
+export async function purgeCinemaMessageFromRoom(roomId: string, messageId: string) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/purge-message", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messageId: String(messageId) }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_message_purge_failed", {
+      roomId: String(roomId),
+      messageId: String(messageId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
+/**
  * Asks a room whether anybody is attached, and since when nobody was.
  *
  * Only the Durable Object can answer this: presence lives in socket

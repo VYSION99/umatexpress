@@ -111,6 +111,9 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
           const next = [...current, incoming];
           return next.length > CHAT_KEEP ? next.slice(-CHAT_KEEP) : next;
         });
+        // A moderator removed a message: the open room drops it too, so the
+        // screens and the replay agree about what the room now contains.
+        if (message.type === "chat_removed") setMessages((current) => current.filter((item) => item.id !== message.id));
         if (message.type === "closed") {
           ended = true;
           setState("closed");
