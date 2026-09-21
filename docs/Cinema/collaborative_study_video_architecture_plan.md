@@ -998,6 +998,7 @@ room that simply expired from counting as a strike against its host.
 | GET | `/api/cinema/sessions/:id` | Read a room — the public fields only |
 | PATCH | `/api/cinema/sessions/:id` | Open, end, lock, retitle, make private or public (host only) |
 | POST | `/api/cinema/sessions/:id/join` | Join, which writes the membership row |
+| GET | `/api/cinema/youtube?q=…` | Search YouTube for the lobby's tray — signed in, rate limited per student, and needs `YOUTUBE_API_KEY`; answers 503 and the lobby keeps the paste-a-link path when it is unset |
 | POST | `/api/cinema/sessions/:id/ws-ticket` | Mint a single-use socket ticket (§6) |
 | GET | `/api/cinema/sessions/:id/messages` | The last fifty messages |
 | GET | `/api/cinema/sessions/:id/video-url` | Short-lived playback URL (Phase 2) |
@@ -1645,10 +1646,35 @@ the door. The room shows both and offers neither, the lobby list carries the
 door toggle and the way to finish an abandoned upload, and the engine keeps the
 last word — a room created for a file is private before the first byte, and the
 upload cannot reopen it. The call lost its card in the same pass: mic, camera
-and recorder are buttons — in the phone's rail, and beside the cameras on a
-desktop where there is no rail — with the host's mute-all and a board button in
-the dock's host bar. The recorder hook lives in the room rather than the card,
-so closing the card cannot end a take.
+and recorder are buttons — in the phone's rail, and in the desktop's control
+bar — with the host's mute-all and a board button in the dock's host bar. The
+recorder hook lives in the room rather than the card, so closing the card
+cannot end a take.
+
+The desktop room is one stage and one sidebar, the shape a meeting app uses:
+the video, the camera strip, and then a control bar of named round buttons at
+the foot of the stage — the call, the panels (board, notes, invite, chat) and
+the host's actions (open, lock, mute all, end) in one row, sticky so the
+sidebar can scroll under it. The host's card keeps only what the bar cannot
+say — which door the room has and where it is changed; the strip is pictures
+only. Under 1180px the host's buttons go back to circles so the row stays one
+row, and below 900px the bar disappears entirely: the rail above the video and
+the dock at the foot of the screen carry the same actions on a phone.
+
+Every action in the room names itself on hover and on keyboard focus — one
+tooltip style over the control bar, the rail, the dock and the camera strip,
+where a native `title` is too slow to read. The phone's stage centres what it
+holds between the letterhead and the dock, and a strip with fewer faces than a
+row centres them instead of leaving one person in the first cell of a table.
+
+The lobby also opens with a search bar. A student types what they want to watch
+and picks from a tray of YouTube results — thumbnail, title, channel — which
+fills the room form below. The lookup runs in the Worker (`GET
+/api/cinema/youtube?q=…`, signed in and rate limited per student), so the API
+key never reaches a browser, and only rows a room would accept come back: an
+eleven-character id, and a thumbnail from YouTube's own image host. With no key
+configured the lobby says search is not switched on and the paste-a-link path
+keeps working, because it needs nothing but YouTube itself.
 
 M12 gives the room a clock. A host can create a room that goes live straight
 away — the lobby's default, so the first screen to arrive is already playing —

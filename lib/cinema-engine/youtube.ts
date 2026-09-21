@@ -15,6 +15,41 @@ const HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music
 
 export type YouTubeLookup = { ok: true; id: string } | { ok: false; reason: string };
 
+/** One video in the lobby's search tray: the id a room stores, and what its card shows. */
+export type YouTubeSearchResult = { videoId: string; title: string; channel: string; thumbnail: string };
+
+/**
+ * YouTube's search payload, narrowed to what the lobby renders.
+ *
+ * The tray is the student's first look at what a room will play, so it only
+ * carries rows the room would accept — a real eleven-character id — and only
+ * thumbnails from YouTube's own image host, because the browser will fetch the
+ * picture straight from that URL. Everything else is dropped rather than
+ * repaired: a result nobody can open is worse than a shorter list.
+ */
+export function youTubeResults(payload: unknown): YouTubeSearchResult[] {
+  const items = (payload as { items?: unknown })?.items;
+  if (!Array.isArray(items)) return [];
+  const results: YouTubeSearchResult[] = [];
+  for (const item of items) {
+    const row = item as {
+      id?: { videoId?: unknown };
+      snippet?: { title?: unknown; channelTitle?: unknown; thumbnails?: Record<string, { url?: unknown }> };
+    };
+    const videoId = String(row?.id?.videoId || "");
+    if (!VIDEO_ID.test(videoId) || results.some((entry) => entry.videoId === videoId)) continue;
+    const thumbnails = row?.snippet?.thumbnails || {};
+    const thumbnail = String((thumbnails.medium || thumbnails.high || thumbnails.default)?.url || "");
+    results.push({
+      videoId,
+      title: String(row?.snippet?.title || "").trim() || "Untitled video",
+      channel: String(row?.snippet?.channelTitle || "").trim(),
+      thumbnail: /^https:\/\/i\.ytimg\.com\//.test(thumbnail) ? thumbnail : "",
+    });
+  }
+  return results;
+}
+
 /**
  * Reads a video id out of a bare id, a share link (`youtu.be/…`), a watch link
  * (`?v=…`), an embed link or a Shorts link. A playlist link with no video in it

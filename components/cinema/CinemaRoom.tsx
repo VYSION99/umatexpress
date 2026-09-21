@@ -332,7 +332,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         type="button"
         className={sheet === "board" ? "is-active" : ""}
         aria-label="AI whiteboard"
-        title="AI whiteboard"
+        data-tip="AI whiteboard"
         aria-expanded={sheet === "board"}
         aria-controls="cinema-sheet-board"
         onClick={showBoard}
@@ -341,7 +341,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         type="button"
         className={sheet === "notes" ? "is-active" : ""}
         aria-label="My notes"
-        title="My notes"
+        data-tip="My notes"
         aria-expanded={sheet === "notes"}
         aria-controls="cinema-sheet-notes"
         onClick={() => openSheet("notes")}
@@ -350,7 +350,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         type="button"
         className={sheet === "invite" ? "is-active" : ""}
         aria-label="Invite"
-        title="Invite"
+        data-tip="Invite"
         aria-expanded={sheet === "invite"}
         aria-controls="cinema-sheet-invite"
         onClick={() => openSheet("invite")}
@@ -359,7 +359,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         type="button"
         className={sheet === "chat" ? "is-active" : ""}
         aria-label="Room chat"
-        title="Room chat"
+        data-tip="Room chat"
         aria-expanded={sheet === "chat"}
         aria-controls="cinema-sheet-chat"
         onClick={() => openSheet("chat")}
@@ -411,15 +411,38 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         media={media}
         members={live.members}
         selfId={roomMember.id}
-        actions={<div className="cinema-strip-actions">
+      />}
+      {/* The desktop's control bar, Zoom-shaped: the call, the panels and the
+          host's actions in one row at the foot of the stage, with the name
+          under every button. It is the only place these live on a wide screen
+          — the rail and the dock are the phone's version of the same row — and
+          it stays in reach while the sidebar scrolls. */}
+      <div className="cinema-toolbar" role="toolbar" aria-label="Room controls">
+        {roomMember && <div className="cinema-toolbar-group">
           <CinemaCallButtons
             media={media}
             recorder={recorder}
             recordOpen={sheet === "record"}
             onToggleRecord={() => openSheet("record")}
+            labels
           />
         </div>}
-      />}
+        <div className="cinema-toolbar-group">
+          {account && <ToolButton label="AI board" active={sheet === "board"} onClick={showBoard}><Sparkles size={18} aria-hidden /></ToolButton>}
+          <ToolButton label="Notes" active={sheet === "notes"} onClick={() => openSheet("notes")}><NotebookPen size={18} aria-hidden /></ToolButton>
+          <ToolButton label="Invite" active={sheet === "invite"} onClick={() => openSheet("invite")}><UserPlus size={18} aria-hidden /></ToolButton>
+          <ToolButton label="Chat" active={sheet === "chat"} onClick={() => openSheet("chat")}><MessagesSquare size={18} aria-hidden /></ToolButton>
+        </div>
+        {room.isHost && active && <div className="cinema-toolbar-group is-host">
+          {room.status === "CREATED" && !pendingStart && <ToolButton label="Open" disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={18} aria-hidden /></ToolButton>}
+          {!room.isPrivate && (room.joinLocked
+            ? <ToolButton label="Unlock" disabled={Boolean(busy)} onClick={() => void act("UNLOCK")}><LockOpen size={18} aria-hidden /></ToolButton>
+            : <ToolButton label="Lock" disabled={Boolean(busy)} onClick={() => void act("LOCK")}><Lock size={18} aria-hidden /></ToolButton>)}
+          <ToolButton label="Mute all" active={muteSent} onClick={askMuteAll}><MicOff size={18} aria-hidden /></ToolButton>
+          <ToolButton label="End room" danger disabled={Boolean(busy)} onClick={() => void act("END")}><Square size={18} aria-hidden /></ToolButton>
+        </div>}
+        {muteSent && <span className="cinema-chip is-live" role="status"><MicOff size={11} aria-hidden /> Room asked to mute</span>}
+      </div>
       {/* The old Voice & video card is gone; what it had to say that the
           buttons cannot is one line here, where the call's pictures live. */}
       {roomMember && media.error && <p className="cinema-error">{media.error}</p>}
@@ -467,18 +490,13 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         </section>}
       </Sheet>
 
+      {/* The host's buttons are in the control bar above; this card is what the
+          bar cannot say — which door this room has, and where it is changed. */}
       {room.isHost && active && <section className="cinema-card cinema-host-card">
-        <h2>Host controls</h2>
+        <h2>Your room</h2>
         <div className="cinema-controls">
-          {room.status === "CREATED" && !pendingStart && <button disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={15} /> Open the room</button>}
           {room.status === "LIVE" && <span className="cinema-chip is-live"><Radio size={12} /> Live</span>}
-          {!room.isPrivate && (room.joinLocked
-            ? <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("UNLOCK")}><LockOpen size={15} /> Let people in again</button>
-            : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("LOCK")}><Lock size={15} /> Lock the door</button>)}
-          <button className="secondary" onClick={askMuteAll}><MicOff size={15} /> Mute everyone</button>
-          <button className="secondary" onClick={showBoard}><Sparkles size={15} /> AI whiteboard</button>
-          <button className="danger" disabled={Boolean(busy)} onClick={() => void act("END")}><Square size={15} /> End the room</button>
-          {muteSent && <span className="cinema-chip is-live" role="status"><MicOff size={11} aria-hidden /> Room asked to mute</span>}
+          {room.joinLocked && !room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Door locked</span>}
         </div>
         <p className="cinema-note cinema-sub">
           {room.isPrivate
@@ -645,13 +663,13 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         <span className="cinema-dock-count">{people.length} {people.length === 1 ? "person" : "people"} here</span>
       </button>
       {room.isHost && active && <div className="cinema-dock-actions">
-        {room.status === "CREATED" && !pendingStart && <button type="button" disabled={Boolean(busy)} aria-label="Open the room" title="Open the room" onClick={() => void act("OPEN")}><Play size={17} aria-hidden /></button>}
+        {room.status === "CREATED" && !pendingStart && <button type="button" disabled={Boolean(busy)} aria-label="Open the room" data-tip="Open the room" onClick={() => void act("OPEN")}><Play size={17} aria-hidden /></button>}
         {!room.isPrivate && (room.joinLocked
-          ? <button type="button" disabled={Boolean(busy)} aria-label="Let people in again" title="Let people in again" onClick={() => void act("UNLOCK")}><LockOpen size={17} aria-hidden /></button>
-          : <button type="button" disabled={Boolean(busy)} aria-label="Lock the door" title="Lock the door" onClick={() => void act("LOCK")}><Lock size={17} aria-hidden /></button>)}
-        <button type="button" className={muteSent ? "is-active" : ""} aria-label="Mute everyone" title="Mute everyone" onClick={askMuteAll}><MicOff size={17} aria-hidden /></button>
-        <button type="button" aria-label="AI whiteboard" title="AI whiteboard" aria-expanded={sheet === "board"} aria-controls="cinema-sheet-board" onClick={showBoard}><Sparkles size={17} aria-hidden /></button>
-        <button type="button" className="danger" disabled={Boolean(busy)} aria-label="End the room" title="End the room" onClick={() => void act("END")}><Square size={17} aria-hidden /></button>
+          ? <button type="button" disabled={Boolean(busy)} aria-label="Let people in again" data-tip="Let people in again" onClick={() => void act("UNLOCK")}><LockOpen size={17} aria-hidden /></button>
+          : <button type="button" disabled={Boolean(busy)} aria-label="Lock the door" data-tip="Lock the door" onClick={() => void act("LOCK")}><Lock size={17} aria-hidden /></button>)}
+        <button type="button" className={muteSent ? "is-active" : ""} aria-label="Mute everyone" data-tip="Mute everyone" onClick={askMuteAll}><MicOff size={17} aria-hidden /></button>
+        <button type="button" aria-label="AI whiteboard" data-tip="AI whiteboard" aria-expanded={sheet === "board"} aria-controls="cinema-sheet-board" onClick={showBoard}><Sparkles size={17} aria-hidden /></button>
+        <button type="button" className="danger" disabled={Boolean(busy)} aria-label="End the room" data-tip="End the room" onClick={() => void act("END")}><Square size={17} aria-hidden /></button>
       </div>}
     </nav>
 
@@ -721,6 +739,34 @@ function peopleOf(room: Room, live: { state: string; members: Array<{ studentId:
 /** One letter for a dock avatar, or a dot when the room has no name to show. */
 function memberInitial(name: unknown) {
   return String(name || "").trim().charAt(0).toUpperCase() || "•";
+}
+
+/**
+ * One control-bar button: the icon in a circle, its name underneath, which is
+ * how Zoom's bar reads at a glance. `active` marks a panel that is open or a
+ * switch that is on; `danger` is the one button that ends the room.
+ */
+function ToolButton(input: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+  active?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+}) {
+  const className = input.danger ? "danger" : input.active ? "is-active" : undefined;
+  return <button
+    type="button"
+    className={className}
+    aria-label={input.label}
+    data-tip={input.label}
+    aria-pressed={input.active}
+    disabled={input.disabled}
+    onClick={input.onClick}
+  >
+    <span className="cinema-tool-icon">{input.children}</span>
+    <span className="cinema-tool-label">{input.label}</span>
+  </button>;
 }
 
 function connectionCopy(state: string) {

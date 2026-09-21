@@ -46,7 +46,8 @@ export function CinemaRecorderPanel({ media, recorder, connected }: { media: Cin
       ? <p className="cinema-note">Recordings are switched off on this deployment. An existing take is still yours to download.</p>
       : <>
         <p className="cinema-note">
-          Records your own microphone{media.cameraOn ? " and camera" : ""} — never the room&apos;s video. Everyone here sees a recording is running.
+          Records your own microphone{media.cameraOn ? " and camera" : ""} — never the room&apos;s video. Everyone here sees a recording is running,
+          and every take is deleted with the room.
         </p>
         <label className="cinema-upload-consent">
           <input type="checkbox" checked={consent} disabled={running} onChange={(event) => setConsent(event.target.checked)} />

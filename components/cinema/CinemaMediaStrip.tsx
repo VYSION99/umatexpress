@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Camera, CameraOff, ChevronRight, Circle, Mic, MicOff, X } from "lucide-react";
 import type { CinemaPresenceMember } from "@/lib/cinema-engine/protocol";
 import { MediaStreamVideo } from "./CinemaMediaVideo";
@@ -18,19 +18,17 @@ const INLINE_TILES = 5;
  * to float over the header, where it hid the one thing the header says; the
  * tile belongs in the room's own flow, next to the faces it belongs with.
  *
- * This is also where audio-only peers get the element they play through.
- * The call's switches live in the rail on a phone; on a desktop, where there
- * is no rail, the room passes them in as `actions` so the strip carries them
- * beside the pictures they turn on.
+ * This is also where audio-only peers get the element they play through. The
+ * strip is pictures only: the call's switches live in the phone's rail and in
+ * the desktop's control bar, so a row of faces never competes with a column of
+ * buttons.
  */
 export function CinemaMediaStrip(input: {
   media: CinemaMedia;
   members: CinemaPresenceMember[];
   selfId: string;
-  /** The call buttons, on surfaces that have no rail to put them in. */
-  actions?: ReactNode;
 }) {
-  const { media, members, selfId, actions } = input;
+  const { media, members, selfId } = input;
   const [more, setMore] = useState(false);
 
   // Escape closes the popup; it is a list of faces, not a modal to get stuck in.
@@ -112,20 +110,19 @@ export function CinemaMediaStrip(input: {
       className={`cinema-strip-more${more ? " is-open" : ""}`}
       aria-expanded={more}
       aria-label={`Show ${overflow.length} more ${overflow.length === 1 ? "camera" : "cameras"}`}
-      title={`${overflow.length} more here`}
+      data-tip={`${overflow.length} more here`}
       onClick={() => setMore((current) => !current)}
     >
       <span>+{overflow.length}</span>
       <ChevronRight size={14} aria-hidden />
     </button>}
-    {actions}
 
     {more && <>
       <button type="button" className="cinema-strip-scrim" aria-label="Close the camera list" onClick={() => setMore(false)} />
       <div className="cinema-strip-pop" role="dialog" aria-label="Everyone else in the room">
         <div className="cinema-strip-pop-head">
           <h3>{overflow.length} more in the room</h3>
-          <button type="button" aria-label="Close the camera list" onClick={() => setMore(false)}><X size={14} aria-hidden /></button>
+          <button type="button" aria-label="Close the camera list" data-tip="Close" onClick={() => setMore(false)}><X size={14} aria-hidden /></button>
         </div>
         <div className="cinema-strip-rail is-pop">{overflow.map(roomTile)}</div>
       </div>

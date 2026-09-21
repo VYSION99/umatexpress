@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Clapperboard, Globe, Link2, Lock, Upload } from "lucide-react";
+import { Clapperboard, Globe, Link2, Lock, Search, Upload } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
+import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
 import { UploadPanel } from "./UploadPanel";
 import "./cinema.css";
 
@@ -49,6 +50,11 @@ export function CinemaLobby() {
   const [roomBusy, setRoomBusy] = useState("");
   const [error, setError] = useState("");
   const [listError, setListError] = useState("");
+  /** The YouTube search: what was typed, the tray it returned, and the video it filled in. */
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<YouTubeSearchResult[]>([]);
+  const [picked, setPicked] = useState<YouTubeSearchResult | null>(null);
+  const [search, setSearch] = useState<{ busy: boolean; error: string; done: boolean }>({ busy: false, error: "", done: false });
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +66,48 @@ export function CinemaLobby() {
   }, []);
 
   useEffect(() => { if (account) queueMicrotask(load); }, [account, load]);
+
+  /** Typing drops the last tray: it belonged to the words that are gone. */
+  const searchFor = (value: string) => {
+    setQuery(value);
+    setResults([]);
+    setSearch({ busy: false, error: "", done: false });
+  };
+
+  // One search per pause in typing, and never two in flight: the moment the
+  // query changes the request before it is aborted, so a slow answer for
+  // half-typed words can never land on top of a faster one for the real ones.
+  useEffect(() => {
+    const text = query.trim();
+    if (!account || text.length < 2) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setSearch({ busy: true, error: "", done: false });
+      fetch(`/api/cinema/youtube?q=${encodeURIComponent(text)}`, { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+        .then(async (response) => {
+          const data = await response.json() as { results?: YouTubeSearchResult[]; error?: string };
+          if (!response.ok) throw new Error(data.error || "That search could not be run.");
+          return data.results || [];
+        })
+        .then((rows) => { setResults(rows); setSearch({ busy: false, error: "", done: true }); })
+        .catch((searchError: unknown) => {
+          if (controller.signal.aborted) return;
+          setResults([]);
+          setSearch({ busy: false, error: searchError instanceof Error ? searchError.message : "That search could not be run.", done: true });
+        });
+    }, 400);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [account, query]);
+
+  /** The tray's one job: put the video in the form below and let the host name the room. */
+  const pick = (result: YouTubeSearchResult) => {
+    setPicked(result);
+    setVideo(`https://www.youtube.com/watch?v=${result.videoId}`);
+    setSource("YOUTUBE");
+    if (!title.trim()) setTitle(result.title.slice(0, 80));
+    setResults([]);
+    setSearch({ busy: false, error: "", done: false });
+  };
 
   // A file makes its room private, and the engine would refuse any other
   // answer; the form shows that rather than pretending the choice is open.
@@ -154,7 +202,40 @@ export function CinemaLobby() {
           <button type="button" className="cinema-text-button" onClick={() => setUploadRoom(null)}>Start a different room</button>.
         </p>
       </section>
-      : <section className="cinema-card">
+      : <>
+      <section className="cinema-card cinema-search-card">
+        <h2>Find a video</h2>
+        <p className="cinema-note">Search YouTube and pick what the room plays — a lecture, a documentary, a film. Your choice lands in the form below.</p>
+        <label className="cinema-search">
+          <Search size={16} aria-hidden />
+          <input
+            value={query}
+            onChange={(event) => searchFor(event.target.value)}
+            placeholder="Search YouTube…"
+            aria-label="Search YouTube for a video"
+          />
+          {search.busy && <span className="cinema-search-busy" role="status">Searching…</span>}
+        </label>
+        {search.error && <p className="cinema-error">{search.error}</p>}
+        {results.length > 0 && <ul className="cinema-search-results">
+          {results.map((result) => <li key={result.videoId}>
+            <button type="button" onClick={() => pick(result)} aria-label={`Use ${result.title}`}>
+              {result.thumbnail
+                ? <img src={result.thumbnail} alt="" loading="lazy" />
+                : <span className="cinema-search-blank" aria-hidden><Clapperboard size={16} /></span>}
+              <span>
+                <strong>{result.title}</strong>
+                {result.channel && <small>{result.channel}</small>}
+              </span>
+            </button>
+          </li>)}
+        </ul>}
+        {search.done && !search.busy && !search.error && !results.length && <p className="cinema-note">
+          Nothing came back for &ldquo;{query.trim()}&rdquo;. Try other words, or paste a link in the form below.
+        </p>}
+        {picked && <p className="cinema-note cinema-sub">Picked <strong>{picked.title}</strong>. Give the room a name below and open it.</p>}
+      </section>
+      <section className="cinema-card">
         <h2>Start a room</h2>
         <p className="cinema-note">
           Attach a YouTube link to watch together, or play a file of your own. A file makes the room invite-only: it is stored privately and only your guest list can watch it.
@@ -226,7 +307,8 @@ export function CinemaLobby() {
             {busy ? "One moment…" : source === "UPLOAD" ? "Create the room" : Number(startIn) > 0 ? "Schedule the room" : "Open the room"}
           </button>
         </div>
-      </section>}
+      </section>
+      </>}
 
     <aside className="cinema-card">
       <h2>Join a room</h2>

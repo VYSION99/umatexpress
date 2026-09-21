@@ -16,6 +16,30 @@
 .cinema-choice{display:flex;flex-wrap:wrap;gap:8px}
 .cinema-create .cinema-choice button{display:inline-flex;align-items:center;gap:6px;border:1px solid #d5ded7;border-radius:12px;background:white;color:#3c5046;padding:10px 12px;font-weight:800;cursor:pointer}
 .cinema-create .cinema-choice button.is-on{background:var(--ui-yellow);border-color:transparent;color:#3a2c05}
+
+/* The lobby's search bar and the tray it drops: one field, then thumbnails
+   big enough to recognise a lecture from. */
+.cinema-search{display:flex;align-items:center;gap:9px;padding:11px 14px;border:1px solid #d8e4dc;border-radius:14px;background:#fbfdfc}
+.cinema-search svg{flex:0 0 auto;color:#5c6d62}
+.cinema-search input{flex:1;min-width:0;border:0;background:transparent;font:700 14px inherit;color:var(--ink);outline:none}
+.cinema-search-busy{flex:0 0 auto;color:#6b7a71;font-size:11px;font-weight:800}
+.cinema-search-results{display:grid;gap:7px;list-style:none;margin:12px 0 0;padding:0}
+.cinema-search-results button{display:grid;grid-template-columns:104px minmax(0,1fr);gap:11px;align-items:center;width:100%;padding:7px;border:1px solid #e0e9e3;border-radius:13px;background:white;text-align:left;cursor:pointer}
+.cinema-search-results button:hover{border-color:#c3d5c9;background:#f7fbf8}
+.cinema-search-results img,.cinema-search-blank{width:104px;height:59px;border-radius:9px;object-fit:cover;background:#eef4f0}
+.cinema-search-blank{display:grid;place-items:center;color:#5c6d62}
+.cinema-search-results strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;font-weight:800;color:var(--ink)}
+.cinema-search-results small{display:block;margin-top:3px;color:#6b7a71;font-size:11px;font-weight:700}
+
+/* Tooltips for the room's actions: the name appears over the button on hover
+   and on keyboard focus, where a native title is too slow to be read. */
+[data-tip]{position:relative}
+[data-tip]::after{content:attr(data-tip);position:absolute;z-index:95;left:50%;bottom:calc(100% + 8px);transform:translate(-50%,5px);opacity:0;pointer-events:none;white-space:nowrap;padding:6px 9px;border-radius:9px;background:#10382a;color:white;font:800 11px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 10px 24px rgba(12,32,24,.3);transition:opacity .12s ease,transform .12s ease}
+[data-tip]:hover::after,[data-tip]:focus-visible::after{opacity:1;transform:translate(-50%,0)}
+/* The rail sits against the right edge, so its tooltip opens to the left. */
+.cinema-rail [data-tip]::after{left:auto;right:calc(100% + 10px);bottom:auto;top:50%;transform:translateY(-50%)}
+.cinema-rail [data-tip]:hover::after,.cinema-rail [data-tip]:focus-visible::after{transform:translateY(-50%)}
+@media (prefers-reduced-motion:reduce){[data-tip]::after{transition:none}}
 .cinema-create .cinema-choice button:disabled{opacity:.55;cursor:not-allowed}
 .cinema-text-button{border:0;background:none;color:var(--green);font:inherit;font-weight:900;padding:0;cursor:pointer;text-decoration:underline}
 .cinema-upload-panel{margin-top:12px}
@@ -142,13 +166,29 @@
 .cinema-strip-tile footer strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900;color:#3c5a4c}
 .cinema-strip-more{display:grid;place-items:center;gap:1px;flex:0 0 auto;align-self:center;width:52px;min-height:56px;border:1px solid #cddbd3;border-radius:14px;background:white;color:var(--green);font:900 12px inherit;cursor:pointer}
 .cinema-strip-more.is-open{background:var(--green);border-color:var(--green);color:white}
-/* The call's buttons ride beside the cameras on a desktop, where there is no
-   rail; under 900px the rail carries them and this column is hidden. */
-.cinema-strip-actions{display:flex;flex-direction:column;gap:7px;flex:0 0 auto;align-self:center}
-.cinema-strip-actions button{display:grid;place-items:center;width:42px;height:42px;border:1px solid #cddbd3;border-radius:999px;background:white;color:var(--green);cursor:pointer;box-shadow:0 8px 20px rgba(18,46,36,.08)}
-.cinema-strip-actions button.is-active{background:var(--green);border-color:var(--green);color:white}
-.cinema-strip-actions button.is-recording{border-color:#a3352a;background:#a3352a;color:white}
-.cinema-strip-actions button:disabled{opacity:.45;cursor:not-allowed}
+/* The desktop's control bar: one row of named round buttons at the foot of the
+   stage, the way a meeting app lays its controls out. Sticky, so a long sidebar
+   can scroll without taking the call with it. */
+.cinema-toolbar{position:sticky;bottom:16px;z-index:22;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:2px;padding:8px 12px 6px;border:1px solid #d8e4dc;border-radius:24px;background:rgba(255,254,250,.97);box-shadow:0 18px 44px rgba(12,32,24,.18);backdrop-filter:blur(12px)}
+.cinema-toolbar-group{display:flex;align-items:center;gap:4px}
+.cinema-toolbar-group+.cinema-toolbar-group{padding-left:10px;border-left:1px solid #e3ebe6}
+.cinema-toolbar button{display:grid;justify-items:center;gap:2px;min-width:44px;padding:4px 3px;border:0;border-radius:16px;background:transparent;color:#3c5a4c;font:800 9.5px/1.2 inherit;cursor:pointer}
+.cinema-toolbar button:hover{background:#eef6f1}
+.cinema-toolbar button:focus-visible{outline:3px solid #d6a72d;outline-offset:2px}
+.cinema-toolbar button:disabled{opacity:.45;cursor:not-allowed}
+.cinema-toolbar button.is-active .cinema-tool-icon{background:var(--green);border-color:var(--green);color:white}
+.cinema-toolbar button.is-recording .cinema-tool-icon{border-color:#a3352a;background:#a3352a;color:white}
+.cinema-toolbar button.danger .cinema-tool-icon{border-color:#a3352a;background:#a3352a;color:white}
+.cinema-tool-icon{display:grid;place-items:center;width:38px;height:38px;border:1px solid #cddbd3;border-radius:999px;background:white;color:var(--green);box-shadow:0 6px 16px rgba(18,46,36,.08)}
+.cinema-tool-label{font-size:9.5px;font-weight:900;color:#4d6357;white-space:nowrap}
+/* A narrower desktop keeps the bar on one row by letting the host's four
+   buttons go back to circles: their names live in the tooltip and the label. */
+@media (max-width:1180px){
+  /* A narrower desktop trades a little sidebar for a control bar on one row. */
+  .cinema-room{grid-template-columns:minmax(0,1fr) 300px}
+  .cinema-toolbar-group.is-host .cinema-tool-label{display:none}
+  .cinema-toolbar-group.is-host button{min-width:0}
+}
 .cinema-strip-scrim{position:fixed;inset:0;z-index:40;border:0;background:transparent;cursor:default}
 .cinema-strip-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:41;width:min(360px,calc(100vw - 24px));max-height:min(420px,58vh);overflow:auto;padding:12px;border:1px solid #dce5de;border-radius:18px;background:#fffefb;box-shadow:0 24px 60px rgba(12,32,24,.28)}
 .cinema-strip-pop-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
@@ -301,11 +341,20 @@
      strip is under the video now rather than floating over the header. */
   .cinema-strip-rail{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   .cinema-strip-rail.is-pop{grid-template-columns:repeat(3,minmax(0,1fr))}
+  /* Fewer faces than a row are centred, not left-aligned: one person in the
+     room should not look like the first cell of a table. */
+  .cinema-strip-rail:not(.is-pop){display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+  .cinema-strip-rail:not(.is-pop) .cinema-strip-tile{flex:0 1 31%}
+  /* The phone's stage is the screen between the letterhead and the dock, so
+     the video and its cameras sit in the middle of it instead of at the top. */
+  .cinema-stage{align-content:center;min-height:min(640px,calc(100dvh - 250px))}
   .cinema-strip-tile{padding:5px}
   .cinema-strip-tile footer{font-size:10px}
   .cinema-strip-more{width:44px}
   .cinema-strip-pop{width:min(320px,calc(100vw - 20px));max-height:56vh}
-  .cinema-strip-actions{display:none}
+  /* The control bar is the desktop's; a phone gets the same actions from the
+     rail above the video and the dock at the foot of the screen. */
+  .cinema-toolbar{display:none}
   .cinema-toasts{width:min(320px,calc(100vw - 76px))}
 
   .cinema-host-card{display:none}
