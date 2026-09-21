@@ -38,10 +38,11 @@ import "./cinema.css";
  * them rather than offering them: no upload, no door switch. A host changes
  * either from the Cinema lobby, where the room list carries both.
  *
- * On a phone the room is the video first: a floating rail at the top right
- * holds the call's buttons (mic, camera, recorder) and opens one panel at a
- * time as a bottom sheet, and a Zoom-shaped dock holds who is here and the
- * host's actions at the bottom. The call and the recorder are owned here
+ * On a phone the room is the video first: the video card carries the call and
+ * the panel buttons as one row of circles (mic, camera, recorder, board,
+ * notes, invite, chat), each opening as a bottom sheet, and a Zoom-shaped dock
+ * holds who is here and the host's actions at the bottom. The call and the
+ * recorder are owned here
  * rather than inside a panel, because a panel that unmounted would take them
  * with it — the mic can be muted, and a take kept running, with no card open.
  */
@@ -321,50 +322,6 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   };
 
   return <div className="cinema-room">
-    <nav className="cinema-rail" aria-label="Room features">
-      {roomMember && <CinemaCallButtons
-        media={media}
-        recorder={recorder}
-        recordOpen={sheet === "record"}
-        onToggleRecord={() => openSheet("record")}
-      />}
-      {account && <button
-        type="button"
-        className={sheet === "board" ? "is-active" : ""}
-        aria-label="AI whiteboard"
-        data-tip="AI whiteboard"
-        aria-expanded={sheet === "board"}
-        aria-controls="cinema-sheet-board"
-        onClick={showBoard}
-      ><Sparkles size={18} aria-hidden /></button>}
-      <button
-        type="button"
-        className={sheet === "notes" ? "is-active" : ""}
-        aria-label="My notes"
-        data-tip="My notes"
-        aria-expanded={sheet === "notes"}
-        aria-controls="cinema-sheet-notes"
-        onClick={() => openSheet("notes")}
-      ><NotebookPen size={18} aria-hidden /></button>
-      <button
-        type="button"
-        className={sheet === "invite" ? "is-active" : ""}
-        aria-label="Invite"
-        data-tip="Invite"
-        aria-expanded={sheet === "invite"}
-        aria-controls="cinema-sheet-invite"
-        onClick={() => openSheet("invite")}
-      ><UserPlus size={18} aria-hidden /></button>
-      <button
-        type="button"
-        className={sheet === "chat" ? "is-active" : ""}
-        aria-label="Room chat"
-        data-tip="Room chat"
-        aria-expanded={sheet === "chat"}
-        aria-controls="cinema-sheet-chat"
-        onClick={() => openSheet("chat")}
-      ><MessagesSquare size={18} aria-hidden /></button>
-    </nav>
     {sheet && <button type="button" className="cinema-sheet-backdrop" aria-label="Close the open panel" onClick={closeSheet} />}
     <div className="cinema-stage">
       <section className="cinema-video">
@@ -384,6 +341,52 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
               : "This room has ended."}
           </span>
         </div>
+        {/* The phone's control row, inside the video card it drives: the
+            desktop toolbar below carries the same actions with their names. */}
+        <nav className="cinema-rail" aria-label="Room features">
+          {roomMember && <CinemaCallButtons
+            media={media}
+            recorder={recorder}
+            recordOpen={sheet === "record"}
+            onToggleRecord={() => openSheet("record")}
+          />}
+          {account && <button
+            type="button"
+            className={sheet === "board" ? "is-active" : ""}
+            aria-label="AI whiteboard"
+            data-tip="AI whiteboard"
+            aria-expanded={sheet === "board"}
+            aria-controls="cinema-sheet-board"
+            onClick={showBoard}
+          ><Sparkles size={18} aria-hidden /></button>}
+          <button
+            type="button"
+            className={sheet === "notes" ? "is-active" : ""}
+            aria-label="My notes"
+            data-tip="My notes"
+            aria-expanded={sheet === "notes"}
+            aria-controls="cinema-sheet-notes"
+            onClick={() => openSheet("notes")}
+          ><NotebookPen size={18} aria-hidden /></button>
+          <button
+            type="button"
+            className={sheet === "invite" ? "is-active" : ""}
+            aria-label="Invite"
+            data-tip="Invite"
+            aria-expanded={sheet === "invite"}
+            aria-controls="cinema-sheet-invite"
+            onClick={() => openSheet("invite")}
+          ><UserPlus size={18} aria-hidden /></button>
+          <button
+            type="button"
+            className={sheet === "chat" ? "is-active" : ""}
+            aria-label="Room chat"
+            data-tip="Room chat"
+            aria-expanded={sheet === "chat"}
+            aria-controls="cinema-sheet-chat"
+            onClick={() => openSheet("chat")}
+          ><MessagesSquare size={18} aria-hidden /></button>
+        </nav>
         {active && sourceType === "YOUTUBE" && videoId
           ? <YouTubePlayer
             videoId={videoId}

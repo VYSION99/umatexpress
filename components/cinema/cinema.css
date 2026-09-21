@@ -36,9 +36,10 @@
 [data-tip]{position:relative}
 [data-tip]::after{content:attr(data-tip);position:absolute;z-index:95;left:50%;bottom:calc(100% + 8px);transform:translate(-50%,5px);opacity:0;pointer-events:none;white-space:nowrap;padding:6px 9px;border-radius:9px;background:#10382a;color:white;font:800 11px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 10px 24px rgba(12,32,24,.3);transition:opacity .12s ease,transform .12s ease}
 [data-tip]:hover::after,[data-tip]:focus-visible::after{opacity:1;transform:translate(-50%,0)}
-/* The rail sits against the right edge, so its tooltip opens to the left. */
-.cinema-rail [data-tip]::after{left:auto;right:calc(100% + 10px);bottom:auto;top:50%;transform:translateY(-50%)}
-.cinema-rail [data-tip]:hover::after,.cinema-rail [data-tip]:focus-visible::after{transform:translateY(-50%)}
+/* The rail's buttons sit in a row inside the video card, so their tooltips
+   open below them rather than over the row above. */
+.cinema-rail [data-tip]::after{bottom:auto;top:calc(100% + 8px);transform:translate(-50%,-5px)}
+.cinema-rail [data-tip]:hover::after,.cinema-rail [data-tip]:focus-visible::after{transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){[data-tip]::after{transition:none}}
 .cinema-create .cinema-choice button:disabled{opacity:.55;cursor:not-allowed}
 .cinema-text-button{border:0;background:none;color:var(--green);font:inherit;font-weight:900;padding:0;cursor:pointer;text-decoration:underline}
@@ -183,7 +184,10 @@
 .cinema-tool-label{font-size:9.5px;font-weight:900;color:#4d6357;white-space:nowrap}
 /* A narrower desktop keeps the bar on one row by letting the host's four
    buttons go back to circles: their names live in the tooltip and the label. */
-@media (max-width:1180px){
+/* The narrow desktop, and only that: below 900px the room is one column and
+   the phone rules below take over — a plain max-width here would win the
+   cascade against them and leave a dead 300px sidebar on the phone. */
+@media (min-width:901px) and (max-width:1180px){
   /* A narrower desktop trades a little sidebar for a control bar on one row. */
   .cinema-room{grid-template-columns:minmax(0,1fr) 300px}
   .cinema-toolbar-group.is-host .cinema-tool-label{display:none}
@@ -304,10 +308,10 @@
 
 /* Mobile room chrome. Above 900px every one of these is display:none and the
    room is the desktop grid it always was; below it the room becomes the video,
-   a floating action rail at the top right and a Zoom-shaped dock at the foot,
-   with one panel open at a time as a bottom sheet. The panels themselves are
-   the same components, mounted either way — the media panel must never unmount,
-   because the call it holds would go with it. */
+   a row of action circles inside the video card and a Zoom-shaped dock at the
+   foot, with one panel open at a time as a bottom sheet. The panels themselves
+   are the same components, mounted either way — the media panel must never
+   unmount, because the call it holds would go with it. */
 .cinema-rail,.cinema-dock,.cinema-sheet-backdrop,.cinema-sheet-close{display:none}
 
 @media (max-width:900px){
@@ -321,19 +325,21 @@
 
   /* The letterhead is the platform's, but on this page it only has to name the
      room: the logo and the title share one row, the subtitle goes, and the
-     right edge is left empty for the camera card that floats over it. The phone
-     then spends its height on the video instead. */
-  .campus-shell:has(.cinema-room) .campus-hero{grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:center;padding:9px 60px 9px 11px;margin-bottom:10px;border-radius:18px}
+     room's own controls live on the video card below it. The phone then spends
+     its height on the video instead. */
+  .campus-shell:has(.cinema-room) .campus-hero{grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:center;padding:9px 11px;margin-bottom:10px;border-radius:18px}
   .campus-shell:has(.cinema-room) .campus-logo{width:52px;height:44px;border-radius:13px}
   .campus-shell:has(.cinema-room) .campus-logo img{max-width:43px;max-height:37px}
   .campus-shell:has(.cinema-room) .campus-hero p{font-size:9px;letter-spacing:.12em}
   .campus-shell:has(.cinema-room) .campus-hero h1{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:2px 0 0;font-size:19px;line-height:1.2;overflow-wrap:anywhere}
   .campus-shell:has(.cinema-room) .campus-hero span{display:none}
 
-  /* The room head is one compact row too: title, chips and hint used to stack
-     into a block taller than the phone's first fold. */
-  .cinema-video-head{gap:3px;padding:0 58px 10px 2px}
-  .cinema-video-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font:750 17px/1.25 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em}
+  /* The room head keeps only the state chips: the letterhead above already
+     names the room, and the hint is desktop prose. The card is the width of
+     the phone now that nothing floats over its right edge. */
+  .cinema-video{padding:12px}
+  .cinema-video-head{gap:3px;padding:0 2px 10px}
+  .cinema-video-head .cinema-video-title strong{display:none}
   .cinema-video-title{flex-wrap:nowrap;gap:7px}
   .cinema-video-head .cinema-video-hint{display:none}
 
@@ -345,17 +351,14 @@
      room should not look like the first cell of a table. */
   .cinema-strip-rail:not(.is-pop){display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
   .cinema-strip-rail:not(.is-pop) .cinema-strip-tile{flex:0 1 31%}
-  /* The phone's stage is the screen between the letterhead and the dock, so
-     the video and its cameras sit in the middle of it instead of at the top. */
-  .cinema-stage{align-content:center;min-height:min(640px,calc(100dvh - 250px))}
   .cinema-strip-tile{padding:5px}
   .cinema-strip-tile footer{font-size:10px}
   .cinema-strip-more{width:44px}
   .cinema-strip-pop{width:min(320px,calc(100vw - 20px));max-height:56vh}
   /* The control bar is the desktop's; a phone gets the same actions from the
-     rail above the video and the dock at the foot of the screen. */
+     rail row on the video card and the dock at the foot of the screen. */
   .cinema-toolbar{display:none}
-  .cinema-toasts{width:min(320px,calc(100vw - 76px))}
+  .cinema-toasts{width:min(320px,calc(100vw - 24px))}
 
   .cinema-host-card{display:none}
   aside.cinema-card.cinema-side{display:contents}
@@ -368,12 +371,15 @@
   .cinema-sheet-backdrop{display:block;position:fixed;inset:0;z-index:68;border:0;background:rgba(12,32,24,.38);cursor:pointer}
   .cinema-sheet-close{display:grid;place-items:center;position:absolute;top:10px;right:10px;width:34px;height:34px;border:0;border-radius:999px;background:#eef4f0;color:#2f4a3e;cursor:pointer}
 
-  /* The rail: one action per panel, in the order a room is usually used. */
-  .cinema-rail{display:flex;flex-direction:column;gap:8px;position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:75}
-  .cinema-rail button{display:grid;place-items:center;width:44px;height:44px;border:1px solid #d8e4dc;border-radius:999px;background:rgba(255,255,255,.95);color:var(--green);box-shadow:0 10px 26px rgba(18,46,36,.18);cursor:pointer}
-  .cinema-rail button.is-active{background:var(--green);border-color:var(--green);color:white}
-  .cinema-rail button.is-recording{background:#a3352a;border-color:#a3352a;color:white}
-  .cinema-rail button:disabled{opacity:.45;cursor:not-allowed}
+  /* The rail: one action per panel, in the order a room is usually used, as a
+     row on the video card itself. It used to be a column fixed to the top
+     right, where it covered the letterhead and the first line of the video. */
+  .cinema-rail{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;margin:0 0 10px}
+  .cinema-rail button{display:grid;place-items:center;flex:0 0 auto;width:40px;height:40px;border:1px solid rgba(233,245,239,.22);border-radius:999px;background:rgba(255,255,255,.1);color:#eaf5ef;cursor:pointer}
+  .cinema-rail button.is-active{background:white;border-color:white;color:var(--green)}
+  .cinema-rail button.is-recording{background:#c0392b;border-color:#c0392b;color:white}
+  .cinema-rail button:disabled{opacity:.4;cursor:not-allowed}
+  .cinema-rail button:focus-visible{outline:3px solid var(--ui-yellow);outline-offset:2px}
 
   /* The dock: who is here on the left, the host's actions on the right. */
   .cinema-dock{display:flex;align-items:center;gap:10px;position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom));z-index:66;padding:9px 12px 6px;border-top:1px solid #dce5de;background:rgba(255,255,255,.97);box-shadow:0 -12px 30px rgba(18,46,36,.12)}
@@ -400,6 +406,17 @@
   .cinema-dock{gap:8px;padding:8px 10px 5px}
   .cinema-dock-actions{gap:6px}
   .cinema-dock-actions button{width:36px;height:36px}
+}
+
+/* A narrow phone keeps all seven circles on one row by tightening them
+   slightly and letting the video card give back the few pixels they need. */
+@media (max-width:400px){
+  .cinema-video{padding:12px 10px}
+  .cinema-rail{gap:4px}
+  .cinema-rail button{width:38px;height:38px}
+}
+@media (max-width:330px){
+  .cinema-rail button{width:34px;height:34px}
 }
 
 @keyframes cinema-sheet-in{

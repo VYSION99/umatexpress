@@ -1658,14 +1658,16 @@ the host's actions (open, lock, mute all, end) in one row, sticky so the
 sidebar can scroll under it. The host's card keeps only what the bar cannot
 say — which door the room has and where it is changed; the strip is pictures
 only. Under 1180px the host's buttons go back to circles so the row stays one
-row, and below 900px the bar disappears entirely: the rail above the video and
-the dock at the foot of the screen carry the same actions on a phone.
+row, and below 900px the bar disappears entirely: the same actions become a row
+of circles on the video card itself — where they cannot cover the letterhead —
+and the dock at the foot of the screen keeps who is here and the host's moves.
 
 Every action in the room names itself on hover and on keyboard focus — one
 tooltip style over the control bar, the rail, the dock and the camera strip,
-where a native `title` is too slow to read. The phone's stage centres what it
-holds between the letterhead and the dock, and a strip with fewer faces than a
-row centres them instead of leaving one person in the first cell of a table.
+where a native `title` is too slow to read. The phone's stage starts directly
+under the letterhead, so the video is the first thing on screen rather than a
+card floating in the middle of one, and a strip with fewer faces than a row
+centres them instead of leaving one person in the first cell of a table.
 
 The lobby also opens with a search bar. A student types what they want to watch
 and picks from a tray of YouTube results — thumbnail, title, channel — which
