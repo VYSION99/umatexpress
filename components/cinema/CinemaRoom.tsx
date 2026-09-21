@@ -7,6 +7,7 @@ import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
+import { CinemaMediaPanel } from "./CinemaMediaPanel";
 import { UploadPanel } from "./UploadPanel";
 import { UploadPlayer } from "./UploadPlayer";
 import { YouTubePlayer } from "./YouTubePlayer";
@@ -184,6 +185,15 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
                 : "This room has ended."}
             </p>}
       </section>
+
+      {active && account && live.members.length > 0 && <CinemaMediaPanel
+        roomId={room.id}
+        selfId={account.id}
+        members={live.members}
+        enabled={live.state === "live"}
+        send={live.send}
+        subscribeSignals={live.subscribeSignals}
+      />}
 
       <section className="cinema-share">
         <strong>Invite</strong>

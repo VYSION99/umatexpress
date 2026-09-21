@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage } from "@/lib/cinema-engine/protocol";
+import type { CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
+
+export type CinemaSignalHandler = (from: string, payload: CinemaSignalPayload) => void;
 
 export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed";
 
@@ -33,6 +35,18 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
   const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  /**
+   * Signaling consumers register here rather than in the socket's state: a
+   * handshake leg is an event, not something to re-render, and the mesh hook
+   * that answers it owns everything else it needs.
+   */
+  const signalHandlersRef = useRef(new Set<CinemaSignalHandler>());
+
+  const subscribeSignals = useCallback((handler: CinemaSignalHandler) => {
+    const handlers = signalHandlersRef.current;
+    handlers.add(handler);
+    return () => { handlers.delete(handler); };
+  }, []);
 
   /** Sends one frame if the room is listening; a closed socket drops it. */
   const send = useCallback((message: CinemaClientMessage) => {
@@ -106,6 +120,11 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (message.type === "state") setPlayback(message.playback);
         // The host finished an upload: the room switches players without a reload.
         if (message.type === "source") setSource({ sourceType: message.sourceType, videoId: message.videoId });
+        // A WebRTC leg for one peer: handed straight to the media hook, which
+        // routes by `from` and never trusts anything else in the payload.
+        if (message.type === "signal" && message.from) {
+          for (const handler of signalHandlersRef.current) handler(message.from, message.payload);
+        }
         if (message.type === "chat") setMessages((current) => {
           const incoming = message.message;
           // A reconnect replays the last fifty, and the page may already have
@@ -150,6 +169,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, members, playback, messages, source, send, sendChat }
-    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, send, sendChat };
+    ? { state, members, playback, messages, source, send, sendChat, subscribeSignals }
+    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, send, sendChat, subscribeSignals };
 }

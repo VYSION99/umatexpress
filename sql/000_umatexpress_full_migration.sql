@@ -1443,3 +1443,34 @@ CREATE INDEX IF NOT EXISTS idx_cinema_uploads_status ON cinema_uploads(status, c
 
 ALTER TABLE cinema_uploads ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
 ALTER TABLE cinema_uploads ADD COLUMN removed_reason TEXT NOT NULL DEFAULT '';
+
+-- 031: cinema recordings — a member's own voice and camera, kept privately.
+--
+-- A recording is not the room's video: it never enters the playback path, it is
+-- listed only to the member who made it, and it is uploaded when the take stops
+-- rather than streamed while it runs. The room is still told a recording is in
+-- progress, which travels over the socket attachment rather than this table.
+--
+-- Retention is the room's own `cinema_retention_hours`: a take expires with the
+-- room's artifacts, and the cleanup job deletes the object first, then the row,
+-- unless the bucket refuses — in which case the next run retries.
+
+CREATE TABLE IF NOT EXISTS cinema_recordings (
+  id               TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL,
+  recorder_id      TEXT NOT NULL,
+  r2_object_key    TEXT NOT NULL,
+  r2_upload_id     TEXT NOT NULL DEFAULT '',
+  mime_type        TEXT NOT NULL DEFAULT '',
+  file_size_bytes  INTEGER NOT NULL DEFAULT 0,
+  duration_seconds INTEGER NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'UPLOADING',
+  expires_at       TEXT NOT NULL DEFAULT '',
+  deleted_at       TEXT NOT NULL DEFAULT '',
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cinema_recordings_session ON cinema_recordings(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cinema_recordings_recorder ON cinema_recordings(recorder_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cinema_recordings_status ON cinema_recordings(status, expires_at ASC);

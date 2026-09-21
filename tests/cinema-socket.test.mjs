@@ -172,7 +172,9 @@ test("a ping is answered, and anything else is refused without touching the room
   await room.webSocketMessage(socket, JSON.stringify({ type: "dance" }));
   assert.equal(socket.sent.at(-1).type, "error");
 
-  await room.webSocketMessage(socket, JSON.stringify({ type: "ping", padding: "x".repeat(5_000) }));
+  // The ceiling moved up for WebRTC handshakes, so a padded frame has to be
+  // past the new 16 KB limit before the object refuses it.
+  await room.webSocketMessage(socket, JSON.stringify({ type: "ping", padding: "x".repeat(20_000) }));
   assert.equal(socket.sent.at(-1).type, "error");
 });
 
@@ -394,4 +396,124 @@ test("a room that woke from hibernation still knows where the video is", async (
   await woken.fetch(upgrade({ "x-cinema-attachment": identity("guest-3", "New Guest") }));
   const newcomer = state.sockets.at(-1);
   assert.deepEqual(newcomer.sent.find((frame) => frame.type === "state").playback, accepted);
+});
+
+// --- M8: microphone, camera and the recorder's announcement ---------------
+
+test("a handshake leg reaches its one target and carries the room's word for the sender", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "signal", to: "guest-2", payload: { kind: "offer", sdp: "v=0\r\nid:offer-1" } }));
+
+  const delivered = last(guestSocket, "signal");
+  assert.equal(delivered.from, "host-1", "the object stamps the sender, never the payload");
+  assert.deepEqual(delivered.payload, { kind: "offer", sdp: "v=0\r\nid:offer-1" });
+  assert.equal(last(hostSocket, "signal"), undefined, "the sender does not receive its own leg");
+  assert.equal(last(hostSocket, "error"), undefined);
+});
+
+test("a signal for somebody who already left is dropped, not answered", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const hostSocket = state.sockets[0];
+  const before = hostSocket.sent.length;
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "signal", to: "ghost-9", payload: { kind: "candidate", candidate: "candidate:1" } }));
+
+  assert.equal(hostSocket.sent.length, before, "a peer race is ordinary; an error would be noise");
+});
+
+test("an SDP offer larger than the old chat cap still crosses the room", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+  const sdp = `v=0\r\n${"a=candidate:".padEnd(6_000, "x")}`;
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "signal", to: "guest-2", payload: { kind: "answer", sdp } }));
+  assert.equal(last(guestSocket, "signal").payload.sdp, sdp);
+});
+
+test("a frame past the socket's ceiling is refused before it is parsed", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const hostSocket = state.sockets[0];
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "signal", to: "guest-2", payload: { kind: "offer", sdp: "x".repeat(20_000) } }));
+  assert.equal(last(hostSocket, "error").message, "That message is too large.");
+  assert.equal(state.sockets.length, 1);
+});
+
+test("a payload that overflows the signal allowance is refused, not relayed", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "signal", to: "guest-2", payload: { kind: "offer", sdp: "x".repeat(13_000) } }));
+  assert.equal(last(guestSocket, "signal"), undefined);
+  assert.equal(last(hostSocket, "error").message, "That is not a message this room understands.");
+});
+
+test("mic and camera switches are written to the attachment and shown in presence", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "media_state", mic: true, camera: false }));
+  const seen = last(hostSocket, "presence").members.find((member) => member.studentId === "guest-2");
+  assert.equal(seen.mic, true);
+  assert.equal(seen.camera, false);
+  // The attachment is the record: presence reads it back after a hibernation.
+  assert.equal(state.sockets[1].attachment.mic, true);
+  assert.equal(state.sockets[1].attachment.camera, false);
+});
+
+test("a recording announcement is broadcast while it runs and cleared when it stops", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "recording_state", active: true }));
+  assert.equal(last(hostSocket, "presence").members.find((member) => member.studentId === "guest-2").recording, true);
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "recording_state", active: false }));
+  assert.equal(last(hostSocket, "presence").members.find((member) => member.studentId === "guest-2").recording, false);
+});
+
+test("a sender cannot claim another member's identity in a signal frame", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [, guestSocket] = state.sockets;          // guest-2
+  const [, secondSocket] = state.sockets;
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-3", "Third") }));
+
+  await room.webSocketMessage(secondSocket, JSON.stringify({
+    type: "signal",
+    from: "host-1",
+    to: "guest-3",
+    payload: { kind: "offer", sdp: "v=0\r\nspoof" },
+  }));
+  const delivered = last(state.sockets[2], "signal");
+  assert.equal(delivered.from, "guest-2", "the attachment decides who spoke");
+  assert.equal(last(guestSocket, "signal"), undefined);
+});
+
+test("a malformed media or recording switch is dropped rather than half-applied", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const hostSocket = state.sockets[0];
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "media_state", mic: "yes", camera: false }));
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "recording_state", active: "on" }));
+
+  assert.equal(state.sockets[0].attachment.mic, false);
+  assert.equal(state.sockets[0].attachment.recording, false);
+  assert.equal(last(hostSocket, "presence").members[0].mic, false);
 });

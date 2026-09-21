@@ -12,14 +12,18 @@
  * imports so the class can be unit-tested with plain doubles.
  */
 import {
+  CINEMA_FRAME_MAX_BYTES,
   CINEMA_PLAYBACK_START,
   parseClientMessage,
   type CinemaChatMessage,
   type CinemaChatMessageInput,
+  type CinemaMediaStateInput,
   type CinemaPlaybackAction,
   type CinemaPlaybackState,
   type CinemaPresenceMember,
+  type CinemaRecordingStateInput,
   type CinemaServerMessage,
+  type CinemaSignalInput,
 } from "@/lib/cinema-engine/protocol";
 import { CINEMA_CHAT_REPLAY_LIMIT, recentCinemaMessages, writeCinemaMessage } from "@/lib/cinema-engine/messages";
 import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
@@ -40,6 +44,10 @@ export type CinemaSocketAttachment = {
   studentId: string;
   displayName: string;
   since: number;
+  /** Media switches live on the attachment so they survive hibernation. */
+  mic: boolean;
+  camera: boolean;
+  recording: boolean;
 };
 
 export type CinemaRoomSocket = {
@@ -66,11 +74,23 @@ const ROOM_KEY = "room";
 const PLAYBACK_KEY = "playback";
 const EMPTY_KEY = "emptySince";
 const CLOSE_NORMAL = 1000;
-/** One frame is tiny; anything larger is not a message this room speaks. */
-const MAX_MESSAGE_BYTES = 4_000;
+/**
+ * The frame ceiling. A handshake leg is a few kilobytes, which is why the old
+ * four-kilobyte cap moved up when M8 began relaying them.
+ */
+const MAX_MESSAGE_BYTES = CINEMA_FRAME_MAX_BYTES;
 /** A person types far slower than this; a script must not be able to flood. */
 const CHAT_LIMIT = 8;
 const CHAT_WINDOW_MS = 10_000;
+/**
+ * A handshake spends a dozen frames and then goes quiet; this bounds a peer
+ * that tries to use the relay as a message bus.
+ */
+const SIGNAL_LIMIT = 300;
+const SIGNAL_WINDOW_MS = 60_000;
+/** Flipping a switch is a person's action, not a stream. */
+const STATE_LIMIT = 60;
+const STATE_WINDOW_MS = 10_000;
 
 function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null {
   const raw = socket.deserializeAttachment();
@@ -81,6 +101,9 @@ function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null
     studentId: value.studentId,
     displayName: typeof value.displayName === "string" ? value.displayName.slice(0, 80) : "",
     since: Number.isFinite(Number(value.since)) ? Number(value.since) : Date.now(),
+    mic: value.mic === true,
+    camera: value.camera === true,
+    recording: value.recording === true,
   };
 }
 
@@ -237,7 +260,82 @@ export class CinemaRoom {
       await this.applyChat(socket, parsed);
       return;
     }
+    if (parsed.type === "signal") {
+      await this.applySignal(socket, parsed);
+      return;
+    }
+    if (parsed.type === "media_state") {
+      await this.applyMediaState(socket, parsed);
+      return;
+    }
+    if (parsed.type === "recording_state") {
+      await this.applyRecordingState(socket, parsed);
+      return;
+    }
     await this.applyPlayback(socket, parsed);
+  }
+
+  /**
+   * One leg of a WebRTC handshake, relayed to the named peer and nobody else.
+   *
+   * The payload is opaque here on purpose: the object checks the sender's
+   * attachment, checks the rate limit, and stamps `from` itself, so a client
+   * cannot speak as somebody else however it fills the envelope. A target that
+   * has already left is a dropped frame rather than an error — a peer losing a
+   * race with a close is ordinary, and the offerer's own connection timeout is
+   * the honest place for it to notice.
+   */
+  private async applySignal(socket: CinemaRoomSocket, frame: CinemaSignalInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment) {
+      this.send(socket, { type: "error", message: "That socket is not attached to a student." });
+      return;
+    }
+    const limited = await rateLimitSubject("cinema-signal", attachment.studentId, { limit: SIGNAL_LIMIT, windowMs: SIGNAL_WINDOW_MS });
+    if (!limited.ok) {
+      this.send(socket, { type: "error", message: "Too many connection frames. Try again in a moment." });
+      return;
+    }
+    if (frame.to === attachment.studentId) return;
+    const target = this.findSocket(frame.to);
+    if (!target) return;
+    this.send(target, { type: "signal", from: attachment.studentId, payload: frame.payload });
+  }
+
+  /** A member's mic and camera switches, written to their attachment. */
+  private async applyMediaState(socket: CinemaRoomSocket, frame: CinemaMediaStateInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment) {
+      this.send(socket, { type: "error", message: "That socket is not attached to a student." });
+      return;
+    }
+    const limited = await rateLimitSubject("cinema-media-state", attachment.studentId, { limit: STATE_LIMIT, windowMs: STATE_WINDOW_MS });
+    if (!limited.ok) return;
+    if (attachment.mic === frame.mic && attachment.camera === frame.camera) return;
+    socket.serializeAttachment({ ...attachment, mic: frame.mic, camera: frame.camera });
+    this.broadcast({ type: "presence", members: await this.presence() });
+  }
+
+  /** The recorder announcing itself; the room is told, and that is the point. */
+  private async applyRecordingState(socket: CinemaRoomSocket, frame: CinemaRecordingStateInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment) {
+      this.send(socket, { type: "error", message: "That socket is not attached to a student." });
+      return;
+    }
+    const limited = await rateLimitSubject("cinema-recording-state", attachment.studentId, { limit: STATE_LIMIT, windowMs: STATE_WINDOW_MS });
+    if (!limited.ok) return;
+    if (attachment.recording === frame.active) return;
+    socket.serializeAttachment({ ...attachment, recording: frame.active });
+    this.broadcast({ type: "presence", members: await this.presence() });
+  }
+
+  /** The one attached socket for a student id, or null after they left. */
+  private findSocket(studentId: string): CinemaRoomSocket | null {
+    for (const socket of this.state.getWebSockets()) {
+      if (readAttachment(socket)?.studentId === studentId) return socket;
+    }
+    return null;
   }
 
   /**
@@ -372,6 +470,9 @@ export class CinemaRoom {
         displayName: attachment.displayName,
         isHost: Boolean(hostStudentId) && attachment.studentId === hostStudentId,
         since: attachment.since,
+        mic: attachment.mic,
+        camera: attachment.camera,
+        recording: attachment.recording,
       });
     }
     return [...members.values()].sort((left, right) => {
@@ -421,6 +522,9 @@ export class CinemaRoom {
       studentId,
       displayName: String(parsed.displayName || "").slice(0, 80),
       since: Date.now(),
+      mic: false,
+      camera: false,
+      recording: false,
     };
   }
 

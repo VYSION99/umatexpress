@@ -14,6 +14,12 @@ export type CinemaPresenceMember = {
   isHost: boolean;
   /** Epoch milliseconds of this connection, not of the first time they joined. */
   since: number;
+  /** Microphone on. The socket attachment is the record, never the sender's frame. */
+  mic: boolean;
+  /** Camera on. Off by default: a study room should not open with a camera prompt. */
+  camera: boolean;
+  /** Recording, announced so the room always knows when one is running. */
+  recording: boolean;
 };
 
 /**
@@ -46,6 +52,17 @@ export type CinemaChatMessage = {
 /** Long enough for a study question, short enough that a socket cannot flood. */
 export const CINEMA_CHAT_MAX_LENGTH = 500;
 
+/**
+ * The largest frame the socket speaks. A chat line is a few hundred bytes; an
+ * SDP offer with its candidates is a few kilobytes, so the old four-kilobyte
+ * ceiling would have dropped the handshake that M8 exists to carry.
+ */
+export const CINEMA_FRAME_MAX_BYTES = 16_384;
+/** One signal payload, bounded separately so a frame cannot be all padding. */
+export const CINEMA_SIGNAL_MAX_BYTES = 12_000;
+/** Long enough for a peer id, short enough that it cannot be a payload. */
+const CINEMA_PEER_ID_MAX_LENGTH = 80;
+
 /** A room nobody has pressed play in yet. */
 export const CINEMA_PLAYBACK_START: CinemaPlaybackState = {
   positionSeconds: 0,
@@ -60,6 +77,7 @@ export type CinemaServerMessage =
   | { type: "chat"; message: CinemaChatMessage }
   | { type: "chat_removed"; id: string }
   | { type: "source"; sourceType: string; videoId: string }
+  | { type: "signal"; from: string; payload: CinemaSignalPayload }
   | { type: "pong"; at: number }
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };
@@ -84,9 +102,68 @@ export type CinemaChatMessageInput = {
   timestamp?: number;
 };
 
-export type CinemaClientMessage = { type: "ping" } | CinemaChatMessageInput | CinemaPlaybackAction;
+/**
+ * One leg of a WebRTC handshake, relayed blind. The room never inspects the
+ * SDP: it checks that the sender is attached and that the target is a member,
+ * rewrites `from` from the attachment, and hands the payload to that one peer.
+ */
+export type CinemaSignalPayload =
+  | { kind: "offer" | "answer"; sdp: string }
+  | { kind: "candidate"; candidate: string; sdpMid?: string; sdpMLineIndex?: number };
+
+export type CinemaSignalInput = {
+  type: "signal";
+  /** The student id this leg is for, as the presence list spelled it. */
+  to: string;
+  payload: CinemaSignalPayload;
+};
+
+/** A member's own microphone and camera switches, echoed to the room. */
+export type CinemaMediaStateInput = {
+  type: "media_state";
+  mic: boolean;
+  camera: boolean;
+};
+
+/**
+ * A recorder announcing itself. The room does not keep the file — it is the
+ * recorder's, uploaded privately — but a person whose voice may be in it has
+ * the right to see that it is running.
+ */
+export type CinemaRecordingStateInput = {
+  type: "recording_state";
+  active: boolean;
+};
+
+export type CinemaClientMessage =
+  | { type: "ping" }
+  | CinemaChatMessageInput
+  | CinemaPlaybackAction
+  | CinemaSignalInput
+  | CinemaMediaStateInput
+  | CinemaRecordingStateInput;
 
 const PLAYBACK_TYPES = new Set<CinemaPlaybackActionType>(["play", "pause", "seek"]);
+const SIGNAL_KINDS = new Set<CinemaSignalPayload["kind"]>(["offer", "answer", "candidate"]);
+
+/** One signaling payload, or null when it is not one this version relays. */
+function parseSignalPayload(value: unknown): CinemaSignalPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as { kind?: unknown; sdp?: unknown; candidate?: unknown; sdpMid?: unknown; sdpMLineIndex?: unknown };
+  const kind = String(source.kind || "") as CinemaSignalPayload["kind"];
+  if (!SIGNAL_KINDS.has(kind)) return null;
+  if (kind === "offer" || kind === "answer") {
+    const sdp = typeof source.sdp === "string" ? source.sdp.trim() : "";
+    if (!sdp || sdp.length > CINEMA_SIGNAL_MAX_BYTES) return null;
+    return { kind, sdp };
+  }
+  const candidate = typeof source.candidate === "string" ? source.candidate.trim() : "";
+  if (!candidate || candidate.length > 2_000) return null;
+  const sdpMid = typeof source.sdpMid === "string" ? source.sdpMid.trim().slice(0, 64) : "";
+  const rawLine = Math.floor(Number(source.sdpMLineIndex));
+  const sdpMLineIndex = Number.isFinite(rawLine) && rawLine >= 0 && rawLine <= 255 ? rawLine : undefined;
+  return { kind: "candidate", candidate, ...(sdpMid ? { sdpMid } : {}), ...(sdpMLineIndex === undefined ? {} : { sdpMLineIndex }) };
+}
 
 /**
  * A frame from the wire, or null when it is not one this version understands.
@@ -94,7 +171,7 @@ const PLAYBACK_TYPES = new Set<CinemaPlaybackActionType>(["play", "pause", "seek
  * rather than a formality: an unknown `type` is dropped, never forwarded.
  */
 export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
-  if (typeof raw !== "string" || raw.length > 4_000) return null;
+  if (typeof raw !== "string" || raw.length > CINEMA_FRAME_MAX_BYTES) return null;
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -127,6 +204,24 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
       ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}),
       ...(Number.isFinite(stateAt) && stateAt > 0 ? { stateAt } : {}),
     };
+  }
+  if (type === "signal") {
+    const source = value as { to?: unknown; payload?: unknown };
+    const to = String(source.to || "").trim();
+    if (!to || to.length > CINEMA_PEER_ID_MAX_LENGTH) return null;
+    const payload = parseSignalPayload(source.payload);
+    if (!payload) return null;
+    return { type: "signal", to, payload };
+  }
+  if (type === "media_state") {
+    const source = value as { mic?: unknown; camera?: unknown };
+    if (typeof source.mic !== "boolean" || typeof source.camera !== "boolean") return null;
+    return { type: "media_state", mic: source.mic, camera: source.camera };
+  }
+  if (type === "recording_state") {
+    const source = value as { active?: unknown };
+    if (typeof source.active !== "boolean") return null;
+    return { type: "recording_state", active: source.active };
   }
   return null;
 }

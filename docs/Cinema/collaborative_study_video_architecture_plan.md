@@ -49,6 +49,34 @@ and the sections after it were rewritten to match.
 4. **Room membership default.** Recommended: any signed-in UMaT student holding
    the link may join, and the host may lock the room. Explicit invite lists are a
    later feature.
+5. **Voice and video transport — decided in M8.** Browsers open one
+   `RTCPeerConnection` per pair and the SDP/ICE legs are relayed blind through
+   the `CinemaRoom` socket, which accepts only a leg from an attached member
+   addressed to another attached member and stamps `from` from the attachment.
+   Cloudflare's TURN service is the relay for networks that cannot meet
+   directly, with short-lived credentials minted server-side; the room falls back
+   to Cloudflare's public STUN server and says "Direct only" when no TURN key
+   exists. An SFU (Cloudflare RealtimeKit) is the later option if a room ever
+   needs more participants than a mesh can carry; the docs' honest ceiling is
+   about four.
+6. **Recorder scope — decided in M8.** The browser's own `MediaRecorder`
+   captures the recorder's microphone, and their camera when it is on. It never
+   captures the room's playback and never another member's track on its own. A
+   take is held in memory while it runs and uploaded when it stops, through the
+   same private multipart transport as a room video; a tab that dies mid-take
+   loses that take, which is the documented trade for never streaming a
+   classroom to the server mid-sentence. A take belongs to its recorder: only
+   they can list, download or delete it.
+7. **Recorder consent and notice — decided in M8.** The recorder confirms a
+   consent checkbox in the panel, and the room is told a recording is running
+   over the socket before the first byte is captured (`recording` on the
+   presence member). The platform does not verify consent; it makes the fact
+   visible to everyone whose voice may be in the file.
+8. **Recording retention — decided in M8.** A take expires with the room's own
+   artifacts: `cinema_retention_hours` after it was made, and it is deleted when
+   the room is deleted. The byte ceiling is the upload ceiling
+   (`cinema_max_upload_bytes`); the length ceiling is its own
+   `cinema_max_recording_minutes` switch, enforced by the client's stopwatch.
 
 ## 0.3 What this revision changes
 
@@ -894,6 +922,12 @@ room that simply expired from counting as a strike against its host.
 | GET | `/api/cinema/sessions/:id/messages` | The last fifty messages |
 | GET | `/api/cinema/sessions/:id/video-url` | Short-lived playback URL (Phase 2) |
 | POST | `/api/cinema/sessions/:id/report` | Report a room, a message or the uploaded video |
+| GET | `/api/cinema/sessions/:id/rtc` | The room's media switches and short-lived ICE servers (M8) |
+| GET/POST/DELETE | `/api/cinema/sessions/:id/recordings` | List, start or give up the caller's own takes (M8) |
+| PUT | `/api/cinema/sessions/:id/recordings/:recordingId/part?n=` | One part of a take (M8) |
+| POST | `/api/cinema/sessions/:id/recordings/:recordingId/complete` | Finish a take; the bucket's report decides (M8) |
+| GET/DELETE | `/api/cinema/recordings/:id` | Read or delete a take, recorder only (M8) |
+| GET | `/api/cinema/recordings/:id/file` | Download the take, streamed by the Worker (M8) |
 
 There is no `/api/auth/login`: the account cookie the rest of the client uses is the
 only credential, and every route above calls the same `requireStudent`-style guard
@@ -918,9 +952,17 @@ wss://umatexpress.acmdevelopers2020.workers.dev/api/cinema/sessions/{session_id}
 Events:
 
 ```text
-client → room   play | pause | seek | chat_message | heartbeat
-room → client   state | play | pause | seek | chat_message | user_joined | user_left | session_ended | error
+client → room   play | pause | seek | chat_message | ping | signal | media_state | recording_state
+room → client   state | chat | chat_removed | source | presence | pong | signal | closed | error
 ```
+
+`signal` is one leg of a WebRTC handshake (`offer`, `answer` or `candidate`)
+addressed to one member; the room relays it blind and stamps `from` from the
+socket attachment, so a client cannot speak as somebody else. `media_state` and
+`recording_state` are the sender's own switches: the object writes them onto the
+attachment and rebroadcasts presence, which is why a mic that is on survives a
+hibernation and is visible to everyone. The frame ceiling is 16 KB so an SDP
+offer with candidates fits; anything larger is refused before parsing.
 
 The socket is same-origin, so the session cookie rides the upgrade and no public
 origin has to be allowed for it. Every frame is JSON with a `type` and a `payload`,
@@ -1368,6 +1410,41 @@ student whose removals reach `cinema_upload_takedown_limit` loses the ability to
 attach new videos while their rooms keep working with YouTube. Retention is not
 a strike: only a moderator's removal sets `removed_by`.
 
+### Phase 3 — voice, video and the recorder
+
+Phase 3 keeps the platform out of the media path. The room's socket already
+carries presence, playback and chat; it now also carries the WebRTC handshake,
+and the audio and video flow between the members' browsers.
+
+| # | Feature | Priority |
+|---|---|---|
+| 1 | `signal`, `media_state` and `recording_state` frames in the room protocol, with a 16 KB frame ceiling for SDP | High | ✅ M8 |
+| 2 | The Durable Object relays a leg only between two attached members and stamps `from` itself; media and recording switches live on the socket attachment and travel in presence | High | ✅ M8 |
+| 3 | `GET /api/cinema/sessions/{id}/rtc`: membership-checked switches plus short-lived TURN credentials, cached per isolate, STUN-only without a key | High | ✅ M8 |
+| 4 | Console switches: `cinema_voice_enabled`, `cinema_camera_enabled`, `cinema_recordings_enabled`, `cinema_max_recording_minutes` | High | ✅ M8 |
+| 5 | Client mesh: one peer connection per member, perfect-negotiation collision handling, tracks acquired only when a switch is pressed and stopped when it is released | High | ✅ M8 |
+| 6 | The panel: mic and camera toggles, self view, per-member tiles with speaking meters, mic/camera/recording badges | High | ✅ M8 |
+| 7 | The recorder: `MediaRecorder` of the recorder's own tracks, consent checkbox, room-wide notice, pause/resume, length cap, multipart upload to the private bucket | High | ✅ M8 |
+| 8 | `cinema_recordings`, recorder-scoped list/read/delete/download, and retention on the cleanup job | High | ✅ M8 |
+| 9 | Tests: relay routing and spoofing, frame ceilings, presence flags, the recording transport, and the TURN fallbacks | High | ✅ M8 |
+
+**Status: M8 delivered.** A member turns on a mic and the room hears it; turns
+on a camera and the room sees it, one peer connection at a time. A stranger with
+a session cookie but no membership is refused at the RTC route, a member cannot
+address a leg to somebody who is not attached, and a frame that claims another
+sender is rewritten from the socket attachment. Nothing opens a device at page
+load: the browser prompts only when a person presses a switch, and releasing the
+switch stops the track so the camera light goes out. The recorder captures the
+recorder's own voice and camera with the room's consent checkbox answered and a
+"Recording" mark broadcast to everyone in the room; the take is uploaded when it
+stops, listed only to its recorder, downloadable only through the Worker, and
+deleted by the same retention job that deletes the room's video — object first,
+row second, with a bucket that refuses leaving the row for the next tick.
+
+The honest limits are recorded here: a mesh carries a handful of participants
+well and a lecture hall not at all; a take lost to a crashed tab is lost; the
+length cap is enforced by the client's clock, and the byte cap by the server.
+
 ### Acceptance for Phase 1
 
 A signed-in student creates a room, shares the link, and a second signed-in student
@@ -1395,11 +1472,14 @@ the same shape the Hostel Finder rollout used.
 | **M5 — the room is watched** ✅ | console service entry, live-room list, end-room action, report queue | a moderator ends a reported room from the console and the sockets close |
 | **M6 — Phase 2 opens** ✅ | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
 | **M7 — the upload is accountable** ✅ | video reports, the moderator's takedown, its audit, and the repeat-uploader limit | a reported upload is deleted from the bucket, the room falls back, and the uploader's next upload is refused |
+| **M8 — the room talks, and takes notes** ✅ | WebRTC mesh over the room socket, TURN credentials, console switches, mic/camera panel, the private recorder and its retention | two browsers exchange audio through a relayed handshake; a take is recorded, uploaded, and deleted by retention with its room |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
 use it. M6 opens Phase 2 with the decision made and the upload path built end to
 end; M7 makes the uploaded video accountable — reportable, removable, audited and
-limited for repeat offenders — and closes Phase 2.
+limited for repeat offenders — and closes Phase 2. M8 opens Phase 3: the room
+speaks, appears, and can record the recorder's own contribution, with the media
+staying out of the platform's hands and the recording's fate tied to its room.
 
 ---
 

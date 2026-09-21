@@ -37,7 +37,11 @@ export type PlatformSettingKey =
   | "cinema_uploads_enabled"
   | "cinema_max_upload_bytes"
   | "cinema_max_upload_minutes"
-  | "cinema_upload_takedown_limit";
+  | "cinema_upload_takedown_limit"
+  | "cinema_voice_enabled"
+  | "cinema_camera_enabled"
+  | "cinema_recordings_enabled"
+  | "cinema_max_recording_minutes";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -138,6 +142,44 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: 2,
     min: 1,
     max: 10,
+  },
+  {
+    key: "cinema_voice_enabled",
+    kind: "toggle",
+    label: "Cinema voice",
+    summary: "Let study-room members talk to each other with their microphone.",
+    detail: "On, a member may turn their mic on and the room relays the WebRTC handshake between browsers. The audio itself is peer to peer — or through Cloudflare's TURN relay when a network cannot connect directly — and the platform never records or stores it. Off hides the mic control and refuses new handshakes; rooms keep working.",
+    env: "CINEMA_VOICE_ENABLED",
+    fallback: true,
+  },
+  {
+    key: "cinema_camera_enabled",
+    kind: "toggle",
+    label: "Cinema camera",
+    summary: "Let study-room members share their camera alongside their voice.",
+    detail: "The switch is separate from voice because a camera is the more sensitive of the two: a deployment can allow talking and still refuse video. Off hides the camera control and stops new camera tracks from being negotiated; an already-negotiated track is left to the browser, which is why turning this off is a policy for new rooms rather than a kill switch for a running call.",
+    env: "CINEMA_CAMERA_ENABLED",
+    fallback: true,
+  },
+  {
+    key: "cinema_recordings_enabled",
+    kind: "toggle",
+    label: "Cinema recordings",
+    summary: "Let a member record their own voice and camera into their private storage.",
+    detail: "A recording captures the recorder's own microphone and camera — never the room's video playback — and the room is shown that one is running before it starts. The file lands in the private bucket, only the recorder can download it, and the same retention window that deletes a room's upload deletes it. Off hides the record control.",
+    env: "CINEMA_RECORDINGS_ENABLED",
+    fallback: true,
+  },
+  {
+    key: "cinema_max_recording_minutes",
+    kind: "number",
+    label: "Cinema recording length",
+    summary: "The longest a single room recording may run, in minutes.",
+    detail: "The client stops the recorder at this length so a forgotten tab cannot fill the bucket or the device's memory. The finished file is bounded by the same size limit as an uploaded video, and a recording longer than the byte cap is refused before any part is sent.",
+    env: "CINEMA_MAX_RECORDING_MINUTES",
+    fallback: 120,
+    min: 1,
+    max: 600,
   },
 ];
 
