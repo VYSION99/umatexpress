@@ -1315,6 +1315,7 @@ CREATE TABLE IF NOT EXISTS cinema_sessions (
   video_id          TEXT NOT NULL DEFAULT '',
   status            TEXT NOT NULL DEFAULT 'CREATED',
   join_locked       INTEGER NOT NULL DEFAULT 0,
+  visibility        TEXT NOT NULL DEFAULT 'PUBLIC',
   started_at        TEXT NOT NULL DEFAULT '',
   ended_at          TEXT NOT NULL DEFAULT '',
   expired_at        TEXT NOT NULL DEFAULT '',
@@ -1511,3 +1512,27 @@ CREATE TABLE IF NOT EXISTS cinema_whiteboards (
 
 CREATE INDEX IF NOT EXISTS idx_cinema_whiteboards_session ON cinema_whiteboards(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cinema_whiteboards_status ON cinema_whiteboards(status, expires_at ASC);
+
+-- 033: cinema private rooms — the host's door, and the guest list.
+--
+-- A room is public until its host says otherwise. A room that receives an
+-- uploaded video closes itself the moment the upload is READY, because an
+-- upload is the host's own copy rather than something a shared link should
+-- open; the host can open the room again from the room's controls.
+--
+-- The invite table is the guest list: a student on it may read and join a
+-- private room, and only the host may add or take back an invitation. An
+-- invitation is stored against a student id that was resolved from a UMaT
+-- email address, so a row can never name an account that does not exist.
+
+ALTER TABLE cinema_sessions ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC';
+
+CREATE TABLE IF NOT EXISTS cinema_room_invites (
+  session_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  invited_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cinema_room_invites_student ON cinema_room_invites(student_id, created_at DESC);

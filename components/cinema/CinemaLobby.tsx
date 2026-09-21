@@ -104,9 +104,12 @@ export function CinemaLobby() {
           {rooms.map((room) => <li className="cinema-room-row" key={room.id}>
             <div>
               <Link href={`/cinema/${room.id}`}>{room.title}</Link>
-              <small>{room.isHost ? "You host this" : `Hosted by ${room.hostName}`} · {room.verifiedCount} {room.verifiedCount === 1 ? "person" : "people"}</small>
+              <small>{room.isHost ? "You host this" : room.isMember ? "You are in this room" : room.invited ? "You are invited" : `Hosted by ${room.hostName}`} · {room.verifiedCount} {room.verifiedCount === 1 ? "person" : "people"}</small>
             </div>
-            <span className={`cinema-chip${room.status === "LIVE" ? " is-live" : room.status === "ENDED" ? " is-ended" : ""}`}>{room.status}</span>
+            <div className="cinema-room-tags">
+              {room.isPrivate && <span className="cinema-chip is-private">Private</span>}
+              <span className={`cinema-chip${room.status === "LIVE" ? " is-live" : room.status === "ENDED" ? " is-ended" : ""}`}>{room.status}</span>
+            </div>
           </li>)}
         </ul>}
     </aside>

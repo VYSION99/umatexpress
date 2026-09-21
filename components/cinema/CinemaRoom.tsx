@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Flag, Lock, LockOpen, Play, Radio, Send, Square } from "lucide-react";
+import { Flag, Globe, Lock, LockOpen, Mail, Play, Radio, Send, Square } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
+import { CinemaInvites } from "./CinemaInvites";
 import { CinemaMediaPanel } from "./CinemaMediaPanel";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
 import { UploadPanel } from "./UploadPanel";
@@ -159,7 +160,11 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     <div className="cinema-stage">
       <section className="cinema-video">
         <div className="cinema-video-head">
-          <strong>{room.title}</strong>
+          <div className="cinema-video-title">
+            <strong>{room.title}</strong>
+            {room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Private</span>}
+            {room.isPrivate && !room.isHost && <span className="cinema-chip is-private"><Mail size={11} aria-hidden /> Invited guest</span>}
+          </div>
           <span>
             {active
               ? "The host's play, pause and seek land on every screen. Anyone in the room can watch; only the host drives."
@@ -218,16 +223,28 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         <div className="cinema-controls">
           {room.status === "CREATED" && <button disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={15} /> Open the room</button>}
           {room.status === "LIVE" && <span className="cinema-chip is-live"><Radio size={12} /> Live</span>}
-          {room.joinLocked
+          {!room.isPrivate && (room.joinLocked
             ? <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("UNLOCK")}><LockOpen size={15} /> Let people in again</button>
-            : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("LOCK")}><Lock size={15} /> Lock the door</button>}
+            : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("LOCK")}><Lock size={15} /> Lock the door</button>)}
+          {room.isPrivate
+            ? <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("PUBLIC")}><Globe size={15} /> Make it public</button>
+            : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("PRIVATE")}><Lock size={15} /> Make it private</button>}
           <button className="danger" disabled={Boolean(busy)} onClick={() => void act("END")}><Square size={15} /> End the room</button>
         </div>
         <p className="cinema-note cinema-sub">
-          {room.joinLocked
-            ? "The door is locked: only students already in can come back in."
-            : "Anyone with the link and a UMaT account can join."}
+          {room.isPrivate
+            ? "The room is private: only your guest list can read or join it. Removing a guest takes back the invitation and the seat. An uploaded video makes the room private automatically."
+            : room.joinLocked
+              ? "The door is locked: only students already in can come back in."
+              : "Anyone with the link and a UMaT account can join."}
         </p>
+        {room.isPrivate && <CinemaInvites
+          roomId={room.id}
+          members={room.participants
+            .filter((member) => member.studentId !== room.hostStudentId)
+            .map((member) => ({ studentId: member.studentId, displayName: member.displayName }))}
+          onChanged={() => void load()}
+        />}
       </section>}
 
       {room.isHost && active && sourceType !== "UPLOAD" && <UploadPanel roomId={room.id} onUploaded={() => void load()} />}
@@ -258,7 +275,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             </ul>
             {live.state !== "live" && <p className="cinema-note cinema-sub">
               {live.state === "closed"
-                ? "The live connection is closed."
+                ? live.closedReason || "The live connection is closed."
                 : "Reconnecting — the list shows the last state the room sent."}
             </p>}
           </>}
@@ -358,9 +375,13 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       <p className="cinema-note cinema-sub">
         {room.status === "ENDED"
           ? "This room has ended. Nobody new can join."
-          : room.joinLocked
-            ? "The host locked the door, so only people already in can come back."
-            : "Everyone with the link and a UMaT account can join. A name leaves the list when that person closes the room."}
+          : room.isPrivate
+            ? room.isHost
+              ? "This room is private. Only your guest list can read it or come in."
+              : "You are an invited guest: you can watch, chat, ask the board and use the media, and the host keeps the room's controls."
+            : room.joinLocked
+              ? "The host locked the door, so only people already in can come back."
+              : "Everyone with the link and a UMaT account can join. A name leaves the list when that person closes the room."}
       </p>
     </aside>
   </div>;

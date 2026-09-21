@@ -1,6 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { readRoom } from "@/lib/cinema-engine/rooms";
-import { cinemaUploadBucket, cinemaUploadForRoom, type CinemaUpload, type CinemaUploadBucket } from "@/lib/cinema-engine/uploads";
+import { isRoomActive, readRoom } from "@/lib/cinema-engine/rooms";
+import { cinemaUploadBucket, cinemaUploadForRoom, cinemaUploadLeaseAccess, type CinemaUpload, type CinemaUploadBucket } from "@/lib/cinema-engine/uploads";
 import { envValue } from "@/lib/runtime-env";
 
 /**
@@ -14,9 +14,11 @@ import { envValue } from "@/lib/runtime-env";
  * exposes the object key.
  *
  * A URL that expires inside a long room is intended: the player asks for a new
- * one when playback stalls, and ending a room stops new leases immediately. An
- * already-issued lease runs out on its own; the docs say so rather than
- * pretending a signed URL can be revoked.
+ * one when playback stalls, and every request re-reads the room and the
+ * student's seat, so a host who removes a guest or ends the room stops the
+ * bytes at the next range rather than at the end of the twenty minutes. The
+ * signature proves the lease was minted for this room; the row proves it is
+ * still true.
  */
 
 export const CINEMA_MEDIA_URL_TTL_SECONDS = 20 * 60;
@@ -205,11 +207,17 @@ export async function readCinemaMediaObject(input: {
   };
 }
 
-/** The upload a token names, refused when the room has moved on to another. */
+/**
+ * The upload a token names, refused when the room has moved on to another —
+ * and refused when the lease was revoked rather than expired. The expiry is in
+ * the signature; the seat and the room's state are re-read here, because a
+ * guest the host removed or a room the host ended must stop at the next range
+ * rather than run out the rest of the lease.
+ */
 export async function cinemaUploadForToken(claims: CinemaMediaClaims) {
-  const upload = await cinemaUploadForRoom(claims.roomId);
-  if (!upload || upload.id !== claims.uploadId || upload.status !== "READY") {
-    throw new CampusEngineError("NOT_FOUND", "That video is no longer available.", 404);
-  }
-  return upload;
+  const access = await cinemaUploadLeaseAccess({ roomId: claims.roomId, uploadId: claims.uploadId, studentId: claims.studentId });
+  if (!access) throw new CampusEngineError("NOT_FOUND", "That video is no longer available.", 404);
+  if (!isRoomActive(access.roomStatus)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+  if (!access.member) throw new CampusEngineError("FORBIDDEN", "You are no longer in this room.", 403);
+  return access.upload;
 }

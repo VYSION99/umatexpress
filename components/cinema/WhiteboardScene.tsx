@@ -8,6 +8,8 @@ import {
   type CinemaWhiteboardLayoutNode,
   type CinemaWhiteboardScene,
 } from "@/lib/cinema-engine/whiteboard-scene";
+import { WhiteboardChart } from "./WhiteboardChart";
+import { WhiteboardGeoGebra } from "./WhiteboardGeoGebra";
 
 /**
  * The renderer: a scene in, pixels out.
@@ -137,6 +139,8 @@ export function WhiteboardScene({ scene }: { scene: CinemaWhiteboardScene }) {
         <figcaption>{block.caption ? `${block.caption} · ` : ""}{block.language}</figcaption>
       </figure>;
       if (block.kind === "diagram") return <DiagramBlock key={index} block={block} />;
+      if (block.kind === "chart") return <WhiteboardChart key={index} block={block} />;
+      if (block.kind === "geo") return <WhiteboardGeoGebra key={index} block={block} />;
       if (block.kind === "steps") return <section key={index} className="wb-steps">
         {block.title && <h4>{block.title}</h4>}
         <ol>

@@ -192,6 +192,44 @@ export async function cinemaUploadForRoom(roomId: string): Promise<CinemaUpload 
   return row ? uploadView(row) : null;
 }
 
+export type CinemaUploadLeaseAccess = {
+  upload: CinemaUpload;
+  roomStatus: string;
+  /** The host counts even if their membership row is somehow missing, as in `roomView`. */
+  member: boolean;
+};
+
+/**
+ * What serving one byte of a playback lease needs: the upload the token names,
+ * the room's state and whether the student still holds a seat — one query,
+ * because a player asks for many ranges and each one pays for this read.
+ *
+ * The signature proves the lease was minted for this room, upload and student;
+ * it cannot prove any of them is still true. This is the read that makes a
+ * removal, a room that ended and a video taken down all take effect at the next
+ * request instead of at the end of the lease's twenty minutes.
+ */
+export async function cinemaUploadLeaseAccess(input: { roomId: string; uploadId: string; studentId: string }): Promise<CinemaUploadLeaseAccess | null> {
+  await requireTurso();
+  await ensureCinemaUploadTables();
+  const row = rowsToObjects(await turso(
+    `SELECT u.*, s.status AS room_status, s.host_student_id AS room_host_student_id, COALESCE(p.student_id,'') AS member_id
+       FROM cinema_uploads u
+       JOIN cinema_sessions s ON s.id = u.session_id
+       LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = ? AND p.left_at = ''
+      WHERE u.session_id = ? AND u.id = ? AND u.status = 'READY' AND s.status <> 'DELETED'
+      LIMIT 1`,
+    [String(input.studentId), String(input.roomId), String(input.uploadId)],
+  ))[0];
+  if (!row) return null;
+  const studentId = String(input.studentId);
+  return {
+    upload: uploadView(row),
+    roomStatus: String(row.room_status || ""),
+    member: studentId === String(row.room_host_student_id || "") || Boolean(row.member_id),
+  };
+}
+
 function uploadExtension(contentType: string) {
   if (contentType === "video/quicktime") return ".mov";
   if (contentType === "video/webm") return ".webm";
@@ -384,14 +422,17 @@ export async function completeCinemaUpload(input: {
     "UPDATE cinema_uploads SET status = 'READY', duration_seconds = ?, updated_at = ? WHERE id = ? AND status = 'UPLOADING'",
     [durationSeconds, stamp, uploadId],
   );
+  // An upload is the host's own copy, so the room closes behind it: the moment
+  // the video is READY the visibility flips to PRIVATE and only the guest list
+  // can walk in. Opening the room again is the host's own call in the controls.
   await turso(
-    "UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = ?, updated_at = ? WHERE id = ?",
+    "UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = ?, visibility = 'PRIVATE', updated_at = ? WHERE id = ?",
     [uploadId, stamp, String(input.roomId)],
   );
   // The room's screens learn about the new source on the socket; the row is the
   // record, and a reconnect picks it up from the snapshot as it always did.
   await announceCinemaSource(String(input.roomId), { sourceType: "UPLOAD", videoId: uploadId });
-  logEvent("info", "cinema_upload_ready", { roomId: String(input.roomId), uploadId, sizeBytes, durationSeconds });
+  logEvent("info", "cinema_upload_ready", { roomId: String(input.roomId), uploadId, sizeBytes, durationSeconds, visibility: "PRIVATE" });
   await incrementMetric("cinema_uploads_ready");
   const fresh = await cinemaUploadForRoom(String(input.roomId));
   return { upload: fresh || uploadView({ ...row, status: "READY", duration_seconds: durationSeconds, updated_at: stamp }), durationSeconds };

@@ -129,6 +129,7 @@ export class CinemaRoom {
     if (url.pathname === "/whiteboard") return this.publishWhiteboard(request);
     if (url.pathname === "/whiteboard-remove") return this.removeWhiteboard(request);
     if (url.pathname === "/presence") return this.presenceResponse();
+    if (url.pathname === "/remove-member") return this.removeMember(request);
     return new Response("Not found", { status: 404 });
   }
 
@@ -266,6 +267,45 @@ export class CinemaRoom {
       } catch { /* an already-closing socket is not an error worth surfacing */ }
     }
     return jsonResponse({ ok: true, closed: true }, 200);
+  }
+
+  /**
+   * The host removed a guest over HTTP. The membership row is already gone, so
+   * this is the part the database cannot do: close the sockets that still
+   * belong to that student, which is what stops a removed guest from hearing
+   * the room until their next reconnection. Best-effort like every other nudge
+   * — a socket that fails to close still cannot rejoin, because the route
+   * checks membership again before it upgrades anything.
+   */
+  private async removeMember(request: Request): Promise<Response> {
+    let studentId = "";
+    try {
+      const body = await request.json() as { studentId?: unknown };
+      studentId = typeof body?.studentId === "string" ? body.studentId.trim() : "";
+    } catch { /* a body that is not JSON removes nobody */ }
+    if (!studentId) return jsonResponse({ error: "Which guest?" }, 400);
+    if (studentId === await this.hostId()) {
+      return jsonResponse({ error: "The host is not a guest of their own room." }, 400);
+    }
+    // The runtime's close handler updates presence; broadcasting here as well
+    // means the list is right in every runtime, and an identical frame is
+    // harmless to a client that has already applied it.
+    const remaining = (await this.presence()).filter((member) => member.studentId !== studentId);
+    this.broadcast({ type: "presence", members: remaining });
+    let closed = 0;
+    for (const socket of this.state.getWebSockets()) {
+      const attachment = readAttachment(socket);
+      if (!attachment || attachment.studentId !== studentId) continue;
+      // The frame goes last so the guest's screen stops reconnecting and can
+      // say why; the close then makes it true. A client that only saw the
+      // close would retry a socket the Worker will keep refusing.
+      this.send(socket, { type: "closed", reason: "The host removed you from this room." });
+      try {
+        socket.close(CLOSE_NORMAL, "The host removed you from this room");
+        closed += 1;
+      } catch { /* an already-closing socket is not an error worth surfacing */ }
+    }
+    return jsonResponse({ ok: true, closed }, 200);
   }
 
   async webSocketMessage(socket: CinemaRoomSocket, message: unknown): Promise<void> {

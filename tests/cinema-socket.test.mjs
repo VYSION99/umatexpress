@@ -219,6 +219,38 @@ test("a removed message is taken off every open screen", async () => {
   assert.equal(hostSocket.sent.at(-1).type, "chat_removed");
 });
 
+test("a removed guest is closed and dropped from presence, and never the host", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  const noGuest = await room.fetch(new Request("https://cinema-room/remove-member", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  }));
+  assert.equal(noGuest.status, 400, "a removal has to name the guest");
+
+  const host = await room.fetch(new Request("https://cinema-room/remove-member", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ studentId: "host-1" }),
+  }));
+  assert.equal(host.status, 400, "the host is not a guest of their own room");
+
+  const response = await room.fetch(new Request("https://cinema-room/remove-member", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ studentId: "guest-2" }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(await response.text()), { ok: true, closed: 1 });
+  assert.deepEqual(guestSocket.sent.at(-1), { type: "closed", reason: "The host removed you from this room." });
+  assert.deepEqual(guestSocket.closed, { code: 1000, reason: "The host removed you from this room" });
+  assert.deepEqual(last(hostSocket, "presence").members.map((member) => member.studentId), ["host-1"], "the room stops listing the removed guest");
+});
+
 test("a finished upload switches every open screen, and the snapshot after it", async () => {
   const { room, state } = await newRoom();
   await room.fetch(upgrade());

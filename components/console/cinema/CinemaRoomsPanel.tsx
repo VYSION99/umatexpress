@@ -10,6 +10,7 @@ type ConsoleRoom = {
   hostName: string;
   status: string;
   joinLocked: boolean;
+  visibility: string;
   memberCount: number;
   startedAt: string;
   endedAt: string;
@@ -116,7 +117,7 @@ export function CinemaRoomsPanel() {
           {rooms.map((room) => <tr key={room.id}>
             <td><strong>{room.title}</strong><small>{room.id.slice(0, 8)} · {when(room.createdAt)}</small></td>
             <td><strong>{room.hostName}</strong><small>{room.hostStudentId.slice(0, 8)}</small></td>
-            <td><Users size={13} aria-hidden /> {room.memberCount}{room.joinLocked ? " · locked" : ""}</td>
+            <td><Users size={13} aria-hidden /> {room.memberCount}{room.joinLocked ? " · locked" : ""}{room.visibility === "PRIVATE" ? " · private" : ""}</td>
             <td><span className={`console-badge console-badge-${statusBadge(room.status)}`}>{room.status}</span></td>
             <td>{when(room.startedAt || room.createdAt)}{room.endedAt ? <small>ended {when(room.endedAt)}</small> : null}</td>
             <td><div className="console-row-actions">

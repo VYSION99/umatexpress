@@ -109,6 +109,39 @@ and the sections after it were rewritten to match.
     `cinema_whiteboard_enabled` (default on) and
     `cinema_whiteboard_generations_per_hour` (default 12, per student) are
     console settings, because every board is a model call billed to this account.
+14. **Private rooms — decided in M10.** A room is `PUBLIC` until its host says
+    otherwise, and the host may flip it at any time from the room's controls.
+    A room that receives an uploaded video flips itself to `PRIVATE` the moment
+    the upload is READY: an upload is the host's own copy, and a share link that
+    once pointed at a YouTube video should not quietly open it to everyone the
+    link reaches. `cinema_room_invites` is the guest list; an invitation is
+    created from a `@st.umat.edu.gh` address that resolves to a real account, so
+    a row can never name a student who does not exist. A private room refuses
+    the read and the join of anyone not on the list with an explicit 403 rather
+    than a 404, because the host has already shared the link by the time they
+    need to say "invite only". Members keep their seats when the door closes;
+    only the people outside it changes. The host also owns the exit: removing a
+    guest deletes the invitation and the membership together and closes that
+    guest's sockets, so removal is immediate rather than a note for the next
+    reconnection, and a member who was never invited can be removed the same
+    way. Removal also reaches playback: the media route re-reads the student's
+    seat on every range, so a lease signed before the removal is refused at its
+    next request rather than serving out its twenty minutes. The host's lock is
+    a door in its own right: an invitation never walks
+    past it, so a locked private room admits nobody who is not already in. The
+    console still sees every room.
+15. **Charts and interactive graphs — decided in M10.** Plotly draws the data
+    and GeoGebra draws the function, and the model drives neither: a `chart`
+    block carries a chart kind, labels and at most four series of two hundred
+    points, and a `geo` block carries at most twelve GeoGebra commands. A GeoGebra
+    command is refused unless it defines a function (`f(x)=…`), a point or a
+    slider, or calls a command on a fixed allow-list, and the characters that
+    could chain a second statement are refused outright — the allow-list is
+    enforced by `geoCommandAllowed` on the server and quoted in the system
+    prompt, so the model is told the same rule the parser applies. Plotly is a
+    dynamic import inside the chart component, so its bundle is fetched only by
+    a board that has a chart. Both libraries are presentation only: the scene
+    never contains a trace option, a callback or a URL.
 
 ## 0.3 What this revision changes
 
@@ -420,7 +453,7 @@ Video player requests temporary object
 - R2 bucket remains private.
 - No permanent public video URLs.
 - Signed URLs should be short-lived.
-- Membership is checked before issuing a URL.
+- Membership is checked before issuing a URL, and re-checked on every byte request.
 - Expired sessions cannot obtain new playback URLs.
 - Direct video access is not exposed through the application's public API.
 - WebSocket connections must also verify session membership.
@@ -437,8 +470,12 @@ to the account and the room, valid for a minute, and the socket carries that.
 **Playback URL refresh.** A signed URL that lives 15–30 minutes expires inside a
 two-hour room, which is intended: the player asks `GET
 /api/cinema/sessions/{id}/video-url` again when a range request is refused, and the
-room is none the wiser. The signed URL is a lease, not a session credential, which
-is also why ending a room does not pretend to revoke one already issued (§9).
+room is none the wiser. The signed URL is a lease, not a session credential, and
+the signature is read together with the row on every request: the room's status
+and the student's seat are re-checked at each range, so a host who removes a
+guest or ends the room withdraws playback at the next request rather than at the
+end of the lease. What the browser has already buffered is beyond anyone's reach;
+nothing after it is served.
 
 ---
 
@@ -516,7 +553,7 @@ Session → ended
        ↓
 Stop issuing new signed URLs
        ↓
-Close the socket, revoke nothing that was already issued
+Close the socket; the next media request re-reads the room and is refused
        ↓
 Retention window passes (EXPIRED)
        ↓
@@ -571,7 +608,12 @@ When the session ends, the application should immediately:
 6. Remove temporary database metadata.
 7. Record the deletion in the audit log.
 
-Short-lived signed URLs naturally reduce the lifetime of existing access. The application should not claim that an already-issued URL can be cryptographically revoked unless the architecture actually provides that capability.
+Short-lived signed URLs reduce the lifetime of existing access, and the media
+route re-reads the room and the caller's seat on every request, so ending a
+session, removing a guest or taking the video down withdraws an already-issued
+lease at its next range request. Only bytes the player has already buffered
+outlive the decision; the application claims revocation only because it performs
+it.
 
 ---
 
@@ -948,7 +990,7 @@ room that simply expired from counting as a strike against its host.
 |---|---|---|
 | POST | `/api/cinema/sessions` | Create a room |
 | GET | `/api/cinema/sessions/:id` | Read a room — the public fields only |
-| PATCH | `/api/cinema/sessions/:id` | Open, end, lock, retitle (host only) |
+| PATCH | `/api/cinema/sessions/:id` | Open, end, lock, retitle, make private or public (host only) |
 | POST | `/api/cinema/sessions/:id/join` | Join, which writes the membership row |
 | POST | `/api/cinema/sessions/:id/ws-ticket` | Mint a single-use socket ticket (§6) |
 | GET | `/api/cinema/sessions/:id/messages` | The last fifty messages |
@@ -961,12 +1003,16 @@ room that simply expired from counting as a strike against its host.
 | GET/DELETE | `/api/cinema/recordings/:id` | Read or delete a take, recorder only (M8) |
 | GET | `/api/cinema/recordings/:id/file` | Download the take, streamed by the Worker (M8) |
 | GET/POST/DELETE | `/api/cinema/sessions/:id/whiteboard` | List the room's AI boards, ask for one, or clear one (M9) |
+| GET/POST/DELETE | `/api/cinema/sessions/:id/invites` | The private room's guest list: read it, invite a UMaT address, take an invitation back (M10) |
+| DELETE | `/api/cinema/sessions/:id/guests` | Remove a guest from the room itself: invitation, membership and sockets together (M10) |
 
 There is no `/api/auth/login`: the account cookie the rest of the client uses is the
 only credential, and every route above calls the same `requireStudent`-style guard
 that `POST /api/payments/initialize` does. A route that answers with a room also
 answers 404 for a room whose status the caller may not see — the same "not yours is
-not there" rule the organizer trips follow.
+not there" rule the organizer trips follow. A private room is the one deliberate
+exception: it answers 403 with "This room is private", because the host shared the
+link before the door closed and a 404 would read as a broken link.
 
 Staff routes follow the house pattern instead of a second surface:
 
@@ -1429,8 +1475,10 @@ of the finished object matches the size the upload declared. The object's MP4
 header gives the server its length when the container puts it there — a WebM
 file, or an MP4 indexed at the end, stores an unknown length rather than a
 client's claim. A member asks for a playback lease that lives twenty minutes and
-is reissued when a range request is refused; the media route speaks byte ranges
-so a player can scrub, and the object key never appears in a URL. When a room
+is reissued when a range request is refused; every range re-reads the room and
+the member's seat, so a host's removal or a room that ended stops the bytes at
+the next request. The media route speaks byte ranges so a player can scrub, and
+the object key never appears in a URL. When a room
 expires, cleanup deletes the object before it marks the row DELETED, and a
 bucket that refuses leaves the room EXPIRED for the next tick rather than
 promising a deletion it did not make. The deploy script adds the bucket's own
@@ -1507,6 +1555,30 @@ by the same retention job and room deletion that already handle chat, video and
 recordings. The pace is a console setting: each board is a model call, and the
 per-student hourly limit says so.
 
+**Status: M10 delivered.** The room can now be closed and the board can now
+plot. A host flips a room between public and private, and a private room answers
+the read and the join of anyone not on `cinema_room_invites` with a 403 instead
+of the 404 the rest of the surface uses for "not yours is not there" — the host
+has already shared the link, so the door says what it is. Invitations are made
+from `@st.umat.edu.gh` addresses that resolve to real accounts, and the upload
+path flips a room to private the moment a video is READY, because an upload is
+the host's own copy. On the board, two block kinds arrived: `chart`, whose
+series the engine bounds to four series of two hundred finite points and which
+Plotly draws from a dynamic import, and `geo`, whose at-most-twelve commands are
+checked one by one against a closed allow-list before GeoGebra's apps API sees
+them. The model still describes and the client still draws: a chart block has no
+field for a Plotly option, and a geo command that is not an assignment or an
+allowed maths call is dropped exactly like an edge to a node that does not
+exist. The privilege line is enforced by the engine rather than by the screen:
+every host verb — open, end, lock, retitle, private/public, upload, invite,
+remove — answers an invited member with the same 403 it answers a stranger, and
+the guest keeps watching, chatting, asking the board and using the media. The
+exit is as strict as the entrance: removal deletes the seat and the invitation,
+the Durable Object tells the guest's sockets why they are closing so the screen
+stops reconnecting to a room that will not have it, and the playback lease dies
+at the next range because the media route re-reads the seat rather than trusting
+the signature alone.
+
 ### Acceptance for Phase 1
 
 A signed-in student creates a room, shares the link, and a second signed-in student
@@ -1536,6 +1608,7 @@ the same shape the Hostel Finder rollout used.
 | **M7 — the upload is accountable** ✅ | video reports, the moderator's takedown, its audit, and the repeat-uploader limit | a reported upload is deleted from the bucket, the room falls back, and the uploader's next upload is refused |
 | **M8 — the room talks, and takes notes** ✅ | WebRTC mesh over the room socket, TURN credentials, console switches, mic/camera panel, the private recorder and its retention | two browsers exchange audio through a relayed handshake; a take is recorded, uploaded, and deleted by retention with its room |
 | **M9 — the room explains itself** ✅ | the session-aware AI whiteboard: bounded scenes, the dependency-free renderer, `cinema_whiteboards`, socket broadcast and the two console switches | a member asks a question mid-video and every open screen draws the diagram; a prose answer still lands; a cleared board leaves every screen |
+| **M10 — the room closes, and the board gets graphs** ✅ | `visibility` and `cinema_room_invites`, the host's private/public control, the guest list and its route, the upload flipping its room private, plus `chart` blocks drawn by Plotly and `geo` blocks run by a GeoGebra allow-list | a host makes a room private and a stranger with the link is refused while an invited address walks in; a finished upload closes the room; a chart and a graph both survive the parser, the row and a reload |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
 use it. M6 opens Phase 2 with the decision made and the upload path built end to
@@ -1547,6 +1620,13 @@ M9 keeps Phase 3 open and makes the room able to explain itself: a question
 asked in the room is answered from the room's own context, as a scene the client
 draws rather than markup it trusts, and the board belongs to the room's record —
 retained, broadcast, clearable, and paced by a console setting.
+M10 is the first milestone with no video in the decision at all: it is about who
+the room is for and what the board can do. A room can now be a guest list rather
+than a link, and an upload closes the room behind itself; the board can plot the
+data it explains and hand the room a graph it can drag. Both additions are bounded
+by the same rule M9 set — the model describes, the engine validates, the client
+draws — so a new kind of block widened the parser's allow-list rather than its
+trust.
 
 ---
 

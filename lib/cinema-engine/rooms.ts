@@ -1,5 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { closeCinemaRoom } from "@/lib/cinema-engine/realtime";
+import { closeCinemaRoom, removeCinemaMemberFromRoom } from "@/lib/cinema-engine/realtime";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { consoleAudit } from "@/lib/console-audit";
 import { incrementMetric, logEvent } from "@/lib/observability";
@@ -19,13 +19,16 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * membership row rather than being joined in from the account on every read.
  */
 
-export const CINEMA_SCHEMA_VERSION = "026_cinema_foundation";
+export const CINEMA_SCHEMA_VERSION = "033_cinema_private_rooms";
 
 export const CINEMA_ROOM_STATUSES = ["CREATED", "LIVE", "ENDED", "EXPIRED", "DELETED"] as const;
 export type CinemaRoomStatus = (typeof CINEMA_ROOM_STATUSES)[number];
 
 export const CINEMA_SOURCE_TYPES = ["YOUTUBE", "UPLOAD"] as const;
 export type CinemaSourceType = (typeof CINEMA_SOURCE_TYPES)[number];
+
+export const CINEMA_ROOM_VISIBILITIES = ["PUBLIC", "PRIVATE"] as const;
+export type CinemaRoomVisibility = (typeof CINEMA_ROOM_VISIBILITIES)[number];
 
 /** Long enough for a topic, short enough for a card and a share message. */
 export const CINEMA_TITLE_MAX = 80;
@@ -43,6 +46,7 @@ const CINEMA_SCHEMA_STATEMENTS = [
     video_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'CREATED',
     join_locked INTEGER NOT NULL DEFAULT 0,
+    visibility TEXT NOT NULL DEFAULT 'PUBLIC',
     started_at TEXT NOT NULL DEFAULT '',
     ended_at TEXT NOT NULL DEFAULT '',
     expired_at TEXT NOT NULL DEFAULT '',
@@ -63,6 +67,17 @@ const CINEMA_SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cinema_participants_session ON cinema_participants(session_id, joined_at)`,
   `CREATE INDEX IF NOT EXISTS idx_cinema_participants_student ON cinema_participants(student_id, joined_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS cinema_room_invites (
+    session_id TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    invited_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, student_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cinema_room_invites_student ON cinema_room_invites(student_id, created_at DESC)`,
+  // Last, because a database created from the statement above already has the
+  // column and `runSchemaPass` tolerates exactly this duplicate-column reply.
+  `ALTER TABLE cinema_sessions ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC'`,
 ];
 
 let cinemaTablesReady: Promise<void> | null = null;
@@ -100,8 +115,12 @@ export type CinemaRoom = {
   videoId: string;
   status: CinemaRoomStatus;
   joinLocked: boolean;
+  visibility: CinemaRoomVisibility;
+  isPrivate: boolean;
   isHost: boolean;
   isMember: boolean;
+  /** Whether this student holds an invitation to a private room. */
+  invited: boolean;
   /** Whether a student who is not a member yet may join right now. */
   joinable: boolean;
   verifiedCount: number;
@@ -143,7 +162,7 @@ function participantView(row: CinemaRoomRow): CinemaParticipant {
  * One room as a student sees it. Membership is an argument rather than a second
  * query, because every caller already had to know it to get here.
  */
-export function roomView(row: CinemaRoomRow, input: { studentId?: string; participants?: CinemaRoomRow[]; memberCount?: number } = {}): CinemaRoom {
+export function roomView(row: CinemaRoomRow, input: { studentId?: string; participants?: CinemaRoomRow[]; memberCount?: number; invited?: boolean } = {}): CinemaRoom {
   const participants = (input.participants || []).map(participantView);
   const studentId = String(input.studentId || "");
   const hostStudentId = String(row.host_student_id || "");
@@ -154,6 +173,9 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
   const host = participants.find((member) => member.studentId === hostStudentId);
   const status = String(row.status || "CREATED") as CinemaRoomStatus;
   const joinLocked = Number(row.join_locked || 0) === 1;
+  const visibility = (String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE" ? "PRIVATE" : "PUBLIC") as CinemaRoomVisibility;
+  const isPrivate = visibility === "PRIVATE";
+  const invited = input.invited === true;
   return {
     id: String(row.id || ""),
     hostStudentId,
@@ -163,9 +185,14 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
     videoId: String(row.video_id || ""),
     status,
     joinLocked,
+    visibility,
+    isPrivate,
     isHost: Boolean(studentId) && studentId === hostStudentId,
     isMember,
-    joinable: isRoomActive(status) && (!joinLocked || isMember),
+    invited,
+    // Two doors, and a guest has to open both: the host's lock is a door in
+    // its own right, so an invitation never walks past it.
+    joinable: isRoomActive(status) && (isMember || (!joinLocked && (invited || !isPrivate))),
     verifiedCount: input.memberCount ?? participants.filter((member) => !member.leftAt).length,
     participants,
     startedAt: String(row.started_at || ""),
@@ -175,7 +202,7 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
   };
 }
 
-const ROOM_COLUMNS = "id,host_student_id,title,video_source_type,video_id,status,join_locked,started_at,ended_at,created_at,updated_at";
+const ROOM_COLUMNS = "id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,started_at,ended_at,created_at,updated_at";
 
 async function membersOf(sessionIds: string[]): Promise<Map<string, CinemaRoomRow[]>> {
   const grouped = new Map<string, CinemaRoomRow[]>();
@@ -209,6 +236,22 @@ async function memberCounts(sessionIds: string[]): Promise<Map<string, number>> 
   ));
   for (const row of rows) counts.set(String(row.session_id || ""), Number(row.members || 0));
   return counts;
+}
+
+/** A private room, without a second read: the column is on every room row. */
+function isPrivateRow(row: CinemaRoomRow): boolean {
+  return String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE";
+}
+
+/** Whether one student holds an invitation to one room. */
+async function isInvited(sessionId: string, studentId: string): Promise<boolean> {
+  const student = String(studentId || "");
+  if (!student) return false;
+  const rows = rowsToObjects(await turso(
+    "SELECT student_id FROM cinema_room_invites WHERE session_id = ? AND student_id = ? LIMIT 1",
+    [String(sessionId), student],
+  ));
+  return rows.length > 0;
 }
 
 async function roomRow(sessionId: string): Promise<CinemaRoomRow | undefined> {
@@ -269,7 +312,19 @@ export async function readRoom(input: { id: string; studentId?: string }) {
   await ensureCinemaTables();
   const row = await requireVisibleRoom(input.id);
   const members = (await membersOf([String(row.id)])).get(String(row.id)) || [];
-  return roomView(row, { studentId: input.studentId, participants: members });
+  const studentId = String(input.studentId || "");
+  const isMember = Boolean(studentId) && (studentId === String(row.host_student_id || "")
+    || members.some((member) => String(member.student_id || "") === studentId));
+  const invited = isPrivateRow(row) && !isMember
+    ? await isInvited(String(row.id), studentId)
+    : false;
+  // A private room is readable only by its members and its guest list. The
+  // refusal is a 403 rather than the usual 404, because the host shared the
+  // link before the door closed and "private" is the honest answer.
+  if (isPrivateRow(row) && !isMember && !invited) {
+    throw new CampusEngineError("FORBIDDEN", "This room is private. Ask the host for an invite.", 403);
+  }
+  return roomView(row, { studentId: input.studentId, participants: members, invited });
 }
 
 /** The lobby: rooms this student hosts or has joined, newest first. */
@@ -277,20 +332,25 @@ export async function listMyRooms(studentId: string) {
   await requireTurso();
   await ensureCinemaTables();
   const rows = rowsToObjects(await turso(
-    `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.started_at,s.ended_at,s.created_at,s.updated_at
+    `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.visibility,
+            CASE WHEN i.student_id IS NULL THEN 0 ELSE 1 END AS invited,
+            s.started_at,s.ended_at,s.created_at,s.updated_at
        FROM cinema_sessions s
-       JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = ?
-      WHERE s.status <> 'DELETED'
+       LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = ?
+       LEFT JOIN cinema_room_invites i ON i.session_id = s.id AND i.student_id = ?
+      WHERE s.status <> 'DELETED' AND (p.student_id IS NOT NULL OR i.student_id IS NOT NULL)
       ORDER BY s.created_at DESC LIMIT ${LIST_LIMIT}`,
-    [String(studentId)],
+    [String(studentId), String(studentId)],
   ));
   const counts = await memberCounts(rows.map((row) => String(row.id || "")));
-  // Every room here is in the list because this student is in it — that is what
-  // the join proved — so the names are not needed to render the lobby.
+  // Every room here is in the list because this student joined it or was
+  // invited to it, so the names are not needed to render the lobby — only the
+  // count, which the grouped query already returned.
   return rows.map((row) => roomView(row, {
     studentId,
     participants: [],
     memberCount: counts.get(String(row.id || "")) ?? 0,
+    invited: Number(row.invited || 0) === 1,
   }));
 }
 
@@ -306,12 +366,19 @@ export async function joinRoom(input: { id: string; student: { id: string; name?
   const row = await requireVisibleRoom(input.id);
   const members = (await membersOf([String(row.id)])).get(String(row.id)) || [];
   const isMember = members.some((member) => String(member.student_id || "") === studentId);
+  let invited = false;
 
   // An ended room admits nobody, member or not: the page says the room has
   // ended, and a join that quietly succeeded would contradict it.
   if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
   if (!isMember) {
+    // Two doors, both of which a guest has to open: the lock the host set and
+    // the guest list of a private room. Neither replaces the other.
     if (Number(row.join_locked || 0) === 1) throw new CampusEngineError("FORBIDDEN", "The host has locked this room.", 403);
+    if (isPrivateRow(row)) {
+      invited = await isInvited(String(row.id), studentId);
+      if (!invited) throw new CampusEngineError("FORBIDDEN", "This room is private. Ask the host for an invite.", 403);
+    }
     const stamp = new Date().toISOString();
     await turso(
       "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at) VALUES (?,?,?,?,?,'')",
@@ -327,10 +394,10 @@ export async function joinRoom(input: { id: string; student: { id: string; name?
   }
 
   const fresh = (await membersOf([String(row.id)])).get(String(row.id)) || [];
-  return roomView((await roomRow(String(row.id))) || row, { studentId, participants: fresh });
+  return roomView((await roomRow(String(row.id))) || row, { studentId, participants: fresh, invited });
 }
 
-export const CINEMA_ROOM_ACTIONS = ["OPEN", "END", "LOCK", "UNLOCK", "RETITLE"] as const;
+export const CINEMA_ROOM_ACTIONS = ["OPEN", "END", "LOCK", "UNLOCK", "RETITLE", "PRIVATE", "PUBLIC"] as const;
 export type CinemaRoomAction = (typeof CINEMA_ROOM_ACTIONS)[number];
 
 /**
@@ -371,6 +438,14 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
       "UPDATE cinema_sessions SET join_locked = ?, updated_at = ? WHERE id = ?",
       [action === "LOCK" ? 1 : 0, stamp, id],
     );
+  } else if (action === "PRIVATE" || action === "PUBLIC") {
+    // Changing the door does not move anyone already inside: a member keeps
+    // their seat, and only the people outside it changes.
+    await turso(
+      "UPDATE cinema_sessions SET visibility = ?, updated_at = ? WHERE id = ?",
+      [action === "PRIVATE" ? "PRIVATE" : "PUBLIC", stamp, id],
+    );
+    logEvent("info", action === "PRIVATE" ? "cinema_room_made_private" : "cinema_room_made_public", { roomId: id });
   } else {
     await turso(
       "UPDATE cinema_sessions SET title = ?, updated_at = ? WHERE id = ?",
@@ -382,6 +457,140 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
   return roomView((await roomRow(id)) || row, { studentId: input.studentId, participants: fresh });
 }
 
+/** The guest list is bounded like every other list in the room. */
+const INVITE_LIMIT = 60;
+/** Only a UMaT student address can be invited, and only one that exists. */
+const UMAT_STUDENT_EMAIL = /^[A-Za-z0-9._%+-]+@st\.umat\.edu\.gh$/;
+
+export type CinemaRoomInvite = {
+  studentId: string;
+  email: string;
+  name: string;
+  createdAt: string;
+};
+
+async function requireHostedRoom(sessionId: string, studentId: string) {
+  const row = await requireVisibleRoom(sessionId);
+  if (String(row.host_student_id || "") !== String(studentId || "")) {
+    throw new CampusEngineError("FORBIDDEN", "Only the host can manage this room's guest list.", 403);
+  }
+  return row;
+}
+
+async function inviteRows(sessionId: string): Promise<CinemaRoomInvite[]> {
+  const rows = rowsToObjects(await turso(
+    `SELECT i.student_id,COALESCE(a.email,'') AS email,COALESCE(a.name,'') AS name,i.created_at
+       FROM cinema_room_invites i
+       LEFT JOIN student_accounts a ON a.id = i.student_id
+      WHERE i.session_id = ?
+      ORDER BY i.created_at ASC LIMIT ${INVITE_LIMIT}`,
+    [String(sessionId)],
+  ));
+  return rows.map((row) => ({
+    studentId: String(row.student_id || ""),
+    email: String(row.email || ""),
+    name: String(row.name || ""),
+    createdAt: String(row.created_at || ""),
+  }));
+}
+
+/** The host's guest list: who may walk into a private room. */
+export async function listRoomInvites(input: { id: string; studentId: string }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireHostedRoom(input.id, input.studentId);
+  return { invites: await inviteRows(String(row.id)) };
+}
+
+/**
+ * An invitation is an address, never an id typed in by hand: the host gives a
+ * UMaT email, the account is looked up, and a student who has no account is a
+ * 404 rather than a row that would never be read.
+ */
+export async function inviteToRoom(input: { id: string; studentId: string; email: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireHostedRoom(input.id, input.studentId);
+  if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+  const email = String(input.email ?? "").replace(/\s+/g, "").toLowerCase();
+  if (!UMAT_STUDENT_EMAIL.test(email)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Invite a UMaT student address ending in @st.umat.edu.gh.", 400);
+  }
+  const account = rowsToObjects(await turso(
+    "SELECT id,COALESCE(name,'') AS name FROM student_accounts WHERE lower(email) = ? AND COALESCE(active,1) = 1 LIMIT 1",
+    [email],
+  ))[0];
+  if (!account) throw new CampusEngineError("NOT_FOUND", "No active UMaT account uses that address. Check the spelling with the student.", 404);
+  const inviteeId = String(account.id || "");
+  if (inviteeId === String(input.studentId)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "You are already in this room.", 400);
+  }
+  const stamp = new Date().toISOString();
+  await turso(
+    "INSERT OR IGNORE INTO cinema_room_invites (session_id,student_id,invited_by,created_at) VALUES (?,?,?,?)",
+    [String(row.id), inviteeId, String(input.studentId), stamp],
+  );
+  logEvent("info", "cinema_room_invited", { roomId: String(row.id) });
+  return {
+    invite: { studentId: inviteeId, email, name: String(account.name || ""), createdAt: stamp },
+    invites: await inviteRows(String(row.id)),
+  };
+}
+
+/** Taking an invitation back never removes a member; it only closes the door behind them. */
+export async function removeRoomInvite(input: { id: string; studentId: string; inviteeId: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireHostedRoom(input.id, input.studentId);
+  const inviteeId = String(input.inviteeId || "").trim();
+  if (!inviteeId) throw new CampusEngineError("VALIDATION_ERROR", "Choose the invitation to take back.", 400);
+  const result = await turso(
+    "DELETE FROM cinema_room_invites WHERE session_id = ? AND student_id = ?",
+    [String(row.id), inviteeId],
+  );
+  const removed = Number(result.affected_row_count || 0) > 0;
+  if (removed) logEvent("info", "cinema_room_invite_removed", { roomId: String(row.id) });
+  return { removed, invites: await inviteRows(String(row.id)) };
+}
+
+/**
+ * The host removes a guest from the room itself.
+ *
+ * Taking an invitation back closes the door behind someone who has not walked
+ * through it; this is for the guest who has: the invitation, the membership
+ * and the live socket all go together, so "removed" means the person is out of
+ * the room and out of its presence list, not merely uninvited. The host cannot
+ * remove themselves — ending the room is the action for that.
+ */
+export async function removeRoomGuest(input: { id: string; studentId: string; guestId: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireHostedRoom(input.id, input.studentId);
+  const guestId = String(input.guestId || "").trim();
+  if (!guestId) throw new CampusEngineError("VALIDATION_ERROR", "Choose the guest to remove.", 400);
+  if (guestId === String(input.studentId)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "The host is not a guest of their own room. End the room to close it.", 400);
+  }
+  const invitation = await turso(
+    "DELETE FROM cinema_room_invites WHERE session_id = ? AND student_id = ?",
+    [String(row.id), guestId],
+  );
+  const membership = await turso(
+    "DELETE FROM cinema_participants WHERE session_id = ? AND student_id = ?",
+    [String(row.id), guestId],
+  );
+  const removedInvitation = Number(invitation.affected_row_count || 0) > 0;
+  const removedMembership = Number(membership.affected_row_count || 0) > 0;
+  if (removedInvitation || removedMembership) {
+    // The row is the truth; closing the sockets is the courtesy that makes the
+    // removal immediate for the room and for the person who left.
+    await removeCinemaMemberFromRoom(String(row.id), guestId);
+    logEvent("info", "cinema_room_guest_removed", { roomId: String(row.id) });
+    await incrementMetric("cinema_room_guests_removed");
+  }
+  return { removed: removedInvitation || removedMembership, invites: await inviteRows(String(row.id)) };
+}
+
 export type ConsoleCinemaRoom = {
   id: string;
   title: string;
@@ -389,6 +598,7 @@ export type ConsoleCinemaRoom = {
   hostName: string;
   status: CinemaRoomStatus;
   joinLocked: boolean;
+  visibility: CinemaRoomVisibility;
   memberCount: number;
   startedAt: string;
   endedAt: string;
@@ -422,7 +632,7 @@ export async function listRoomsForConsole(input: { status?: unknown; q?: unknown
     args.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
   const rows = rowsToObjects(await turso(
-    `SELECT s.id,s.host_student_id,s.title,s.status,s.join_locked,s.started_at,s.ended_at,s.created_at,s.updated_at,COALESCE(p.display_name,'') AS host_name
+    `SELECT s.id,s.host_student_id,s.title,s.status,s.join_locked,s.visibility,s.started_at,s.ended_at,s.created_at,s.updated_at,COALESCE(p.display_name,'') AS host_name
        FROM cinema_sessions s
        LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = s.host_student_id
       WHERE ${where}
@@ -438,6 +648,7 @@ export async function listRoomsForConsole(input: { status?: unknown; q?: unknown
     hostName: String(row.host_name || "") || "The host",
     status: String(row.status || "CREATED") as CinemaRoomStatus,
     joinLocked: Number(row.join_locked || 0) === 1,
+    visibility: (String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE" ? "PRIVATE" : "PUBLIC") as CinemaRoomVisibility,
     memberCount: counts.get(String(row.id || "")) ?? 0,
     startedAt: String(row.started_at || ""),
     endedAt: String(row.ended_at || ""),

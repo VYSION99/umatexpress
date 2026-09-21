@@ -29,7 +29,7 @@ const empty = { cols: [], rows: [] };
 const affected = (count) => ok({ affected_row_count: count });
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "started_at", "ended_at", "created_at", "updated_at"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
 
@@ -55,9 +55,23 @@ function handle(sql, args) {
     return ok(row ? table(["id", "host_student_id", "status", "title"], [row]) : empty);
   }
   // The room read the playback lease makes.
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
     return ok(row ? table(ROOM_COLUMNS, [row]) : empty);
+  }
+  // The media lease's access read: the upload, the room's state and the caller's seat.
+  if (/^SELECT u\.\*, s\.status AS room_status/.test(sql)) {
+    const [studentId, sessionId, uploadId] = args;
+    const room = state.rooms.find((row) => row.id === sessionId && row.status !== "DELETED");
+    const upload = state.uploads.find((row) => row.session_id === sessionId && row.id === uploadId && row.status === "READY");
+    if (!room || !upload) return ok(empty);
+    const member = state.members.find((row) => row.session_id === sessionId && row.student_id === studentId && !row.left_at);
+    return ok(table([...UPLOAD_COLUMNS, "room_status", "room_host_student_id", "member_id"], [{
+      ...upload,
+      room_status: room.status,
+      room_host_student_id: room.host_student_id,
+      member_id: member ? member.student_id : "",
+    }]));
   }
   if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at FROM cinema_participants/.test(sql)) {
     const rows = state.members.filter((member) => args.includes(member.session_id));
@@ -72,11 +86,11 @@ function handle(sql, args) {
     const rows = [...grouped].map(([session_id, members]) => ({ session_id, members }));
     return ok(rows.length ? table(["session_id", "members"], rows) : empty);
   }
-  if (/^UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = \?, updated_at = \? WHERE id = \?/.test(sql)) {
+  if (/^UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = \?, visibility = 'PRIVATE', updated_at = \? WHERE id = \?/.test(sql)) {
     const [videoId, updatedAt, id] = args;
     const room = state.rooms.find((row) => row.id === id);
     if (!room) return affected(0);
-    Object.assign(room, { video_source_type: "UPLOAD", video_id: videoId, updated_at: updatedAt });
+    Object.assign(room, { video_source_type: "UPLOAD", video_id: videoId, visibility: "PRIVATE", updated_at: updatedAt });
     return affected(1);
   }
 
@@ -303,7 +317,7 @@ function mp4Head(seconds, { timescale = 1000, version = 0 } = {}) {
 function room(overrides = {}) {
   return {
     id: "room-1", host_student_id: "host-a", title: "Signals", video_source_type: "YOUTUBE", video_id: "M7lc1UVf-VE",
-    status: "LIVE", join_locked: 0, started_at: stamp(30), ended_at: "", created_at: stamp(60), updated_at: stamp(1), ...overrides,
+    status: "LIVE", join_locked: 0, visibility: "PUBLIC", started_at: stamp(30), ended_at: "", created_at: stamp(60), updated_at: stamp(1), ...overrides,
   };
 }
 
@@ -429,6 +443,7 @@ test("finishing checks R2's own report, and the room only then points at the vid
   assert.equal(finished.durationSeconds, 92, "the length came from the object, not from the client");
   assert.equal(state.rooms[0].video_source_type, "UPLOAD");
   assert.equal(state.rooms[0].video_id, started.upload.id);
+  assert.equal(state.rooms[0].visibility, "PRIVATE", "an uploaded video closes the room behind it");
   assert.equal(bucket.objects.size, 1);
 });
 
@@ -552,6 +567,33 @@ test("a lease names the upload the row still holds, and serves the range it aske
 
   const gone = await readCinemaMediaObject({ upload, bucket: fakeBucket() });
   assert.equal(gone, null, "an object the retention job deleted answers nothing");
+});
+
+test("a removed guest's lease and an ended room's lease both stop at the next request", async () => {
+  const bucket = fakeBucket();
+  const bytes = new Uint8Array(32).map((_, index) => index);
+  const started = await begin({ bucket, sizeBytes: 32 });
+  state.uploads[0].status = "READY";
+  state.uploads[0].file_size_bytes = 32;
+  bucket.objects.set(started.upload.objectKey, { bytes, size: 32, contentType: "video/mp4" });
+  state.members.push({ session_id: "room-1", student_id: "guest-a", display_name: "Kwesi", joined_at: stamp(5), last_seen_at: stamp(1), left_at: "" });
+
+  const guestLease = await issueCinemaPlayback({ roomId: "room-1", studentId: "guest-a" });
+  const guestClaims = await verifyCinemaMediaToken(guestLease.url.split("/").pop());
+  assert.equal((await cinemaUploadForToken(guestClaims)).id, started.upload.id, "a member's lease serves while the seat is held");
+
+  // The host removed the guest: the membership row is gone, so the lease is
+  // revoked even though its signature is still valid and unexpired.
+  state.members = state.members.filter((member) => member.student_id !== "guest-a");
+  const revoked = await cinemaUploadForToken(guestClaims).then(() => null, (error) => error);
+  assert.equal(revoked?.code, "FORBIDDEN");
+
+  // The host ended the room: the host's own unexpired lease stops as well.
+  const hostLease = await issueCinemaPlayback({ roomId: "room-1", studentId: "host-a" });
+  const hostClaims = await verifyCinemaMediaToken(hostLease.url.split("/").pop());
+  state.rooms[0].status = "ENDED";
+  const ended = await cinemaUploadForToken(hostClaims).then(() => null, (error) => error);
+  assert.equal(ended?.code, "INVALID_STATE");
 });
 
 test("the video can be reported, and the card carries the uploader's history", async () => {

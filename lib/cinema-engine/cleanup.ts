@@ -197,6 +197,8 @@ async function deleteExpiredRooms(input: { limit: number; now: number; retention
     await purgeCinemaWhiteboardsForRoom(id, { now: input.now });
     await purgeCinemaMessages(id);
     await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
+    // The guest list goes with the membership it was written for.
+    await turso("DELETE FROM cinema_room_invites WHERE session_id = ?", [id]);
     const result = await turso(
       "UPDATE cinema_sessions SET status = 'DELETED', deleted_at = ?, updated_at = ? WHERE id = ? AND status = 'EXPIRED'",
       [stamp, stamp, id],

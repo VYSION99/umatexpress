@@ -76,6 +76,29 @@ export async function announceCinemaSource(roomId: string, source: { sourceType:
 }
 
 /**
+ * Tells a live room that the host removed a guest. The membership row is
+ * already gone by the time this runs; closing the guest's sockets is what
+ * makes the removal take effect on the screens that are already open.
+ */
+export async function removeCinemaMemberFromRoom(roomId: string, studentId: string) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/remove-member", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ studentId: String(studentId) }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_member_remove_failed", {
+      roomId: String(roomId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
+/**
  * Tells a live room that a new board is on the whiteboard. Best-effort for the
  * same reason as every other announcement: the row is the truth and a missing
  * socket must not turn a stored board into a failed request.

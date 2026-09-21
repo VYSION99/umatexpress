@@ -8,6 +8,12 @@
  * is not an error — `plainTextBoard` turns the prose into a one-block scene so
  * the room still reads the answer, and the caller says so on the board.
  *
+ * Two blocks reach further than markup: a chart carries bounded data series and
+ * a geo block carries GeoGebra commands. Neither is a plugin: a chart block has
+ * no field for a trace option, so the renderer owns every pixel, and a geo
+ * command is refused unless it assigns a function, a point or a slider or calls
+ * one of the commands on the allow-list below.
+ *
  * The module is deliberately dependency-free: it runs in workerd, in the
  * browser and in plain Node tests, and the client imports the same types the
  * server validates against.
@@ -36,6 +42,11 @@ export const WHITEBOARD_MAX_LATEX = 400;
 export const WHITEBOARD_MAX_LABEL = 90;
 export const WHITEBOARD_MAX_TITLE = 160;
 export const WHITEBOARD_MAX_SUMMARY = 400;
+export const WHITEBOARD_MAX_CHART_SERIES = 4;
+export const WHITEBOARD_MAX_CHART_POINTS = 200;
+export const WHITEBOARD_MAX_CHART_LABEL = 60;
+export const WHITEBOARD_MAX_GEO_COMMANDS = 12;
+export const WHITEBOARD_MAX_GEO_COMMAND = 200;
 
 export type CinemaWhiteboardShape = "box" | "round" | "diamond" | "cylinder" | "hex";
 export type CinemaWhiteboardTone = "default" | "accent" | "warn" | "good";
@@ -60,13 +71,40 @@ export type CinemaWhiteboardEdge = {
 
 export type CinemaWhiteboardStep = { title: string; detail: string; tag?: string };
 
+export type CinemaWhiteboardChartKind = "bar" | "line" | "scatter" | "pie";
+export type CinemaWhiteboardChartSeries = {
+  name?: string;
+  /** Category labels or x values; the renderer passes them to Plotly as they are. */
+  x: Array<string | number>;
+  y: number[];
+};
+
+export type CinemaWhiteboardChartBlock = {
+  kind: "chart";
+  chart: CinemaWhiteboardChartKind;
+  title?: string;
+  xLabel?: string;
+  yLabel?: string;
+  series: CinemaWhiteboardChartSeries[];
+};
+
+export type CinemaWhiteboardGeoBlock = {
+  kind: "geo";
+  title?: string;
+  caption?: string;
+  /** GeoGebra commands, each already checked against the command allow-list. */
+  commands: string[];
+};
+
 export type CinemaWhiteboardBlock =
   | { kind: "text"; text: string }
   | { kind: "math"; latex: string; caption?: string }
   | { kind: "code"; code: string; language: string; caption?: string }
   | { kind: "diagram"; title?: string; nodes: CinemaWhiteboardNode[]; edges: CinemaWhiteboardEdge[] }
   | { kind: "steps"; title?: string; lab: boolean; steps: CinemaWhiteboardStep[] }
-  | { kind: "callout"; tone: "info" | "warn" | "lab"; text: string };
+  | { kind: "callout"; tone: "info" | "warn" | "lab"; text: string }
+  | CinemaWhiteboardChartBlock
+  | CinemaWhiteboardGeoBlock;
 
 export type CinemaWhiteboardScene = {
   title: string;
@@ -93,6 +131,23 @@ const SHAPES = new Set<CinemaWhiteboardShape>(["box", "round", "diamond", "cylin
 const TONES = new Set<CinemaWhiteboardTone>(["default", "accent", "warn", "good"]);
 const ARROWS = new Set<CinemaWhiteboardEdge["arrow"]>(["forward", "both", "none"]);
 const CALLOUT_TONES = new Set(["info", "warn", "lab"] as const);
+const CHART_KINDS = new Set<CinemaWhiteboardChartKind>(["bar", "line", "scatter", "pie"]);
+
+/**
+ * The GeoGebra commands a board may run. A geo block is the one place a scene
+ * reaches an interpreter, so the list is a closed set rather than a blocklist:
+ * maths commands and geometric constructions, nothing that talks to a page.
+ */
+const GEO_COMMANDS = new Set([
+  "Derivative", "Integral", "Solve", "Intersect", "Tangent", "Segment", "Midpoint",
+  "PerpendicularLine", "PerpendicularBisector", "Line", "Circle", "Angle", "Root",
+  "Extremum", "Limit", "Sum", "Sequence", "Vector", "Polygon", "Function", "If",
+  "Distance", "Length",
+]);
+const GEO_MATH_FUNCTIONS = new Set([
+  "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "sqrt", "cbrt",
+  "ln", "log", "lg", "exp", "abs", "floor", "ceil", "round", "min", "max", "mod", "atan2",
+]);
 
 /** Control characters out, whitespace collapsed; newlines are the caller's choice. */
 function clean(value: unknown, max: number, options: { multiline?: boolean } = {}) {
@@ -163,6 +218,115 @@ function parseEdges(value: unknown, nodes: CinemaWhiteboardNode[]): CinemaWhiteb
   return edges;
 }
 
+/** A finite number, or undefined: NaN and Infinity never reach a chart. */
+function finiteNumber(value: unknown): number | undefined {
+  // JSON null coerces to 0 and a boolean to 1, so both are refused before
+  // Number() can turn a missing point into a plot at the origin.
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+/**
+ * A chart's series, bounded point by point.
+ *
+ * The model supplies data, never a trace: there is no place in this type for a
+ * Plotly option, an inline style or a callback, so a reply that tries to smuggle
+ * one in has it dropped by the shape of the parser rather than by a filter.
+ */
+function parseChartSeries(value: unknown): CinemaWhiteboardChartSeries[] {
+  if (!Array.isArray(value)) return [];
+  const series: CinemaWhiteboardChartSeries[] = [];
+  for (const entry of value.slice(0, WHITEBOARD_MAX_CHART_SERIES * 2)) {
+    if (!entry || typeof entry !== "object") continue;
+    const source = entry as Record<string, unknown>;
+    const rawX = Array.isArray(source.x) ? source.x : [];
+    const rawY = Array.isArray(source.y) ? source.y : [];
+    const count = Math.min(rawX.length, rawY.length, WHITEBOARD_MAX_CHART_POINTS);
+    const x: Array<string | number> = [];
+    const y: number[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const value = finiteNumber(rawY[index]);
+      if (value === undefined) continue;
+      const label = typeof rawX[index] === "string"
+        ? clean(rawX[index], WHITEBOARD_MAX_CHART_LABEL)
+        : finiteNumber(rawX[index]);
+      if (label === undefined || label === "") continue;
+      x.push(label);
+      y.push(value);
+    }
+    if (!x.length) continue;
+    const name = clean(source.name ?? source.label, WHITEBOARD_MAX_CHART_LABEL);
+    series.push({ ...(name ? { name } : {}), x, y });
+    if (series.length >= WHITEBOARD_MAX_CHART_SERIES) break;
+  }
+  return series;
+}
+
+function parseChartBlock(source: Record<string, unknown>): CinemaWhiteboardChartBlock | null {
+  const chart = String(source.chart ?? source.chartType ?? "").toLowerCase() as CinemaWhiteboardChartKind;
+  if (!CHART_KINDS.has(chart)) return null;
+  let series = parseChartSeries(source.series ?? source.data);
+  if (!series.length) return null;
+  // A pie is one ring: one series, at most six slices, and labels rather than
+  // coordinates. Anything else is a bar chart the model mislabelled.
+  if (chart === "pie") {
+    const first = series[0];
+    series = [{ ...(first.name ? { name: first.name } : {}), x: first.x.slice(0, 6), y: first.y.slice(0, 6) }];
+    if (!series[0].x.length) return null;
+  }
+  const title = clean(source.title, WHITEBOARD_MAX_LABEL);
+  const xLabel = clean(source.xLabel ?? source.x_label, WHITEBOARD_MAX_CHART_LABEL);
+  const yLabel = clean(source.yLabel ?? source.y_label, WHITEBOARD_MAX_CHART_LABEL);
+  return {
+    kind: "chart",
+    chart,
+    series,
+    ...(title ? { title } : {}),
+    ...(xLabel ? { xLabel } : {}),
+    ...(yLabel ? { yLabel } : {}),
+  };
+}
+
+/**
+ * Whether one line may be handed to `evalCommand`.
+ *
+ * The line has to be an assignment — `f(x)=…`, `y=…`, `A=(1,2)`, `a=3` — or a
+ * call to a command on the allow-list, every function it calls has to be on one
+ * of the two lists, and the characters that could chain a second statement or
+ * open a string are refused outright.
+ */
+export function geoCommandAllowed(value: unknown): boolean {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text || text.length > WHITEBOARD_MAX_GEO_COMMAND) return false;
+  if (/["'`;:\\]/.test(text)) return false;
+  const assignment = /^([A-Za-z][A-Za-z0-9_]*|[A-Za-z]\s*\(\s*[A-Za-z]\s*\))\s*=\s*(.+)$/.exec(text);
+  if (!assignment && !/^[A-Za-z][A-Za-z0-9_]*\s*\(/.test(text)) return false;
+  const body = assignment ? assignment[2] : text;
+  if (/[^A-Za-z0-9_+\-*/^().,<>=!{}\[\]π° ]/.test(body)) return false;
+  for (const call of body.matchAll(/([A-Za-z][A-Za-z0-9_]*)\s*\(/g)) {
+    if (!GEO_COMMANDS.has(call[1]) && !GEO_MATH_FUNCTIONS.has(call[1])) return false;
+  }
+  return true;
+}
+
+function parseGeoCommands(value: unknown): string[] {
+  // A block may arrive as an array of lines or as one script string, and a line
+  // may itself carry a newline; every separator is a line boundary here.
+  const entries = Array.isArray(value)
+    ? value.slice(0, WHITEBOARD_MAX_GEO_COMMANDS * 2)
+    : typeof value === "string" ? [value] : [];
+  const raw = entries.flatMap((entry) => String(entry ?? "").split(/\n|;/));
+  const commands: string[] = [];
+  for (const entry of raw.slice(0, WHITEBOARD_MAX_GEO_COMMANDS * 2)) {
+    const command = String(entry ?? "").replace(/\s+/g, " ").trim();
+    if (!geoCommandAllowed(command)) continue;
+    commands.push(command);
+    if (commands.length >= WHITEBOARD_MAX_GEO_COMMANDS) break;
+  }
+  return commands;
+}
+
 function parseBlocks(value: unknown) {
   const blocks: CinemaWhiteboardBlock[] = [];
   let lab = false;
@@ -189,6 +353,15 @@ function parseBlocks(value: unknown) {
       const edges = parseEdges(source.edges ?? source.links, nodes);
       const title = clean(source.title, WHITEBOARD_MAX_LABEL);
       blocks.push({ kind: "diagram", nodes, edges, ...(title ? { title } : {}) });
+    } else if (kind === "chart" || kind === "plot") {
+      const chart = parseChartBlock(source);
+      if (chart) blocks.push(chart);
+    } else if (kind === "geo" || kind === "geometry" || kind === "geogebra" || kind === "script") {
+      const commands = parseGeoCommands(source.commands ?? source.script ?? source.lines);
+      if (!commands.length) continue;
+      const title = clean(source.title, WHITEBOARD_MAX_LABEL);
+      const caption = clean(source.caption, WHITEBOARD_MAX_LABEL);
+      blocks.push({ kind: "geo", commands, ...(title ? { title } : {}), ...(caption ? { caption } : {}) });
     } else if (kind === "steps" || kind === "walkthrough" || kind === "simulation") {
       const rawSteps = Array.isArray(source.steps) ? source.steps : [];
       const steps: CinemaWhiteboardStep[] = [];

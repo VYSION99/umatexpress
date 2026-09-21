@@ -39,6 +39,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
   const [whiteboard, setWhiteboard] = useState<CinemaWhiteboardView | null>(null);
   const [removedWhiteboards, setRemovedWhiteboards] = useState<string[]>([]);
+  /** Why the server closed the room, when it said: removal reads differently from an end. */
+  const [closedReason, setClosedReason] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   /**
    * Signaling consumers register here rather than in the socket's state: a
@@ -156,6 +158,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
           ended = true;
           setState("closed");
           setMembers([]);
+          setClosedReason(String(message.reason || "").slice(0, 160));
           instance.close();
         }
       };
@@ -185,6 +188,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals }
-    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals };
+    ? { state, closedReason, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals }
+    : { state: "closed" as CinemaConnectionState, closedReason, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals };
 }

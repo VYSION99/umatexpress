@@ -19,9 +19,11 @@
 .cinema-room-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;border:1px solid #d8e4dc;border-radius:16px;background:white;padding:13px 15px}
 .cinema-room-row a{font-weight:800;color:var(--ink)}
 .cinema-room-row small{display:block;margin-top:3px;color:#6b7a71;font-weight:700}
+.cinema-room-tags{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
 .cinema-chip{padding:7px 10px;border-radius:999px;background:var(--mint);color:var(--green);font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
 .cinema-chip.is-live{background:#10382a;color:#eafff3}
 .cinema-chip.is-ended{background:#eef1ef;color:#61706a}
+.cinema-chip.is-private{background:#fff1cf;color:#8a5b00}
 
 .cinema-room{width:min(1220px,100%);margin:0 auto;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:18px;align-items:start}
 .cinema-stage{display:grid;gap:14px}
@@ -29,6 +31,8 @@
 .cinema-video-head{display:grid;gap:5px;padding:4px 6px 14px}
 .cinema-video-head strong{display:block;font:500 20px Georgia,serif}
 .cinema-video-head span{display:block;color:#a9c4b8;font-size:12px;font-weight:700}
+.cinema-video-title{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.cinema-video-title .cinema-chip{display:inline-flex;align-items:center;gap:4px}
 .cinema-player{position:relative;border-radius:14px;overflow:hidden;background:#000}
 .cinema-player-frame{position:relative;width:100%;aspect-ratio:16/9}
 .cinema-player-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
@@ -122,6 +126,23 @@
 .cinema-record-delete{display:inline-flex;align-items:center;border:1px solid #e0e7e2;border-radius:10px;background:white;color:#8a2c22;padding:7px 8px;cursor:pointer}
 .cinema-record-delete:hover{border-color:#a3352a}
 
+/* A private room's guest list: addresses in, invitations out. */
+.cinema-invites{display:grid;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid #e2eae5}
+.cinema-invites h3{display:flex;align-items:center;gap:7px;margin:0;font:900 13px inherit;color:#3c5a4c}
+.cinema-invite-form{display:flex;flex-wrap:wrap;gap:9px}
+.cinema-invite-form input{flex:1 1 210px;border:1px solid #d5ded7;border-radius:12px;background:white;color:var(--ink);padding:11px 13px;font:700 13px inherit}
+.cinema-invite-form button{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:12px;background:var(--green);color:white;padding:11px 15px;font:900 12.5px inherit;cursor:pointer}
+.cinema-invite-form button:disabled{opacity:.6;cursor:progress}
+.cinema-invite-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.cinema-invite-list li{display:flex;align-items:center;gap:10px;border:1px solid #d8e4dc;border-radius:12px;background:white;padding:9px 11px}
+.cinema-invite-list li div{display:grid;gap:2px;margin-right:auto;min-width:0}
+.cinema-invite-list strong{font-size:12.5px;font-weight:900;color:#3c5a4c;overflow-wrap:anywhere}
+.cinema-invite-list small{color:#6b7a71;font-size:11px;font-weight:700;overflow-wrap:anywhere}
+.cinema-guest-tag{padding:4px 8px;border-radius:999px;background:#f4f7f5;color:#61706a;font-size:9.5px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+.cinema-guest-tag.is-in{background:var(--mint);color:var(--green)}
+.cinema-invite-list button{display:inline-flex;align-items:center;border:1px solid #e0e7e2;border-radius:10px;background:white;color:#8a2c22;padding:7px 9px;cursor:pointer}
+.cinema-invite-list button:hover{border-color:#a3352a}
+
 /* The AI whiteboard: the room's question, and the scene that answers it. */
 .cinema-whiteboard{box-shadow:0 16px 40px rgba(18,46,36,.1)}
 .wb-ask{display:grid;gap:10px;margin-top:12px}
@@ -174,3 +195,12 @@
 .wb-callout.tone-info{background:#eef6f1;color:#2f5c47}
 .wb-callout.tone-warn{background:#fff6e4;color:#7a5306}
 .wb-callout.tone-lab{background:#fff1cf;color:#6b4d05}
+
+/* Charts and interactive graphs: the model sends data and commands, and the
+   two libraries only draw. Both sit on the same card as the rest of a scene. */
+.wb-chart{width:100%;min-height:300px;border:1px solid #e2eae5;border-radius:14px;background:#fbfdfc}
+.wb-chart .plot-container,.wb-chart .svg-container{border-radius:14px}
+.wb-geo{display:grid;gap:8px}
+.wb-geo-frame{width:100%;min-height:340px;border:1px solid #e2eae5;border-radius:14px;background:white;overflow-x:auto}
+.wb-geo-note{margin:0;color:#6b7a71;font-size:11.5px;font-weight:800}
+.wb-geo-script{margin:0;padding:10px 12px;border-radius:12px;background:#f4f7f5;color:#3c5a4c;font:600 11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}

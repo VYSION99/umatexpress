@@ -149,7 +149,7 @@ export function CinemaWhiteboardPanel(input: {
     </div>
     <p className="cinema-note">
       The board sees this room — its title, where the video is and the last few chat lines — and answers with
-      text, maths, code, diagrams or a simulated lab. It is a study aid: check what matters against your notes.
+      text, maths, code, diagrams, charts, interactive graphs or a simulated lab. It is a study aid: check what matters against your notes.
     </p>
 
     {!limits
@@ -162,7 +162,7 @@ export function CinemaWhiteboardPanel(input: {
               value={question}
               maxLength={limits.maxQuestionChars}
               rows={3}
-              placeholder="Ask for an explanation, a diagram, a derivation, a simulation…"
+              placeholder="Ask for an explanation, a diagram, a derivation, a chart or a graph to explore…"
               aria-label="Ask the whiteboard"
               onChange={(event) => setQuestion(event.target.value)}
             />

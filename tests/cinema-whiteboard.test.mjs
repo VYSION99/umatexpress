@@ -30,7 +30,7 @@ const empty = { cols: [], rows: [] };
 const affected = (count) => ok({ affected_row_count: count });
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "started_at", "ended_at", "created_at", "updated_at"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 const MESSAGE_COLUMNS = ["id", "session_id", "sender_id", "sender_name", "content", "metadata", "created_at"];
 /** The aliases the engine's SELECT produces, not the table's column names. */
@@ -58,7 +58,7 @@ function handle(sql, args) {
     state.metrics.set(key, (state.metrics.get(key) || 0) + Number(amount));
     return ok(table(["count"], [{ count: state.metrics.get(key) }]));
   }
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1$/.test(query)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1$/.test(query)) {
     const room = state.rooms.find((row) => likeRoom(row, args, query));
     return ok(room ? table(ROOM_COLUMNS, [room]) : empty);
   }
@@ -130,7 +130,7 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 
 const {
-  extractJsonObject, layoutWhiteboardDiagram, parseWhiteboardScene, plainTextBoard, renderMathHtml,
+  extractJsonObject, geoCommandAllowed, layoutWhiteboardDiagram, parseWhiteboardScene, plainTextBoard, renderMathHtml,
 } = await vite.ssrLoadModule("/lib/cinema-engine/whiteboard-scene.ts");
 const {
   askCinemaWhiteboard, cinemaWhiteboardById, cinemaWhiteboardLimits, deleteCinemaWhiteboard,
@@ -142,6 +142,7 @@ beforeEach(() => {
   state.rooms = [{
     id: "room-1", host_student_id: "student-a", title: "Operating Systems", video_source_type: "YOUTUBE",
     video_id: "dQw4w9WgXcQ", status: "LIVE", join_locked: 0, started_at: "", ended_at: "",
+    visibility: "PUBLIC",
     created_at: "2026-09-21T08:00:00.000Z", updated_at: "2026-09-21T08:00:00.000Z",
   }];
   state.members = [
@@ -201,6 +202,94 @@ test("an edge that names a node the diagram does not have is dropped whole", () 
   }));
   assert.equal(scene.blocks[0].edges.length, 1, "only the edge between real, distinct nodes survives");
   assert.deepEqual(scene.blocks[0].edges[0], { from: "a", to: "b", dashed: false, arrow: "forward" });
+});
+
+test("a chart block keeps numbers and labels, and drops points that are neither", () => {
+  const scene = parseWhiteboardScene(JSON.stringify({
+    title: "Enrolment by year",
+    blocks: [{
+      kind: "chart",
+      chart: "bar",
+      title: "Enrolment",
+      xLabel: "Year",
+      yLabel: "Students",
+      series: [{ name: "Civil", x: [2024, 2025, "2026"], y: [120, "140", 160] }],
+    }],
+  }));
+  const chart = scene.blocks[0];
+  assert.equal(chart.kind, "chart");
+  assert.equal(chart.chart, "bar");
+  assert.equal(chart.xLabel, "Year");
+  assert.deepEqual(chart.series[0].x, [2024, 2025, "2026"], "labels may be numbers or strings");
+  assert.deepEqual(chart.series[0].y, [120, 140, 160], "numeric strings arrive as numbers");
+
+  const cleaned = parseWhiteboardScene(JSON.stringify({
+    blocks: [{
+      kind: "chart",
+      chart: "line",
+      series: Array.from({ length: 6 }, (_, index) => ({
+        name: `s${index}`,
+        x: [1, 2, 3, 4],
+        y: index === 0 ? [1, "nope", null, true] : [1, 2, 3, 4],
+      })),
+    }],
+  }));
+  assert.equal(cleaned.blocks[0].series.length, 4, "at most four series survive");
+  assert.deepEqual(cleaned.blocks[0].series[0].y, [1], "only a real number is a point");
+
+  const pie = parseWhiteboardScene(JSON.stringify({
+    blocks: [{ kind: "chart", chart: "pie", series: [
+      { x: ["a", "b", "c", "d", "e", "f", "g", "h"], y: [1, 2, 3, 4, 5, 6, 7, 8] },
+      { x: ["other"], y: [9] },
+    ] }],
+  }));
+  assert.equal(pie.blocks[0].series.length, 1, "a pie is one ring");
+  assert.equal(pie.blocks[0].series[0].x.length, 6, "six slices at most");
+
+  assert.equal(parseWhiteboardScene(JSON.stringify({
+    blocks: [{ kind: "chart", chart: "radar", series: [{ x: [1], y: [1] }] }],
+  })), null, "a chart kind the renderer does not know leaves nothing behind");
+  const uneven = parseWhiteboardScene(JSON.stringify({
+    blocks: [{ kind: "chart", chart: "bar", series: [{ x: [1, 2], y: [1] }] }],
+  }));
+  assert.deepEqual(uneven.blocks[0].series[0].x, [1], "a point must have both an x and a y to be plotted");
+});
+
+test("a geo block runs only the commands on the allow-list", () => {
+  assert.equal(geoCommandAllowed("f(x)=x^2"), true);
+  assert.equal(geoCommandAllowed("y=sin(x)"), true);
+  assert.equal(geoCommandAllowed("A=(1,2)"), true);
+  assert.equal(geoCommandAllowed("a=3"), true);
+  assert.equal(geoCommandAllowed("Derivative(f)"), true);
+  assert.equal(geoCommandAllowed("Intersect(f, g)"), true);
+  assert.equal(geoCommandAllowed('RunClickScript("alert(1)")'), false, "a page command is not a graph");
+  assert.equal(geoCommandAllowed('SetColor(A, "red")'), false);
+  assert.equal(geoCommandAllowed("Delete(A)"), false);
+  assert.equal(geoCommandAllowed("f(x)=x; Delete(A)"), false, "a second statement never gets through");
+  assert.equal(geoCommandAllowed("f(x)=x^2 `"), false);
+  assert.equal(geoCommandAllowed("x".repeat(201)), false, "a command is bounded");
+  assert.equal(geoCommandAllowed(""), false);
+
+  const scene = parseWhiteboardScene(JSON.stringify({
+    title: "The parabola",
+    blocks: [{
+      kind: "geo",
+      title: "y = x²",
+      commands: ["f(x)=x^2", "A=(1,1)", 'RunClickScript("alert(1)")', "Derivative(f)", "Delete(A)"],
+    }],
+  }));
+  assert.equal(scene.blocks[0].kind, "geo");
+  assert.deepEqual(scene.blocks[0].commands, ["f(x)=x^2", "A=(1,1)", "Derivative(f)"], "the off-list commands are dropped");
+
+  const script = parseWhiteboardScene(JSON.stringify({
+    blocks: [{ kind: "script", script: "f(x)=x^2\nDerivative(f)\nDelete(A)" }],
+  }));
+  assert.deepEqual(script.blocks[0].commands, ["f(x)=x^2", "Derivative(f)"]);
+
+  const multiline = parseWhiteboardScene(JSON.stringify({
+    blocks: [{ kind: "geo", commands: ["f(x)=x^2\nDerivative(f)"] }],
+  }));
+  assert.deepEqual(multiline.blocks[0].commands, ["f(x)=x^2", "Derivative(f)"], "a newline is a line boundary in an array too");
 });
 
 test("prose is not a scene, and becomes a plain-text board instead of an error", () => {
@@ -285,6 +374,9 @@ test("a member's question stores a board with the room's context and its own ret
   assert.match(state.whiteboards[0].model, /@cf\//, "the row names the model that answered");
   assert.equal(state.whiteboards[0].expires_at, new Date(now + 2 * 3_600_000).toISOString(), "the room's retention window, not a constant");
   assert.match(seen.system, /Security topics are allowed as education/);
+  assert.match(seen.system, /"kind":"chart"/, "the chart schema is in the prompt");
+  assert.match(seen.system, /"kind":"geo"/, "the graphing schema is in the prompt");
+  assert.match(seen.system, /Derivative, Integral, Solve/, "the allow-list the parser enforces is the one the model is told");
   assert.match(seen.user, /Operating Systems/, "the room's title is in the context");
   assert.match(seen.user, /Kofi: Wait, what does the MMU do here\?/, "the last chat is in the context");
   assert.match(seen.user, /5:20/, "the playhead is in the context");
@@ -296,6 +388,24 @@ test("a new board builds on the previous one", async () => {
   await ask({ generate });
   await ask({ question: "And the second chance algorithm?", generate });
   assert.match(prompts[1], /previous board was "How a page fault is handled"/);
+});
+
+test("a board with a chart and a graph is stored and read back as they were bounded", async () => {
+  const reply = JSON.stringify({
+    title: "Projectile motion",
+    summary: "Height over time, and the function the room can explore.",
+    topic: "SCIENCE",
+    blocks: [
+      { kind: "chart", chart: "line", title: "Height", series: [{ name: "h(t)", x: [0, 1, 2], y: [0, 4.9, 9.8] }] },
+      { kind: "geo", title: "h(t)", commands: ["f(x)=x^2", "Derivative(f)", "Delete(f)"] },
+    ],
+  });
+  const board = await ask({ generate: async () => reply });
+  assert.deepEqual(board.view.blocks.map((block) => block.kind), ["chart", "geo"]);
+  assert.deepEqual(board.view.blocks[1].commands, ["f(x)=x^2", "Derivative(f)"]);
+  const [stored] = await listCinemaWhiteboards({ roomId: "room-1" });
+  assert.deepEqual(stored.view.blocks.map((block) => block.kind), ["chart", "geo"]);
+  assert.equal(stored.view.blocks[0].series[0].y[2], 9.8);
 });
 
 test("a reply that ignored the schema gets one repair attempt, then plain text", async () => {
