@@ -28,6 +28,24 @@ export type CinemaPlaybackState = {
   durationSeconds: number;
 };
 
+/**
+ * One chat message as the room stored it. `atSeconds` is the video position the
+ * sender attached, or null when they attached none; it travels in the row's
+ * `metadata` so the room can render a seek chip without parsing prose.
+ */
+export type CinemaChatMessage = {
+  id: string;
+  sessionId: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  atSeconds: number | null;
+  createdAt: string;
+};
+
+/** Long enough for a study question, short enough that a socket cannot flood. */
+export const CINEMA_CHAT_MAX_LENGTH = 500;
+
 /** A room nobody has pressed play in yet. */
 export const CINEMA_PLAYBACK_START: CinemaPlaybackState = {
   positionSeconds: 0,
@@ -39,6 +57,7 @@ export const CINEMA_PLAYBACK_START: CinemaPlaybackState = {
 export type CinemaServerMessage =
   | { type: "presence"; members: CinemaPresenceMember[] }
   | { type: "state"; playback: CinemaPlaybackState }
+  | { type: "chat"; message: CinemaChatMessage }
   | { type: "pong"; at: number }
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };
@@ -56,7 +75,14 @@ export type CinemaPlaybackAction = {
   stateAt?: number;
 };
 
-export type CinemaClientMessage = { type: "ping" } | CinemaPlaybackAction;
+export type CinemaChatMessageInput = {
+  type: "chat_message";
+  message: string;
+  /** The video position the sender wants the chip to seek to. */
+  timestamp?: number;
+};
+
+export type CinemaClientMessage = { type: "ping" } | CinemaChatMessageInput | CinemaPlaybackAction;
 
 const PLAYBACK_TYPES = new Set<CinemaPlaybackActionType>(["play", "pause", "seek"]);
 
@@ -76,6 +102,17 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
   if (!value || typeof value !== "object") return null;
   const type = (value as { type?: unknown }).type;
   if (type === "ping") return { type };
+  if (type === "chat_message") {
+    const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown };
+    const content = String(source.message ?? source.content ?? "").trim();
+    if (!content || content.length > CINEMA_CHAT_MAX_LENGTH) return null;
+    const rawTimestamp = Number(source.timestamp ?? source.atSeconds);
+    return {
+      type: "chat_message",
+      message: content,
+      ...(Number.isFinite(rawTimestamp) && rawTimestamp >= 0 ? { timestamp: rawTimestamp } : {}),
+    };
+  }
   if (typeof type === "string" && PLAYBACK_TYPES.has(type as CinemaPlaybackActionType)) {
     const source = value as { time?: unknown; duration?: unknown; stateAt?: unknown };
     const time = Number(source.time);

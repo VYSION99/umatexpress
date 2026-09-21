@@ -322,6 +322,11 @@
 .console-switch.is-on > span { background: var(--ui-green, #0d694d); }
 .console-switch.is-on > span::after { transform: translateX(14px); }
 .console-switch:disabled { opacity: .65; cursor: progress; }
+.console-setting-number { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.console-setting-number input { width: 96px; min-height: 42px; padding: 0 12px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 12px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 14px; font-weight: 800; }
+.console-setting-number span { color: var(--ui-muted, #57675f); font-size: 12px; font-weight: 800; }
+.console-setting-number button { min-height: 42px; padding: 0 15px; border: 0; border-radius: 12px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.console-setting-number button:disabled { opacity: .6; cursor: progress; }
 @media (prefers-reduced-motion: reduce) { .console-switch > span, .console-switch > span::after { transition: none; } }
 @media (max-width: 620px) { .console-switches li { flex-direction: column; } }
 

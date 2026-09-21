@@ -127,9 +127,14 @@ async function consumeDurableRateLimit(scope: string, subject: string, options: 
   }
 }
 
-export async function rateLimit(request: Request, scope: string, options: RateLimitOptions) {
+/**
+ * The counter behind every limiter, keyed by whatever the caller decided the
+ * subject is. HTTP routes pass an IP; a Durable Object that already knows who
+ * a socket belongs to passes the student id, because one room behind a campus
+ * NAT must not spend another student's budget.
+ */
+export async function rateLimitSubject(scope: string, subject: string, options: RateLimitOptions) {
   const now = Date.now();
-  const subject = clientIp(request);
 
   // The limiter is a guard, never a gate: a store that is briefly unavailable
   // must degrade to the in-memory counter below rather than fail the request it
@@ -166,6 +171,10 @@ export async function rateLimit(request: Request, scope: string, options: RateLi
     remaining: 0,
     retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
   };
+}
+
+export async function rateLimit(request: Request, scope: string, options: RateLimitOptions) {
+  return rateLimitSubject(scope, clientIp(request), options);
 }
 
 export function rateLimitResponse(retryAfter: number) {

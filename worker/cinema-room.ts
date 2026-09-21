@@ -14,12 +14,17 @@
 import {
   CINEMA_PLAYBACK_START,
   parseClientMessage,
+  type CinemaChatMessage,
+  type CinemaChatMessageInput,
   type CinemaPlaybackAction,
   type CinemaPlaybackState,
   type CinemaPresenceMember,
   type CinemaServerMessage,
 } from "@/lib/cinema-engine/protocol";
+import { CINEMA_CHAT_REPLAY_LIMIT, recentCinemaMessages, writeCinemaMessage } from "@/lib/cinema-engine/messages";
 import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
+import { logEvent } from "@/lib/observability";
+import { rateLimitSubject } from "@/lib/rate-limit";
 
 /** What the Worker route learned from the database before it forwarded here. */
 export type CinemaRoomSnapshot = {
@@ -59,9 +64,13 @@ type WebSocketPairConstructor = new () => { 0: CinemaRoomSocket; 1: CinemaRoomSo
 
 const ROOM_KEY = "room";
 const PLAYBACK_KEY = "playback";
+const EMPTY_KEY = "emptySince";
 const CLOSE_NORMAL = 1000;
 /** One frame is tiny; anything larger is not a message this room speaks. */
 const MAX_MESSAGE_BYTES = 4_000;
+/** A person types far slower than this; a script must not be able to flood. */
+const CHAT_LIMIT = 8;
+const CHAT_WINDOW_MS = 10_000;
 
 function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null {
   const raw = socket.deserializeAttachment();
@@ -82,6 +91,8 @@ function jsonResponse(body: unknown, status: number) {
 export class CinemaRoom {
   private hostStudentId = "";
   private playback: CinemaPlaybackState | null = null;
+  /** When the last socket left, or 0 while somebody is attached. */
+  private emptySince = 0;
 
   constructor(private readonly state: CinemaRoomState) {}
 
@@ -89,6 +100,7 @@ export class CinemaRoom {
     const url = new URL(request.url);
     if (url.pathname === "/socket") return this.openSocket(request);
     if (url.pathname === "/close") return this.closeRoom();
+    if (url.pathname === "/presence") return this.presenceResponse();
     return new Response("Not found", { status: 404 });
   }
 
@@ -120,13 +132,46 @@ export class CinemaRoom {
     this.state.acceptWebSocket(server);
     server.serializeAttachment(attachment);
 
+    // Somebody is here, so the room is not idle. The marker is what the
+    // cleanup job reads: the database cannot see sockets, and the object
+    // cannot be polled for every room on every cron tick.
+    this.emptySince = 0;
+    await this.state.storage.put(EMPTY_KEY, 0);
+
     // The whole room learns about the arrival, the newcomer included: its first
     // frame is the current presence rather than an empty list.
     this.broadcast({ type: "presence", members: await this.presence() });
     // Only the newcomer needs the current playback: everyone else already has
     // it, and a page that just loaded is exactly what M3 has to catch up.
     this.send(server, { type: "state", playback: await this.playbackState() });
+    // Chat is the one thing a newcomer cannot derive: the room's memory of the
+    // conversation, oldest first, sent privately so nobody else re-renders it.
+    await this.replayChat(server, snapshot.roomId);
     return new Response(null, { status: 101, webSocket: client } as ResponseInit);
+  }
+
+  /**
+   * The last fifty messages, sent one frame each. A failed replay is logged and
+   * dropped: a database that is briefly away must not refuse the socket that
+   * was already authorised, and playback and presence still work.
+   */
+  private async replayChat(socket: CinemaRoomSocket, sessionId: string) {
+    if (!sessionId) return;
+    try {
+      for (const message of await recentCinemaMessages(sessionId, CINEMA_CHAT_REPLAY_LIMIT)) {
+        this.send(socket, { type: "chat", message });
+      }
+    } catch (error) {
+      logEvent("warn", "cinema_chat_replay_failed", {
+        roomId: sessionId,
+        reason: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  }
+
+  /** What the cleanup job asks before it ends an apparently abandoned room. */
+  private async presenceResponse(): Promise<Response> {
+    return jsonResponse({ members: await this.presence(), emptySince: await this.emptySinceValue() }, 200);
   }
 
   /** The host ended the room over HTTP; the sockets should not outlive it. */
@@ -151,13 +196,67 @@ export class CinemaRoom {
       this.send(socket, { type: "error", message: "That is not a message this room understands." });
       return;
     }
-    // One case today. Playback actions arrive in M3, where the same switch
-    // grows play, pause and seek behind the sender-is-host check.
     if (parsed.type === "ping") {
       this.send(socket, { type: "pong", at: Date.now() });
       return;
     }
+    if (parsed.type === "chat_message") {
+      await this.applyChat(socket, parsed);
+      return;
+    }
     await this.applyPlayback(socket, parsed);
+  }
+
+  /**
+   * A message is stored before it is broadcast, so the live wire and the
+   * reconnect replay cannot disagree about what was said. The rate limit is
+   * per student, not per IP: a whole campus hall shares one address, and one
+   * flooder must not silence their neighbours. If the store is unreachable the
+   * room still shows the message live — losing it from the replay is a smaller
+   * failure than closing the conversation for everyone — but the failure is
+   * logged rather than hidden.
+   */
+  private async applyChat(socket: CinemaRoomSocket, frame: CinemaChatMessageInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment) {
+      this.send(socket, { type: "error", message: "That socket is not attached to a student." });
+      return;
+    }
+    const limited = await rateLimitSubject("cinema-chat", attachment.studentId, { limit: CHAT_LIMIT, windowMs: CHAT_WINDOW_MS });
+    if (!limited.ok) {
+      this.send(socket, { type: "error", message: `You are sending messages too fast. Try again in ${Math.max(1, limited.retryAfter)} seconds.` });
+      return;
+    }
+    const sessionId = String((await this.roomSnapshot())?.roomId || "");
+    if (!sessionId) {
+      this.send(socket, { type: "error", message: "This room is missing its identity." });
+      return;
+    }
+    const atSeconds = Number.isFinite(Number(frame.timestamp)) && Number(frame.timestamp) >= 0 ? Number(frame.timestamp) : null;
+    let message: CinemaChatMessage;
+    try {
+      message = await writeCinemaMessage({
+        sessionId,
+        sender: { id: attachment.studentId, name: attachment.displayName },
+        content: frame.message,
+        atSeconds,
+      });
+    } catch (error) {
+      logEvent("warn", "cinema_chat_store_failed", {
+        roomId: sessionId,
+        reason: error instanceof Error ? error.message : "unknown",
+      });
+      message = {
+        id: crypto.randomUUID(),
+        sessionId,
+        senderId: attachment.studentId,
+        senderName: attachment.displayName,
+        content: frame.message,
+        atSeconds,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    this.broadcast({ type: "chat", message });
   }
 
   /**
@@ -215,7 +314,13 @@ export class CinemaRoom {
     // The runtime still lists the closing socket while this handler runs, so
     // it has to be excluded by hand or the room would keep seeing the person
     // who just left until the next arrival.
-    this.broadcast({ type: "presence", members: await this.presence(socket) }, socket);
+    const remaining = await this.presence(socket);
+    this.broadcast({ type: "presence", members: remaining }, socket);
+    // The room is idle once nobody is attached. Recording the instant here —
+    // rather than inferring it from stale rows later — is what lets the
+    // cleanup job end an abandoned room without guessing.
+    this.emptySince = remaining.length === 0 ? Date.now() : 0;
+    await this.state.storage.put(EMPTY_KEY, this.emptySince);
   }
 
   /** The runtime closes the socket after an error, so close owns the update. */
@@ -300,6 +405,14 @@ export class CinemaRoom {
 
   private roomSnapshot() {
     return this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
+  }
+
+  /** When the last socket left, from memory or from storage after a wake. */
+  private async emptySinceValue(): Promise<number> {
+    if (this.emptySince) return this.emptySince;
+    const stored = Number(await this.state.storage.get(EMPTY_KEY));
+    this.emptySince = Number.isFinite(stored) && stored > 0 ? stored : 0;
+    return this.emptySince;
   }
 
   /** The room's playback, from memory, or from storage after a wake. */

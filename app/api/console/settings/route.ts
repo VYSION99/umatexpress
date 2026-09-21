@@ -6,9 +6,10 @@ import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
- * The platform switchboard. Admin only: these switches decide whether the
- * scheduled jobs may move money unattended, so the same role that records a
- * transfer by hand is the role that turns the automation on.
+ * The platform switchboard. Admin only: these settings decide whether the
+ * scheduled jobs may move money unattended and how long a Cinema room may sit
+ * idle or keep its chat, so the same role that records a transfer by hand is
+ * the role that changes them.
  *
  * The environment variable stays as the fallback; a value saved here overrides
  * it, and every write is audited against the administrator who made it.
@@ -30,8 +31,8 @@ export async function PATCH(request: Request) {
     const account = await requireConsoleRole(request, ["ADMIN"]);
     const limited = await rateLimit(request, "console-settings-write", { limit: 60, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
-    const body = await request.json() as { key?: unknown; enabled?: unknown };
-    const setting = await setPlatformSetting({ key: body.key, enabled: body.enabled, actor: account.email });
+    const body = await request.json() as { key?: unknown; enabled?: unknown; value?: unknown };
+    const setting = await setPlatformSetting({ key: body.key, enabled: body.enabled, value: body.value, actor: account.email });
     return Response.json({ ok: true, setting }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

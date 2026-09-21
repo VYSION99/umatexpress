@@ -217,3 +217,21 @@ test("an administrator reads and flips a switch through the API", async () => {
   const unknown = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "nope", enabled: true }));
   assert.equal(unknown.status, 400);
 });
+
+test("a numeric limit is written, read back and clamped through the API", async () => {
+  const admin = await cookieFor("console-admin");
+  const saved = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "cinema_room_idle_minutes", value: 45 }));
+  assert.equal(saved.status, 200);
+  const payload = await saved.json();
+  assert.equal(payload.setting.value, 45);
+  assert.equal(payload.setting.kind, "number");
+  assert.equal(settings.get("cinema_room_idle_minutes").value, "45");
+
+  const listed = await (await settingsRoute.GET(apiRequest("GET", admin))).json();
+  assert.equal(listed.settings.find((entry) => entry.key === "cinema_room_idle_minutes").value, 45);
+
+  const clamped = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "cinema_retention_hours", value: 999 }));
+  assert.equal((await clamped.json()).setting.value, 48, "a limit cannot be set outside its documented bounds");
+  const refused = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "cinema_room_idle_minutes", value: "soon" }));
+  assert.equal(refused.status, 400);
+});

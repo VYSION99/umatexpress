@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage } from "@/lib/cinema-engine/protocol";
+import type { CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage } from "@/lib/cinema-engine/protocol";
 
 export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed";
 
@@ -9,6 +9,8 @@ export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed"
 const PING_MS = 45_000;
 const RETRY_BASE_MS = 800;
 const RETRY_MAX_MS = 15_000;
+/** The window keeps the last hundred; the server replays fifty. */
+const CHAT_KEEP = 100;
 
 /**
  * The room's live connection.
@@ -28,6 +30,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [state, setState] = useState<CinemaConnectionState>(enabled ? "connecting" : "closed");
   const [members, setMembers] = useState<CinemaPresenceMember[]>([]);
   const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
+  const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
 
   /** Sends one frame if the room is listening; a closed socket drops it. */
@@ -35,6 +38,17 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   }, []);
+
+  /** Chat travels the same socket as playback; a closed one drops it. */
+  const sendChat = useCallback((message: string, atSeconds?: number | null) => {
+    const content = message.trim();
+    if (!content) return;
+    send({
+      type: "chat_message",
+      message: content,
+      ...(Number.isFinite(Number(atSeconds)) && Number(atSeconds) >= 0 ? { timestamp: Number(atSeconds) } : {}),
+    });
+  }, [send]);
 
   useEffect(() => {
     // Disabled is not a state the effect writes; it is derived at the return.
@@ -89,6 +103,14 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         }
         if (message.type === "presence") setMembers(message.members || []);
         if (message.type === "state") setPlayback(message.playback);
+        if (message.type === "chat") setMessages((current) => {
+          const incoming = message.message;
+          // A reconnect replays the last fifty, and the page may already have
+          // shown some of them; an id the window holds is not a new message.
+          if (!incoming?.id || current.some((item) => item.id === incoming.id)) return current;
+          const next = [...current, incoming];
+          return next.length > CHAT_KEEP ? next.slice(-CHAT_KEEP) : next;
+        });
         if (message.type === "closed") {
           ended = true;
           setState("closed");
@@ -122,6 +144,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, members, playback, send }
-    : { state: "closed" as CinemaConnectionState, members: [], playback: null, send };
+    ? { state, members, playback, messages, send, sendChat }
+    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], send, sendChat };
 }

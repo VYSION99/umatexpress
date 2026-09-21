@@ -5,10 +5,14 @@ import { Loader2, RefreshCw, SlidersHorizontal } from "lucide-react";
 
 type PlatformSetting = {
   key: string;
+  kind: "toggle" | "number";
   label: string;
   summary: string;
   detail: string;
   enabled: boolean;
+  value: number;
+  min?: number;
+  max?: number;
   source: "SETTING" | "ENV" | "DEFAULT";
   env: string;
   updatedBy: string;
@@ -84,6 +88,28 @@ export function PlatformSettings() {
     });
   }
 
+  async function save(setting: PlatformSetting, value: number) {
+    await run(async () => {
+      setBusy(setting.key);
+      setNotice("");
+      try {
+        const response = await fetch("/api/console/settings", {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key: setting.key, value }),
+        });
+        const data = await response.json() as { setting?: PlatformSetting; error?: string };
+        const updated = data.setting;
+        if (!response.ok || !updated) throw new Error(data.error || "That setting could not be changed.");
+        setSettings((current) => (current || []).map((item) => (item.key === updated.key ? updated : item)));
+        setNotice(`${updated.label} is now ${updated.value}. The change is recorded against your console account.`);
+      } finally {
+        setBusy("");
+      }
+    });
+  }
+
   if (!settings) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading platform settings…</p>;
 
   return <section className="console-panel">
@@ -99,20 +125,60 @@ export function PlatformSettings() {
           <span>{setting.detail}</span>
           <small className={`is-${setting.source.toLowerCase()}`}>{sourceText(setting)}</small>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={setting.enabled}
-          aria-label={`${setting.label}: ${setting.enabled ? "on" : "off"}`}
-          className={`console-switch${setting.enabled ? " is-on" : ""}`}
-          disabled={busy === setting.key}
-          onClick={() => void flip(setting)}
-        >
-          <span aria-hidden />
-          {busy === setting.key ? "Saving…" : setting.enabled ? "On" : "Off"}
-        </button>
+        {setting.kind === "number"
+          ? <NumberSetting
+            key={`${setting.key}:${setting.value}`}
+            setting={setting}
+            busy={busy === setting.key}
+            onSave={(value) => void save(setting, value)}
+          />
+          : <button
+            type="button"
+            role="switch"
+            aria-checked={setting.enabled}
+            aria-label={`${setting.label}: ${setting.enabled ? "on" : "off"}`}
+            className={`console-switch${setting.enabled ? " is-on" : ""}`}
+            disabled={busy === setting.key}
+            onClick={() => void flip(setting)}
+          >
+            <span aria-hidden />
+            {busy === setting.key ? "Saving…" : setting.enabled ? "On" : "Off"}
+          </button>}
       </li>)}
     </ul>
     <p className="console-note">Every switch here is audited against your console account. The environment variable still decides a switch until an override is saved, so a deployment that never opens this page behaves exactly as before.</p>
   </section>;
+}
+
+/** A limit is a number, not a switch: type it, save it, see the new value. */
+function NumberSetting(input: {
+  setting: PlatformSetting;
+  busy: boolean;
+  onSave: (value: number) => void;
+}) {
+  const { setting, busy, onSave } = input;
+  const [draft, setDraft] = useState(String(setting.value));
+  const unit = setting.key.endsWith("_minutes") ? "minutes" : setting.key.endsWith("_hours") ? "hours" : "";
+  return <form
+    className="console-setting-number"
+    onSubmit={(event) => {
+      event.preventDefault();
+      const numeric = Number(draft);
+      if (Number.isFinite(numeric)) onSave(numeric);
+    }}
+  >
+    <input
+      type="number"
+      inputMode="numeric"
+      aria-label={`${setting.label} in ${unit || "units"}`}
+      value={draft}
+      min={setting.min}
+      max={setting.max}
+      step={1}
+      disabled={busy}
+      onChange={(event) => setDraft(event.target.value)}
+    />
+    <span>{unit}</span>
+    <button type="submit" disabled={busy || !draft.trim()}>{busy ? "Saving…" : "Save"}</button>
+  </form>;
 }

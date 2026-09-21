@@ -3,6 +3,7 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { NOTIFICATION_SWEEP_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
 import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
+import { runCinemaCleanup } from "@/lib/cinema-engine/cleanup";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
 import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
@@ -113,7 +114,11 @@ const worker = {
       ]));
       return;
     }
-    ctx.waitUntil(runCampusReconcile());
+    // Cinema cleanup rides the five-minute reconcile: bounded to four rooms
+    // per run, so the payment sweep and the deletion job together stay inside
+    // one invocation's subrequest budget. It never throws; a bad run is logged
+    // and the next tick retries.
+    ctx.waitUntil(Promise.all([runCampusReconcile(), runCinemaCleanup({ limit: 4 })]));
   },
 
   /**

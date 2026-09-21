@@ -26,7 +26,7 @@ and the sections after it were rewritten to match.
 | Console | One console, every service: Cinema registers a service entry, a live-room list and the report/deletion queue. Staff surfaces are console routes; nothing staff-facing is public. |
 | Audit | `consoleAudit(...)` and the platform audit tables. Cinema writes no `audit_logs` of its own. |
 | Trust | Reports feed the existing moderation desk (the `hostel_risk_signals` pattern), not a bespoke takedown mechanism. |
-| Limits and toggles | `platform_settings` keys — `cinema_uploads_enabled`, `cinema_max_upload_bytes`, `cinema_retention_hours`, `cinema_room_idle_minutes` — read with `platformSettingEnabled()` and toggled on the console settings page. Nothing is hard-coded. |
+| Limits and toggles | `platform_settings` keys — `cinema_room_idle_minutes` and `cinema_retention_hours` live now, read with `platformSettingNumber()` and edited on the console settings page; `cinema_uploads_enabled` and `cinema_max_upload_bytes` ship with Phase 2. Nothing is hard-coded. |
 | Types and vocabulary | TEXT ISO-8601 timestamps, INTEGER booleans, UPPERCASE status values, `crypto.randomUUID()` ids. |
 | Scheduled work | Cleanup rides an existing cron trigger. The Worker already runs four, and Cloudflare collapses triggers that share a minute (see `lib/campus-engine/crons.ts`). |
 | Durable Object | One new class, `CinemaRoom`, exported from `worker/index.ts` with its binding and a `v2` migration in `build/cloudflare-binding-plan.ts`. Hibernatable WebSockets, so an idle room costs storage rather than wall-clock duration. |
@@ -1211,26 +1211,32 @@ the part with the unknowns.
 | 4 | `CinemaRoom` Durable Object, hibernatable sockets, `/ws` route | High | ✅ M2 |
 | 5 | Play/pause/seek with the §11 drift rule | High | ✅ M3 |
 | 6 | Presence: join, leave, rejoin, "who is here" | High | ✅ M2 |
-| 7 | Chat with `atSeconds`, last fifty on reconnect | Medium |
+| 7 | Chat with `atSeconds`, last fifty on reconnect | Medium | ✅ M4 |
 | 8 | Host controls: open, lock, end | High | ✅ M1 |
-| 9 | Idle and end-of-room transitions, cleanup on the existing cron | High |
+| 9 | Idle and end-of-room transitions, cleanup on the existing cron | High | ✅ M4 |
 | 10 | The client room at `/cinema/[id]`, share link, signed-out hop, and the existing `OnlineCinema` launcher card flipped to `available` | High | ✅ M1 |
 | 11 | Console service entry, live-room list, end-room action | Medium |
 | 12 | Report into the moderation queue | Medium |
-| 13 | `rateLimit()` on create, join, chat and socket connect | Medium | ✅ create/join/socket |
-| 14 | Tests: sync arithmetic, state machine, membership, cleanup | High |
+| 13 | `rateLimit()` on create, join, chat and socket connect | Medium | ✅ create/join/socket M1, chat M4 |
+| 14 | Tests: sync arithmetic, state machine, membership, cleanup | High | ✅ M1–M4 |
 
-**Status: M1, M2 and M3 delivered.** A signed-in student creates a room, shares
+**Status: M1, M2, M3 and M4 delivered.** A signed-in student creates a room, shares
 the link, and everyone in it sees presence live; the `CinemaRoom` object accepts
 hibernatable sockets at `/api/cinema/sessions/{id}/ws`, the Worker route
 authenticates the cookie and checks membership before the upgrade, and the client
 reconnects with backoff across a deploy. The room is in sync: the official
 YouTube player is driven by the object's state, the host's play, pause and seek
 carry the §11 arithmetic, a member's own pause is undone, and a refresh rejoins
-mid-playback. Verified against workerd and in headless Chrome locally: two
-sockets follow the host within a second, a new socket catches up on connect, a
-browser page follows a seek to 120s and a pause, and a member's pause is pulled
-back. Chat (M4) and the console list (M5) are not built yet.
+mid-playback. The room is safe: chat travels the room socket, is stored in
+`cinema_messages` with its `atSeconds` chip, is rate limited per student (eight
+messages per ten seconds), and the last fifty are replayed to a reconnecting
+student. A room nobody is in ends after `cinema_room_idle_minutes`, and an ended
+room is purged of chat and membership after `cinema_retention_hours` by the
+cleanup job on the five-minute reconcile trigger, leaving a tombstone row. Both
+limits are console settings, not constants. Verified against workerd and in
+headless Chrome locally: two sockets follow the host within a second, a new
+socket catches up on connect, a browser page follows a seek to 120s and a pause,
+and a member's pause is pulled back. The console list (M5) is not built yet.
 
 ### Phase 2 — temporary uploads
 
@@ -1267,7 +1273,7 @@ the same shape the Hostel Finder rollout used.
 | **M1 — the room exists** | `cinema_sessions`, `cinema_participants`, create/read/patch/join routes, the client room shell, share link, the launcher card switched on | two signed-in students are in the same row of the same room |
 | **M2 — the room is live** | `CinemaRoom` Durable Object, `/ws` route with cookie auth, hibernatable sockets, presence | a socket survives a Worker deploy and presence empties when a tab closes |
 | **M3 — the room is in sync** | YouTube player, play/pause/seek, the §11 arithmetic, host-only validation | host seeks, two browsers follow within a second, refresh rejoins mid-playback |
-| **M4 — the room is safe** | chat with timestamps, rate limits, lock, end, idle expiry, cleanup job, tests | a flooded socket is limited, an abandoned room expires and serves nothing |
+| **M4 — the room is safe** ✅ | chat with timestamps, rate limits, lock, end, idle expiry, cleanup job, tests | a flooded socket is limited, an abandoned room expires and serves nothing |
 | **M5 — the room is watched** | console service entry, live-room list, end-room action, report queue | a moderator ends a reported room from the console and the sockets close |
 | **M6 — Phase 2 opens** | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
 

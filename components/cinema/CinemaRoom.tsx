@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Lock, LockOpen, Play, Radio, Square } from "lucide-react";
+import { Lock, LockOpen, Play, Radio, Send, Square } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
+import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
 import { YouTubePlayer } from "./YouTubePlayer";
 import "./cinema.css";
@@ -27,12 +28,19 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState("");
   const joined = useRef(false);
+  const chatEndRef = useRef<HTMLLIElement | null>(null);
   const enteredStatus = useRef(initialRoom.status);
   const active = room.status === "CREATED" || room.status === "LIVE";
   // The socket is the room's live voice: it opens once the page knows who the
   // student is, and closes the moment the room stops being open.
   const live = useCinemaSocket({ roomId: room.id, enabled: Boolean(ready && account && active) });
+
+  // A chat that does not follow its own tail is a chat nobody reads.
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "nearest" });
+  }, [live.messages.length]);
 
   const load = useCallback(async () => {
     try {
@@ -92,6 +100,24 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   };
 
   const people = peopleOf(room, live);
+  const canSeek = room.isHost && live.state === "live" && Boolean(live.playback);
+
+  /** The playhead a message is asking about, or null before the video starts. */
+  const chatTimestamp = () => {
+    if (!live.playback) return null;
+    const at = Math.round(expectedPosition(live.playback, Date.now()));
+    return at > 0 ? at : null;
+  };
+
+  const seekTo = (seconds: number) => {
+    if (!canSeek || !live.playback) return;
+    live.send({
+      type: "seek",
+      time: seconds,
+      duration: live.playback.durationSeconds || undefined,
+      stateAt: live.playback.updatedAt,
+    });
+  };
 
   return <div className="cinema-room">
     <div className="cinema-stage">
@@ -172,6 +198,63 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       {account && <div className="cinema-controls cinema-sub">
         <button className="secondary" onClick={() => void load()}>Refresh the room</button>
       </div>}
+
+      <section className="cinema-chat">
+        <div className="cinema-presence-head">
+          <h2>Room chat</h2>
+          {account && live.messages.length > 0 && <span className="cinema-link">{live.messages.length} message{live.messages.length === 1 ? "" : "s"}</span>}
+        </div>
+        {!account
+          ? <p className="cinema-note">Sign in with your <strong>@st.umat.edu.gh</strong> account to read and send messages with the room.</p>
+          : <>
+            {live.messages.length === 0
+              ? <p className="cinema-note">No messages yet. Ask about a moment in the video and the room attaches where you were.</p>
+              : <ul className="cinema-messages">
+                {live.messages.map((message) => <li key={message.id} className={message.senderId === account.id ? "is-mine" : ""}>
+                  <header>
+                    <strong>{message.senderId === account.id ? "You" : message.senderName || "Member"}</strong>
+                    {message.atSeconds !== null && (canSeek
+                      ? <button
+                        type="button"
+                        className="cinema-timestamp"
+                        title="Bring the room to this moment"
+                        onClick={() => seekTo(message.atSeconds as number)}
+                      >{clockTime(message.atSeconds)}</button>
+                      : <span className="cinema-timestamp is-static">{clockTime(message.atSeconds)}</span>)}
+                  </header>
+                  <p>{message.content}</p>
+                </li>)}
+                <li ref={chatEndRef} className="cinema-chat-end" aria-hidden />
+              </ul>}
+            <form
+              className="cinema-chat-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const text = draft;
+                setDraft("");
+                live.sendChat(text, chatTimestamp());
+              }}
+            >
+              <input
+                value={draft}
+                maxLength={500}
+                placeholder={live.state === "live" ? "Ask the room…" : "Chat returns with the connection"}
+                aria-label="Message the room"
+                disabled={live.state !== "live"}
+                onChange={(event) => setDraft(event.target.value)}
+              />
+              <button type="submit" aria-label="Send the message" disabled={!draft.trim() || live.state !== "live"}>
+                <Send size={15} aria-hidden />
+              </button>
+            </form>
+            <p className="cinema-note cinema-sub">
+              {room.isHost
+                ? "Tap a timestamp chip to bring everyone to that moment."
+                : "A timestamp chip shows where the sender was in the video; the host can jump the room to it."}
+            </p>
+          </>}
+      </section>
+
       <p className="cinema-note cinema-sub">
         {room.status === "ENDED"
           ? "This room has ended. Nobody new can join."
@@ -181,6 +264,16 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       </p>
     </aside>
   </div>;
+}
+
+/** 320 seconds reads as 05:20; an hour-long session keeps its hours. */
+function clockTime(seconds: number) {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${pad(minutes)}:${pad(remainder)}`;
 }
 
 /** The presence list: live when the room has spoken, the page's list until then. */

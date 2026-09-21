@@ -55,6 +55,22 @@
 .cinema-link.is-live{background:#10382a;color:#eafff3}
 .cinema-link.is-offline{background:#fdf3e2;color:#8a5a12}
 
+/* Room chat: the same socket as playback, so the panel sits under presence. */
+.cinema-chat{margin-top:16px;padding-top:14px;border-top:1px solid #e2eae5;display:grid;gap:10px}
+.cinema-messages{display:grid;gap:8px;list-style:none;margin:0;padding:0;max-height:320px;overflow-y:auto}
+.cinema-messages li{display:grid;gap:4px;border:1px solid #d8e4dc;border-radius:14px;background:#fbfdfc;padding:10px 12px}
+.cinema-messages li.is-mine{background:var(--mint);border-color:#cbe3d6}
+.cinema-messages li header{display:flex;align-items:center;gap:8px}
+.cinema-messages li header strong{font-size:11px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;color:#3c5a4c}
+.cinema-messages li p{margin:0;font-size:13px;line-height:1.55;color:var(--ink);overflow-wrap:anywhere;white-space:pre-wrap}
+.cinema-timestamp{border:0;border-radius:999px;background:#10382a;color:#eafff3;padding:4px 9px;font-size:10.5px;font-weight:900;cursor:pointer}
+.cinema-timestamp.is-static{display:inline-block;background:#eef1ef;color:#61706a;cursor:default}
+.cinema-chat-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.cinema-chat-form input{min-height:44px;border:1px solid #d5ded7;border-radius:12px;background:white;color:var(--ink);padding:0 13px;font-size:13px}
+.cinema-chat-form button{display:inline-flex;align-items:center;justify-content:center;width:46px;border:0;border-radius:12px;background:var(--green);color:white;cursor:pointer}
+.cinema-chat-form button:disabled{opacity:.5;cursor:not-allowed}
+.cinema-chat-end{display:none}
+
 @media (max-width:900px){
   .cinema-lobby,.cinema-room{grid-template-columns:minmax(0,1fr)}
 }

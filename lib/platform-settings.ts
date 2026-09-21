@@ -14,9 +14,9 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * opens the page. Nothing else about the jobs changes: off still means the
  * ledger accrues and a person presses send.
  *
- * One key per switch. `value` is stored as "1" or "0" so a read cannot confuse
- * a setting with a missing row, and every write lands in the audit log with the
- * administrator who made it.
+ * One key per setting. A toggle stores "1" or "0" so a read cannot confuse a
+ * setting with a missing row; a limit stores its number. Every write lands in
+ * the audit log with the administrator who made it.
  */
 export const PLATFORM_SETTINGS_SCHEMA_VERSION = "021_platform_settings";
 
@@ -29,22 +29,33 @@ const PLATFORM_SETTINGS_STATEMENTS = [
   )`,
 ];
 
-export type PlatformSettingKey = "hostel_payout_auto" | "organizer_payout_auto";
+export type PlatformSettingKey =
+  | "hostel_payout_auto"
+  | "organizer_payout_auto"
+  | "cinema_room_idle_minutes"
+  | "cinema_retention_hours";
+export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
 export type PlatformSettingDefinition = {
   key: PlatformSettingKey;
+  kind: PlatformSettingKind;
   label: string;
   summary: string;
   detail: string;
   /** The variable that decides this switch when no override is stored. */
   env: string;
-  fallback: boolean;
+  /** A toggle's default state, or a limit's default number. */
+  fallback: boolean | number;
+  /** Bounds for a numeric setting; ignored by toggles. */
+  min?: number;
+  max?: number;
 };
 
 export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] = [
   {
     key: "hostel_payout_auto",
+    kind: "toggle",
     label: "Hostel payouts on a schedule",
     summary: "Let the scheduled job release hostel money that has left its window.",
     detail: "On, the release job sends each landlord's payable balance through Paystack on its own. Off, the ledger still accrues and a statement still reconciles, but money waits for an administrator to press Send with Paystack in the hostel payout desk.",
@@ -53,16 +64,41 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
   },
   {
     key: "organizer_payout_auto",
+    kind: "toggle",
     label: "Organizer payouts on a schedule",
     summary: "Let the same job release vacationRide organizer money.",
     detail: "The trip side of the same switch: payouts for confirmed bookings are transferred unattended. Off keeps every transfer attended, which is the safe default while an organizer is new.",
     env: "PAYOUT_AUTO_ENABLED",
     fallback: false,
   },
+  {
+    key: "cinema_room_idle_minutes",
+    kind: "number",
+    label: "Cinema idle rooms",
+    summary: "How long a study room may sit with nobody connected before it ends itself.",
+    detail: "Cleanup ends a live room once its last socket has been gone this long; a room that was created and never opened ends after the same wait. Five minutes is the floor, so a reconnect after a brief drop cannot kill a room.",
+    env: "CINEMA_ROOM_IDLE_MINUTES",
+    fallback: 30,
+    min: 5,
+    max: 24 * 60,
+  },
+  {
+    key: "cinema_retention_hours",
+    kind: "number",
+    label: "Cinema retention",
+    summary: "How long an ended room keeps its chat and membership before cleanup deletes them.",
+    detail: "After the host ends a room, its messages and participant list survive for this many hours so a reconnect can still read the last fifty messages. Then the cleanup job purges both and leaves the room as a tombstone. One hour is the floor.",
+    env: "CINEMA_RETENTION_HOURS",
+    fallback: 2,
+    min: 1,
+    max: 48,
+  },
 ];
 
 export type PlatformSettingState = PlatformSettingDefinition & {
   enabled: boolean;
+  /** A limit's current number; for a toggle, 1 when on and 0 when off. */
+  value: number;
   source: PlatformSettingSource;
   updatedBy: string;
   updatedAt: string;
@@ -110,6 +146,21 @@ function toggleFromText(value: string) {
   return null;
 }
 
+function numberFromText(value: string) {
+  const raw = value.trim();
+  if (!raw) return null;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+/** A limit is a whole number inside its own bounds, whatever was stored. */
+function clampSettingNumber(definition: PlatformSettingDefinition, value: number) {
+  const rounded = Math.round(value);
+  const min = Number.isFinite(Number(definition.min)) ? Number(definition.min) : 0;
+  const max = Number.isFinite(Number(definition.max)) ? Number(definition.max) : Number.MAX_SAFE_INTEGER;
+  return Math.min(Math.max(rounded, min), max);
+}
+
 async function storedSettings() {
   if (settingsCache && Date.now() - settingsCache.at < SETTINGS_CACHE_TTL_MS) return settingsCache.rows;
   const rows = new Map<string, StoredSetting>();
@@ -142,11 +193,26 @@ async function storedSettings() {
 export async function platformSettingState(key: PlatformSettingKey): Promise<PlatformSettingState> {
   const definition = platformSettingDefinition(key);
   const stored = (await storedSettings()).get(definition.key);
-  const storedValue = stored ? toggleFromText(stored.value) : null;
-  if (stored && storedValue !== null) {
+  if (definition.kind === "number") {
+    const storedValue = stored ? numberFromText(stored.value) : null;
+    if (stored && storedValue !== null) {
+      const value = clampSettingNumber(definition, storedValue);
+      return { ...definition, enabled: value > 0, value, source: "SETTING", updatedBy: stored.updatedBy, updatedAt: stored.updatedAt };
+    }
+    const fromEnv = numberFromText(await envValue(definition.env));
+    if (fromEnv !== null) {
+      const value = clampSettingNumber(definition, fromEnv);
+      return { ...definition, enabled: value > 0, value, source: "ENV", updatedBy: "", updatedAt: "" };
+    }
+    const value = clampSettingNumber(definition, Number(definition.fallback));
+    return { ...definition, enabled: value > 0, value, source: "DEFAULT", updatedBy: "", updatedAt: "" };
+  }
+  const storedToggle = stored ? toggleFromText(stored.value) : null;
+  if (stored && storedToggle !== null) {
     return {
       ...definition,
-      enabled: storedValue,
+      enabled: storedToggle,
+      value: storedToggle ? 1 : 0,
       source: "SETTING",
       updatedBy: stored.updatedBy,
       updatedAt: stored.updatedAt,
@@ -154,9 +220,10 @@ export async function platformSettingState(key: PlatformSettingKey): Promise<Pla
   }
   const fromEnv = toggleFromText(await envValue(definition.env));
   if (fromEnv !== null) {
-    return { ...definition, enabled: fromEnv, source: "ENV", updatedBy: "", updatedAt: "" };
+    return { ...definition, enabled: fromEnv, value: fromEnv ? 1 : 0, source: "ENV", updatedBy: "", updatedAt: "" };
   }
-  return { ...definition, enabled: definition.fallback, source: "DEFAULT", updatedBy: "", updatedAt: "" };
+  const fallback = definition.fallback === true;
+  return { ...definition, enabled: fallback, value: fallback ? 1 : 0, source: "DEFAULT", updatedBy: "", updatedAt: "" };
 }
 
 /** The question every job actually asks. An override wins over the variable. */
@@ -165,21 +232,38 @@ export async function platformSettingEnabled(key: PlatformSettingKey) {
   return state.enabled;
 }
 
+/** A numeric setting's current value: stored override, variable, or default. */
+export async function platformSettingNumber(key: PlatformSettingKey) {
+  return (await platformSettingState(key)).value;
+}
+
 export async function listPlatformSettings() {
   return Promise.all(PLATFORM_SETTING_DEFINITIONS.map((definition) => platformSettingState(definition.key)));
 }
 
 /** Writes the override, records who made it, and answers with the new state. */
-export async function setPlatformSetting(input: { key: unknown; enabled: unknown; actor: string }) {
+export async function setPlatformSetting(input: { key: unknown; enabled?: unknown; value?: unknown; actor: string }) {
   const definition = platformSettingDefinition(input.key);
-  const enabled = toggleFromText(String(input.enabled));
-  if (enabled === null) throw new CampusEngineError("VALIDATION_ERROR", "Send true or false for that setting.", 400);
   const actor = String(input.actor || "").trim() || "unknown";
   await ensurePlatformSettingsTable();
   const stamp = new Date().toISOString();
+  let storedValue: string;
+  let details: Record<string, unknown>;
+  if (definition.kind === "number") {
+    const numeric = numberFromText(String(input.value ?? input.enabled ?? ""));
+    if (numeric === null) throw new CampusEngineError("VALIDATION_ERROR", "Send a number for that setting.", 400);
+    const value = clampSettingNumber(definition, numeric);
+    storedValue = String(value);
+    details = { key: definition.key, value };
+  } else {
+    const enabled = toggleFromText(String(input.enabled));
+    if (enabled === null) throw new CampusEngineError("VALIDATION_ERROR", "Send true or false for that setting.", 400);
+    storedValue = enabled ? "1" : "0";
+    details = { key: definition.key, enabled };
+  }
   await turso(
     "INSERT INTO platform_settings (key,value,updated_by,updated_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
-    [definition.key, enabled ? "1" : "0", actor, stamp],
+    [definition.key, storedValue, actor, stamp],
   );
   resetPlatformSettingsCache();
   await consoleAudit({
@@ -187,8 +271,8 @@ export async function setPlatformSetting(input: { key: unknown; enabled: unknown
     action: "platform_setting_updated",
     targetType: "platform_setting",
     targetReference: definition.key,
-    details: { key: definition.key, enabled },
+    details,
   });
-  logEvent("info", "platform_setting_updated", { key: definition.key, enabled, actor });
-  return { ...definition, enabled, source: "SETTING" as const, updatedBy: actor, updatedAt: stamp };
+  logEvent("info", "platform_setting_updated", { key: definition.key, value: storedValue, actor });
+  return platformSettingState(definition.key);
 }

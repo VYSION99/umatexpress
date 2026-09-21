@@ -190,6 +190,27 @@ test("closing the room tells every socket, then closes it", async () => {
   }
 });
 
+test("the object answers whether the room is empty, and since when", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const [socket] = state.sockets;
+
+  const before = await (await room.fetch(new Request("https://cinema-room/presence"))).json();
+  assert.equal(before.members.length, 1);
+  assert.equal(before.emptySince, 0, "an attached room is not idle");
+
+  await room.webSocketClose(socket);
+  state.remove(socket);
+  const after = await (await room.fetch(new Request("https://cinema-room/presence"))).json();
+  assert.equal(after.members.length, 0);
+  assert.ok(after.emptySince > 0, "the instant the last socket left is recorded for the cleanup job");
+
+  await room.fetch(upgrade());
+  const refilled = await (await room.fetch(new Request("https://cinema-room/presence"))).json();
+  assert.equal(refilled.members.length, 1);
+  assert.equal(refilled.emptySince, 0, "a new arrival clears the idle marker");
+});
+
 test("a socket that is not an authorised upgrade never becomes one", async () => {
   const { room, state } = await newRoom();
 

@@ -1304,8 +1304,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_refunds_open ON hostel_refunds(book
 -- `cinema_participants` is membership, not presence: the Durable Object owns
 -- who is connected while a room is live, and this table is how a join survives
 -- a restart and how a moderator can answer "who was in this room" afterwards.
--- Chat, uploads and the retention fields arrive with the milestones that use
--- them (M4 and Phase 2), which is why they are absent here.
+-- Uploads and the R2 surface arrive with Phase 2; chat is the 027 section
+-- below, added with M4.
 
 CREATE TABLE IF NOT EXISTS cinema_sessions (
   id                TEXT PRIMARY KEY,
@@ -1338,3 +1338,24 @@ CREATE TABLE IF NOT EXISTS cinema_participants (
 
 CREATE INDEX IF NOT EXISTS idx_cinema_participants_session ON cinema_participants(session_id, joined_at);
 CREATE INDEX IF NOT EXISTS idx_cinema_participants_student ON cinema_participants(student_id, joined_at DESC);
+
+-- 027: cinema chat — the memory behind the room socket.
+--
+-- The socket is the delivery path; this table is what a student who reconnects
+-- or joins late is replayed (the newest fifty, oldest first). `metadata` holds
+-- {"atSeconds": n} when the sender attached a video position, which the client
+-- renders as a chip the host can use to bring the room to that moment. Rows
+-- are purged by the cleanup job once `cinema_retention_hours` has passed, so
+-- nothing here is an archive.
+
+CREATE TABLE IF NOT EXISTS cinema_messages (
+  id          TEXT PRIMARY KEY,
+  session_id  TEXT NOT NULL,
+  sender_id   TEXT NOT NULL DEFAULT '',
+  sender_name TEXT NOT NULL DEFAULT '',
+  content     TEXT NOT NULL,
+  metadata    TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cinema_messages_session ON cinema_messages(session_id, created_at DESC);
