@@ -92,7 +92,7 @@ ensure_r2_lifecycle() {
   local bucket="$1" output
   if output="$(wrangler r2 bucket lifecycle add "$bucket" cinema-temporary cinema/ --expire-days 2 --abort-multipart-days 1 --force 2>&1)"; then
     echo "Applied the Cinema lifecycle rule to R2 bucket '$bucket'."
-  elif grep -qiE "already exists|already has|duplicate" <<<"$output"; then
+  elif grep -qiE "already exists|already has|duplicate|rule ids must be unique|code: 10061" <<<"$output"; then
     echo "R2 bucket '$bucket' already carries the Cinema lifecycle rule."
   else
     echo "$output" >&2
