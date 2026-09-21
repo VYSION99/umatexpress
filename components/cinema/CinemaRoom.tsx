@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Lock, LockOpen, Play, Radio, Square } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
+import { useCinemaSocket } from "./useCinemaSocket";
 import "./cinema.css";
 
 /**
@@ -27,6 +28,10 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [copied, setCopied] = useState(false);
   const joined = useRef(false);
   const enteredStatus = useRef(initialRoom.status);
+  const active = room.status === "CREATED" || room.status === "LIVE";
+  // The socket is the room's live voice: it opens once the page knows who the
+  // student is, and closes the moment the room stops being open.
+  const live = useCinemaSocket({ roomId: room.id, enabled: Boolean(ready && account && active) });
 
   const load = useCallback(async () => {
     try {
@@ -85,8 +90,8 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     }
   };
 
-  const active = room.status === "CREATED" || room.status === "LIVE";
   const watchUrl = room.sourceType === "YOUTUBE" && room.videoId ? `https://www.youtube.com/watch?v=${room.videoId}` : "";
+  const people = peopleOf(room, live);
 
   return <div className="cinema-room">
     <div className="cinema-stage">
@@ -126,7 +131,10 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     </div>
 
     <aside className="cinema-card">
-      <h2>Who joined</h2>
+      <div className="cinema-presence-head">
+        <h2>Who&apos;s here</h2>
+        {account && <span className={`cinema-link is-${live.state}`}>{connectionCopy(live.state)}</span>}
+      </div>
       {!ready
         ? <p className="cinema-note">Checking your account…</p>
         : !account
@@ -136,22 +144,52 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
               <Link className="cinema-cta" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}>Sign in to join</Link>
             </div>
           </>
-          : <ul className="cinema-people">
-            {room.participants.map((member) => <li key={member.studentId}>
-              {member.displayName || "Member"}
-              <span>{member.studentId === room.hostStudentId ? "Host" : "Member"}</span>
-            </li>)}
-          </ul>}
+          : <>
+            <ul className="cinema-people">
+              {people.map((member) => <li key={member.studentId}>
+                {member.displayName || "Member"}
+                <span>{member.isHost ? "Host" : "Member"}</span>
+              </li>)}
+            </ul>
+            {live.state !== "live" && <p className="cinema-note cinema-sub">
+              {live.state === "closed"
+                ? "The live connection is closed."
+                : "Reconnecting — the list shows the last state the room sent."}
+            </p>}
+          </>}
       {account && <div className="cinema-controls cinema-sub">
-        <button className="secondary" onClick={() => void load()}>Refresh the list</button>
+        <button className="secondary" onClick={() => void load()}>Refresh the room</button>
       </div>}
       <p className="cinema-note cinema-sub">
         {room.status === "ENDED"
           ? "This room has ended. Nobody new can join."
           : room.joinLocked
             ? "The host locked the door, so only people already in can come back."
-            : "Everyone with the link and a UMaT account can join. The list updates when you refresh."}
+            : "Everyone with the link and a UMaT account can join. A name leaves the list when that person closes the room."}
       </p>
     </aside>
   </div>;
+}
+
+/** The presence list: live when the room has spoken, the page's list until then. */
+function peopleOf(room: Room, live: { state: string; members: Array<{ studentId: string; displayName: string; isHost: boolean }> }) {
+  if (live.members.length) {
+    return live.members.map((member) => ({
+      studentId: member.studentId,
+      displayName: member.displayName,
+      isHost: member.isHost,
+    }));
+  }
+  return room.participants.map((member) => ({
+    studentId: member.studentId,
+    displayName: member.displayName,
+    isHost: member.studentId === room.hostStudentId,
+  }));
+}
+
+function connectionCopy(state: string) {
+  if (state === "live") return "Live";
+  if (state === "offline") return "Reconnecting…";
+  if (state === "closed") return "Offline";
+  return "Connecting…";
 }

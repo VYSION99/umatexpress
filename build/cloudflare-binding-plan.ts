@@ -33,6 +33,7 @@ export type BindingPlan = {
   queue: string;
   deadLetterQueue: string;
   rateLimiterBinding: string;
+  cinemaRoomBinding: string;
   subrequestLimit: number;
   services: Array<{ binding: string; service: string }>;
   mtlsCertificates: Array<{ binding: string; certificate_id: string }>;
@@ -47,6 +48,7 @@ export function bindingPlan(env: Record<string, unknown>): BindingPlan {
   const queueBinding = bindingName(env[BINDING_VARS.queue], BINDING_NAMES.queue);
   const queue = queueBinding ? resourceName(env[RESOURCE_VARS.notificationQueue], RESOURCE_DEFAULTS.notificationQueue) : "";
   const rateLimiterBinding = bindingName(env[BINDING_VARS.rateLimiter], BINDING_NAMES.rateLimiter);
+  const cinemaRoomBinding = bindingName(env[BINDING_VARS.cinemaRoom], BINDING_NAMES.cinemaRoom);
   const subrequestLimit = (() => {
     const raw = env[SUBREQUEST_LIMIT_VAR];
     if (raw === undefined || raw === null) return DEFAULT_SUBREQUEST_LIMIT;
@@ -70,6 +72,7 @@ export function bindingPlan(env: Record<string, unknown>): BindingPlan {
     queue,
     deadLetterQueue: queue ? `${queue}-dlq` : "",
     rateLimiterBinding,
+    cinemaRoomBinding,
     subrequestLimit,
     services,
     mtlsCertificates,
@@ -79,6 +82,7 @@ export function bindingPlan(env: Record<string, unknown>): BindingPlan {
       [BINDING_VARS.privateBucket]: privateBucketBinding,
       [BINDING_VARS.queue]: queueBinding,
       [BINDING_VARS.rateLimiter]: rateLimiterBinding,
+      [BINDING_VARS.cinemaRoom]: cinemaRoomBinding,
       [RESOURCE_VARS.privateBucket]: privateBucket,
       [RESOURCE_VARS.notificationQueue]: queue,
       [SUBREQUEST_LIMIT_VAR]: subrequestLimit ? String(subrequestLimit) : "",
@@ -128,12 +132,18 @@ export function wranglerBindingConfig(plan: BindingPlan): WranglerBindingConfig 
           ],
         }
       : { producers: [], consumers: [] },
-    durable_objects: plan.rateLimiterBinding
-      ? { bindings: [{ name: plan.rateLimiterBinding, class_name: "RateLimiter" }] }
-      : { bindings: [] },
-    migrations: plan.rateLimiterBinding
-      ? [{ tag: "v1", new_sqlite_classes: ["RateLimiter"] }]
-      : [],
+    durable_objects: {
+      bindings: [
+        ...(plan.rateLimiterBinding ? [{ name: plan.rateLimiterBinding, class_name: "RateLimiter" }] : []),
+        ...(plan.cinemaRoomBinding ? [{ name: plan.cinemaRoomBinding, class_name: "CinemaRoom" }] : []),
+      ],
+    },
+    // Tags are append-only: v1 already ran on deployments that use the rate
+    // limiter, so Cinema's class is introduced by v2 and never renumbered.
+    migrations: [
+      ...(plan.rateLimiterBinding ? [{ tag: "v1", new_sqlite_classes: ["RateLimiter"] }] : []),
+      ...(plan.cinemaRoomBinding ? [{ tag: "v2", new_sqlite_classes: ["CinemaRoom"] }] : []),
+    ],
     limits: plan.subrequestLimit ? { subrequests: plan.subrequestLimit } : {},
     services: plan.services,
     mtls_certificates: plan.mtlsCertificates,
@@ -148,6 +158,7 @@ export function bindingPlanSummary(plan: BindingPlan) {
     plan.privateBucket ? `R2 -> ${plan.privateBucketBinding} (${plan.privateBucket})` : "R2 -> disabled",
     plan.queue ? `Queue -> ${plan.queueBinding} (${plan.queue}, dlq ${plan.deadLetterQueue})` : "Queue -> disabled",
     plan.rateLimiterBinding ? `Durable Object -> ${plan.rateLimiterBinding} (RateLimiter)` : "Durable Object -> disabled",
+    plan.cinemaRoomBinding ? `Durable Object -> ${plan.cinemaRoomBinding} (CinemaRoom)` : "Cinema room Durable Object -> disabled",
     plan.subrequestLimit ? `Subrequest limit -> ${plan.subrequestLimit}` : "Subrequest limit -> plan default",
     plan.services.length ? `Service bindings -> ${plan.services.map((item) => `${item.binding}=${item.service}`).join(", ")}` : "Service bindings -> none",
     plan.mtlsCertificates.length

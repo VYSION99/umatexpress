@@ -1,4 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { closeCinemaRoom } from "@/lib/cinema-engine/realtime";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
@@ -360,6 +361,8 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
       "UPDATE cinema_sessions SET status = 'ENDED', ended_at = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",
       [stamp, stamp, id],
     );
+    // The live object holds the sockets; the row cannot close them by itself.
+    await closeCinemaRoom(id);
     logEvent("info", "cinema_room_ended", { roomId: id });
     await incrementMetric("cinema_rooms_ended");
   } else if (action === "LOCK" || action === "UNLOCK") {

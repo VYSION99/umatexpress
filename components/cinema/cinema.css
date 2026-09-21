@@ -40,6 +40,11 @@
 .cinema-people{display:grid;gap:9px;list-style:none;margin:0;padding:0}
 .cinema-people li{display:flex;align-items:center;gap:10px;border:1px solid #d8e4dc;border-radius:14px;background:white;padding:11px 13px;font-weight:800;font-size:13px}
 .cinema-people li span{margin-left:auto;color:#6b7a71;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.cinema-presence-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cinema-presence-head h2{margin-right:auto}
+.cinema-link{padding:6px 10px;border-radius:999px;background:#eef1ef;color:#61706a;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+.cinema-link.is-live{background:#10382a;color:#eafff3}
+.cinema-link.is-offline{background:#fdf3e2;color:#8a5a12}
 
 @media (max-width:900px){
   .cinema-lobby,.cinema-room{grid-template-columns:minmax(0,1fr)}

@@ -13,6 +13,7 @@ import { runHostelRefundReconcile } from "@/lib/hostel-engine/refunds";
 // Durable Object classes must be exported from the Worker entry point. The
 // binding and its migration live in build/cloudflare-binding-plan.ts.
 export { RateLimiter } from "./rate-limiter";
+export { CinemaRoom } from "./cinema-room";
 
 interface Env {
   ASSETS?: { fetch(request: Request): Promise<Response> };
@@ -171,6 +172,10 @@ function bodyless(status: number) {
 }
 
 function withSecurityHeaders(request: Request, response: Response) {
+  // A 101 carries the upgraded socket, not a body: rebuilding it here would
+  // drop the `webSocket` property and turn every room connection into a
+  // handshake that closes immediately.
+  if (response.status === 101) return response;
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     // A route may set its own (stricter) value; the deployment default never

@@ -19,8 +19,16 @@ test("the binding plan declares every binding by default", async () => {
   assert.deepEqual(config.queues.producers, [{ binding: "NOTIFICATION_QUEUE", queue: "umatexpress-notifications" }]);
   assert.equal(config.queues.consumers[0].queue, "umatexpress-notifications");
   assert.equal(config.queues.consumers[0].dead_letter_queue, "umatexpress-notifications-dlq");
-  assert.deepEqual(config.durable_objects.bindings, [{ name: "RATE_LIMITER", class_name: "RateLimiter" }]);
-  assert.deepEqual(config.migrations, [{ tag: "v1", new_sqlite_classes: ["RateLimiter"] }]);
+  assert.deepEqual(config.durable_objects.bindings, [
+    { name: "RATE_LIMITER", class_name: "RateLimiter" },
+    { name: "CINEMA_ROOM", class_name: "CinemaRoom" },
+  ]);
+  // Tags are append-only: v1 is already applied wherever the rate limiter
+  // runs, so Cinema's class arrives as v2 under it and is never renumbered.
+  assert.deepEqual(config.migrations, [
+    { tag: "v1", new_sqlite_classes: ["RateLimiter"] },
+    { tag: "v2", new_sqlite_classes: ["CinemaRoom"] },
+  ]);
   assert.deepEqual(config.services, []);
   assert.deepEqual(config.mtls_certificates, []);
   // The free plan rejects any explicit limit, so the default sends none and
@@ -31,6 +39,7 @@ test("the binding plan declares every binding by default", async () => {
   // The effective names are mirrored into vars so the Worker resolves exactly
   // what was deployed, even after a rename or a binding being switched off.
   assert.equal(config.vars.CLOUDFLARE_AI_BINDING, "AI");
+  assert.equal(config.vars.CLOUDFLARE_CINEMA_ROOM_BINDING, "CINEMA_ROOM");
   assert.equal(config.vars.CLOUDFLARE_R2_BUCKET, "umatexpress-private");
   assert.equal(config.vars.CLOUDFLARE_QUEUE, "umatexpress-notifications");
 });
@@ -41,6 +50,7 @@ test("an empty value disables a binding and a value renames it", async () => {
     CLOUDFLARE_AI_BINDING: "",
     CLOUDFLARE_IMAGES_BINDING: "IMAGE_KIT",
     CLOUDFLARE_RATE_LIMITER_BINDING: "",
+    CLOUDFLARE_CINEMA_ROOM_BINDING: "",
     CLOUDFLARE_R2_BUCKET: "",
     CLOUDFLARE_QUEUE: "",
     CLOUDFLARE_MTLS_CERTIFICATES: "MTN_MOMO_CERT=abc-123",
@@ -67,6 +77,15 @@ test("an empty subrequest limit leaves the plan default alone", async () => {
   assert.deepEqual(wranglerBindingConfig(bindingPlan({ CLOUDFLARE_SUBREQUEST_LIMIT: "" })).limits, {});
   assert.deepEqual(wranglerBindingConfig(bindingPlan({ CLOUDFLARE_SUBREQUEST_LIMIT: "250" })).limits, { subrequests: 250 });
   assert.deepEqual(wranglerBindingConfig(bindingPlan({ CLOUDFLARE_SUBREQUEST_LIMIT: "not-a-number" })).limits, {});
+});
+
+test("turning Cinema off keeps the rate limiter's migration untouched", async () => {
+  const { bindingPlan, wranglerBindingConfig } = await vite.ssrLoadModule("/build/cloudflare-binding-plan.ts");
+  const config = wranglerBindingConfig(bindingPlan({ CLOUDFLARE_CINEMA_ROOM_BINDING: "" }));
+
+  assert.deepEqual(config.durable_objects.bindings, [{ name: "RATE_LIMITER", class_name: "RateLimiter" }]);
+  assert.deepEqual(config.migrations, [{ tag: "v1", new_sqlite_classes: ["RateLimiter"] }]);
+  assert.equal(config.vars.CLOUDFLARE_CINEMA_ROOM_BINDING, "");
 });
 
 test("each cron trigger names one job", async () => {
@@ -175,9 +194,12 @@ test("the bindings report is safe to call where no binding exists", async () => 
   const report = await cloudflareBindingReports();
 
   assert.equal(report.runtime, "node");
-  assert.deepEqual(report.bindings.map((entry) => entry.kind), ["ai", "images", "r2", "queue", "durable-object"]);
+  assert.deepEqual(report.bindings.map((entry) => entry.kind), ["ai", "images", "r2", "queue", "durable-object", "durable-object"]);
   assert.ok(report.bindings.every((entry) => entry.present === false));
   assert.equal(report.bindings.find((entry) => entry.kind === "r2").resource, "umatexpress-private");
+  // Binding names come from the build's vars, so outside workerd both Durable
+  // Objects report an empty name rather than a name that was never deployed.
+  assert.equal(report.bindings.filter((entry) => entry.kind === "durable-object").length, 2);
 });
 
 test("a queue-driven dispatch delivers only the rows it was given", async () => {
@@ -236,4 +258,5 @@ test("a queue-driven dispatch delivers only the rows it was given", async () => 
 test("the built Worker exports the Durable Object class the migration names", async () => {
   const entry = readFileSync(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.match(entry, /RateLimiter/);
+  assert.match(entry, /CinemaRoom/);
 });

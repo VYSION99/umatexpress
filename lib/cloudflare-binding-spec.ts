@@ -14,6 +14,7 @@ export const BINDING_NAMES = {
   privateBucket: "PRIVATE_BUCKET",
   queue: "NOTIFICATION_QUEUE",
   rateLimiter: "RATE_LIMITER",
+  cinemaRoom: "CINEMA_ROOM",
 } as const;
 
 /**
@@ -27,6 +28,7 @@ export const BINDING_VARS = {
   privateBucket: "CLOUDFLARE_R2_BINDING",
   queue: "CLOUDFLARE_QUEUE_BINDING",
   rateLimiter: "CLOUDFLARE_RATE_LIMITER_BINDING",
+  cinemaRoom: "CLOUDFLARE_CINEMA_ROOM_BINDING",
 } as const;
 
 /** Account-side resource names, used when the deployment has not picked one. */

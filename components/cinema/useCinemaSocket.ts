@@ -1,0 +1,113 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { CinemaPresenceMember, CinemaServerMessage } from "@/lib/cinema-engine/protocol";
+
+export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed";
+
+/** How often the client proves the socket is still answered, in milliseconds. */
+const PING_MS = 45_000;
+const RETRY_BASE_MS = 800;
+const RETRY_MAX_MS = 15_000;
+
+/**
+ * The room's live connection.
+ *
+ * The socket is opened only once the page knows who the student is and that the
+ * room is still open; when either stops being true the connection is closed and
+ * left closed. A dropped socket — a Worker deploy, a sleeping laptop — is
+ * retried with exponential backoff, because a deploy is exactly the moment the
+ * room is supposed to survive, and a client that gives up on the first close
+ * would turn every release into an outage for whoever was watching.
+ *
+ * Presence arrives from the server, never from this hook's own guess: whatever
+ * the Durable Object last broadcast is what the list shows.
+ */
+export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
+  const { roomId, enabled } = input;
+  const [state, setState] = useState<CinemaConnectionState>(enabled ? "connecting" : "closed");
+  const [members, setMembers] = useState<CinemaPresenceMember[]>([]);
+
+  useEffect(() => {
+    // Disabled is not a state the effect writes; it is derived at the return.
+    // Writing it here would be a cascading render for a value React already
+    // has in hand.
+    if (!enabled) return;
+
+    let disposed = false;
+    let socket: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let attempts = 0;
+    // Set when the server says the room is over: a room that ended must not be
+    // reconnected to, however the socket went down.
+    let ended = false;
+
+    const clearTimers = () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      if (pingTimer) clearInterval(pingTimer);
+      retryTimer = null;
+      pingTimer = null;
+    };
+
+    const connect = () => {
+      if (disposed || ended) return;
+      // Only a retry announces itself; the first attempt is already
+      // "connecting" from useState, and saying so synchronously from the
+      // effect body would be the cascading update the rule warns about.
+      if (attempts) setState("offline");
+      const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+      const instance = new WebSocket(`${scheme}://${window.location.host}/api/cinema/sessions/${encodeURIComponent(roomId)}/ws`);
+      socket = instance;
+
+      instance.onopen = () => {
+        if (socket !== instance) return;
+        attempts = 0;
+        setState("live");
+        pingTimer = setInterval(() => {
+          if (instance.readyState === WebSocket.OPEN) instance.send(JSON.stringify({ type: "ping" }));
+        }, PING_MS);
+      };
+
+      instance.onmessage = (event) => {
+        if (socket !== instance) return;
+        if (typeof event.data !== "string") return;
+        let message: CinemaServerMessage;
+        try {
+          message = JSON.parse(event.data) as CinemaServerMessage;
+        } catch {
+          return;
+        }
+        if (message.type === "presence") setMembers(message.members || []);
+        if (message.type === "closed") {
+          ended = true;
+          setState("closed");
+          setMembers([]);
+          instance.close();
+        }
+      };
+
+      instance.onclose = () => {
+        if (pingTimer) clearInterval(pingTimer);
+        pingTimer = null;
+        if (socket !== instance || disposed || ended) return;
+        setState("offline");
+        const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** attempts) + Math.floor(Math.random() * 250);
+        attempts += 1;
+        retryTimer = setTimeout(connect, delay);
+      };
+      // An error is followed by a close, which owns the retry.
+      instance.onerror = () => undefined;
+    };
+
+    connect();
+    return () => {
+      disposed = true;
+      clearTimers();
+      socket?.close();
+      socket = null;
+    };
+  }, [roomId, enabled]);
+
+  return enabled ? { state, members } : { state: "closed" as CinemaConnectionState, members: [] };
+}

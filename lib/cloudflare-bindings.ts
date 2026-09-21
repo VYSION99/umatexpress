@@ -74,6 +74,11 @@ export async function rateLimiterNamespace() {
   return binding<DurableObjectNamespace>(await resolveName(BINDING_VARS.rateLimiter, BINDING_NAMES.rateLimiter));
 }
 
+/** One object per cinema room, named by the room id the database issued. */
+export async function cinemaRoomNamespace() {
+  return binding<DurableObjectNamespace>(await resolveName(BINDING_VARS.cinemaRoom, BINDING_NAMES.cinemaRoom));
+}
+
 export async function serviceBinding(name: string) {
   return binding<Fetcher>(name);
 }
@@ -136,6 +141,12 @@ export async function cloudflareBindingReports(): Promise<{ runtime: "workerd" |
       binding: await resolveName(BINDING_VARS.rateLimiter, BINDING_NAMES.rateLimiter),
       resource: "",
       note: "Per-subject rate limiter. Without it limits fall back to Turso, then to memory.",
+    },
+    {
+      kind: "durable-object",
+      binding: await resolveName(BINDING_VARS.cinemaRoom, BINDING_NAMES.cinemaRoom),
+      resource: "",
+      note: "One object per cinema room: live presence and playback coordination. Without it rooms are read-only.",
     },
   ];
 

@@ -1196,20 +1196,29 @@ the part with the unknowns.
 
 | # | Feature | Priority |
 |---|---|---|
-| 1 | Room create/read/patch routes on `requireStudent` | High |
-| 2 | Join, membership row, link-join and host lock | High |
+| 1 | Room create/read/patch routes on `requireStudent` | High | ✅ M1 |
+| 2 | Join, membership row, link-join and host lock | High | ✅ M1 |
 | 3 | YouTube URL/id validation and the official player | High |
-| 4 | `CinemaRoom` Durable Object, hibernatable sockets, `/ws` route | High |
+| 4 | `CinemaRoom` Durable Object, hibernatable sockets, `/ws` route | High | ✅ M2 |
 | 5 | Play/pause/seek with the §11 drift rule | High |
-| 6 | Presence: join, leave, rejoin, "who is here" | High |
+| 6 | Presence: join, leave, rejoin, "who is here" | High | ✅ M2 |
 | 7 | Chat with `atSeconds`, last fifty on reconnect | Medium |
-| 8 | Host controls: open, lock, end | High |
+| 8 | Host controls: open, lock, end | High | ✅ M1 |
 | 9 | Idle and end-of-room transitions, cleanup on the existing cron | High |
-| 10 | The client room at `/cinema/[id]`, share link, signed-out hop, and the existing `OnlineCinema` launcher card flipped to `available` | High |
+| 10 | The client room at `/cinema/[id]`, share link, signed-out hop, and the existing `OnlineCinema` launcher card flipped to `available` | High | ✅ M1 |
 | 11 | Console service entry, live-room list, end-room action | Medium |
 | 12 | Report into the moderation queue | Medium |
-| 13 | `rateLimit()` on create, join, chat and socket connect | Medium |
+| 13 | `rateLimit()` on create, join, chat and socket connect | Medium | ✅ create/join/socket |
 | 14 | Tests: sync arithmetic, state machine, membership, cleanup | High |
+
+**Status: M1 and M2 delivered.** A signed-in student creates a room, shares the
+link, and everyone in it sees presence live: the `CinemaRoom` object accepts
+hibernatable sockets at `/api/cinema/sessions/{id}/ws`, the Worker route
+authenticates the cookie and checks membership before the upgrade, and the client
+reconnects with backoff across a deploy. Verified against workerd locally: two
+sockets see each other, a closed tab leaves the list, and a socket dropped by a
+restart reconnects to the same room. Playback (M3) and chat (M4) are not built
+yet, and the room copy says so.
 
 ### Phase 2 — temporary uploads
 

@@ -184,6 +184,7 @@ const { parseYouTubeId } = await vite.ssrLoadModule("/lib/cinema-engine/youtube.
 const { CINEMA_TITLE_MAX, createRoom, joinRoom, listMyRooms, patchRoom, readRoom } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
 const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
 const sessionsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/route.ts");
+const socketRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/ws/route.ts");
 
 const host = { id: "student-host", name: "Ama Host" };
 const guest = { id: "student-guest", name: "Kwesi Guest" };
@@ -353,4 +354,41 @@ test("the routes require the platform account, and create a room for it once sig
   const listPayload = await listed.json();
   assert.equal(listPayload.rooms.length, 1);
   assert.equal(listPayload.rooms[0].id, payload.room.id);
+});
+
+test("the socket route refuses anyone the room itself would refuse", async () => {
+  const context = (id) => ({ params: Promise.resolve({ id }) });
+  const url = "https://umatexpress.test/api/cinema/sessions/room-x/ws";
+  const cookie = await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/"));
+
+  const anonymous = await socketRoute.GET(new Request(url, { headers: { upgrade: "websocket" } }), context("room-x"));
+  assert.equal(anonymous.status, 401, "no session, no socket");
+
+  const plainHttp = await socketRoute.GET(new Request(url, { headers: { cookie } }), context("room-x"));
+  assert.equal(plainHttp.status, 426, "an upgrade endpoint asked over plain HTTP explains itself");
+
+  const missing = await socketRoute.GET(new Request(url, { headers: { cookie, upgrade: "websocket" } }), context("no-such-room"));
+  assert.equal(missing.status, 404, "a room that is not there is not connectable");
+
+  const room = await createRoom({ student: host, video: VIDEO });
+  await patchRoom({ id: room.id, studentId: host.id, action: "END" });
+  const ended = await socketRoute.GET(
+    new Request(url, { headers: { cookie, upgrade: "websocket" } }),
+    context(room.id),
+  );
+  assert.equal(ended.status, 409, "an ended room has nothing to listen to");
+});
+
+test("an active room without the realtime binding is a 503, not a crash", async () => {
+  // Unit tests run in Node, where the Durable Object namespace does not exist.
+  // The route must say so plainly rather than fail the request obscurely.
+  const room = await createRoom({ student: host, video: VIDEO });
+  const cookie = await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/"));
+  const response = await socketRoute.GET(
+    new Request("https://umatexpress.test/api/cinema/sessions/room/ws", { headers: { cookie, upgrade: "websocket" } }),
+    { params: Promise.resolve({ id: room.id }) },
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 503);
+  assert.match(payload.error, /Live rooms are not available/);
 });
