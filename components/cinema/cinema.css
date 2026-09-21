@@ -78,6 +78,17 @@
 .cinema-report textarea{width:100%;border:1px solid #e6cdc8;border-radius:11px;background:#ffffff;color:var(--ink);padding:10px 12px;font:600 13px/1.5 inherit;resize:vertical}
 .cinema-report-notice{margin:10px 0 0;padding:9px 11px;border-radius:11px;background:var(--mint);color:var(--green);font-size:12px;font-weight:800}
 
+/* Uploaded video: the element keeps the room's frame, the panel sends the file. */
+.cinema-upload-video{display:block;width:100%;aspect-ratio:16/9;background:#000}
+.cinema-upload-video.is-passive{pointer-events:none}
+.cinema-player:has(.cinema-upload-video) .cinema-player-note{position:absolute;left:0;right:0;bottom:10px}
+.cinema-upload-file{width:100%;margin-top:10px;border:1px dashed #cbd8d0;border-radius:12px;background:#fbfdfc;color:var(--ink);padding:11px 12px;font:700 12.5px/1.4 inherit}
+.cinema-upload-consent{display:flex;align-items:flex-start;gap:9px;margin-top:11px;color:#4d6357;font-size:12.5px;font-weight:700;line-height:1.5}
+.cinema-upload-consent input{margin-top:2px;accent-color:var(--green)}
+.cinema-upload-progress{position:relative;margin-top:12px;height:30px;border-radius:999px;background:#eef1ef;overflow:hidden}
+.cinema-upload-bar{height:100%;background:var(--ui-yellow);transition:width .2s ease}
+.cinema-upload-progress span{position:absolute;inset:0;display:grid;place-content:center;font-size:11px;font-weight:900;color:#3a2c05}
+
 @media (max-width:900px){
   .cinema-lobby,.cinema-room{grid-template-columns:minmax(0,1fr)}
 }

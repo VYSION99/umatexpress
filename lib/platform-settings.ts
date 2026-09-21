@@ -33,7 +33,10 @@ export type PlatformSettingKey =
   | "hostel_payout_auto"
   | "organizer_payout_auto"
   | "cinema_room_idle_minutes"
-  | "cinema_retention_hours";
+  | "cinema_retention_hours"
+  | "cinema_uploads_enabled"
+  | "cinema_max_upload_bytes"
+  | "cinema_max_upload_minutes";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -92,6 +95,37 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: 2,
     min: 1,
     max: 48,
+  },
+  {
+    key: "cinema_uploads_enabled",
+    kind: "toggle",
+    label: "Cinema uploads",
+    summary: "Let a host attach one video file to a study room.",
+    detail: "On, a host may upload a video to the private bucket and the room plays it for members only. Off stops new uploads; a room that already has one keeps playing it, and the retention job still deletes it. The bytes never have a public URL.",
+    env: "CINEMA_UPLOADS_ENABLED",
+    fallback: true,
+  },
+  {
+    key: "cinema_max_upload_bytes",
+    kind: "number",
+    label: "Cinema upload size",
+    summary: "The largest video file a study room accepts, in bytes.",
+    detail: "Two gigabytes is the documented default. The client is told the part size and splits the file accordingly, and the worker refuses a part that would take the file past this limit. Storage is R2, which charges for bytes held until the retention job deletes them.",
+    env: "CINEMA_MAX_UPLOAD_BYTES",
+    fallback: 2 * 1024 * 1024 * 1024,
+    min: 8 * 1024 * 1024,
+    max: 20 * 1024 * 1024 * 1024,
+  },
+  {
+    key: "cinema_max_upload_minutes",
+    kind: "number",
+    label: "Cinema upload length",
+    summary: "The longest video a study room accepts, in minutes, when the server can read its length.",
+    detail: "Length is read from the MP4 header the server can see, not from what the uploader claims. A file whose header the server cannot read (some WebM files, or an MP4 that stores its index at the end) is stored with an unknown length and is bounded by the size limit instead; the player still clamps to the media's own length.",
+    env: "CINEMA_MAX_UPLOAD_MINUTES",
+    fallback: 120,
+    min: 1,
+    max: 600,
   },
 ];
 

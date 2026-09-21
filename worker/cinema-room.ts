@@ -101,6 +101,7 @@ export class CinemaRoom {
     if (url.pathname === "/socket") return this.openSocket(request);
     if (url.pathname === "/close") return this.closeRoom();
     if (url.pathname === "/purge-message") return this.purgeMessage(request);
+    if (url.pathname === "/source") return this.updateSource(request);
     if (url.pathname === "/presence") return this.presenceResponse();
     return new Response("Not found", { status: 404 });
   }
@@ -186,6 +187,24 @@ export class CinemaRoom {
     if (!id) return jsonResponse({ error: "A message id is required." }, 400);
     this.broadcast({ type: "chat_removed", id });
     return jsonResponse({ ok: true, id }, 200);
+  }
+
+  /**
+   * The room's video finished uploading. The snapshot is replaced so a socket
+   * that connects later carries the new source, and everyone attached now is
+   * told to switch players without a reload.
+   */
+  private async updateSource(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null) as { sourceType?: unknown; videoId?: unknown } | null;
+    const sourceType = String(body?.sourceType || "").trim().toUpperCase();
+    if (sourceType !== "UPLOAD" && sourceType !== "YOUTUBE") {
+      return jsonResponse({ error: "A video source type is required." }, 400);
+    }
+    const videoId = String(body?.videoId || "").trim();
+    const snapshot = await this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
+    if (snapshot) await this.state.storage.put(ROOM_KEY, { ...snapshot, sourceType, videoId });
+    this.broadcast({ type: "source", sourceType, videoId });
+    return jsonResponse({ ok: true, sourceType, videoId }, 200);
   }
 
   /** The host ended the room over HTTP; the sockets should not outlive it. */

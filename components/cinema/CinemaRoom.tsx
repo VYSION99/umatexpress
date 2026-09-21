@@ -7,6 +7,8 @@ import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
+import { UploadPanel } from "./UploadPanel";
+import { UploadPlayer } from "./UploadPlayer";
 import { YouTubePlayer } from "./YouTubePlayer";
 import "./cinema.css";
 
@@ -40,6 +42,11 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   // The socket is the room's live voice: it opens once the page knows who the
   // student is, and closes the moment the room stops being open.
   const live = useCinemaSocket({ roomId: room.id, enabled: Boolean(ready && account && active) });
+  // The row is the record and a socket that connects later reads it from the
+  // snapshot; a socket already in the room learns about a finished upload from
+  // the `source` frame, which is what switches the player without a reload.
+  const sourceType = live.source?.sourceType ?? room.sourceType;
+  const videoId = live.source?.videoId ?? room.videoId;
 
   // A chat that does not follow its own tail is a chat nobody reads.
   useEffect(() => {
@@ -157,16 +164,23 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
               : "This room has ended."}
           </span>
         </div>
-        {active && room.sourceType === "YOUTUBE" && room.videoId
+        {active && sourceType === "YOUTUBE" && videoId
           ? <YouTubePlayer
-            videoId={room.videoId}
+            videoId={videoId}
             isHost={room.isHost}
             playback={live.playback}
             onAction={live.send}
           />
-          : <p className="cinema-video-closed">
-            {room.sourceType === "YOUTUBE" ? "The video is not playing while the room is closed." : "This room's video is an upload, which arrives with the next phase."}
-          </p>}
+          : active && sourceType === "UPLOAD" && videoId
+            ? <UploadPlayer
+              roomId={room.id}
+              isHost={room.isHost}
+              playback={live.playback}
+              onAction={live.send}
+            />
+            : <p className="cinema-video-closed">
+              {sourceType === "YOUTUBE" ? "The video is not playing while the room is closed." : "The host has not attached a video to this room yet."}
+            </p>}
       </section>
 
       <section className="cinema-share">
@@ -191,6 +205,8 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             : "Anyone with the link and a UMaT account can join."}
         </p>
       </section>}
+
+      {room.isHost && active && sourceType !== "UPLOAD" && <UploadPanel roomId={room.id} onUploaded={() => void load()} />}
 
       {error && <p className="cinema-error">{error}</p>}
     </div>

@@ -1396,3 +1396,35 @@ CREATE TABLE IF NOT EXISTS cinema_risk_signals (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_signals_entity ON cinema_risk_signals(signal_key, entity_id, status);
 CREATE INDEX IF NOT EXISTS idx_cinema_signals_status ON cinema_risk_signals(status, severity, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cinema_signals_session ON cinema_risk_signals(session_id, status);
+
+-- 029: cinema uploads — one temporary video per room.
+--
+-- The bytes live in the private bucket under a key no client ever sees; this
+-- row is the only record of what the room is allowed to play. `r2_upload_id`
+-- is the multipart handle the bucket issued, needed to resume a part upload or
+-- abort one, and `ownership_confirmed` is the uploader's answer to the question
+-- asked before the first byte. Statuses are UPLOADING, READY, DELETING,
+-- DELETED and FAILED; `expires_at` is the earliest the retention job could
+-- delete the object, and the room's own ended_at decides when it actually does.
+-- One row per room is enforced by the unique index rather than the route.
+
+CREATE TABLE IF NOT EXISTS cinema_uploads (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  uploader_id         TEXT NOT NULL,
+  r2_object_key       TEXT NOT NULL,
+  r2_upload_id        TEXT NOT NULL DEFAULT '',
+  original_filename   TEXT NOT NULL DEFAULT '',
+  file_size_bytes     INTEGER NOT NULL DEFAULT 0,
+  mime_type           TEXT NOT NULL DEFAULT '',
+  duration_seconds    INTEGER NOT NULL DEFAULT 0,
+  ownership_confirmed INTEGER NOT NULL DEFAULT 0,
+  status              TEXT NOT NULL DEFAULT 'UPLOADING',
+  expires_at          TEXT NOT NULL DEFAULT '',
+  deleted_at          TEXT NOT NULL DEFAULT '',
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_uploads_session ON cinema_uploads(session_id);
+CREATE INDEX IF NOT EXISTS idx_cinema_uploads_status ON cinema_uploads(status, created_at DESC);

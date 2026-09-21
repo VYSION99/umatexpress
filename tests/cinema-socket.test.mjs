@@ -217,6 +217,46 @@ test("a removed message is taken off every open screen", async () => {
   assert.equal(hostSocket.sent.at(-1).type, "chat_removed");
 });
 
+test("a finished upload switches every open screen, and the snapshot after it", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+
+  const response = await room.fetch(new Request("https://cinema-room/source", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sourceType: "UPLOAD", videoId: "upload-1" }),
+  }));
+  assert.equal(response.status, 200);
+  for (const socket of [hostSocket, guestSocket]) {
+    assert.deepEqual(socket.sent.at(-1), { type: "source", sourceType: "UPLOAD", videoId: "upload-1" });
+  }
+  // The object's own snapshot moves with the row, so a wake still knows which
+  // video the room plays.
+  assert.equal(state.stored.get("room").sourceType, "UPLOAD");
+  assert.equal(state.stored.get("room").videoId, "upload-1");
+
+  // A socket that connects afterwards carries the snapshot the route read from
+  // the row — the upload — and the object keeps it.
+  const { CinemaRoom } = await vite.ssrLoadModule("/worker/cinema-room.ts");
+  const fresh = new CinemaRoom(state);
+  await fresh.fetch(upgrade({
+    "x-cinema-attachment": identity("guest-3", "New Guest"),
+    "x-cinema-room": encodeURIComponent(JSON.stringify({ ...SNAPSHOT, sourceType: "UPLOAD", videoId: "upload-1" })),
+  }));
+  assert.equal(state.stored.get("room").sourceType, "UPLOAD");
+  assert.equal(state.stored.get("room").videoId, "upload-1");
+
+  const refused = await room.fetch(new Request("https://cinema-room/source", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sourceType: "PODCAST", videoId: "x" }),
+  }));
+  assert.equal(refused.status, 400);
+  assert.equal(state.stored.get("room").sourceType, "UPLOAD", "a refused source changed nothing");
+});
+
 test("the object answers whether the room is empty, and since when", async () => {
   const { room, state } = await newRoom();
   await room.fetch(upgrade());

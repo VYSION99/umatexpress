@@ -26,7 +26,7 @@ and the sections after it were rewritten to match.
 | Console | One console, every service: Cinema registers a service entry, a live-room list and the report/deletion queue. Staff surfaces are console routes; nothing staff-facing is public. |
 | Audit | `consoleAudit(...)` and the platform audit tables. Cinema writes no `audit_logs` of its own. |
 | Trust | Reports feed the existing moderation desk (the `hostel_risk_signals` pattern), not a bespoke takedown mechanism. |
-| Limits and toggles | `platform_settings` keys — `cinema_room_idle_minutes` and `cinema_retention_hours` live now, read with `platformSettingNumber()` and edited on the console settings page; `cinema_uploads_enabled` and `cinema_max_upload_bytes` ship with Phase 2. Nothing is hard-coded. |
+| Limits and toggles | `platform_settings` keys, all live and edited on the console settings page: `cinema_room_idle_minutes`, `cinema_retention_hours`, `cinema_uploads_enabled`, `cinema_max_upload_bytes` and `cinema_max_upload_minutes`. Nothing is hard-coded. |
 | Types and vocabulary | TEXT ISO-8601 timestamps, INTEGER booleans, UPPERCASE status values, `crypto.randomUUID()` ids. |
 | Scheduled work | Cleanup rides an existing cron trigger. The Worker already runs four, and Cloudflare collapses triggers that share a minute (see `lib/campus-engine/crons.ts`). |
 | Durable Object | One new class, `CinemaRoom`, exported from `worker/index.ts` with its binding and a `v2` migration in `build/cloudflare-binding-plan.ts`. Hibernatable WebSockets, so an idle room costs storage rather than wall-clock duration. |
@@ -35,15 +35,15 @@ and the sections after it were rewritten to match.
 
 ## 0.2 Open decisions
 
-1. **Direct-upload transport (Phase 2, blocking).** A private R2 bucket here is a
-   binding; there is no S3 credential or presign code in the repo. Choose one:
-   R2 S3 keys plus presigned PUT (new secret, true direct-to-bucket upload), a
-   Worker-proxied multipart upload (no new secret, chunked through the Worker), or
-   Cloudflare Stream (transcodes and deletes for you, priced per stored and
-   delivered minute — verify current rates).
-2. **Duration validation (Phase 2).** R2 object metadata carries size and MIME, not
-   duration. Either trust a client-declared value, parse the MP4 `mvhd` atom when
-   it sits in the object head, or let Stream report it.
+1. **Direct-upload transport — decided in M6.** Worker-proxied multipart over the
+   `PRIVATE_BUCKET` binding: eight-mebibyte parts through the Worker, no new
+   secret, every part authorised against the host and the open room. R2 S3 keys
+   with presigned PUT and Cloudflare Stream were the alternatives; §17 records
+   why each lost.
+2. **Duration validation — decided in M6.** The MP4/MOV `mvhd` atom is parsed
+   from the object's head when the container puts it there. A WebM file, or an
+   MP4 whose index sits at the end, stores an unknown length (0) and is bounded
+   by the size limit instead. The uploader never supplies the number.
 3. **Retention default.** `cinema_retention_hours` ships at 2; the R2 lifecycle
    safety net ships at 48 hours.
 4. **Room membership default.** Recommended: any signed-in UMaT student holding
@@ -489,10 +489,13 @@ R2 lifecycle rule eventually deletes object
 
 A practical MVP safety period can be **48 hours**, while the application's normal cleanup target can be much shorter.
 
-The rule itself is an operator step, not application code: it is configured on the
-bucket (the same `umatexpress-private` bucket hostel photos use, under the `cinema/`
-prefix), and the deploy script that creates the bucket is where it is either applied
-or documented as a runbook check.
+The rule itself lives on the bucket (the same `umatexpress-private` bucket hostel
+photos use, under the `cinema/` prefix), and the deploy script that creates the
+bucket applies it: `cinema-temporary` expires `cinema/` objects after two days and
+aborts incomplete multipart uploads after one, so a client that vanishes
+mid-upload cannot leave parts billed forever. The application's own deletion is
+the fast path; this is the net under it, and the console's retention setting is
+still what licences the fast path.
 
 ---
 
@@ -846,10 +849,12 @@ CREATE TABLE IF NOT EXISTS cinema_uploads (
   session_id        TEXT NOT NULL,
   uploader_id       TEXT NOT NULL,                  -- student_accounts.id
   r2_object_key     TEXT NOT NULL,
+  r2_upload_id      TEXT NOT NULL DEFAULT '',       -- the bucket's multipart handle
   original_filename TEXT NOT NULL DEFAULT '',
   file_size_bytes   INTEGER NOT NULL DEFAULT 0,
   mime_type         TEXT NOT NULL DEFAULT '',
   duration_seconds  INTEGER NOT NULL DEFAULT 0,     -- see §0.2 on how it is known
+  ownership_confirmed INTEGER NOT NULL DEFAULT 0,   -- answered before the first byte
   status            TEXT NOT NULL DEFAULT 'UPLOADING', -- UPLOADING | READY | DELETING | DELETED | FAILED
   expires_at        TEXT NOT NULL DEFAULT '',
   deleted_at        TEXT NOT NULL DEFAULT '',
@@ -861,8 +866,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_uploads_session ON cinema_uploads(s
 ```
 
 One upload per room, which the unique index enforces rather than trusting the API
-layer to remember it. The status vocabulary is the platform's uppercase one, and the
-retention dates come from `cinema_retention_hours` at creation time.
+layer to remember it. The status vocabulary is the platform's uppercase one, and
+the retention dates come from `cinema_retention_hours` at creation time.
+`r2_upload_id` is bucket state, not client state: it is what lets the Worker
+resume a part or abort an upload, and it never leaves the server.
 
 ---
 
@@ -919,24 +926,32 @@ ignored rather than fatal — an old client must not be able to break a room.
 
 For large videos, do not route the complete file through the Worker.
 
-**This is Phase 2, and the transport is still a decision (§0.2).** What the
-diagram below assumes — that the backend can mint an "authorized upload URL" — is
-true of an R2 bucket reached over the S3 API with an access-key pair, and this
-repository has neither the credential nor the signing code today. The three
-honest options, with what each costs:
+**Decided in M6: Worker-proxied multipart over the R2 binding.** The client
+splits the file into eight-mebibyte parts and sends each one to
+`PUT /api/cinema/sessions/:id/upload/part?n=…`, and the Worker writes it with the
+`PRIVATE_BUCKET` binding it already has. The three options that were weighed:
 
 1. **Presigned PUT (S3 keys).** The diagram as drawn. Uploads never touch a Worker,
    which is what makes a 2 GB file practical; the price is a new secret pair and a
    new failure mode (a leaked key is a bucket-wide key), mitigated by a
-   bucket-scoped token and short expiry.
-2. **Worker-proxied multipart.** No new secret: the client uploads parts to
-   `/api/cinema/sessions/:id/upload/part`, the Worker writes them with its binding.
-   Worker request-body limits mean the client does the chunking, and the room's
-   upload window has to be generous.
+   bucket-scoped token and short expiry. Lost on the new credential and on
+   revocability: a URL already issued keeps working after a room ends.
+2. **Worker-proxied multipart.** No new secret, and every part is checked against
+   the host and the open room, so an ended room stops an upload in flight. The
+   Worker's request-body limit means the client must chunk; eight mebibytes per
+   part keeps every request far under it, and 10,000 parts is 80 GB, so the
+   documented 2 GB cap is nowhere near a technical ceiling. Chosen.
 3. **Cloudflare Stream.** The player, adaptive quality, signed playback tokens and
    automatic deletion all come with it. It replaces §4, §5, §8's R2 steps and §17
    entirely, at a per-minute stored and delivered price — worth pricing against one
-   term of student uploads before choosing the cheaper-looking option.
+   term of student uploads before choosing the cheaper-looking option. Rejected
+   for Phase 2 because it adds a bill and a second vendor to the simplest case,
+   and because this repository already carries the bucket for hostel photos.
+
+What the decision costs, stated rather than hidden: the bytes transit the Worker
+(CPU stays trivial because each part is a bounded buffer handed to the binding),
+and a client that vanishes mid-upload leaves multipart parts the bucket bills for
+until the lifecycle rule aborts them after a day (§5).
 
 Prefer:
 
@@ -1287,13 +1302,29 @@ both console pages and both console routes are gated to ADMIN and MODERATOR.
 
 | # | Feature | Priority |
 |---|---|---|
-| 1 | Decide the transport (§17) and implement it | High |
-| 2 | Upload row, one per room, server-side status | High |
-| 3 | Signed playback URL, refresh on refusal, range playback | High |
-| 4 | Size/MIME enforcement, duration question answered (§0.2) | High |
-| 5 | Ownership confirmation before the upload starts | High |
-| 6 | Cleanup of the object, and the bucket lifecycle rule | High |
+| 1 | Decide the transport (§17) and implement it | High | ✅ M6 |
+| 2 | Upload row, one per room, server-side status | High | ✅ M6 |
+| 3 | Signed playback URL, refresh on refusal, range playback | High | ✅ M6 |
+| 4 | Size/MIME enforcement, duration question answered (§0.2) | High | ✅ M6 |
+| 5 | Ownership confirmation before the upload starts | High | ✅ M6 |
+| 6 | Cleanup of the object, and the bucket lifecycle rule | High | ✅ M6 |
 | 7 | Report/takedown enrichment for uploaded video | Medium |
+
+**Status: M6 delivered, and Phase 2 is open.** A host attaches one video to a
+room: the client asks for the limits, answers the ownership question, splits the
+file into eight-mebibyte parts and sends each part through the Worker to the
+private bucket, and the room becomes playable only when the bucket's own report
+of the finished object matches the size the upload declared. The object's MP4
+header gives the server its length when the container puts it there — a WebM
+file, or an MP4 indexed at the end, stores an unknown length rather than a
+client's claim. A member asks for a playback lease that lives twenty minutes and
+is reissued when a range request is refused; the media route speaks byte ranges
+so a player can scrub, and the object key never appears in a URL. When a room
+expires, cleanup deletes the object before it marks the row DELETED, and a
+bucket that refuses leaves the room EXPIRED for the next tick rather than
+promising a deletion it did not make. The deploy script adds the bucket's own
+lifecycle net: `cinema/` objects expire after 48 hours and unfinished multipart
+uploads are aborted after one day.
 
 ### Acceptance for Phase 1
 
@@ -1320,11 +1351,12 @@ the same shape the Hostel Finder rollout used.
 | **M3 — the room is in sync** | YouTube player, play/pause/seek, the §11 arithmetic, host-only validation | host seeks, two browsers follow within a second, refresh rejoins mid-playback |
 | **M4 — the room is safe** ✅ | chat with timestamps, rate limits, lock, end, idle expiry, cleanup job, tests | a flooded socket is limited, an abandoned room expires and serves nothing |
 | **M5 — the room is watched** ✅ | console service entry, live-room list, end-room action, report queue | a moderator ends a reported room from the console and the sockets close |
-| **M6 — Phase 2 opens** | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
+| **M6 — Phase 2 opens** ✅ | the transport decision in §17, then uploads per §22 | a private upload plays for members only, and is gone after retention |
 
-M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to use
-it. M6 is deliberately the first thing that needs a decision, not the first thing
-that needs code.
+M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
+use it. M6 opens Phase 2 with the decision made and the upload path built end to
+end; M7 is the report and takedown enrichment for uploaded video, which is the
+first thing that needs the upload row rather than the transport.
 
 ---
 

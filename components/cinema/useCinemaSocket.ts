@@ -31,6 +31,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [members, setMembers] = useState<CinemaPresenceMember[]>([]);
   const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
   const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
+  const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
   /** Sends one frame if the room is listening; a closed socket drops it. */
@@ -103,6 +104,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         }
         if (message.type === "presence") setMembers(message.members || []);
         if (message.type === "state") setPlayback(message.playback);
+        // The host finished an upload: the room switches players without a reload.
+        if (message.type === "source") setSource({ sourceType: message.sourceType, videoId: message.videoId });
         if (message.type === "chat") setMessages((current) => {
           const incoming = message.message;
           // A reconnect replays the last fifty, and the page may already have
@@ -147,6 +150,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, members, playback, messages, send, sendChat }
-    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], send, sendChat };
+    ? { state, members, playback, messages, source, send, sendChat }
+    : { state: "closed" as CinemaConnectionState, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, send, sendChat };
 }

@@ -1,6 +1,7 @@
 import { ensureCinemaMessageTables, purgeCinemaMessages } from "@/lib/cinema-engine/messages";
 import { cinemaRoomPresence, closeCinemaRoom, type CinemaRoomPresence } from "@/lib/cinema-engine/realtime";
 import { ensureCinemaTables } from "@/lib/cinema-engine/rooms";
+import { purgeCinemaUploadForRoom } from "@/lib/cinema-engine/uploads";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { platformSettingNumber } from "@/lib/platform-settings";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
@@ -152,6 +153,12 @@ async function deleteExpiredRooms(input: { limit: number; now: number; retention
       "UPDATE cinema_sessions SET status = 'EXPIRED', expired_at = ?, updated_at = ? WHERE id = ? AND status = 'ENDED'",
       [stamp, stamp, id],
     );
+    // The video goes before the tombstone. A room marked DELETED while its
+    // object is still in the bucket would be a retention promise the platform
+    // did not keep, so a bucket that refuses leaves the room EXPIRED and the
+    // next tick tries the whole purge again.
+    const upload = await purgeCinemaUploadForRoom(id, { now: input.now });
+    if (upload.status === "retry") continue;
     await purgeCinemaMessages(id);
     await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
     const result = await turso(

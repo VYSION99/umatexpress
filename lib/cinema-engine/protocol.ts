@@ -59,6 +59,7 @@ export type CinemaServerMessage =
   | { type: "state"; playback: CinemaPlaybackState }
   | { type: "chat"; message: CinemaChatMessage }
   | { type: "chat_removed"; id: string }
+  | { type: "source"; sourceType: string; videoId: string }
   | { type: "pong"; at: number }
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };

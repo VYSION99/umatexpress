@@ -52,6 +52,29 @@ export async function purgeCinemaMessageFromRoom(roomId: string, messageId: stri
 }
 
 /**
+ * Tells a live room that its video changed — the moment an upload becomes
+ * READY. The room row is the record and a reconnect reads it from the snapshot;
+ * this is what saves the screens that are already open from waiting for one.
+ */
+export async function announceCinemaSource(roomId: string, source: { sourceType: string; videoId: string }) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/source", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sourceType: String(source.sourceType), videoId: String(source.videoId) }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_source_announce_failed", {
+      roomId: String(roomId),
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
+/**
  * Asks a room whether anybody is attached, and since when nobody was.
  *
  * Only the Durable Object can answer this: presence lives in socket

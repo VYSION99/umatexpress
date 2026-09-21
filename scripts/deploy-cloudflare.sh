@@ -84,8 +84,26 @@ ensure_queue() {
   fi
 }
 
+# The safety net under Cinema's own deletion: `cinema/` objects expire after two
+# days even if the cleanup job never runs, and an upload that was abandoned
+# mid-flight has its parts aborted after one. Both are idempotent; an existing
+# rule with the same name is left as it is.
+ensure_r2_lifecycle() {
+  local bucket="$1" output
+  if output="$(wrangler r2 bucket lifecycle add "$bucket" cinema-temporary cinema/ --expire-days 2 --abort-multipart-days 1 --force 2>&1)"; then
+    echo "Applied the Cinema lifecycle rule to R2 bucket '$bucket'."
+  elif grep -qiE "already exists|already has|duplicate" <<<"$output"; then
+    echo "R2 bucket '$bucket' already carries the Cinema lifecycle rule."
+  else
+    echo "$output" >&2
+    echo "Could not apply the Cinema lifecycle rule to '$bucket'. Add it in the Cloudflare dashboard: prefix cinema/, expire objects after 2 days, abort incomplete multipart uploads after 1 day." >&2
+    return 1
+  fi
+}
+
 if [[ -n "$R2_BINDING" && -n "$R2_BUCKET" ]]; then
   ensure_r2_bucket "$R2_BUCKET"
+  ensure_r2_lifecycle "$R2_BUCKET"
 fi
 
 if [[ -n "$QUEUE_BINDING" && -n "$QUEUE_NAME" ]]; then
