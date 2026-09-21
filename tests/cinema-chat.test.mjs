@@ -207,6 +207,8 @@ test("a wire frame must be a real message, and a timestamp must be a position", 
   assert.equal(parseClientMessage(JSON.stringify({ type: "chat_message", message: "x".repeat(CINEMA_CHAT_MAX_LENGTH + 1) })), null);
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: "chat_message", message: "no position" })), { type: "chat_message", message: "no position" });
   assert.equal(parseClientMessage(JSON.stringify({ type: "chat_message", message: "bad", timestamp: -3 }))?.timestamp, undefined);
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "mute_all" })), { type: "mute_all" });
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "mute_all", extra: "ignored" })), { type: "mute_all" });
 });
 
 test("the replay window is the newest fifty, in the order they were said", async () => {
@@ -274,4 +276,22 @@ test("a flood of chat frames is limited per student, not per address", async () 
   assert.equal(socket.sent.at(-1).type, "error");
   assert.match(socket.sent.at(-1).message, /too fast/i);
   assert.equal(socket.sent.filter((frame) => frame.type === "chat").length, 8, "the ninth message was refused, not broadcast");
+});
+
+test("only the host can mute the room, and the ask lands on every socket", async () => {
+  const { room, state: roomState } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade("guest-2", "Kwesi Guest"));
+  const [hostSocket, guestSocket] = roomState.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "mute_all" }));
+  assert.equal(guestSocket.sent.at(-1).type, "error");
+  assert.match(guestSocket.sent.at(-1).message, /host/i);
+  assert.equal(hostSocket.sent.filter((frame) => frame.type === "mute_all").length, 0, "a guest's ask never reaches the room");
+
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "mute_all" }));
+  const frame = hostSocket.sent.at(-1);
+  assert.equal(frame.type, "mute_all");
+  assert.equal(frame.by, "host-1");
+  assert.deepEqual(guestSocket.sent.at(-1), frame, "the host and the room hear the same ask");
 });

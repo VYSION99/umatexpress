@@ -2,8 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { Camera, CameraOff, Circle, Download, Mic, MicOff, Pause, Play, Trash2 } from "lucide-react";
-import type { CinemaClientMessage, CinemaPresenceMember, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
-import { useCinemaMedia } from "./useCinemaMedia";
+import type { CinemaClientMessage, CinemaPresenceMember } from "@/lib/cinema-engine/protocol";
+import type { CinemaMedia } from "./useCinemaMedia";
 import { useCinemaRecorder } from "./useCinemaRecorder";
 
 /**
@@ -13,9 +13,14 @@ import { useCinemaRecorder } from "./useCinemaRecorder";
  * switches, says when only STUN is available, marks who is talking, and tells
  * the room when a recording starts. A member who does not want to appear simply
  * never presses a button — nothing here opens a device on mount.
+ *
+ * The call itself is owned one level up, in the room, because the member's own
+ * camera card renders beside the host controls rather than inside this panel.
+ * What stays here is the rest of the room: the tiles, the flags and the
+ * recorder, which records the local microphone and camera only.
  */
 
-function MediaStreamVideo({ stream, muted, className }: { stream: MediaStream | null; muted?: boolean; className?: string }) {
+export function MediaStreamVideo({ stream, muted, className }: { stream: MediaStream | null; muted?: boolean; className?: string }) {
   const attach = useCallback((element: HTMLVideoElement | null) => {
     if (element && element.srcObject !== stream) element.srcObject = stream;
   }, [stream]);
@@ -36,12 +41,11 @@ export function CinemaMediaPanel(input: {
   members: CinemaPresenceMember[];
   enabled: boolean;
   send: (message: CinemaClientMessage) => void;
-  subscribeSignals: (handler: (from: string, payload: CinemaSignalPayload) => void) => () => void;
+  media: CinemaMedia;
 }) {
-  const { roomId, selfId, members, enabled, send, subscribeSignals } = input;
+  const { roomId, selfId, members, enabled, send, media } = input;
   const [consent, setConsent] = useState(false);
 
-  const media = useCinemaMedia({ roomId, enabled, selfId, members, send, subscribeSignals });
   const recorder = useCinemaRecorder({
     roomId,
     enabled: enabled && media.policy.recordings,
@@ -106,20 +110,6 @@ export function CinemaMediaPanel(input: {
           {media.error && <p className="cinema-error cinema-sub">{media.error}</p>}
 
           <div className="cinema-media-grid">
-            <article className={`cinema-media-tile is-self ${media.localLevel > 0 ? "is-speaking" : ""}`}>
-              {media.cameraOn
-                ? <MediaStreamVideo stream={media.localStream} muted className="cinema-media-video" />
-                : <div className="cinema-media-placeholder"><Mic size={18} aria-hidden /><span>You</span></div>}
-              <footer>
-                <strong>You</strong>
-                {media.localLevel > 0 && <span className="cinema-speaking">Speaking</span>}
-                <span className="cinema-media-flags">
-                  {media.micOn ? <Mic size={12} aria-label="Microphone on" /> : <MicOff size={12} aria-label="Microphone off" />}
-                  {media.cameraOn ? <Camera size={12} aria-label="Camera on" /> : <CameraOff size={12} aria-label="Camera off" />}
-                </span>
-              </footer>
-            </article>
-
             {others.map((member) => {
               const peer = media.remote.find((entry) => entry.studentId === member.studentId);
               const level = media.levels[member.studentId] ?? 0;
@@ -140,6 +130,9 @@ export function CinemaMediaPanel(input: {
               </article>;
             })}
           </div>
+          {others.length === 0 && <p className="cinema-note cinema-sub">
+            Nobody else is here yet. Your own camera card sits at the top of the room; the others appear here as they arrive.
+          </p>}
           {/* Audio-only peers still need an element to play through. */}
           <div className="cinema-media-audio" aria-hidden>
             {remoteAudioOnly.map((peer) => <MediaStreamVideo key={peer.studentId} stream={peer.stream} />)}

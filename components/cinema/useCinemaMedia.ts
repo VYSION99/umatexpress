@@ -35,6 +35,9 @@ export type CinemaMediaPolicy = {
 
 export type CinemaRemotePeer = { studentId: string; stream: MediaStream };
 
+/** What the hook hands back, so a card outside the panel can read the same call. */
+export type CinemaMedia = ReturnType<typeof useCinemaMedia>;
+
 const EMPTY_POLICY: CinemaMediaPolicy = {
   voice: false,
   camera: false,
@@ -56,8 +59,10 @@ export function useCinemaMedia(input: {
   members: CinemaPresenceMember[];
   send: (message: CinemaClientMessage) => void;
   subscribeSignals: (handler: (from: string, payload: CinemaSignalPayload) => void) => () => void;
+  /** Bumped by the socket on every host mute-all; the microphone is turned off on this side. */
+  muteAllSignal?: number;
 }) {
-  const { roomId, enabled, selfId, members, send, subscribeSignals } = input;
+  const { roomId, enabled, selfId, members, send, subscribeSignals, muteAllSignal = 0 } = input;
   const [policy, setPolicy] = useState<CinemaMediaPolicy>(EMPTY_POLICY);
   const [policyLoaded, setPolicyLoaded] = useState(false);
   const [micOn, setMicOn] = useState(false);
@@ -76,6 +81,8 @@ export function useCinemaMedia(input: {
   const membersRef = useRef<CinemaPresenceMember[]>([]);
   const analysersRef = useRef(new Map<string, AnalyserNode>());
   const audioContextRef = useRef<AudioContext | null>(null);
+  /** The last mute-all this browser acted on, so a re-render never mutes twice. */
+  const handledMuteAllRef = useRef(0);
 
   useEffect(() => { policyRef.current = policy; }, [policy]);
   useEffect(() => { selfIdRef.current = selfId; }, [selfId]);
@@ -357,6 +364,49 @@ export function useCinemaMedia(input: {
   }, [cameraOn, micOn, sendFrame, setTrack]);
 
   /**
+   * Turns this browser's own microphone off. The host's mute-all is a request,
+   * not a remote control — the room broadcasts the ask and each member performs
+   * it here. The camera is left exactly as it was, and anyone may switch the
+   * mic back on; nothing about the room changes beyond the switch.
+   */
+  const muteSelf = useCallback(async () => {
+    const stream = localStreamRef.current;
+    if (stream?.getAudioTracks().length) {
+      const ok = await setTrack("audio", false);
+      if (!ok) return;
+    }
+    setMicOn(false);
+    sendFrame({ type: "media_state", mic: false, camera: cameraOn });
+  }, [cameraOn, sendFrame, setTrack]);
+
+  /** One mute-all per signal: a re-render must not turn a gesture into a loop. */
+  useEffect(() => {
+    if (!enabled || muteAllSignal === handledMuteAllRef.current) return;
+    handledMuteAllRef.current = muteAllSignal;
+    void muteSelf();
+  }, [enabled, muteAllSignal, muteSelf]);
+
+  /**
+   * Releases every device this browser opened. The room ending is the one case
+   * that must switch the camera light off without a person pressing anything,
+   * because the panel that used to unmount and clean up now lives at this
+   * level. A room with nothing open does nothing, so this can be called freely.
+   */
+  const releaseDevices = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream?.getTracks().length) return;
+    const hadAudio = stream.getAudioTracks().length > 0;
+    const hadVideo = stream.getVideoTracks().length > 0;
+    for (const track of [...stream.getTracks()]) {
+      publishTrack(track.kind === "video" ? "video" : "audio", null);
+      track.stop();
+      stream.removeTrack(track);
+    }
+    if (hadAudio) setMicOn(false);
+    if (hadVideo) setCameraOn(false);
+  }, [publishTrack]);
+
+  /**
    * The speaking meter. One analyser per audible stream, sampled on animation
    * frames and quantised to five steps, so a room of five re-renders only when
    * somebody actually starts or stops talking.
@@ -423,5 +473,7 @@ export function useCinemaMedia(input: {
     error,
     toggleMic,
     toggleCamera,
+    muteSelf,
+    releaseDevices,
   };
 }

@@ -50,6 +50,7 @@
 .cinema-controls button.secondary{background:white;color:var(--green);border:1px solid #cddbd3}
 .cinema-controls button.danger{background:#a3352a}
 .cinema-controls button:disabled{opacity:.6;cursor:progress}
+.cinema-controls .cinema-chip{display:inline-flex;align-items:center;gap:4px}
 .cinema-people{display:grid;gap:9px;list-style:none;margin:0;padding:0}
 .cinema-people li{display:flex;align-items:center;gap:10px;border:1px solid #d8e4dc;border-radius:14px;background:white;padding:11px 13px;font-weight:800;font-size:13px}
 .cinema-people li span{margin-left:auto;color:#6b7a71;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
@@ -125,6 +126,16 @@
 .cinema-record-download{display:inline-flex;align-items:center;gap:5px;border-radius:10px;background:var(--mint);color:var(--green);padding:7px 10px;font-size:11.5px;font-weight:900}
 .cinema-record-delete{display:inline-flex;align-items:center;border:1px solid #e0e7e2;border-radius:10px;background:white;color:#8a2c22;padding:7px 8px;cursor:pointer}
 .cinema-record-delete:hover{border-color:#a3352a}
+
+/* The member's own camera: a card of its own, above the host controls on a
+   desktop and beside the action rail on a phone. It is a preview with two
+   flags; the switches themselves stay in the Voice & video panel. */
+.cinema-self-view{justify-self:start;display:grid;width:184px;padding:8px;border:1px solid #d8e4dc;border-radius:16px;background:#fbfdfc;box-shadow:0 10px 24px rgba(18,46,36,.06)}
+.cinema-self-view.is-speaking{border-color:var(--green);box-shadow:0 0 0 2px rgba(16,56,42,.12)}
+.cinema-self-video{display:block;width:100%;aspect-ratio:4/3;border-radius:11px;background:#10382a;object-fit:cover}
+.cinema-self-placeholder{display:grid;place-items:center;gap:6px;aspect-ratio:4/3;border-radius:11px;background:#eef4f0;color:#4d6357;font-size:12px;font-weight:900}
+.cinema-self-view footer{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:11.5px}
+.cinema-self-view footer strong{font-weight:900;color:#3c5a4c}
 
 /* A private room's guest list: addresses in, invitations out. */
 .cinema-invites{display:grid;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid #e2eae5}
@@ -227,7 +238,39 @@
   /* The shell keeps its own mobile nav at the foot of every page, so the room
      dock rides just above it and the sheets open above both. */
   .cinema-room{padding-bottom:calc(148px + env(safe-area-inset-bottom))}
-  .cinema-video-head{padding-right:58px}
+
+  /* The platform's 28px gutter was sized for a marketing page; the room wants
+     the width, and the shell's own bottom padding still clears the mobile nav. */
+  .campus-shell:has(.cinema-room){padding:12px 12px calc(86px + env(safe-area-inset-bottom))}
+
+  /* The letterhead is the platform's, but on this page it only has to name the
+     room: the logo and the title share one row, the subtitle goes, and the
+     right edge is left empty for the camera card that floats over it. The phone
+     then spends its height on the video instead. */
+  .campus-shell:has(.cinema-room) .campus-hero{grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:center;padding:9px 130px 9px 11px;margin-bottom:10px;border-radius:18px}
+  .campus-shell:has(.cinema-room) .campus-logo{width:52px;height:44px;border-radius:13px}
+  .campus-shell:has(.cinema-room) .campus-logo img{max-width:43px;max-height:37px}
+  .campus-shell:has(.cinema-room) .campus-hero p{font-size:9px;letter-spacing:.12em}
+  .campus-shell:has(.cinema-room) .campus-hero h1{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:2px 0 0;font-size:19px;line-height:1.2;overflow-wrap:anywhere}
+  .campus-shell:has(.cinema-room) .campus-hero span{display:none}
+
+  /* The room head is one compact row too: title, chips and hint used to stack
+     into a block taller than the phone's first fold. */
+  .cinema-video-head{gap:3px;padding:0 58px 10px 2px}
+  .cinema-video-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font:750 17px/1.25 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em}
+  .cinema-video-title{flex-wrap:nowrap;gap:7px}
+  .cinema-video-head .cinema-video-hint{display:none}
+
+  /* The camera card floats over the space the hero now leaves free, in the
+     viewport's top right corner, so the first rail button below it is the
+     host's mute-all at exactly its own height. Under a sheet's backdrop it
+     drops out of the way; it is a preview, not a control. */
+  .cinema-self-view{position:fixed;top:calc(10px + env(safe-area-inset-top));right:62px;z-index:64;width:64px;padding:4px;border-radius:13px;background:rgba(255,255,255,.96);box-shadow:0 10px 26px rgba(18,46,36,.2)}
+  .cinema-self-video,.cinema-self-placeholder{aspect-ratio:1/1;border-radius:10px}
+  .cinema-self-placeholder{gap:2px;font-size:10px}
+  .cinema-self-view footer{justify-content:center;gap:6px;margin-top:3px}
+  .cinema-self-view footer strong{display:none}
+
   .cinema-host-card{display:none}
   aside.cinema-card.cinema-side{display:contents}
 

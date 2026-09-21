@@ -83,6 +83,8 @@ export type CinemaServerMessage =
   /** A new AI board for the room; the scene is already parsed and bounded. */
   | { type: "whiteboard"; board: CinemaWhiteboardView }
   | { type: "whiteboard_removed"; id: string }
+  /** The host asked everyone to mute; each client turns its own mic off. */
+  | { type: "mute_all"; by: string }
   | { type: "pong"; at: number }
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };
@@ -140,13 +142,23 @@ export type CinemaRecordingStateInput = {
   active: boolean;
 };
 
+/**
+ * The host asking the room to mute. The object checks that the sender is the
+ * host, then broadcasts; the microphone itself lives in each member's browser,
+ * so the request is the most a room can honestly do.
+ */
+export type CinemaMuteAllInput = {
+  type: "mute_all";
+};
+
 export type CinemaClientMessage =
   | { type: "ping" }
   | CinemaChatMessageInput
   | CinemaPlaybackAction
   | CinemaSignalInput
   | CinemaMediaStateInput
-  | CinemaRecordingStateInput;
+  | CinemaRecordingStateInput
+  | CinemaMuteAllInput;
 
 const PLAYBACK_TYPES = new Set<CinemaPlaybackActionType>(["play", "pause", "seek"]);
 const SIGNAL_KINDS = new Set<CinemaSignalPayload["kind"]>(["offer", "answer", "candidate"]);
@@ -186,6 +198,7 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
   if (!value || typeof value !== "object") return null;
   const type = (value as { type?: unknown }).type;
   if (type === "ping") return { type };
+  if (type === "mute_all") return { type: "mute_all" };
   if (type === "chat_message") {
     const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown };
     const content = String(source.message ?? source.content ?? "").trim();

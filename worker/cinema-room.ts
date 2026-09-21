@@ -92,6 +92,9 @@ const SIGNAL_WINDOW_MS = 60_000;
 /** Flipping a switch is a person's action, not a stream. */
 const STATE_LIMIT = 60;
 const STATE_WINDOW_MS = 10_000;
+/** Muting the room is a host's gesture, not a loop. */
+const MUTE_LIMIT = 12;
+const MUTE_WINDOW_MS = 60_000;
 
 function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null {
   const raw = socket.deserializeAttachment();
@@ -339,6 +342,10 @@ export class CinemaRoom {
       await this.applyRecordingState(socket, parsed);
       return;
     }
+    if (parsed.type === "mute_all") {
+      await this.applyMuteAll(socket);
+      return;
+    }
     await this.applyPlayback(socket, parsed);
   }
 
@@ -395,6 +402,25 @@ export class CinemaRoom {
     if (attachment.recording === frame.active) return;
     socket.serializeAttachment({ ...attachment, recording: frame.active });
     this.broadcast({ type: "presence", members: await this.presence() });
+  }
+
+  /**
+   * The host asks the room to mute. The sender is checked against the host id,
+   * the same check every other host verb makes, and then the ask is broadcast —
+   * that is the whole action, because a server cannot press another browser's
+   * microphone button. Every client that hears it turns its own mic off, and
+   * anyone may turn theirs back on.
+   */
+  private async applyMuteAll(socket: CinemaRoomSocket): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment || attachment.studentId !== await this.hostId()) {
+      this.send(socket, { type: "error", message: "Only the host can mute the room." });
+      return;
+    }
+    const limited = await rateLimitSubject("cinema-mute-all", attachment.studentId, { limit: MUTE_LIMIT, windowMs: MUTE_WINDOW_MS });
+    if (!limited.ok) return;
+    this.broadcast({ type: "mute_all", by: attachment.studentId });
+    logEvent("info", "cinema_mute_all", { roomId: (await this.roomSnapshot())?.roomId || "" });
   }
 
   /** The one attached socket for a student id, or null after they left. */

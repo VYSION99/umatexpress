@@ -41,6 +41,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [removedWhiteboards, setRemovedWhiteboards] = useState<string[]>([]);
   /** Why the server closed the room, when it said: removal reads differently from an end. */
   const [closedReason, setClosedReason] = useState("");
+  /** Bumped on every host mute-all, so a later request is never the same event twice. */
+  const [muteAllSignal, setMuteAllSignal] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
   /**
    * Signaling consumers register here rather than in the socket's state: a
@@ -154,6 +156,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
             ? current
             : [...current, message.id].slice(-WHITEBOARD_REMOVED_KEEP));
         }
+        if (message.type === "mute_all") setMuteAllSignal((current) => current + 1);
         if (message.type === "closed") {
           ended = true;
           setState("closed");
@@ -188,6 +191,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled]);
 
   return enabled
-    ? { state, closedReason, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals }
-    : { state: "closed" as CinemaConnectionState, closedReason, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals };
+    ? { state, closedReason, muteAllSignal, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals }
+    : { state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals };
 }

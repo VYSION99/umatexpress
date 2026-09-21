@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Flag, Globe, Lock, LockOpen, Mail, MessagesSquare, Mic, NotebookPen, Play, Radio, Send, Sparkles, Square, Upload, UserPlus, X,
+  Flag, Globe, Lock, LockOpen, Mail, MessagesSquare, Mic, MicOff, NotebookPen, Play, Radio, Send, Sparkles, Square, Upload, UserPlus, X,
 } from "lucide-react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
@@ -12,10 +12,12 @@ import { useCinemaSocket } from "./useCinemaSocket";
 import { CinemaInvites } from "./CinemaInvites";
 import { CinemaMediaPanel } from "./CinemaMediaPanel";
 import { CinemaNotes } from "./CinemaNotes";
+import { CinemaSelfView } from "./CinemaSelfView";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
 import { UploadPanel } from "./UploadPanel";
 import { UploadPlayer } from "./UploadPlayer";
 import { YouTubePlayer } from "./YouTubePlayer";
+import { useCinemaMedia } from "./useCinemaMedia";
 import "./cinema.css";
 
 /**
@@ -32,9 +34,9 @@ import "./cinema.css";
  *
  * On a phone the room is the video first: a floating rail at the top right
  * opens one panel at a time as a bottom sheet, and a Zoom-shaped dock holds
- * who is here and the host's actions at the bottom. The panels are the same
- * components either way and stay mounted, which matters for the media panel —
- * unmounting it would drop the call it is holding.
+ * who is here and the host's actions at the bottom. The member's own camera
+ * card floats beside the rail, and the call itself is owned here rather than
+ * inside a panel, because a panel that unmounted would take the call with it.
  */
 type CinemaSheet = "" | "upload" | "board" | "notes" | "media" | "invite" | "chat" | "people";
 
@@ -50,8 +52,11 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportNotice, setReportNotice] = useState("");
   const [sheet, setSheet] = useState<CinemaSheet>("");
+  /** Set for a moment after a mute-all goes out, so the host sees the ask land. */
+  const [muteSent, setMuteSent] = useState(false);
   const joined = useRef(false);
   const chatEndRef = useRef<HTMLLIElement | null>(null);
+  const muteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enteredStatus = useRef(initialRoom.status);
   const active = room.status === "CREATED" || room.status === "LIVE";
   // The socket is the room's live voice: it opens once the page knows who the
@@ -64,6 +69,39 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
   const videoId = live.source?.videoId ?? room.videoId;
   const openSheet = (next: CinemaSheet) => setSheet((current) => (current === next ? "" : next));
   const closeSheet = useCallback(() => setSheet(""), []);
+
+  // The call belongs to the room, not to the panel: the member's own camera
+  // card renders beside the host controls, outside the Voice & video panel, and
+  // a second copy of this hook would open a second call. The panel receives it.
+  const roomMember = account && active && live.members.length > 0 ? account : null;
+  const media = useCinemaMedia({
+    roomId: room.id,
+    enabled: Boolean(roomMember && live.state === "live"),
+    selfId: roomMember?.id ?? "",
+    members: live.members,
+    send: live.send,
+    subscribeSignals: live.subscribeSignals,
+    muteAllSignal: live.muteAllSignal,
+  });
+  const releaseDevices = media.releaseDevices;
+
+  // An ended room releases the microphone and camera: the panel that used to
+  // unmount and clean up is no longer the owner of the call.
+  useEffect(() => {
+    if (!active) releaseDevices();
+  }, [active, releaseDevices]);
+
+  /** The host asks the room to mute; each member's browser does the muting. */
+  const askMuteAll = () => {
+    if (!room.isHost || !active) return;
+    live.send({ type: "mute_all" });
+    setMuteSent(true);
+    if (muteTimer.current) clearTimeout(muteTimer.current);
+    muteTimer.current = setTimeout(() => setMuteSent(false), 3200);
+  };
+
+  // A pending notice is cleared on the way out; the room may unmount mid-count.
+  useEffect(() => () => { if (muteTimer.current) clearTimeout(muteTimer.current); }, []);
 
   // A sheet is an overlay on a phone, so the page behind it must hold still and
   // Escape must close it. Neither effect writes React state during a render.
@@ -186,6 +224,13 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
 
   return <div className="cinema-room">
     <nav className="cinema-rail" aria-label="Room features">
+      {room.isHost && active && <button
+        type="button"
+        className={muteSent ? "is-active" : ""}
+        aria-label="Mute everyone"
+        title="Mute everyone"
+        onClick={askMuteAll}
+      ><MicOff size={18} aria-hidden /></button>}
       {room.isHost && active && sourceType !== "UPLOAD" && <button
         type="button"
         className={sheet === "upload" ? "is-active" : ""}
@@ -250,7 +295,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
             {room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Private</span>}
             {room.isPrivate && !room.isHost && <span className="cinema-chip is-private"><Mail size={11} aria-hidden /> Invited guest</span>}
           </div>
-          <span>
+          <span className="cinema-video-hint">
             {active
               ? "The host's play, pause and seek land on every screen. Anyone in the room can watch; only the host drives."
               : "This room has ended."}
@@ -278,13 +323,13 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
       </section>
 
       <Sheet open={sheet === "media"} id="cinema-sheet-media" label="Mic and camera" onClose={closeSheet}>
-        {active && account && live.members.length > 0 && <CinemaMediaPanel
+        {roomMember && <CinemaMediaPanel
           roomId={room.id}
-          selfId={account.id}
+          selfId={roomMember.id}
           members={live.members}
           enabled={live.state === "live"}
           send={live.send}
-          subscribeSignals={live.subscribeSignals}
+          media={media}
         />}
       </Sheet>
 
@@ -322,6 +367,8 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         </section>}
       </Sheet>
 
+      {roomMember && <CinemaSelfView media={media} />}
+
       {room.isHost && active && <section className="cinema-card cinema-host-card">
         <h2>Host controls</h2>
         <div className="cinema-controls">
@@ -333,7 +380,9 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
           {room.isPrivate
             ? <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("PUBLIC")}><Globe size={15} /> Make it public</button>
             : <button className="secondary" disabled={Boolean(busy)} onClick={() => void act("PRIVATE")}><Lock size={15} /> Make it private</button>}
+          <button className="secondary" onClick={askMuteAll}><MicOff size={15} /> Mute everyone</button>
           <button className="danger" disabled={Boolean(busy)} onClick={() => void act("END")}><Square size={15} /> End the room</button>
+          {muteSent && <span className="cinema-chip is-live" role="status"><MicOff size={11} aria-hidden /> Room asked to mute</span>}
         </div>
         <p className="cinema-note cinema-sub">
           {room.isPrivate
