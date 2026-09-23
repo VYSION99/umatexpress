@@ -2,6 +2,7 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureScheduledTripsTable } from "@/lib/dynamic-trips";
 import { findRouteOverlaps } from "@/lib/organizer-insights";
+import { notifyParty, providerListingNotice } from "@/lib/notify-templates";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 /**
@@ -202,6 +203,20 @@ export async function archiveOrganizerTrip(organizerId: string, tripId: string) 
   return { id: tripId, archived: true };
 }
 
+/**
+ * The trip as the organizer wrote it, for a message about it: a reviewer's
+ * decision names the departure the organizer sold, not a trip id they have
+ * never had to remember.
+ */
+function tripLabel(row: Record<string, unknown>) {
+  const title = String(row.title || "").trim();
+  if (title) return title;
+  return [row.route_from, row.route_to]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" → ");
+}
+
 /** `SUBMIT` is the organizer's move; the rest belong to a reviewer. */
 export async function reviewOrganizerTrip(input: {
   tripId: string;
@@ -214,7 +229,10 @@ export async function reviewOrganizerTrip(input: {
   const tripId = String(input.tripId || "").trim();
   if (!tripId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a trip.", 400);
   const row = rowsToObjects(await turso(
-    "SELECT id,organizer_id,review_status FROM scheduled_trips WHERE id = ? LIMIT 1",
+    `SELECT t.id,t.organizer_id,t.review_status,COALESCE(t.title,'') AS title,COALESCE(t.route_from,'') AS route_from,COALESCE(t.route_to,'') AS route_to,
+       COALESCE(o.email,'') AS organizer_email
+     FROM scheduled_trips t LEFT JOIN trip_organizers o ON o.id = t.organizer_id
+     WHERE t.id = ? LIMIT 1`,
     [tripId],
   ))[0];
   if (!row) throw new CampusEngineError("NOT_FOUND", "That trip was not found.", 404);
@@ -265,6 +283,16 @@ export async function reviewOrganizerTrip(input: {
     targetReference: tripId,
     details: { from: current, reason },
   });
+
+  // A reviewer's decision is news to the organizer; their own SUBMIT is not, so
+  // only the three review outcomes are told in the provider's own words.
+  if (input.action !== "SUBMIT") {
+    await notifyParty({
+      recipient: row.organizer_email,
+      reference: tripId,
+      notice: providerListingNotice("organizer", input.action, { listing: tripLabel(row), reason }),
+    });
+  }
 
   const decision = input.action === "SUBMIT" ? "PENDING_REVIEW" : transitions[input.action].to;
   return { id: tripId, reviewStatus: decision as ReviewStatus };

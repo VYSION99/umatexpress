@@ -7,7 +7,7 @@ import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 type Dispute = {
-  id: string; organizerId: string; organizerName: string; tripId: string; bookingReference: string;
+  id: string; organizerId: string; organizerName: string; tripId: string; bookingReference: string; campusReference: string;
   raisedByRole: string; raisedBy: string; category: string; subject: string; details: string;
   status: string; resolution: string; resolutionNote: string; resolvedBy: string; resolvedAt: string;
   createdAt: string;
@@ -128,7 +128,7 @@ function TriageWorkspace({ session, readOnly }: { session: ConsoleSessionInfo; r
                 <td><span>{when(dispute.createdAt)}</span><small>{dispute.raisedByRole.toLowerCase()}</small></td>
                 <td>
                   <span>{dispute.subject}</span>
-                  <small>{dispute.organizerName || dispute.organizerId}{dispute.bookingReference ? ` · ${dispute.bookingReference}` : ""}</small>
+                  <small>{dispute.organizerName || dispute.organizerId}{(dispute.bookingReference || dispute.campusReference) ? ` · ${dispute.bookingReference || dispute.campusReference}` : ""}</small>
                 </td>
                 <td>{dispute.raisedBy}</td>
                 <td>{dispute.category.replace(/_/g, " ").toLowerCase()}</td>
@@ -151,7 +151,7 @@ function TriageWorkspace({ session, readOnly }: { session: ConsoleSessionInfo; r
       </h2>
       <p className="console-note">
         {selected.raisedByRole.toLowerCase()} {selected.raisedBy} · {when(selected.createdAt)} · {selected.category.replace(/_/g, " ").toLowerCase()}
-        {selected.bookingReference ? ` · booking ${selected.bookingReference}` : ""}
+        {(selected.bookingReference || selected.campusReference) ? ` · ${selected.bookingReference ? "booking" : "campusRide"} ${selected.bookingReference || selected.campusReference}` : ""}
       </p>
       <p>{selected.details}</p>
       {selected.resolutionNote && <p className="console-note">

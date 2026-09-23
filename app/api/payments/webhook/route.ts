@@ -3,6 +3,7 @@ import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
 import { failHostelWebhookPayment, settleHostelWebhookPayment } from "@/lib/hostel-engine/settle";
 import { applyHostelPaystackTransferEvent } from "@/lib/hostel-engine/payouts";
+import { applyCampusRefundEvent } from "@/lib/campus-engine/refunds";
 import { applyHostelRefundEvent } from "@/lib/hostel-engine/refunds";
 import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
 import { accrueForBooking, applyPaystackTransferEvent } from "@/lib/organizer-payouts";
@@ -15,8 +16,11 @@ type PaystackWebhook = {
     id?: number;
     reference?: string;
     amount?: number;
+    currency?: string;
     status?: string;
     gateway_response?: string;
+    /** What the rail charged for the charge, in pesewas. */
+    fees?: number;
     transfer_code?: string;
     reason?: string;
     /** Refund payloads carry the refund's own reference and its charge. */
@@ -42,22 +46,27 @@ function json(message: string, status = 200, requestId = "") {
   return requestId ? withRequestId(response, requestId) : response;
 }
 
-async function markSuccessful(reference: string, amount: number, transactionId: string) {
+async function markSuccessful(reference: string, amount: number, currency: string, transactionId: string) {
   await ensureBookingsTable();
   await ensurePaymentsTable();
 
   const payment = rowsToObjects(await turso(
-    "SELECT booking_id, amount, status FROM payments WHERE reference_id = ? AND provider = 'PAYSTACK' LIMIT 1",
+    "SELECT booking_id, amount, currency, status FROM payments WHERE reference_id = ? AND provider = 'PAYSTACK' LIMIT 1",
     [reference],
   ))[0];
   if (!payment) return { handled: false, reason: "PAYMENT_NOT_FOUND" };
 
   const now = new Date().toISOString();
   const expectedAmount = Number(payment.amount || 0);
-  if (Number(amount || 0) !== expectedAmount) {
+  // Only a reported currency can mismatch; an absent one says nothing, and
+  // treating it as wrong parks a paid booking in review.
+  const providerCurrency = String(currency || "").toUpperCase();
+  const currencyMismatch = providerCurrency !== ""
+    && providerCurrency !== String(payment.currency || "").toUpperCase();
+  if (Number(amount || 0) !== expectedAmount || currencyMismatch) {
     await turso(
-      "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = 'PAYSTACK_AMOUNT_MISMATCH', updated_at = ?, completed_at = ? WHERE reference_id = ?",
-      [transactionId, now, now, reference],
+      "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
+      [transactionId, currencyMismatch ? "PAYSTACK_CURRENCY_MISMATCH" : "PAYSTACK_AMOUNT_MISMATCH", now, now, reference],
     );
     await turso(
       "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ?",
@@ -88,12 +97,12 @@ async function markSuccessful(reference: string, amount: number, transactionId: 
   }
 
   await turso(
-    "UPDATE payments SET status = 'SUCCESSFUL', financial_transaction_id = ?, failure_reason = NULL, updated_at = ?, completed_at = ? WHERE reference_id = ?",
-    [transactionId, now, now, reference],
-  );
-  await turso(
     "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'CONFIRMED', confirmed_at = ? WHERE id = ?",
     [now, String(payment.booking_id)],
+  );
+  await turso(
+    "UPDATE payments SET status = 'SUCCESSFUL', financial_transaction_id = ?, failure_reason = NULL, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('FAILED','PAID_REVIEW')",
+    [transactionId, now, now, reference],
   );
   // Verify and the webhook can both confirm the same booking; the ledger's
   // unique booking index makes the second accrual a no-op.
@@ -115,10 +124,10 @@ async function markFailed(reference: string, reason: string, transactionId: stri
 
   const now = new Date().toISOString();
   await turso(
-    "UPDATE payments SET status = 'FAILED', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ?",
+    "UPDATE payments SET status = 'FAILED', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
     [transactionId, reason || "PAYSTACK_PAYMENT_FAILED", now, now, reference],
   );
-  await turso("UPDATE bookings SET payment_status = 'FAILED', booking_status = 'PAYMENT_FAILED' WHERE id = ?", [String(payment.booking_id)]);
+  await turso("UPDATE bookings SET payment_status = 'FAILED', booking_status = 'PAYMENT_FAILED' WHERE id = ? AND booking_status NOT IN ('CONFIRMED','PAYMENT_RECEIVED_REVIEW','CANCELLED')", [String(payment.booking_id)]);
   await turso("DELETE FROM seat_holds WHERE booking_id = ? AND status = 'HELD'", [String(payment.booking_id)]);
   return { handled: true, status: "FAILED" };
 }
@@ -154,17 +163,29 @@ export async function POST(request: Request) {
         await incrementMetric("webhook_duplicate");
         return json("Webhook ignored: event already processed.", 200, requestId);
       }
-      const result = await applyHostelRefundEvent({
+      // One refund reference, two ledgers. Paystack's reference is unique, so
+      // asking the hostel table first and the campus one second finds the row
+      // without either product having to know about the other.
+      const hostel = await applyHostelRefundEvent({
         event: String(event.event),
         reference: refundReference,
         status: event.data?.status,
         amount: Number(event.data?.amount || 0),
       });
-      await incrementMetric(`hostel_refund_${result.status === "PAID" ? "settled" : result.status === "FAILED" ? "failed" : "pending"}`);
+      const result = hostel.handled
+        ? hostel
+        : await applyCampusRefundEvent({
+            event: String(event.event),
+            reference: refundReference,
+            status: event.data?.status,
+            amount: Number(event.data?.amount || 0),
+          });
+      const family = hostel.handled ? "hostel_refund" : "campus_refund";
+      await incrementMetric(`${family}_${result.status === "PAID" ? "settled" : result.status === "FAILED" ? "failed" : "pending"}`);
       return noStore(result);
     } catch (error) {
       await incrementMetric("webhook_failed");
-      logEvent("error", "hostel_refund_webhook_failed", { requestId, reference: refundReference, reason: error instanceof Error ? error.message : "unknown" });
+      logEvent("error", "refund_webhook_failed", { requestId, reference: refundReference, reason: error instanceof Error ? error.message : "unknown" });
       await releasePaymentEvent("PAYSTACK", refundEventId).catch(() => undefined);
       return noStore({ error: error instanceof Error ? error.message : "Refund webhook could not be processed." }, 500);
     }
@@ -227,11 +248,12 @@ export async function POST(request: Request) {
   try {
     if (successful) {
       const amount = Number(event.data?.amount || 0);
+      const currency = String(event.data?.currency || "");
       const transactionId = event.data?.id ? String(event.data.id) : "";
-      const result = await markSuccessful(reference, amount, transactionId);
+      const result = await markSuccessful(reference, amount, currency, transactionId);
       if (!result.handled) {
         // The campus engine records its own settlement metric.
-        const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, requestId);
+        const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, requestId, Number(event.data?.fees || 0));
         if (campus.handled) return noStore(campus);
         // A hostel bed is the reason a student pays and closes the tab, so the
         // webhook settles it rather than waiting for a return that never comes.

@@ -1,7 +1,10 @@
 import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { ensureCampusRideTables } from "@/lib/campus-ride";
 
-export async function campusAudit(input: { actorType: "student" | "driver" | "admin" | "system"; actorId?: string; action: string; targetType: string; targetReference: string; details?: Record<string, unknown> | string }) {
+/** Who caused an audited action. Kept as a named union so callers can pass it through. */
+export type CampusAuditActorType = "student" | "driver" | "admin" | "system";
+
+export async function campusAudit(input: { actorType: CampusAuditActorType; actorId?: string; action: string; targetType: string; targetReference: string; details?: Record<string, unknown> | string }) {
   if (!(await isTursoConfiguredRuntime())) return;
   await ensureCampusRideTables();
   const details = typeof input.details === "string" ? input.details : JSON.stringify(input.details || {});

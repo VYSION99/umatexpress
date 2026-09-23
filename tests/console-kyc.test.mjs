@@ -18,6 +18,7 @@ const accounts = [];
 const organizers = [];
 const landlords = [];
 const audit = [];
+const notices = [];
 const statements = [];
 
 function cell(value) {
@@ -73,6 +74,10 @@ function handle(sql, args) {
   if (/INSERT INTO admin_audit_logs/.test(sql)) {
     audit.push({ actor: args[1], action: args[2], targetType: args[3], targetReference: args[4], details: args[5], createdAt: args[6] });
     return ok();
+  }
+  if (/INSERT INTO notification_outbox/.test(sql)) {
+    notices.push({ recipient: args[2], template: args[3], subject: args[4], message: args[5], reference: args[6] });
+    return ok({ affected_row_count: 1 });
   }
   if (/INSERT INTO rate_limit_windows/.test(sql) && /RETURNING count/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
   return ok(empty);
@@ -189,11 +194,13 @@ test("only staff decide an organizer's KYC", async () => {
 test("a moderator can verify a landlord, and a rejection keeps its reason", async () => {
   statements.length = 0;
   audit.length = 0;
+  notices.length = 0;
   const rejected = await landlordsRoute.PATCH(request("/api/console/hostel/landlords", {
     method: "PATCH", cookie: await cookieFor("acc-mod"), body: { landlordId: "landlord-pending", action: "REJECT_KYC" },
   }));
   assert.equal(rejected.status, 400, "a rejection without a reason is refused");
   assert.equal(landlords[0].kyc_status, "PENDING");
+  assert.deepEqual(notices, [], "a refused decision tells nobody anything");
 
   const withReason = await landlordsRoute.PATCH(request("/api/console/hostel/landlords", {
     method: "PATCH", cookie: await cookieFor("acc-mod"), body: { landlordId: "landlord-pending", action: "REJECT_KYC", reason: "Phone number does not reach the landlord." },
@@ -202,7 +209,12 @@ test("a moderator can verify a landlord, and a rejection keeps its reason", asyn
   const rejectedBody = await withReason.json();
   assert.equal(rejectedBody.landlord.kycStatus, "REJECTED");
   assert.equal(rejectedBody.landlord.reviewReason, "Phone number does not reach the landlord.");
+  assert.deepEqual(notices.map((row) => row.template), ["landlord_kyc_rejected"], "the landlord is the second party to a KYC decision");
+  assert.equal(notices[0].recipient, "owusu@example.com", "the landlord is told, not the moderator who decided");
+  assert.equal(notices[0].reference, "landlord-pending");
+  assert.match(notices[0].message, /Phone number does not reach the landlord/, "the landlord is told what to fix");
 
+  notices.length = 0;
   const verified = await landlordsRoute.PATCH(request("/api/console/hostel/landlords", {
     method: "PATCH", cookie: await cookieFor("acc-mod"), body: { landlordId: "landlord-pending", action: "VERIFY_KYC" },
   }));
@@ -210,6 +222,8 @@ test("a moderator can verify a landlord, and a rejection keeps its reason", asyn
   const verifiedBody = await verified.json();
   assert.equal(verifiedBody.landlord.kycStatus, "VERIFIED");
   assert.equal(verifiedBody.landlord.reviewReason, "", "verifying clears the old rejection reason");
+  assert.deepEqual(notices.map((row) => row.template), ["landlord_kyc_verified"]);
+  assert.match(notices[0].message, /payments can be sent/i, "the money gate says what a verified landlord may count on");
 
   const entries = audit.filter((row) => row.targetType === "hostel_landlord");
   assert.deepEqual(entries.map((row) => row.action), ["HOSTEL_LANDLORD_KYC_REJECT", "HOSTEL_LANDLORD_KYC_VERIFY"]);
@@ -243,4 +257,62 @@ test("the landlord KYC route is staff-only and validates its input", async () =>
   assert.equal(missing.status, 404);
   const alreadyVerified = await landlordsRoute.PATCH(request("/api/console/hostel/landlords", { method: "PATCH", cookie, body: { landlordId: "landlord-verified", action: "VERIFY_KYC" } }));
   assert.equal(alreadyVerified.status, 409, "a verified landlord is not re-verified for nothing");
+});
+
+/**
+ * The two-party notices. A provider is told the decision that was made about
+ * them, in one voice, from the shared notice book: the template id says which
+ * service and which decision, and the reference is the provider, so a decision
+ * repeated cannot send the same message twice.
+ */
+test("approving, rejecting or suspending an organizer tells the organizer", async () => {
+  notices.length = 0;
+  organizers.push({
+    id: "org-pending", name: "New Applicant", phone: "0551112222", email: "applicant@example.com", organization: "Applicant Travel",
+    status: "PENDING", kyc_status: "PENDING", kyc_reason: "", commission_bps: 300,
+    created_at: "2026-09-20T00:00:00.000Z", updated_at: "2026-09-20T00:00:00.000Z",
+  });
+  const cookie = await cookieFor("acc-admin");
+  const decide = (body) => organizersRoute.PATCH(request("/api/console/organizers", { method: "PATCH", cookie, body }));
+
+  const approved = await decide({ organizerId: "org-pending", action: "APPROVE" });
+  assert.equal(approved.status, 200);
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_application_approved"]);
+  assert.equal(notices[0].recipient, "applicant@example.com", "the applicant is the recipient, not the administrator");
+  assert.equal(notices[0].reference, "org-pending", "the reference is the provider, so a repeat decision cannot send twice");
+  assert.match(notices[0].subject, /approved/i);
+  assert.match(notices[0].message, /payout account/i, "an approved organizer is told the next step");
+
+  notices.length = 0;
+  const rejected = await decide({ organizerId: "org-pending", action: "REJECT", reason: "The phone number does not reach you" });
+  assert.equal(rejected.status, 200);
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_application_rejected"]);
+  assert.match(notices[0].message, /The phone number does not reach you/, "a rejection carries the reason, or it is a dead end");
+
+  notices.length = 0;
+  const suspended = await decide({ organizerId: "org-pending", action: "SUSPEND", reason: "Repeated no-shows" });
+  assert.equal(suspended.status, 200);
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_application_suspended"]);
+  assert.match(notices[0].message, /Sign-in is closed/, "a suspended provider is told what changed for them");
+});
+
+test("a KYC decision tells the organizer, and the money gate says what to fix", async () => {
+  notices.length = 0;
+  const cookie = await cookieFor("acc-admin");
+
+  const verified = await organizersRoute.PATCH(request("/api/console/organizers", {
+    method: "PATCH", cookie, body: { organizerId: "org-a", action: "VERIFY_KYC" },
+  }));
+  assert.equal(verified.status, 200);
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_kyc_verified"]);
+  assert.match(notices[0].message, /payments can be sent/i);
+
+  notices.length = 0;
+  const rejected = await organizersRoute.PATCH(request("/api/console/organizers", {
+    method: "PATCH", cookie, body: { organizerId: "org-a", action: "REJECT_KYC", reason: "The ID photo is unreadable" },
+  }));
+  assert.equal(rejected.status, 200);
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_kyc_rejected"]);
+  assert.match(notices[0].message, /The ID photo is unreadable/);
+  assert.match(notices[0].subject, /could not verify/i);
 });

@@ -3,10 +3,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Circle, Clock, ImageDown, Loader2, MapPin, Share2, ShieldCheck, Trash2, WifiOff, XCircle } from "lucide-react";
+import { TripFeedback } from "@/components/campusRide/student/TripFeedback";
 import { queueProgress } from "@/lib/campus-engine/progress";
 import { forgetTicket, rememberTicket } from "@/lib/passenger-profile";
 
-type Ticket = Record<string, string | number>;
+/**
+ * What `verifyCampusRidePayment` returns for `ticket`. Named rather than left as
+ * a loose record so a renamed column is a compile error instead of a blank line
+ * on a passenger's ticket. The zone and corridor names come from left joins and
+ * can be absent.
+ */
+type Ticket = {
+  reference: string;
+  passenger_name: string;
+  phone: string;
+  email: string;
+  queue_position: number;
+  amount: number;
+  payment_status: string;
+  queue_status: string;
+  ride_pin: string;
+  created_at: string;
+  payment_reference: string;
+  ride_id: string;
+  driver_name: string;
+  vehicle_label: string;
+  plate_number: string;
+  pickup_zone: string | null;
+  destination_zone: string | null;
+  corridor_name: string | null;
+};
 
 type QueueStatus = {
   status: string;
@@ -17,8 +43,29 @@ type QueueStatus = {
   progress: ReturnType<typeof queueProgress>;
   route: { pickupZone: string; destinationZone: string; corridorName: string };
   driver: { name: string; vehicleLabel: string; plateNumber: string; zoneName: string };
+  pickupEta?: { minutes: number | null; label: string; source: string; distanceKm: number | null; note: string } | null;
+  cancellation?: { tier: "FULL" | "NONE"; amount: number; canCancel: boolean; blockedReason: string; note: string } | null;
+  refund?: { id: string; amount: number; status: string; cause: string; settledAt: string; createdAt: string } | null;
   updatedAt: string;
 };
+
+function cedisFromPesewas(pesewas: number) {
+  return `GH₵ ${(Math.max(0, Number(pesewas) || 0) / 100).toFixed(2)}`;
+}
+
+/**
+ * What the refund line says at each stage. The wording leans on days rather
+ * than hours because the rail, not the platform, decides when a card or wallet
+ * shows the money, and a passenger who is told "today" and sees it tomorrow
+ * trusts the next message less.
+ */
+function refundLine(refund: { amount: number; status: string; cause: string }) {
+  const amount = cedisFromPesewas(refund.amount);
+  if (refund.status === "PAID") return `${amount} refunded. It may take a few days to appear on your statement.`;
+  if (refund.status === "APPROVED") return `${amount} refund sent — usually within 3–5 working days.`;
+  if (refund.status === "FAILED" || refund.status === "DECLINED") return `${amount} refund needs a hand from support. We have the record.`;
+  return `${amount} refund requested. It is being processed.`;
+}
 
 const CACHE_PREFIX = "umx_campus_ticket_";
 const POLL_MS = 15_000;
@@ -58,6 +105,9 @@ export default function CampusTicketPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [signInHref, setSignInHref] = useState("/account");
+  // Cancelling is two taps rather than one: the first opens the policy in full,
+  // the second gives up the seat, so nobody loses a ride to a stray touch.
+  const [cancelStep, setCancelStep] = useState<"idle" | "confirm" | "working">("idle");
   const referenceRef = useRef("");
 
   // Progress is derived from the last poll, falling back to the ticket's own
@@ -136,6 +186,15 @@ export default function CampusTicketPage() {
     return () => window.clearInterval(timer);
   }, [state, verify]);
 
+  // One ETA line, in order of how much the passenger can trust it: a live
+  // driver beats a queue-batch estimate, and the estimate beats nothing.
+  const pickupEta = status?.pickupEta || null;
+  const etaLine = pickupEta?.label
+    ? { value: pickupEta.label, hint: pickupEta.source === "AT_PICKUP" ? "Meet your driver at the pickup zone" : "Your driver is on the way" }
+    : status?.waitLabel
+      ? { value: status.waitLabel, hint: status.peopleAhead === 0 ? "You are next" : `${status.peopleAhead ?? 0} ahead of you` }
+      : null;
+
   // Stop polling once the ride reaches a terminal state.
   const tracking = state === "paid" && progress.state === "active";
   useEffect(() => {
@@ -164,6 +223,31 @@ export default function CampusTicketPage() {
     } catch { /* the passenger dismissed the share sheet */ }
   };
 
+  const cancelSeat = async () => {
+    const reference = referenceRef.current;
+    if (!reference) return;
+    setCancelStep("working");
+    try {
+      const response = await fetch("/api/campus/queue/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ reference }),
+      });
+      const data = await response.json() as { refund?: { amount: number } | null; error?: string };
+      if (!response.ok) throw new Error(data.error || "We could not cancel this seat.");
+      setNotice(data.refund?.amount ? `Seat cancelled. ${cedisFromPesewas(data.refund.amount)} refund recorded.` : "Seat cancelled. Nothing was owed back.");
+      setCancelStep("idle");
+      await loadStatus();
+      void verify(reference, false);
+      window.setTimeout(() => setNotice(""), 6000);
+    } catch (cancelError) {
+      setNotice(cancelError instanceof Error ? cancelError.message : "We could not cancel this seat.");
+      setCancelStep("idle");
+      window.setTimeout(() => setNotice(""), 6000);
+    }
+  };
+
   const forget = () => {
     clearCachedTicket(referenceRef.current);
     forgetTicket(referenceRef.current);
@@ -178,10 +262,10 @@ export default function CampusTicketPage() {
       <section className="campus-live-progress" aria-live="polite">
         <div className="campus-live-head">
           <div><small>Live status</small><strong>{progress.label}</strong><span>{progress.hint}</span></div>
-          {status?.waitLabel ? <div className="campus-live-eta">
+          {etaLine ? <div className="campus-live-eta">
             <Clock size={15}/>
-            <b>{status.waitLabel}</b>
-            <small>{status.peopleAhead === 0 ? "You are next" : `${status.peopleAhead ?? 0} ahead of you`}</small>
+            <b>{etaLine.value}</b>
+            <small>{etaLine.hint}</small>
           </div> : null}
         </div>
         <ol className="campus-live-steps">
@@ -190,6 +274,7 @@ export default function CampusTicketPage() {
             <div><strong>{step.label}</strong><small>{step.hint}</small></div>
           </li>)}
         </ol>
+        {pickupEta?.note ? <p className="campus-live-note">{pickupEta.note}</p> : null}
         {status?.driver.name ? <p className="campus-live-driver">
           <MapPin size={15}/> <strong>{status.driver.name}</strong> · {status.driver.vehicleLabel} {status.driver.plateNumber}
           {status.driver.zoneName ? ` · near ${status.driver.zoneName}` : ""}
@@ -199,16 +284,46 @@ export default function CampusTicketPage() {
         <div className="ticket-head"><div className="ticket-brand"><img src="/logo-mark.png" alt="" /><div><strong>campusRide</strong><small>{ticket.corridor_name || "Campus ride ticket"}</small></div></div><span>PAID</span></div>
         <div className="ticket-route"><strong>{ticket.pickup_zone}</strong><i>→</i><strong>{ticket.destination_zone}</strong></div>
         <div className="ticket-grid">
-          <span>Passenger<strong>{ticket.passenger_name}</strong></span>
-          <span>Phone<strong>{ticket.phone}</strong></span>
-          <span>Queue position<strong>#{ticket.queue_position}</strong></span>
-          <span>Boarding PIN<strong>{ticket.ride_pin}</strong></span>
-          <span>Amount<strong>GH₵ {(Number(ticket.amount || 0)/100).toFixed(2)}</strong></span>
-          <span>Driver<strong>{ticket.driver_name}</strong></span>
-          <span>Vehicle<strong>{ticket.vehicle_label} {ticket.plate_number}</strong></span>
+          <span><small>Passenger</small><strong>{ticket.passenger_name}</strong></span>
+          <span><small>Phone</small><strong>{ticket.phone}</strong></span>
+          <span><small>Queue position</small><strong>#{ticket.queue_position}</strong></span>
+          <span><small>Boarding PIN</small><strong>{ticket.ride_pin}</strong></span>
+          <span><small>Amount</small><strong>GH₵ {(Number(ticket.amount || 0)/100).toFixed(2)}</strong></span>
+          <span><small>Driver</small><strong>{ticket.driver_name}</strong></span>
+          <span><small>Vehicle</small><strong>{ticket.vehicle_label} {ticket.plate_number}</strong></span>
         </div>
-        <div className="ticket-reference"><span>{ticket.reference}</span><small>Show this image ticket and PIN to the driver before boarding.</small></div>
+        <div className="ticket-reference">
+          <span><small>Ticket reference</small><strong>{ticket.reference}</strong></span>
+          <small>Show this image ticket and PIN to the driver before boarding.</small>
+        </div>
       </div>
+      {status?.refund ? <p className={`campus-refund-line is-${String(status.refund.status).toLowerCase()}`}>
+        <ShieldCheck size={16}/> {refundLine(status.refund)}
+      </p> : null}
+      {status?.cancellation?.canCancel ? <section className="campus-cancel-panel">
+        <div>
+          <strong>{status.cancellation.tier === "FULL" ? "Free to cancel" : "Cancel this seat"}</strong>
+          <small>{status.cancellation.note}</small>
+          {status.cancellation.tier === "FULL" && status.cancellation.amount > 0
+            ? <small className="campus-cancel-amount">{cedisFromPesewas(status.cancellation.amount)} goes back to you.</small>
+            : null}
+        </div>
+        {cancelStep === "idle" ? <button className="campus-cancel-button" onClick={() => setCancelStep("confirm")}>Cancel this seat</button>
+        : <div className="campus-cancel-confirm">
+          <p>{status.cancellation.tier === "FULL"
+            ? `Give up this seat and refund ${cedisFromPesewas(status.cancellation.amount)}?`
+            : "Give up this seat? The fare is kept because a driver has already taken it."}</p>
+          <div>
+            <button className="is-danger" onClick={cancelSeat} disabled={cancelStep === "working"}>
+              {cancelStep === "working" ? <><Loader2 size={15} className="spin"/> Cancelling…</> : "Yes, cancel"}
+            </button>
+            <button onClick={() => setCancelStep("idle")} disabled={cancelStep === "working"}>Keep my seat</button>
+          </div>
+        </div>}
+      </section> : null}
+      {status?.cancellation && !status.cancellation.canCancel && status.cancellation.blockedReason
+        ? <p className="campus-ticket-notice">{status.cancellation.blockedReason}</p> : null}
+      {status?.status === "COMPLETED" ? <TripFeedback reference={String(ticket.reference || "")} /> : null}
       {notice && <p className="campus-ticket-notice">{notice}</p>}
       <div className="ticket-actions">
         <button onClick={saveImage}><ImageDown size={17}/> Save/print image</button>

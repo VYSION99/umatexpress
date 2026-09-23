@@ -18,8 +18,8 @@ process.env.ADMIN_SESSION_SECRET = "test-admin-session-secret-at-least-32-chars"
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
 const SCHEMA_VERSIONS = {
-  campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3",
-  organizerPayouts: "2026-09-18.2", tripDisputes: "2026-09-18.1",
+  campusRide: "2026-09-23.2", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3",
+  organizerPayouts: "2026-09-18.2", tripDisputes: "2026-09-24.1",
 };
 
 const ACCOUNT_COLUMNS = ["id", "email", "name", "phone", "role", "status", "profile_id"];
@@ -83,7 +83,7 @@ const okRows = (count) => ok({ affected_row_count: count });
 
 function disputeRows(rows) {
   return table(
-    ["id", "organizer_id", "organizer_name", "trip_id", "booking_reference", "raised_by_role", "raised_by", "category",
+    ["id", "organizer_id", "organizer_name", "trip_id", "booking_reference", "campus_reference", "raised_by_role", "raised_by", "category",
       "subject", "details", "status", "resolution", "resolution_note", "resolved_by", "resolved_at", "created_at", "updated_at"],
     rows.map((row) => ({ organizer_name: organizers.find((item) => item.id === row.organizer_id)?.name || "", ...row })),
   );
@@ -126,10 +126,11 @@ function handle(sql, args) {
   if (/^INSERT INTO trip_disputes/.test(sql)) {
     disputes.push({
       id: String(args[0]), organizer_id: String(args[1]), trip_id: String(args[2]), booking_reference: String(args[3]),
-      raised_by_role: String(args[4]), raised_by: String(args[5]), raised_by_contact: String(args[6]),
-      category: String(args[7]), subject: String(args[8]), details: String(args[9]),
+      campus_reference: String(args[4]),
+      raised_by_role: String(args[5]), raised_by: String(args[6]), raised_by_contact: String(args[7]),
+      category: String(args[8]), subject: String(args[9]), details: String(args[10]),
       status: "OPEN", resolution: "", resolution_note: "", resolved_by: "", resolved_at: "",
-      created_at: String(args[10]), updated_at: String(args[11]),
+      created_at: String(args[11]), updated_at: String(args[12]),
     });
     return okRows(1);
   }

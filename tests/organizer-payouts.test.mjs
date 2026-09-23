@@ -19,7 +19,7 @@ process.env.PAYSTACK_SECRET_KEY = "sk_test_payout_ledger_key";
 process.env.PAYSTACK_CURRENCY = "GHS";
 process.env.PAYOUT_ENCRYPTION_KEY = "test-payout-encryption-key-at-least-32-characters";
 
-const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-21.1" };
+const SCHEMA_VERSIONS = { campusRide: "2026-09-23.2", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-21.1" };
 const ACCOUNT_COLUMNS = ["id", "email", "name", "phone", "role", "status", "profile_id"];
 
 const accounts = [
@@ -422,9 +422,9 @@ function handle(sql, args) {
   }
 
   // Payments and the verify route.
-  if (/^SELECT id, booking_id, provider, reference_id, amount, status, access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id, booking_id, provider, reference_id, amount,.*access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
-    return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "status", "access_token_hash"], [{ ...payment, access_token_hash: payment.access_token_hash || "" }]) : empty);
+    return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "currency", "status", "access_token_hash"], [{ ...payment, currency: payment.currency || "GHS", access_token_hash: payment.access_token_hash || "" }]) : empty);
   }
   if (/^UPDATE seat_holds SET status = 'BOOKED'/.test(sql)) {
     const hold = seatHolds.find((item) => item.booking_id === args[0] && item.status === "HELD" && item.expires_at >= String(args[1]));

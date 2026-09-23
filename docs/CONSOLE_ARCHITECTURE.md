@@ -62,22 +62,25 @@ ways in:
   `consoleApplications`. The entry carries the role it creates, the fields the
   form collects, the endpoint it posts to, the service that reviews it, and the
   activation policy: `REVIEW` means the account cannot sign in until a reviewer
-  approves it (organizers), `DIRECT` means the account signs in at once while
-  publishing, payouts and visibility stay gated (landlords and vendors when
-  their services open). `implementedConsoleApplicationIds` lists the
+  approves it (organizers and drivers), `DIRECT` means the account signs in at
+  once while publishing, payouts and visibility stay gated (landlords and
+  vendors when their services open). `implementedConsoleApplicationIds` lists the
   programmes the API can actually process, so a programme may be `OPEN` only
   when it is on that list.
 * **Invited** — `consoleInvitedAccess` names the roles that are never
-  self-service: drivers are added by CampusRide operations with their vehicle
-  and zone, administrator and moderator accounts by an administrator. A test
-  pins that no open application can mint an operational role.
+  self-service: administrator and moderator accounts are created by an
+  administrator. A test pins that no open application can mint a staff role,
+  and that an application which creates a working account (a driver) parks it
+  until a reviewer approves it.
 
 `/console/register` is the picker; `/console/register/<programme>` renders the
 form from the registry entry, and every form posts to the one endpoint,
 `/api/console/applications/<programme>`, which looks the programme up before it
 reads a body. The first programme is the organizer application: it writes the
 `trip_organizers` row plus a `PENDING` console account, and its review queue is
-the Organizer applications service.
+the Organizer applications service. The driver programme works the same way and
+is decided on the CampusRide console page; see
+`docs/CampusRide/DRIVER_SELF_SERVICE.md`.
 
 ## 3. Origin boundary
 
@@ -245,6 +248,12 @@ administrator owns. A change takes effect within the read cache's fifteen
 seconds and survives a redeploy. The payout desks link to the page, so the
 person who sees a held balance can also turn the schedule on.
 
+campusRide fares are the same mechanism with more numbers: the cost model behind
+a corridor's floor, the markup behind its ceiling and the platform's commission
+are nine settings on this page (`campus_fare_*`, `campus_commission_bps`), and
+the operations console refuses a tariff the guardrails cannot defend. See
+`docs/CampusRide/FARE_POLICY.md`.
+
 ### Getting back in
 
 Every auth surface — the console and the student account alike — has the same
@@ -282,6 +291,7 @@ secret when it is unset.
 | The assistant's tools, roles and proposals | `node --test tests/console-assistant.test.mjs` |
 | Recovery links, codes and one-time sign-in | `node --test tests/auth-recovery.test.mjs` |
 | Platform switches and the admin-only settings route | `node --test tests/platform-settings.test.mjs` |
+| campusRide fare floors, ceilings and the split | `node --test tests/campus-fares.test.mjs` |
 | Console pages in a real browser | `node scripts/check-console-origin.mjs` (dev server on 5190, Chrome debug port 9231) |
 
 The browser check stubs the session endpoint by role, so it needs no

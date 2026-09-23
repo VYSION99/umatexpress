@@ -418,7 +418,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
   }
   if (booking.status !== "PENDING_PAYMENT") return { handled: true, status: "NOT_PENDING" as const, booking };
 
-  if (Math.round(Number(input.amount || 0)) < booking.totalAmount) {
+  if (Math.round(Number(input.amount || 0)) !== booking.totalAmount) {
     await turso(
       "UPDATE hostel_bookings SET status = 'PAYMENT_REVIEW', paid_at = ?, provider = ?, provider_reference = ?, updated_at = ? WHERE reference = ?",
       [stamp, String(input.provider || ""), String(input.transactionId || ""), stamp, reference],

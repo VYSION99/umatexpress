@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { BedDouble, BusFront, Clapperboard, Store, UserRoundCheck, Utensils } from "lucide-react";
+import { BedDouble, BusFront, CarFront, Clapperboard, Store, UserRoundCheck, Utensils } from "lucide-react";
 import { consoleApplications, consoleInvitedAccess } from "@/lib/console-applications";
 import { consoleServiceById } from "@/components/admin/console-services";
 
 const APPLICATION_ICONS = {
   organizer: Store,
   landlord: BedDouble,
+  driver: CarFront,
   vendor: Utensils,
   cinema: Clapperboard,
 } as const;
@@ -15,9 +16,10 @@ const APPLICATION_ICONS = {
  * one account for every service: what changes between them is the application
  * the person fills in, not the place they start.
  *
- * Operational roles are named here but never applied for. A public form that
- * could mint a driver or a moderator would be a way to promote yourself, so
- * those roles are set up by the team that runs them.
+ * Staff roles are named here but never applied for: a public form that could
+ * mint a moderator or an administrator would be a way to promote yourself. A
+ * driver applies for the job like anyone else, and the form only files the
+ * application — operations still reviews it.
  */
 export default function ConsoleAccessPage() {
   return <main className="console-auth-page console-apply-page">

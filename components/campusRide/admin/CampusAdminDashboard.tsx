@@ -6,6 +6,7 @@ import { CampusAdminControlPanel } from "@/components/campusRide/admin/CampusAdm
 import { CampusAiAssistant } from "@/components/campusRide/shared/CampusAiAssistant";
 import { CampusMap } from "@/components/campusRide/shared/CampusMap";
 import { CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";
+import type { CampusFareReport } from "@/lib/campus-engine/fares";
 import type { CampusCorridor, CampusDriver, CampusRide, CampusVehicle, CampusZone } from "@/lib/campus-ride";
 
 type CampusAdminData = {
@@ -14,6 +15,8 @@ type CampusAdminData = {
   vehicles: CampusVehicle[];
   drivers: CampusDriver[];
   rides: CampusRide[];
+  /** The fare guardrails, computed server-side on the same read as the corridors. */
+  fareReport?: CampusFareReport;
 };
 
 const emptyData: CampusAdminData = {
@@ -58,7 +61,7 @@ export function CampusAdminDashboard() {
   return <>
     <CampusStatusBanner title="campusRide operations active" message="Manage zones, corridors, vehicles, drivers, live rides, paid queues, maps, and AI help from this console." />
     <CampusOverviewMetrics zones={data.zones} rides={data.rides} drivers={data.drivers} vehicles={data.vehicles} />
-    <CampusAdminControlPanel initialData={{ zones:data.zones, corridors:data.corridors, vehicles:data.vehicles, drivers:data.drivers }} />
+    <CampusAdminControlPanel initialData={{ zones:data.zones, corridors:data.corridors, vehicles:data.vehicles, drivers:data.drivers, fareReport:data.fareReport }} />
     <section className="campus-two-column">
       <div>
         <CampusMap zones={data.zones} corridors={data.corridors} rides={data.rides} title="Admin live campus map" />

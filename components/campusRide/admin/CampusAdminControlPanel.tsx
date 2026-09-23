@@ -1,9 +1,32 @@
 "use client";
 
 import { useState } from "react";
+import { cedis } from "@/lib/campus-fare-math";
+import type { CampusFareReport, CampusFareReportRow } from "@/lib/campus-engine/fares";
 import type { CampusCorridor, CampusDriver, CampusVehicle, CampusZone } from "@/lib/campus-ride";
 
-type CampusData = { zones: CampusZone[]; corridors: CampusCorridor[]; vehicles: CampusVehicle[]; drivers: CampusDriver[] };
+type CampusData = { zones: CampusZone[]; corridors: CampusCorridor[]; vehicles: CampusVehicle[]; drivers: CampusDriver[]; fareReport?: CampusFareReport };
+
+/**
+ * How a corridor reads at a glance. `UNCHECKED` is deliberately separate from
+ * `OK`: a fare saved before the guardrails existed was never measured, and
+ * calling that "inside the band" would be a claim the row cannot support.
+ */
+const FARE_STATUS_LABEL: Record<CampusFareReportRow["status"], string> = {
+  OK: "Inside band",
+  UNCHECKED: "Not checked",
+  BELOW_FLOOR: "Below floor",
+  ABOVE_CEILING: "Above ceiling",
+  OUT_OF_RANGE: "Outside range",
+  UNPRICED: "No fare set",
+};
+
+function fareRowDetail(row: CampusFareReportRow) {
+  if (row.status === "BELOW_FLOOR") return `Every seat sold loses ${cedis(row.perSeatLoss)}.`;
+  if (row.message) return row.message;
+  if (row.status === "UNCHECKED") return "Re-save this corridor to record the floor and ceiling it is priced against.";
+  return `Driver keeps ${cedis(row.driverSurplus)} a departure · platform ${cedis(row.platformMargin)}.`;
+}
 
 export function CampusAdminControlPanel({ initialData }: { initialData: CampusData }) {
   const [data, setData] = useState(initialData);
@@ -73,7 +96,11 @@ export function CampusAdminControlPanel({ initialData }: { initialData: CampusDa
         <input name="name" placeholder="Main Gate → Lecture Area" required />
         <select name="originZoneId" required>{data.zones.map((zone)=><option key={zone.id} value={zone.id}>{zone.name}</option>)}</select>
         <select name="destinationZoneId" required>{data.zones.map((zone)=><option key={zone.id} value={zone.id}>{zone.name}</option>)}</select>
-        <div className="campus-inline-fields"><input name="estimatedMinutes" type="number" min="1" placeholder="Minutes" defaultValue="10" /><input name="fare" type="number" min="0" step="0.01" placeholder="Fare GHS" defaultValue="5" /></div>
+        <div className="campus-inline-fields"><input name="estimatedMinutes" type="number" min="1" placeholder="Minutes" defaultValue="10" /><input name="distanceKm" type="number" min="0" step="0.1" placeholder="Distance km, one way" /></div>
+        <input name="fare" type="number" min="0" step="0.01" placeholder="Fare GHS" defaultValue="5" />
+        <input name="plannedSeats" type="number" min="0" placeholder="Seats sold per departure (blank = platform plan)" />
+        <small className="campus-fare-hint">The fare is checked against the floor and ceiling below before it is saved. Naming the seats a departure sells is how a longer run on a bigger vehicle lowers its own floor.</small>
+        <label className="campus-fare-ack"><input name="acknowledgeBelowFloor" type="checkbox" /> Save anyway if the fare is below the floor</label>
         <button disabled={saving==="corridor"}>{saving==="corridor" ? "Saving..." : "Save corridor"}</button>
       </form>
 
@@ -96,6 +123,29 @@ export function CampusAdminControlPanel({ initialData }: { initialData: CampusDa
         <button disabled={saving==="driver"}>{saving==="driver" ? "Saving..." : "Save driver"}</button>
       </form>
     </div>
+    {data.fareReport && <section className="campus-fare-guard">
+      <div className="campus-fare-guard-head">
+        <div><p>FARE GUARDRAILS</p><h3>Floor and ceiling by corridor</h3></div>
+        <span className="campus-fare-guard-summary">
+          {data.fareReport.summary.belowFloor} below floor · {data.fareReport.summary.unchecked} unchecked · {(data.fareReport.summary.commissionBps / 100).toFixed(0)}% commission
+        </span>
+      </div>
+      <p className="campus-fare-guard-caveat">{data.fareReport.note}</p>
+      <p className="campus-fare-guard-costs">
+        Cost model: {cedis(data.fareReport.policy.costPerKm)} a km · {cedis(data.fareReport.policy.costPerMinute)} a minute · {cedis(data.fareReport.policy.standingCost)} a departure · {data.fareReport.policy.assumedSeats} seats at {(data.fareReport.policy.loadFactorBps / 100).toFixed(0)}% loads · {(data.fareReport.policy.maxMarkupBps / 100).toFixed(0)}% markup ceiling
+      </p>
+      {!data.fareReport.rows.length ? <span>No corridors have been created yet.</span> : <div className="campus-fare-guard-rows">
+        {data.fareReport.rows.map((row) => <article key={row.corridorId}>
+          <div>
+            <strong>{row.corridor}</strong>
+            <span>{cedis(row.fare)} fare · {cedis(row.floor)} floor · {cedis(row.ceiling)} ceiling · {row.distanceKm ? `${row.distanceKm} km` : "no distance recorded"} · {row.minutes} min · {row.plannedSeats} seats {row.plannedSeatsOverride ? "(corridor plan)" : "(platform plan)"}</span>
+          </div>
+          <span className={`campus-fare-guard-chip is-${row.status.toLowerCase()}`}>{FARE_STATUS_LABEL[row.status]}</span>
+          <small>{fareRowDetail(row)}</small>
+        </article>)}
+      </div>}
+    </section>}
+
     <section className="campus-driver-security-list">
       <div><p>DRIVER SECURITY</p><h3>Password resets</h3></div>
       {!data.drivers.length ? <span>No drivers have been created yet.</span> : data.drivers.map((driver) => <article key={driver.id}>

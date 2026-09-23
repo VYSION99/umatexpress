@@ -1,9 +1,16 @@
+import { assertCampusFareAllowed, inspectCorridorFare } from "@/lib/campus-engine/fares";
 import { hasColumn, rowsToObjects, runSchemaPass, turso, isTursoConfiguredRuntime } from "@/lib/turso";
 
 export type CampusZone = { id:string; name:string; description:string; landmark:string; latitude:number|null; longitude:number|null; active:boolean };
 // `path` is optional surveyed geometry ([lng,lat] pairs). When absent the map
 // draws a generated arc between the two zones instead of calling a routing API.
-export type CampusCorridor = { id:string; name:string; originZoneId:string; destinationZoneId:string; estimatedMinutes:number; active:boolean; fare:number; path:Array<[number, number]> | null };
+// `distanceKm` is what the fare floor is computed from, `plannedSeats` is how
+// many seats a departure is expected to sell (0 means the platform plan on the
+// Console > Platform settings page decides), and `floorAmount`/`ceilingAmount`
+// are the guardrails recorded when the fare was last saved. A floor of 0 means
+// the tariff has never been checked, which is a different fact from a tariff
+// that passed — see docs/CampusRide/FARE_POLICY.md.
+export type CampusCorridor = { id:string; name:string; originZoneId:string; destinationZoneId:string; estimatedMinutes:number; active:boolean; fare:number; distanceKm:number; plannedSeats:number; floorAmount:number; ceilingAmount:number; path:Array<[number, number]> | null };
 export type CampusVehicle = { id:string; label:string; plateNumber:string; vehicleType:string; capacity:number; active:boolean };
 export type CampusDriver = { id:string; name:string; phone:string; email:string; vehicleId:string; currentZoneId:string; currentLatitude?:number|null; currentLongitude?:number|null; active:boolean; lastSeenAt:string; mustChangePassword?:boolean; passwordChangedAt?:string; tokenVersion?:number };
 export type CampusRide = { id:string; driverId:string; vehicleId:string; corridorId:string; currentZoneId:string; currentLatitude?:number|null; currentLongitude?:number|null; status:string; capacity:number; availableSlots:number; acceptingQueue:boolean; lastLocationAt:string; driverName:string; vehicleLabel:string; plateNumber:string };
@@ -22,10 +29,10 @@ export const demoCampusZones: CampusZone[] = [
 ];
 
 export const demoCampusCorridors: CampusCorridor[] = [
-  { id:"gate-lecture", name:"Main Gate → Lecture Area", originZoneId:"main-gate", destinationZoneId:"lecture-area", estimatedMinutes:7, active:true, fare:500, path:null },
-  { id:"hostel-campus", name:"Hostel Area → Main Campus", originZoneId:"hostel-area", destinationZoneId:"main-campus", estimatedMinutes:8, active:true, fare:500, path:null },
-  { id:"campus-station", name:"Main Campus → Tarkwa Station", originZoneId:"main-campus", destinationZoneId:"tarkwa-station", estimatedMinutes:12, active:true, fare:800, path:null },
-  { id:"campus-market", name:"Main Campus → Market Circle", originZoneId:"main-campus", destinationZoneId:"market-circle", estimatedMinutes:14, active:true, fare:800, path:null },
+  { id:"gate-lecture", name:"Main Gate → Lecture Area", originZoneId:"main-gate", destinationZoneId:"lecture-area", estimatedMinutes:7, active:true, fare:500, distanceKm:1.4, plannedSeats:0, floorAmount:0, ceilingAmount:0, path:null },
+  { id:"hostel-campus", name:"Hostel Area → Main Campus", originZoneId:"hostel-area", destinationZoneId:"main-campus", estimatedMinutes:8, active:true, fare:500, distanceKm:1.8, plannedSeats:0, floorAmount:0, ceilingAmount:0, path:null },
+  { id:"campus-station", name:"Main Campus → Tarkwa Station", originZoneId:"main-campus", destinationZoneId:"tarkwa-station", estimatedMinutes:12, active:true, fare:800, distanceKm:3.2, plannedSeats:0, floorAmount:0, ceilingAmount:0, path:null },
+  { id:"campus-market", name:"Main Campus → Market Circle", originZoneId:"main-campus", destinationZoneId:"market-circle", estimatedMinutes:14, active:true, fare:800, distanceKm:3.6, plannedSeats:0, floorAmount:0, ceilingAmount:0, path:null },
 ];
 
 function parseCorridorPath(value: unknown): Array<[number, number]> | null {
@@ -45,6 +52,33 @@ function parseCorridorPath(value: unknown): Array<[number, number]> | null {
 export function serializeCorridorPath(path: unknown): string {
   const parsed = parseCorridorPath(typeof path === "string" ? path : JSON.stringify(path ?? null));
   return parsed ? JSON.stringify(parsed) : "";
+}
+
+let corridorFareColumnsReady: Promise<boolean> | null = null;
+
+/**
+ * The public read path may not assume a migration has run. `distance_km` is what
+ * the fare floor divides by and the floor and ceiling are what the console shows
+ * beside a fare, so a database that predates them reads zeros and the console
+ * reports the tariff as never checked rather than pricing it wrongly. Resolved
+ * once per isolate, like the surveyed path column next to it. A read-only token
+ * cannot alter anything, and answers false rather than failing every render.
+ */
+function ensureCorridorFareColumns() {
+  corridorFareColumnsReady ??= (async () => {
+    try {
+      const missing: string[] = [];
+      if (!(await hasColumn("campus_route_corridors", "distance_km"))) missing.push("ALTER TABLE campus_route_corridors ADD COLUMN distance_km REAL NOT NULL DEFAULT 0");
+      if (!(await hasColumn("campus_fares", "planned_seats"))) missing.push("ALTER TABLE campus_fares ADD COLUMN planned_seats INTEGER NOT NULL DEFAULT 0");
+      if (!(await hasColumn("campus_fares", "floor_amount"))) missing.push("ALTER TABLE campus_fares ADD COLUMN floor_amount INTEGER NOT NULL DEFAULT 0");
+      if (!(await hasColumn("campus_fares", "ceiling_amount"))) missing.push("ALTER TABLE campus_fares ADD COLUMN ceiling_amount INTEGER NOT NULL DEFAULT 0");
+      for (const statement of missing) await turso(statement);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  return corridorFareColumnsReady;
 }
 
 let corridorPathColumnReady: Promise<boolean> | null = null;
@@ -77,7 +111,7 @@ export const demoCampusRides: CampusRide[] = [
   { id:"ride-2", driverId:"drv-2", vehicleId:"veh-2", corridorId:"hostel-campus", currentZoneId:"hostel-area", currentLatitude:5.3064, currentLongitude:-1.9972, status:"OPEN", capacity:6, availableSlots:5, acceptingQueue:true, lastLocationAt:now(), driverName:"Campus Driver 2", vehicleLabel:"Campus Shuttle 2", plateNumber:"UMX-102" },
 ];
 
-const CAMPUS_SCHEMA_VERSION = "2026-09-18.1";
+const CAMPUS_SCHEMA_VERSION = "2026-09-23.2";
 
 /**
  * Everything runs as one pipeline request, so the whole pass costs a single
@@ -88,16 +122,26 @@ const CAMPUS_SCHEMA_VERSION = "2026-09-18.1";
  */
 const campusSchemaStatements = [
   `CREATE TABLE IF NOT EXISTS campus_zones (id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',landmark TEXT NOT NULL DEFAULT '',latitude REAL,longitude REAL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS campus_route_corridors (id TEXT PRIMARY KEY,name TEXT NOT NULL,origin_zone_id TEXT NOT NULL,destination_zone_id TEXT NOT NULL,estimated_minutes INTEGER NOT NULL DEFAULT 10,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,path TEXT)`,
-  `CREATE TABLE IF NOT EXISTS campus_fares (id TEXT PRIMARY KEY,corridor_id TEXT NOT NULL,amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'GHS',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS campus_route_corridors (id TEXT PRIMARY KEY,name TEXT NOT NULL,origin_zone_id TEXT NOT NULL,destination_zone_id TEXT NOT NULL,estimated_minutes INTEGER NOT NULL DEFAULT 10,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,path TEXT,distance_km REAL NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS campus_fares (id TEXT PRIMARY KEY,corridor_id TEXT NOT NULL,amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'GHS',active INTEGER NOT NULL DEFAULT 1,planned_seats INTEGER NOT NULL DEFAULT 0,floor_amount INTEGER NOT NULL DEFAULT 0,ceiling_amount INTEGER NOT NULL DEFAULT 0,acknowledged_by TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_vehicles (id TEXT PRIMARY KEY,label TEXT NOT NULL,plate_number TEXT NOT NULL DEFAULT '',vehicle_type TEXT NOT NULL DEFAULT 'Shuttle',capacity INTEGER NOT NULL DEFAULT 4,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_drivers (id TEXT PRIMARY KEY,name TEXT NOT NULL,phone TEXT NOT NULL,email TEXT UNIQUE,password_hash TEXT,password_salt TEXT,password_iterations INTEGER NOT NULL DEFAULT 100000,password_reset_required INTEGER NOT NULL DEFAULT 1,password_changed_at TEXT,vehicle_id TEXT,current_zone_id TEXT,current_latitude REAL,current_longitude REAL,active INTEGER NOT NULL DEFAULT 1,last_seen_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_driver_sessions (id TEXT PRIMARY KEY,driver_id TEXT NOT NULL,token_hash TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_rides (id TEXT PRIMARY KEY,driver_id TEXT,vehicle_id TEXT,corridor_id TEXT NOT NULL,current_zone_id TEXT,current_latitude REAL,current_longitude REAL,status TEXT NOT NULL DEFAULT 'OPEN',capacity INTEGER NOT NULL DEFAULT 4,available_slots INTEGER NOT NULL DEFAULT 4,accepting_queue INTEGER NOT NULL DEFAULT 1,started_at TEXT,ended_at TEXT,last_location_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_queue_entries (id TEXT PRIMARY KEY,reference TEXT UNIQUE NOT NULL,ride_id TEXT,corridor_id TEXT NOT NULL,passenger_name TEXT NOT NULL,phone TEXT NOT NULL,email TEXT NOT NULL DEFAULT '',pickup_zone_id TEXT NOT NULL,destination_zone_id TEXT NOT NULL,queue_position INTEGER NOT NULL,amount INTEGER NOT NULL,payment_status TEXT NOT NULL DEFAULT 'WAITING_PAYMENT',queue_status TEXT NOT NULL DEFAULT 'WAITING_PAYMENT',ride_pin TEXT NOT NULL DEFAULT '',ticket_image_ready INTEGER NOT NULL DEFAULT 0,accepted_at TEXT,arrived_at TEXT,boarded_at TEXT,completed_at TEXT,cancelled_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS campus_payments (id TEXT PRIMARY KEY,queue_entry_id TEXT NOT NULL,reference TEXT UNIQUE NOT NULL,provider TEXT NOT NULL,amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'GHS',status TEXT NOT NULL DEFAULT 'PENDING',authorization_url TEXT,access_token_hash TEXT,paid_at TEXT,raw_response TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS campus_payments (id TEXT PRIMARY KEY,queue_entry_id TEXT NOT NULL,reference TEXT UNIQUE NOT NULL,provider TEXT NOT NULL,amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'GHS',status TEXT NOT NULL DEFAULT 'PENDING',authorization_url TEXT,access_token_hash TEXT,paid_at TEXT,raw_response TEXT NOT NULL DEFAULT '',commission_bps INTEGER NOT NULL DEFAULT 0,commission_amount INTEGER NOT NULL DEFAULT 0,net_amount INTEGER NOT NULL DEFAULT 0,paystack_fee_actual INTEGER NOT NULL DEFAULT 0,fare_floor INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_audit_logs (id TEXT PRIMARY KEY,actor_type TEXT NOT NULL,actor_id TEXT NOT NULL DEFAULT '',action TEXT NOT NULL,target_type TEXT NOT NULL,target_reference TEXT NOT NULL,details TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL)`,
   `ALTER TABLE campus_route_corridors ADD COLUMN path TEXT`,
+  `ALTER TABLE campus_route_corridors ADD COLUMN distance_km REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_fares ADD COLUMN planned_seats INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_fares ADD COLUMN floor_amount INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_fares ADD COLUMN ceiling_amount INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_fares ADD COLUMN acknowledged_by TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE campus_payments ADD COLUMN commission_bps INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_payments ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_payments ADD COLUMN net_amount INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_payments ADD COLUMN paystack_fee_actual INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE campus_payments ADD COLUMN fare_floor INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE campus_queue_entries ADD COLUMN ride_pin TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE campus_queue_entries ADD COLUMN accepted_at TEXT`,
   `ALTER TABLE campus_queue_entries ADD COLUMN arrived_at TEXT`,
@@ -113,6 +157,13 @@ const campusSchemaStatements = [
   `ALTER TABLE campus_drivers ADD COLUMN password_reset_required INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE campus_drivers ADD COLUMN password_changed_at TEXT`,
   `ALTER TABLE campus_drivers ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0`,
+  // A driver may now apply from the public site, so the record needs the review
+  // state the console decides. `APPROVED` is the default because every driver
+  // that existed before self-service was created by the team, which is the same
+  // decision; a self-service applicant is written as `PENDING` explicitly.
+  `ALTER TABLE campus_drivers ADD COLUMN application_status TEXT NOT NULL DEFAULT 'APPROVED'`,
+  `ALTER TABLE campus_drivers ADD COLUMN review_reason TEXT NOT NULL DEFAULT ''`,
+  "CREATE INDEX IF NOT EXISTS idx_campus_drivers_application ON campus_drivers(application_status, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_campus_rides_status ON campus_rides(status)",
   "CREATE INDEX IF NOT EXISTS idx_campus_rides_driver ON campus_rides(driver_id)",
   "CREATE INDEX IF NOT EXISTS idx_campus_rides_current_zone ON campus_rides(current_zone_id)",
@@ -169,7 +220,12 @@ export async function upsertCampusZone(input: { id?: string; name?: string; desc
   return (await getCampusData()).zones.find((zone) => zone.id === id);
 }
 
-export async function upsertCampusCorridor(input: { id?: string; name?: string; originZoneId?: string; destinationZoneId?: string; estimatedMinutes?: string | number; fare?: string | number; active?: boolean; path?: unknown }) {
+/** A form sends a checkbox as "on"; a JSON caller sends a boolean. Both mean yes. */
+function acknowledged(value: unknown) {
+  return value === true || value === "true" || value === "on" || value === 1 || value === "1";
+}
+
+export async function upsertCampusCorridor(input: { id?: string; name?: string; originZoneId?: string; destinationZoneId?: string; estimatedMinutes?: string | number; distanceKm?: string | number; plannedSeats?: string | number; fare?: string | number; active?: boolean; path?: unknown; acknowledgeBelowFloor?: unknown; actor?: string }) {
   if (!(await isTursoConfiguredRuntime())) throw new Error("Configure Turso before saving campusRide corridors.");
   await ensureCampusRideTables();
   const stamp = now();
@@ -177,18 +233,31 @@ export async function upsertCampusCorridor(input: { id?: string; name?: string; 
   const origin = String(input.originZoneId || "").trim();
   const destination = String(input.destinationZoneId || "").trim();
   const estimatedMinutes = Math.max(1, Math.round(Number(input.estimatedMinutes || 10)));
+  const distanceKm = Math.max(0, Number(input.distanceKm || 0));
+  // 0 is not a plan of zero seats, it is "let the platform plan decide".
+  const plannedSeats = Math.max(0, Math.round(Number(input.plannedSeats || 0)));
   const fare = Math.max(0, Math.round(Number(input.fare || 0) * 100));
   if (!name || !origin || !destination) throw new Error("Corridor name, origin, and destination are required.");
   if (origin === destination) throw new Error("Origin and destination cannot be the same.");
   const id = String(input.id || slug(name)).trim();
   const path = serializeCorridorPath(input.path);
+  // The guardrails run before a single row is written: a fare the policy refuses
+  // must not leave a corridor behind it, or the next request prices a ride on a
+  // tariff that no one agreed to.
+  const { check } = await inspectCorridorFare({ fare, corridor: { distanceKm, estimatedMinutes, plannedSeats } });
+  assertCampusFareAllowed(check, { acknowledgeBelowFloor: acknowledged(input.acknowledgeBelowFloor) });
   await turso(
-    "INSERT INTO campus_route_corridors (id,name,origin_zone_id,destination_zone_id,estimated_minutes,active,created_at,updated_at,path) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,origin_zone_id=excluded.origin_zone_id,destination_zone_id=excluded.destination_zone_id,estimated_minutes=excluded.estimated_minutes,active=excluded.active,updated_at=excluded.updated_at,path=excluded.path",
-    [id, name, origin, destination, estimatedMinutes, input.active === false ? 0 : 1, stamp, stamp, path],
+    "INSERT INTO campus_route_corridors (id,name,origin_zone_id,destination_zone_id,estimated_minutes,active,created_at,updated_at,path,distance_km) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,origin_zone_id=excluded.origin_zone_id,destination_zone_id=excluded.destination_zone_id,estimated_minutes=excluded.estimated_minutes,active=excluded.active,updated_at=excluded.updated_at,path=excluded.path,distance_km=excluded.distance_km",
+    [id, name, origin, destination, estimatedMinutes, input.active === false ? 0 : 1, stamp, stamp, path, distanceKm],
   );
+  // The fare row is not the corridor's on/off switch. Deactivating a corridor
+  // used to deactivate its fare too, and the read path then joined nothing and
+  // priced the ride at a built-in default; the corridor's own `active` flag
+  // already hides it everywhere, so the fare row stays live with the guardrails
+  // it was just checked against.
   await turso(
-    "INSERT INTO campus_fares (id,corridor_id,amount,currency,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET amount=excluded.amount,active=excluded.active,updated_at=excluded.updated_at",
-    [`fare-${id}`, id, fare, "GHS", input.active === false ? 0 : 1, stamp, stamp],
+    "INSERT INTO campus_fares (id,corridor_id,amount,currency,active,planned_seats,floor_amount,ceiling_amount,acknowledged_by,created_at,updated_at) VALUES (?,?,?,?,1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET amount=excluded.amount,active=1,planned_seats=excluded.planned_seats,floor_amount=excluded.floor_amount,ceiling_amount=excluded.ceiling_amount,acknowledged_by=excluded.acknowledged_by,updated_at=excluded.updated_at",
+    [`fare-${id}`, id, fare, "GHS", plannedSeats, check.floor, check.ceiling, check.belowFloor ? String(input.actor || "").trim() : "", stamp, stamp],
   );
   return (await getCampusData()).corridors.find((corridor) => corridor.id === id);
 }
@@ -237,17 +306,17 @@ export async function getCampusData() {
   // for that assumption on every request. Resolve the corridor geometry column
   // once per isolate; on a database that predates it, add it once rather than
   // failing every map render. A read-only token simply disables surveyed paths.
-  const corridorPathColumn = await ensureCorridorPathColumn();
+  const [corridorPathColumn, corridorFareColumns] = await Promise.all([ensureCorridorPathColumn(), ensureCorridorFareColumns()]);
   const [zoneResult, corridorResult, vehicleResult, driverResult, rideResult] = await Promise.all([
     turso("SELECT id,name,description,landmark,latitude,longitude,active FROM campus_zones WHERE active = 1 ORDER BY name"),
-    turso(`SELECT c.id,c.name,c.origin_zone_id,c.destination_zone_id,c.estimated_minutes,c.active,${corridorPathColumn ? "c.path" : "NULL AS path"},COALESCE(f.amount,0) AS fare FROM campus_route_corridors c LEFT JOIN campus_fares f ON f.corridor_id = c.id AND f.active = 1 WHERE c.active = 1 ORDER BY c.name`),
+    turso(`SELECT c.id,c.name,c.origin_zone_id,c.destination_zone_id,c.estimated_minutes,c.active,${corridorPathColumn ? "c.path" : "NULL AS path"},${corridorFareColumns ? "c.distance_km" : "0 AS distance_km"},COALESCE(f.amount,0) AS fare,${corridorFareColumns ? "COALESCE(f.planned_seats,0)" : "0"} AS planned_seats,${corridorFareColumns ? "COALESCE(f.floor_amount,0)" : "0"} AS floor_amount,${corridorFareColumns ? "COALESCE(f.ceiling_amount,0)" : "0"} AS ceiling_amount FROM campus_route_corridors c LEFT JOIN campus_fares f ON f.corridor_id = c.id AND f.active = 1 WHERE c.active = 1 ORDER BY c.name`),
     turso("SELECT id,label,plate_number,vehicle_type,capacity,active FROM campus_vehicles ORDER BY label"),
     turso("SELECT id,name,phone,COALESCE(email,'') AS email,COALESCE(vehicle_id,'') AS vehicle_id,COALESCE(current_zone_id,'') AS current_zone_id,current_latitude,current_longitude,active,COALESCE(last_seen_at,'') AS last_seen_at,COALESCE(password_reset_required,1) AS password_reset_required,COALESCE(password_changed_at,'') AS password_changed_at,COALESCE(token_version,0) AS token_version FROM campus_drivers ORDER BY name"),
     turso(`SELECT r.id,r.driver_id,r.vehicle_id,r.corridor_id,r.current_zone_id,r.current_latitude,r.current_longitude,r.status,r.capacity,r.available_slots,r.accepting_queue,COALESCE(r.last_location_at,'') AS last_location_at,COALESCE(d.name,'Unassigned driver') AS driver_name,COALESCE(v.label,'Unassigned vehicle') AS vehicle_label,COALESCE(v.plate_number,'') AS plate_number FROM campus_rides r LEFT JOIN campus_drivers d ON d.id = r.driver_id LEFT JOIN campus_vehicles v ON v.id = r.vehicle_id WHERE r.status IN ('OPEN','PAUSED','FULL') ORDER BY r.updated_at DESC`),
   ]);
   return {
     zones: rowsToObjects(zoneResult).map((row) => ({ id:String(row.id), name:String(row.name), description:String(row.description||""), landmark:String(row.landmark||""), latitude:Number(row.latitude)||null, longitude:Number(row.longitude)||null, active:bool(row.active) })),
-    corridors: rowsToObjects(corridorResult).map((row) => ({ id:String(row.id), name:String(row.name), originZoneId:String(row.origin_zone_id), destinationZoneId:String(row.destination_zone_id), estimatedMinutes:Number(row.estimated_minutes)||0, active:bool(row.active), fare:Number(row.fare)||0, path:parseCorridorPath(row.path) })),
+    corridors: rowsToObjects(corridorResult).map((row) => ({ id:String(row.id), name:String(row.name), originZoneId:String(row.origin_zone_id), destinationZoneId:String(row.destination_zone_id), estimatedMinutes:Number(row.estimated_minutes)||0, active:bool(row.active), fare:Number(row.fare)||0, distanceKm:Number(row.distance_km)||0, plannedSeats:Number(row.planned_seats)||0, floorAmount:Number(row.floor_amount)||0, ceilingAmount:Number(row.ceiling_amount)||0, path:parseCorridorPath(row.path) })),
     vehicles: rowsToObjects(vehicleResult).map((row) => ({ id:String(row.id), label:String(row.label), plateNumber:String(row.plate_number||""), vehicleType:String(row.vehicle_type||"Shuttle"), capacity:Number(row.capacity)||0, active:bool(row.active) })),
     drivers: rowsToObjects(driverResult).map((row) => ({ id:String(row.id), name:String(row.name), phone:String(row.phone), email:String(row.email||""), vehicleId:String(row.vehicle_id||""), currentZoneId:String(row.current_zone_id||""), currentLatitude:Number(row.current_latitude)||null, currentLongitude:Number(row.current_longitude)||null, active:bool(row.active), lastSeenAt:String(row.last_seen_at||""), mustChangePassword:bool(row.password_reset_required), passwordChangedAt:String(row.password_changed_at||""), tokenVersion:Number(row.token_version||0) })),
     rides: rowsToObjects(rideResult).map((row) => ({ id:String(row.id), driverId:String(row.driver_id||""), vehicleId:String(row.vehicle_id||""), corridorId:String(row.corridor_id), currentZoneId:String(row.current_zone_id||""), currentLatitude:Number(row.current_latitude)||null, currentLongitude:Number(row.current_longitude)||null, status:String(row.status), capacity:Number(row.capacity)||0, availableSlots:Number(row.available_slots)||0, acceptingQueue:bool(row.accepting_queue), lastLocationAt:String(row.last_location_at||""), driverName:String(row.driver_name||"Unassigned driver"), vehicleLabel:String(row.vehicle_label||"Unassigned vehicle"), plateNumber:String(row.plate_number||"") })),

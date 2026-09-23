@@ -7,6 +7,7 @@ export type CampusErrorCode =
   | "NOT_FOUND"
   | "INVALID_STATE"
   | "NO_DRIVER_FOUND"
+  | "FARE_NOT_CONFIGURED"
   | "PASSWORD_CHANGE_REQUIRED"
   | "PAYMENT_REQUIRED"
   | "ENGINE_ERROR";

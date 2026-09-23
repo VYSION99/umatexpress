@@ -1,5 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
+import { splitCommission } from "@/lib/money";
 import { logEvent } from "@/lib/observability";
 import { createPaystackRecipient, finalizePaystackTransfer, getPaymentProviderRuntime, initiatePaystackTransfer, normalizeTransferStatus, verifyPaystackTransfer } from "@/lib/paystack";
 import { isPayoutMethod, recipientTypeFor, type PayoutMethod } from "@/lib/paystack-banks";
@@ -38,6 +39,12 @@ const MAX_BATCH_ENTRIES = 500;
 /** A transfer that has failed this many times stops retrying and asks for a human. */
 const MAX_TRANSFER_ATTEMPTS = 3;
 const MAX_RELEASE_CANDIDATES = 4;
+/**
+ * An attended run can take a longer queue: someone is watching the result, and
+ * each candidate spends roughly six of the invocation's fifty subrequests, so
+ * six still leaves room to report what happened.
+ */
+const MAX_ATTENDED_RELEASE_CANDIDATES = 6;
 const MAX_RECONCILE_BATCHES = 5;
 /**
  * A batch held because Paystack asked for a one-time password. It rides in
@@ -162,13 +169,10 @@ export async function releaseAfterFor(paidAt: unknown, now = new Date()) {
   return new Date(anchor + minutes * 60_000).toISOString();
 }
 
-/** `round(gross * bps / 10000)`, with the net derived from the two so the split can never be a pesewa out. */
-export function splitCommission(gross: number, commissionBps: number) {
-  const safeGross = Math.max(0, Math.round(Number(gross) || 0));
-  const safeBps = Math.max(0, Math.min(10_000, Math.round(Number(commissionBps) || 0)));
-  const commission = Math.round((safeGross * safeBps) / 10_000);
-  return { gross: safeGross, commission, net: safeGross - commission };
-}
+// The split itself lives in `lib/money.ts` because campusRide divides a fare the
+// same way. Re-exported here so every existing caller keeps importing it from
+// the ledger it is paid out of.
+export { splitCommission };
 
 type AccrualInput = {
   booking_id: string;
@@ -788,6 +792,234 @@ export async function ensureOrganizerRecipient(organizerId: string, options: { a
   return { recipientCode: created.recipientCode, created: true };
 }
 
+/**
+ * Everyone a run would consider, oldest earnings first.
+ *
+ * The preview and the release job read the same rows through this, so the
+ * console can never describe a run the job would not attempt. Two exclusions
+ * are deliberate and belong to the queue rather than the gate: an organizer
+ * with a standing debt, and one whose transfer is already in flight, are not
+ * candidates at all — `deferredPayoutOrganizers` names them separately.
+ */
+async function payoutCandidates(stamp: string, limit: number) {
+  return rowsToObjects(await turso(
+    `SELECT p.organizer_id,
+       MIN(p.release_after) AS oldest,
+       COUNT(*) AS entry_count,
+       COALESCE(SUM(p.net_amount),0) AS total_amount,
+       COALESCE(o.status,'') AS organizer_status,
+       COALESCE(o.kyc_status,'') AS kyc_status,
+       COALESCE(o.payout_method,'') AS payout_method,
+       COALESCE(o.payout_bank_code,'') AS payout_bank_code,
+       COALESCE(o.name,'') AS organizer_name,
+       COALESCE(o.organization,'') AS organizer_organization
+     FROM organizer_payouts p
+     LEFT JOIN trip_organizers o ON o.id = p.organizer_id
+     WHERE p.status = 'ACCRUED' AND COALESCE(p.batch_id,'') = '' AND p.release_after <= ?
+       AND NOT EXISTS (SELECT 1 FROM organizer_payout_batches b WHERE b.organizer_id = p.organizer_id AND b.status = 'PENDING')
+       AND NOT EXISTS (SELECT 1 FROM organizer_payouts d WHERE d.organizer_id = p.organizer_id AND d.status = 'REVERSED' AND COALESCE(d.released_at,'') <> '')
+     GROUP BY p.organizer_id ORDER BY oldest ASC, p.organizer_id ASC LIMIT ?`,
+    [stamp, limit],
+  ));
+}
+
+/** The two queue exclusions, named so a support question has an answer. */
+async function deferredPayoutOrganizers(stamp: string) {
+  const rows = rowsToObjects(await turso(
+    `SELECT p.organizer_id,
+       COALESCE(SUM(p.net_amount),0) AS total_amount,
+       COUNT(*) AS entry_count,
+       COALESCE(o.name,'') AS organizer_name,
+       COALESCE(o.organization,'') AS organizer_organization,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM organizer_payouts d
+         WHERE d.organizer_id = p.organizer_id AND d.status = 'REVERSED' AND COALESCE(d.released_at,'') <> ''
+       ) THEN 'DEBT_STANDING' ELSE 'TRANSFER_IN_FLIGHT' END AS reason
+     FROM organizer_payouts p
+     LEFT JOIN trip_organizers o ON o.id = p.organizer_id
+     WHERE p.status = 'ACCRUED' AND COALESCE(p.batch_id,'') = '' AND p.release_after <= ?
+       AND (
+         EXISTS (SELECT 1 FROM organizer_payout_batches b WHERE b.organizer_id = p.organizer_id AND b.status = 'PENDING')
+         OR EXISTS (SELECT 1 FROM organizer_payouts d WHERE d.organizer_id = p.organizer_id AND d.status = 'REVERSED' AND COALESCE(d.released_at,'') <> '')
+       )
+     GROUP BY p.organizer_id`,
+    [stamp],
+  ));
+  return rows.map((row) => ({
+    organizerId: String(row.organizer_id || ""),
+    name: String(row.organizer_name || ""),
+    organization: String(row.organizer_organization || ""),
+    amount: Number(row.total_amount || 0),
+    entryCount: Number(row.entry_count || 0),
+    reason: String(row.reason || "TRANSFER_IN_FLIGHT"),
+  }));
+}
+
+/**
+ * What the gates say about this organizer, in the order a reader would explain
+ * them, plus the fee they were judged against.
+ *
+ * Shared with the release job rather than restated there: a second copy of the
+ * gate order is a second answer, and the two would drift the first time a gate
+ * moved. The fee comes back with the verdict because it is read to decide
+ * BELOW_FEE, and a run has a subrequest budget it should not spend twice on the
+ * same number. The balance gates are the caller's: they depend on what the run
+ * has left to spend.
+ */
+async function assessPayoutCandidate(candidate: Record<string, unknown>, minimum: number) {
+  const refuse = (reason: string) => ({ reason, fee: 0, method: "" });
+  if (!String(candidate.organizer_id || "")) return refuse("NO_ORGANIZER");
+  if (String(candidate.organizer_status) !== "APPROVED") return refuse("NOT_APPROVED");
+  if (String(candidate.kyc_status) !== "VERIFIED") return refuse("KYC_NOT_VERIFIED");
+  const method = String(candidate.payout_method || "").toUpperCase();
+  if (!isPayoutMethod(method) || !String(candidate.payout_bank_code || "")) return refuse("NO_DESTINATION");
+  // A bank destination saved before rides moved to mobile money only is left
+  // where it is rather than paid, because the transfer fee is eight times the
+  // mobile money one and the payout is what carries it.
+  if (!(await isPayoutRailAllowed(method))) return refuse("UNSUPPORTED_DESTINATION");
+  const amount = Number(candidate.total_amount || 0);
+  // The fee follows the destination, so it is read here and carried out: the
+  // reason order below is unchanged by it.
+  const fee = await payoutTransferFee(method);
+  if (!amount) return { reason: "NOTHING_DUE", fee, method };
+  // A payout that does not survive its own transfer fee is not a payout.
+  // Unreachable behind the minimum floor, and kept because the floor is a
+  // setting someone can turn to zero.
+  if (amount <= fee) return { reason: "BELOW_FEE", fee, method };
+  // Checked before the balance so a balance that cannot cover a transfer
+  // does not hide the reason that would still stand if it could.
+  if (amount < minimum) return { reason: "BELOW_MINIMUM", fee, method };
+  // A batch this size is a data problem, not a payout: it is far more likely
+  // to be a backlog nobody looked at than a single day's earnings.
+  if (Number(candidate.entry_count || 0) > MAX_BATCH_ENTRIES) return { reason: "TOO_MANY_ENTRIES", fee, method };
+  return { reason: "", fee, method };
+}
+
+export type PayoutPreviewRow = {
+  organizerId: string;
+  name: string;
+  organization: string;
+  amount: number;
+  entryCount: number;
+  oldest: string;
+  fee: number;
+  /**
+   * What reaches the organizer: the amount less the transfer fee. Zero when the
+   * payout was refused before a fee was read — a payout that cannot happen has
+   * no receiving figure, and a made-up one beside a refusal is a lie.
+   */
+  receives: number;
+  /** PAYABLE is sent this run; UNFUNDED clears every gate but the balance. */
+  status: "PAYABLE" | "UNFUNDED" | "BLOCKED";
+  reason: string;
+};
+
+export type PayoutRunPreview = {
+  status: "OK" | "SKIPPED";
+  reason?: string;
+  provider: string;
+  autoEnabled: boolean;
+  balance: number | null;
+  minimum: number;
+  releaseMinutes: number;
+  /** The most organizers an unattended run will address, so "why not all of them" has an answer. */
+  perRunLimit: number;
+  /** The most organizers a run started from the console will address. */
+  attendedLimit: number;
+  /** Everything due, whether or not it can be paid. */
+  dueTotal: number;
+  /** The due money that clears every gate except the balance. */
+  payableTotal: number;
+  /** What the settled balance would actually cover, oldest first. */
+  sendableTotal: number;
+  candidates: PayoutPreviewRow[];
+  deferred: Array<{ organizerId: string; name: string; organization: string; amount: number; entryCount: number; reason: string }>;
+};
+
+/**
+ * What the next run would do, without doing any of it.
+ *
+ * The release job reports why it skipped someone only after it has run, which
+ * is no use to the person who has to answer "why has this organizer not been
+ * paid?". This walks the same candidates through the same gates in the same
+ * order and stops short of every side effect: no recipient is created, no
+ * batch is written, no transfer is addressed. The one thing it adds is the
+ * distinction the job cannot make in advance — a payout that is blocked by a
+ * gate, and one that is merely waiting on the settled balance.
+ */
+export async function previewPayoutRun(options: {
+  limit?: number;
+  now?: Date;
+  /**
+   * The settled balance, when the caller has already read it. The console shows
+   * that reading in the same panel, and a second read could answer differently
+   * and leave the forecast arguing with the figure beside it.
+   */
+  balance?: { currency: string; balance: number } | null;
+} = {}): Promise<PayoutRunPreview> {
+  const empty: PayoutRunPreview = {
+    status: "OK", provider: "", autoEnabled: false, balance: null, minimum: 0, releaseMinutes: 0,
+    perRunLimit: MAX_RELEASE_CANDIDATES, attendedLimit: MAX_ATTENDED_RELEASE_CANDIDATES,
+    dueTotal: 0, payableTotal: 0, sendableTotal: 0, candidates: [], deferred: [],
+  };
+  if (!(await isTursoConfiguredRuntime())) return { ...empty, status: "SKIPPED", reason: "TURSO_NOT_CONFIGURED" };
+  await ensurePayoutTables();
+  const provider = await getPaymentProviderRuntime();
+  if (provider !== "PAYSTACK") return { ...empty, status: "SKIPPED", reason: "PAYMENT_PROVIDER_NOT_PAYSTACK", provider };
+
+  const now = options.now ?? new Date();
+  const stamp = now.toISOString();
+  // A wider reading than a run takes, because the question this answers is
+  // "who is waiting", not "who goes first".
+  const limit = Math.max(1, Math.min(50, Math.round(Number(options.limit) || 50)));
+  const settled = options.balance !== undefined ? options.balance : await paystackPayoutBalance();
+  const [minimum, releaseMinutes, autoEnabled] = await Promise.all([
+    payoutMinimumAmount(), payoutReleaseMinutes(), payoutAutoEnabled(),
+  ]);
+  const cash = settled ? settled.balance : null;
+
+  const rows = await payoutCandidates(stamp, limit);
+  let budget = cash ?? 0;
+  const candidates: PayoutPreviewRow[] = [];
+  for (const row of rows) {
+    const amount = Number(row.total_amount || 0);
+    const assessment = await assessPayoutCandidate(row, minimum);
+    const { fee } = assessment;
+    let status: PayoutPreviewRow["status"] = "BLOCKED";
+    let reason = assessment.reason;
+    if (!reason) {
+      // The balance is the ceiling, and it is spent oldest first exactly as the
+      // job spends it, so the row order here is the payment order there.
+      if (cash === null) { status = "UNFUNDED"; reason = "BALANCE_UNAVAILABLE"; }
+      else if (amount > budget) { status = "UNFUNDED"; reason = "INSUFFICIENT_BALANCE"; }
+      else { status = "PAYABLE"; reason = ""; budget -= amount; }
+    }
+    candidates.push({
+      organizerId: String(row.organizer_id || ""),
+      name: String(row.organizer_name || ""),
+      organization: String(row.organizer_organization || ""),
+      amount, entryCount: Number(row.entry_count || 0), oldest: String(row.oldest || ""),
+      fee, receives: assessment.method ? Math.max(0, amount - fee) : 0,
+      status, reason,
+    });
+  }
+
+  return {
+    ...empty,
+    provider,
+    autoEnabled,
+    balance: cash,
+    minimum,
+    releaseMinutes,
+    perRunLimit: MAX_RELEASE_CANDIDATES,
+    dueTotal: candidates.reduce((total, row) => total + row.amount, 0),
+    payableTotal: candidates.filter((row) => row.status !== "BLOCKED").reduce((total, row) => total + row.amount, 0),
+    sendableTotal: candidates.filter((row) => row.status === "PAYABLE").reduce((total, row) => total + row.amount, 0),
+    candidates,
+    deferred: await deferredPayoutOrganizers(stamp),
+  };
+}
+
 export type PayoutReleaseSummary = {
   status: "RAN" | "SKIPPED";
   reason?: string;
@@ -826,29 +1058,14 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
 
   const now = options.now ?? new Date();
   const stamp = now.toISOString();
-  const limit = Math.max(1, Math.min(MAX_RELEASE_CANDIDATES, Math.round(Number(options.limit) || MAX_RELEASE_CANDIDATES)));
+  const cap = manual ? MAX_ATTENDED_RELEASE_CANDIDATES : MAX_RELEASE_CANDIDATES;
+  const limit = Math.max(1, Math.min(cap, Math.round(Number(options.limit) || cap)));
 
   // One query decides the queue: due entries, an approved and verified
   // organizer, somewhere to send the money, no standing debt, and no transfer
   // already in flight. Oldest first, so a backlog pays out in the order it was
   // earned.
-  const candidates = rowsToObjects(await turso(
-    `SELECT p.organizer_id,
-       MIN(p.release_after) AS oldest,
-       COUNT(*) AS entry_count,
-       COALESCE(SUM(p.net_amount),0) AS total_amount,
-       COALESCE(o.status,'') AS organizer_status,
-       COALESCE(o.kyc_status,'') AS kyc_status,
-       COALESCE(o.payout_method,'') AS payout_method,
-       COALESCE(o.payout_bank_code,'') AS payout_bank_code
-     FROM organizer_payouts p
-     LEFT JOIN trip_organizers o ON o.id = p.organizer_id
-     WHERE p.status = 'ACCRUED' AND COALESCE(p.batch_id,'') = '' AND p.release_after <= ?
-       AND NOT EXISTS (SELECT 1 FROM organizer_payout_batches b WHERE b.organizer_id = p.organizer_id AND b.status = 'PENDING')
-       AND NOT EXISTS (SELECT 1 FROM organizer_payouts d WHERE d.organizer_id = p.organizer_id AND d.status = 'REVERSED' AND COALESCE(d.released_at,'') <> '')
-     GROUP BY p.organizer_id ORDER BY oldest ASC LIMIT ?`,
-    [stamp, limit],
-  ));
+  const candidates = await payoutCandidates(stamp, limit);
   empty.considered = candidates.length;
   if (!candidates.length) return empty;
 
@@ -860,32 +1077,13 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
   for (const candidate of candidates) {
     const organizerId = String(candidate.organizer_id || "");
     const skip = (reason: string) => { summary.skipped.push({ organizerId, reason }); };
-    if (!organizerId) { skip("NO_ORGANIZER"); continue; }
-    if (String(candidate.organizer_status) !== "APPROVED") { skip("NOT_APPROVED"); continue; }
-    if (String(candidate.kyc_status) !== "VERIFIED") { skip("KYC_NOT_VERIFIED"); continue; }
-    const method = String(candidate.payout_method || "").toUpperCase();
-    if (!isPayoutMethod(method) || !String(candidate.payout_bank_code || "")) { skip("NO_DESTINATION"); continue; }
-    // A bank destination saved before rides moved to mobile money only is left
-    // where it is rather than paid, because the transfer fee is eight times the
-    // mobile money one and the payout is what carries it.
-    if (!(await isPayoutRailAllowed(method))) { skip("UNSUPPORTED_DESTINATION"); continue; }
-    // The fee follows the destination and comes off the payout itself: the
-    // organizer receives the amount less the fee, and Paystack's debit — what
-    // is sent plus its own fee — is then exactly the amount the ledger owed.
-    const fee = await payoutTransferFee(method);
-    const entryCount = Number(candidate.entry_count || 0);
+    // The same gates the console previews, so a promise and a payment cannot
+    // disagree. Only the balance checks belong to this run alone.
+    const assessment = await assessPayoutCandidate(candidate, minimum);
+    if (assessment.reason) { skip(assessment.reason); continue; }
+    // The fee the gate already read: the payout carries it, not the platform.
+    const fee = assessment.fee;
     const amount = Number(candidate.total_amount || 0);
-    if (!amount) { skip("NOTHING_DUE"); continue; }
-    // A payout that does not survive its own transfer fee is not a payout.
-    // Unreachable behind the minimum floor, and kept because the floor is a
-    // setting someone can turn to zero.
-    if (amount <= fee) { skip("BELOW_FEE"); continue; }
-    // Checked before the balance so a balance that cannot cover a transfer
-    // does not hide the reason that would still stand if it could.
-    if (amount < minimum) { skip("BELOW_MINIMUM"); continue; }
-    // A batch this size is a data problem, not a payout: it is far more likely
-    // to be a backlog nobody looked at than a single day's earnings.
-    if (entryCount > MAX_BATCH_ENTRIES) { skip("TOO_MANY_ENTRIES"); continue; }
     if (!balance) { skip("BALANCE_UNAVAILABLE"); continue; }
     if (amount > budget) { skip("INSUFFICIENT_BALANCE"); continue; }
 

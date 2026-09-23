@@ -14,7 +14,7 @@ process.env.TURSO_DATABASE_URL = "https://organizer-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-chars";
 
-const SCHEMA_VERSION = "2026-09-18.1";
+const SCHEMA_VERSION = "2026-09-23.2";
 const ACCOUNT_COLUMNS = ["id", "email", "name", "phone", "role", "status", "profile_id"];
 
 const accounts = [

@@ -4,6 +4,7 @@ import { requireDriver } from "@/lib/campus-engine/driver-auth";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { mapQueueEntry } from "@/lib/campus-engine/rides";
 import { applyCampusQueueTransition, releaseCampusSlots } from "@/lib/campus-engine/queue";
+import { openCampusFailureRefund } from "@/lib/campus-engine/refunds";
 import { CAMPUS_NOTIFY_BY_STATUS, CAMPUS_NOTIFY_SUBJECTS, campusNotification } from "@/lib/campus-engine/notify-templates";
 import { authGuardClear, authGuardFailure, authGuardStatus } from "@/lib/auth-guard";
 import { queueNotification } from "@/lib/notifications";
@@ -152,7 +153,14 @@ export async function updateDriverQueueEntry(request: Request, input: { referenc
   if (releaseSeat) {
     await releaseCampusSlots(turso, { rideId: String(row.ride_id), count: 1, nowIso: stamp });
   }
-  await campusAudit({ actorType:"driver", actorId:driver.id, action:`QUEUE_${action.toUpperCase().replace(/-/g, "_")}`, targetType:"campus_queue_entry", targetReference:reference, details:{ from:current, to:next } });
+  // A driver walking away from a passenger who paid is not a no-show: the
+  // passenger paid for a journey they did not get, so the fare is recorded as
+  // owed back. A no-show is the opposite case — the passenger never turned up —
+  // and the fare is deliberately kept.
+  const refund = action === "cancel"
+    ? await openCampusFailureRefund({ reference, cause: "DRIVER", actor: driver.id, reason: "The driver cancelled the pickup." })
+    : null;
+  await campusAudit({ actorType:"driver", actorId:driver.id, action:`QUEUE_${action.toUpperCase().replace(/-/g, "_")}`, targetType:"campus_queue_entry", targetReference:reference, details:{ from:current, to:next, refundAmount: refund?.amount || 0, refundId: refund?.id || "" } });
   await queuePassengerNotification(row, driver.name, next);
   return { ...(await driverMeFor(driver)), ...(await driverQueueFor(driver)) };
 }

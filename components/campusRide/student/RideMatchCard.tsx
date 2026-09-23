@@ -13,7 +13,7 @@ export function RideMatchCard({ match, pickupZoneId, destinationZoneId, pickupLa
       <li>{match.driverName}</li>
       <li><Users size={14}/>{match.availableSlots} queue slots</li>
       <li><Clock3 size={14}/>{match.estimatedMinutes || "—"} min</li>
-      <li>GH₵ {(match.fare / 100).toFixed(2)}</li>
+      <li>{match.fare > 0 ? `GH₵ ${(match.fare / 100).toFixed(2)}` : "Fare not set"}</li>
     </ul>
     {!selected ? <button type="button" className="ride-select-control" onClick={onSelect}>Select this ride</button> : <div className="ride-selected-actions"><span><Check size={16}/> Selected ride</span><QueueJoinCard match={match} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} pickupLatitude={pickupLatitude} pickupLongitude={pickupLongitude} /></div>}
   </article>;

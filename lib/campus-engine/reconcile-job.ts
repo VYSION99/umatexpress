@@ -26,6 +26,10 @@ export async function runCampusReconcile() {
       reconciled: result.reconciled,
       reviewed: result.reviewed,
       sweeps: result.sweeps.length,
+      refundsSettled: result.refunds.settled,
+      refundsFailed: result.refunds.failed,
+      unmatchedRefunded: result.unmatched.refunded,
+      seatsWatched: result.watches.notified,
       hostel: hostel ? { settled: hostel.settled, reviewed: hostel.reviewed, released: hostel.released, unverified: hostel.unverified } : "skipped",
     });
     return result;

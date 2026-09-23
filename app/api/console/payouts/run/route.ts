@@ -36,9 +36,9 @@ export async function POST(request: Request) {
     if (action !== "RELEASE") {
       throw new CampusEngineError("VALIDATION_ERROR", "Unknown payout action.", 400);
     }
-    // Six: a manual run is attended, and each candidate spends roughly six
-    // subrequests of the invocation's fifty.
-    const result = await runPayoutReleaseJob({ limit: 6, actor: account.email });
+    // The job applies its own cap (MAX_RELEASE_CANDIDATES) to every caller, so it
+    // is asked for the queue rather than for a count it would ignore.
+    const result = await runPayoutReleaseJob({ actor: account.email });
     return Response.json({ ok: true, action, result }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

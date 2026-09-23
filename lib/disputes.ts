@@ -27,7 +27,7 @@ export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
 export const DISPUTE_RESOLUTIONS = ["REFUND", "PARTIAL_REFUND", "RELEASE_PAYOUT", "NO_ACTION", "OTHER"] as const;
 export type DisputeResolution = (typeof DISPUTE_RESOLUTIONS)[number];
 
-const DISPUTES_SCHEMA_VERSION = "2026-09-18.1";
+const DISPUTES_SCHEMA_VERSION = "2026-09-24.1";
 
 const DISPUTES_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS trip_disputes (
@@ -52,6 +52,12 @@ const DISPUTES_SCHEMA_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_trip_disputes_status ON trip_disputes(status, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_trip_disputes_organizer ON trip_disputes(organizer_id, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_trip_disputes_reference ON trip_disputes(booking_reference)",
+  // A complaint about a campusRide seat is the same kind of record as one about
+  // a vacationRide booking, so it lands in the same queue and carries the ride
+  // it is about. Adding the column rather than a second table is what keeps one
+  // triage list for the person who has to read it.
+  "ALTER TABLE trip_disputes ADD COLUMN campus_reference TEXT NOT NULL DEFAULT ''",
+  "CREATE INDEX IF NOT EXISTS idx_trip_disputes_campus ON trip_disputes(campus_reference)",
 ];
 
 let disputesReady: Promise<void> | null = null;
@@ -87,6 +93,7 @@ export type Dispute = {
   organizerName: string;
   tripId: string;
   bookingReference: string;
+  campusReference: string;
   raisedByRole: string;
   raisedBy: string;
   category: string;
@@ -103,6 +110,7 @@ export type Dispute = {
 
 const DISPUTE_COLUMNS = `d.id,COALESCE(d.organizer_id,'') AS organizer_id,COALESCE(o.name,'') AS organizer_name,
   COALESCE(d.trip_id,'') AS trip_id,COALESCE(d.booking_reference,'') AS booking_reference,
+  COALESCE(d.campus_reference,'') AS campus_reference,
   COALESCE(d.raised_by_role,'') AS raised_by_role,COALESCE(d.raised_by,'') AS raised_by,
   COALESCE(d.category,'OTHER') AS category,COALESCE(d.subject,'') AS subject,COALESCE(d.details,'') AS details,
   COALESCE(d.status,'OPEN') AS status,COALESCE(d.resolution,'') AS resolution,
@@ -116,6 +124,7 @@ function disputeView(row: Record<string, unknown>): Dispute {
     organizerName: String(row.organizer_name || ""),
     tripId: String(row.trip_id || ""),
     bookingReference: String(row.booking_reference || ""),
+    campusReference: String(row.campus_reference || ""),
     raisedByRole: String(row.raised_by_role || ""),
     raisedBy: String(row.raised_by || ""),
     category: String(row.category || "OTHER"),
@@ -137,6 +146,8 @@ export type OpenDisputeInput = {
   raisedBy: string;
   contact: string;
   bookingReference?: unknown;
+  /** A campusRide queue entry reference, for a complaint about a campus seat. */
+  campusReference?: unknown;
   tripId?: unknown;
   category?: unknown;
   subject?: unknown;
@@ -166,9 +177,28 @@ export async function openDispute(input: OpenDisputeInput): Promise<Dispute> {
   }
   const category = isDisputeCategory(input.category) ? String(input.category).trim().toUpperCase() : "OTHER";
   const bookingReference = String(input.bookingReference || "").trim();
+  const campusReference = String(input.campusReference || "").trim();
   const tripId = String(input.tripId || "").trim();
-  if (!bookingReference && !tripId) {
+  if (!bookingReference && !tripId && !campusReference) {
     throw new CampusEngineError("VALIDATION_ERROR", "Give the booking reference this is about.", 400);
+  }
+
+  // A campus seat is not a vacationRide booking, so it is authorised against
+  // its own ledger: the entry must exist, and it must be the requester's. The
+  // email match is the same guard as the booking path — a guessed reference
+  // must not be able to raise a complaint in a stranger's name.
+  if (campusReference) {
+    if (input.raisedByRole !== "STUDENT") {
+      throw new CampusEngineError("FORBIDDEN", "A campusRide complaint is raised by the passenger.", 403);
+    }
+    const entry = rowsToObjects(await turso(
+      "SELECT id,reference,COALESCE(email,'') AS email FROM campus_queue_entries WHERE reference = ? LIMIT 1",
+      [campusReference],
+    ))[0];
+    if (!entry) throw new CampusEngineError("NOT_FOUND", "No campusRide seat carries that reference.", 404);
+    if (String(entry.email || "").trim().toLowerCase() !== String(input.raisedBy || "").trim().toLowerCase()) {
+      throw new CampusEngineError("FORBIDDEN", "That campusRide seat was not booked with your account.", 403);
+    }
   }
 
   let organizerId = "";
@@ -217,7 +247,7 @@ export async function openDispute(input: OpenDisputeInput): Promise<Dispute> {
     `INSERT INTO trip_disputes (id,organizer_id,trip_id,booking_reference,raised_by_role,raised_by,raised_by_contact,category,subject,details,status,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)`,
     [
-      id, organizerId, resolvedTripId, bookingReference,
+      id, organizerId, resolvedTripId, bookingReference, campusReference,
       input.raisedByRole, String(input.raisedBy || ""), String(input.contact || "").slice(0, 200),
       category, subject, details, stamp, stamp,
     ],
@@ -227,10 +257,10 @@ export async function openDispute(input: OpenDisputeInput): Promise<Dispute> {
     action: "DISPUTE_OPENED",
     targetType: "trip_dispute",
     targetReference: id,
-    details: { role: input.raisedByRole, category, organizerId, bookingReference },
+    details: { role: input.raisedByRole, category, organizerId, bookingReference, campusReference },
   }).catch(() => undefined);
   return disputeView({
-    id, organizer_id: organizerId, trip_id: resolvedTripId, booking_reference: bookingReference,
+    id, organizer_id: organizerId, trip_id: resolvedTripId, booking_reference: bookingReference, campus_reference: campusReference,
     raised_by_role: input.raisedByRole, raised_by: input.raisedBy, category, subject, details,
     status: "OPEN", created_at: stamp, updated_at: stamp,
   });

@@ -19,7 +19,7 @@ process.env.PAYSTACK_CURRENCY = "GHS";
 process.env.PAYMENT_PROVIDER = "PAYSTACK";
 process.env.PAYOUT_ENCRYPTION_KEY = "test-payout-encryption-key-at-least-32-chars";
 
-const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
+const SCHEMA_VERSIONS = { campusRide: "2026-09-23.2", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
 
 const organizer = {
   id: "org-a",
@@ -75,6 +75,8 @@ const paystack = {
   recipients: 0,
   transfers: 0,
   lastAmount: 0,
+  /** Balance reads, so a caller that reads twice can be told apart from one. */
+  balances: 0,
 };
 
 const NOW = new Date("2026-01-03T00:00:00.000Z");
@@ -98,6 +100,26 @@ function handle(sql, args) {
   const version = sql.match(/SELECT version FROM campus_schema_meta WHERE id = '([^']+)'/);
   if (version) return ok(table(["version"], [{ version: SCHEMA_VERSIONS[version[1]] || "0" }]));
 
+  // Held back before the run even looks at anyone: a standing debt, or a
+  // transfer already in flight. Matched first because it shares the FROM clause
+  // with the candidate query below.
+  if (/END AS reason/.test(sql)) {
+    const dueRows = payouts.filter((row) => row.organizer_id === organizer.id && row.status === "ACCRUED" && !row.batch_id && row.release_after <= String(args[0]));
+    const debt = payouts.some((row) => row.status === "REVERSED" && row.released_at);
+    const inFlight = batches.some((row) => row.status === "PENDING");
+    if (!dueRows.length || (!debt && !inFlight)) return ok(empty);
+    return ok(table(
+      ["organizer_id", "total_amount", "entry_count", "organizer_name", "organizer_organization", "reason"],
+      [{
+        organizer_id: organizer.id,
+        total_amount: dueRows.reduce((total, row) => total + row.net_amount, 0),
+        entry_count: dueRows.length,
+        organizer_name: organizer.name,
+        organizer_organization: "Organizer A Travel",
+        reason: debt ? "DEBT_STANDING" : "TRANSFER_IN_FLIGHT",
+      }],
+    ));
+  }
   // The release queue: due entries, joinable to an organizer who can be paid.
   if (/FROM organizer_payouts p\s+LEFT JOIN trip_organizers o/.test(sql)) {
     const limit = Number(args[1]) || 4;
@@ -107,8 +129,10 @@ function handle(sql, args) {
     if (batches.some((row) => row.status === "PENDING")) return ok(empty);
     const grouped = due.slice(0, limit);
     return ok(table(
-      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "payout_method", "payout_bank_code"],
+      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "payout_method", "payout_bank_code", "organizer_name", "organizer_organization"],
       [{
+        organizer_name: organizer.name,
+        organizer_organization: "Organizer A Travel",
         organizer_id: organizer.id,
         oldest: grouped[0].release_after,
         entry_count: grouped.length,
@@ -253,6 +277,7 @@ globalThis.fetch = async (url, init) => {
   const target = String(url);
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   if (target.includes("api.paystack.co/balance")) {
+    paystack.balances += 1;
     return { ok: true, status: 200, json: async () => ({ status: true, data: [{ currency: "GHS", balance: paystack.balance }] }) };
   }
   if (target.includes("api.paystack.co/transferrecipient")) {
@@ -287,6 +312,7 @@ const {
   applyPaystackTransferEvent,
   ensureOrganizerRecipient,
   retryFailedPayouts,
+  previewPayoutRun,
   runPayoutReconcileJob,
   runPayoutReleaseJob,
 } = await vite.ssrLoadModule("/lib/organizer-payouts.ts");
@@ -301,7 +327,7 @@ function reset() {
   audits.length = 0;
   organizer.paystack_recipient_code = "";
   organizer.payout_account_number = "";
-  Object.assign(paystack, { balance: 1000000, transferStatus: "pending", transferError: "", verifyStatus: "success", recipients: 0, transfers: 0, lastAmount: 0 });
+  Object.assign(paystack, { balance: 1000000, transferStatus: "pending", transferError: "", verifyStatus: "success", recipients: 0, transfers: 0, lastAmount: 0, balances: 0 });
 }
 
 test.afterEach(async () => { reset(); });
@@ -478,4 +504,104 @@ test("the organizer's recipient is created once and reused across runs", async (
   assert.equal(second.recipientCode, first.recipientCode);
   assert.equal(paystack.recipients, 1);
   assert.ok(audits.some((row) => row.action === "ORGANIZER_RECIPIENT_CREATED"));
+});
+
+/**
+ * The console's forecast. Someone has to answer "why has this organizer not
+ * been paid?", and running the job to find out is both too late and too much —
+ * it moves money. These tests hold the preview to the same gates as the run,
+ * and to the one promise it makes: it changes nothing.
+ */
+
+test("the preview names who would be paid, and sends nothing", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  const preview = await previewPayoutRun({ now: NOW });
+  assert.equal(preview.candidates.length, 1);
+  assert.equal(preview.candidates[0].status, "PAYABLE");
+  assert.equal(preview.candidates[0].organization, "Organizer A Travel");
+  assert.equal(preview.dueTotal, 9700);
+  assert.equal(preview.payableTotal, 9700);
+  assert.equal(preview.sendableTotal, 9700);
+  assert.equal(preview.candidates[0].fee, 100);
+  assert.equal(preview.candidates[0].receives, 9600, "the organizer receives the amount less the transfer fee");
+  assert.equal(paystack.transfers, 0, "a preview must not send");
+  assert.equal(paystack.recipients, 0, "a preview must not even create a recipient");
+  assert.equal(batches.length, 0, "a preview writes no batch");
+  assert.equal(payouts[0].status, "ACCRUED", "the ledger is untouched");
+  assert.equal(payouts[0].batch_id, "", "nothing is claimed");
+});
+
+test("the preview tells a blocked payout apart from one the balance cannot fund", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  organizer.kyc_status = "PENDING";
+  const blocked = await previewPayoutRun({ now: NOW });
+  assert.equal(blocked.candidates[0].status, "BLOCKED");
+  assert.equal(blocked.candidates[0].reason, "KYC_NOT_VERIFIED");
+  assert.equal(blocked.payableTotal, 0, "a gate-blocked payout is not payable");
+  assert.equal(blocked.sendableTotal, 0);
+  assert.equal(blocked.candidates[0].fee, 0, "no fee is read for a payout that cannot happen");
+  assert.equal(blocked.candidates[0].receives, 0, "and no receiving figure is invented for it");
+  organizer.kyc_status = "VERIFIED";
+
+  paystack.balance = 0;
+  const unfunded = await previewPayoutRun({ now: NOW });
+  assert.equal(unfunded.candidates[0].status, "UNFUNDED");
+  assert.equal(unfunded.candidates[0].reason, "INSUFFICIENT_BALANCE");
+  assert.equal(unfunded.payableTotal, 9700, "it clears every gate but the balance");
+  assert.equal(unfunded.sendableTotal, 0, "an empty balance sends nothing");
+  assert.equal(unfunded.candidates[0].fee, 100, "but it is priced, because funding the balance would pay it");
+  assert.equal(unfunded.candidates[0].receives, 9600);
+});
+
+test("the preview and the release run refuse an organizer for the same reason", async () => {
+  organizer.payout_account_number = await sealSecret("0244000001");
+  payouts.push(entry({ net_amount: 9700 }));
+  organizer.kyc_status = "PENDING";
+  const preview = await previewPayoutRun({ now: NOW });
+  const run = await runPayoutReleaseJob(ATTENDED);
+  assert.equal(preview.candidates[0].status, "BLOCKED");
+  assert.equal(run.skipped.length, 1);
+  assert.equal(run.skipped[0].reason, preview.candidates[0].reason, "the forecast and the run read the gates the same way");
+  organizer.kyc_status = "VERIFIED";
+});
+
+test("an organizer held back by a standing debt is named rather than silently dropped", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  payouts.push(entry({ status: "REVERSED", released_at: "2026-01-01T00:00:00.000Z", net_amount: 5000 }));
+  const preview = await previewPayoutRun({ now: NOW });
+  assert.equal(preview.candidates.length, 0, "a run never picks them up, so there is no candidate row");
+  assert.equal(preview.deferred.length, 1, "but the console must still be able to answer for them");
+  assert.equal(preview.deferred[0].reason, "DEBT_STANDING");
+  assert.equal(preview.deferred[0].amount, 9700);
+  assert.equal(preview.deferred[0].organization, "Organizer A Travel");
+});
+
+test("the preview reports the per-run cap, so 'why not all of them' has an answer", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  const preview = await previewPayoutRun({ now: NOW });
+  assert.equal(typeof preview.perRunLimit, "number");
+  assert.ok(preview.perRunLimit >= 1);
+  assert.equal(typeof preview.minimum, "number", "the minimum floor is read from settings, not assumed");
+});
+
+test("the forecast uses the balance it is handed instead of reading Paystack again", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  const preview = await previewPayoutRun({ now: NOW, balance: { currency: "GHS", balance: 9700 } });
+  assert.equal(paystack.balances, 0, "the console already read it, and a second read could disagree with the figure beside it");
+  assert.equal(preview.candidates[0].status, "PAYABLE");
+  assert.equal(preview.sendableTotal, 9700);
+});
+
+test("the forecast reads the balance itself when it is not handed one", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  await previewPayoutRun({ now: NOW });
+  assert.equal(paystack.balances, 1);
+});
+
+test("an unreadable balance funds nothing and does not throw", async () => {
+  payouts.push(entry({ net_amount: 9700 }));
+  const preview = await previewPayoutRun({ now: NOW, balance: null });
+  assert.equal(preview.balance, null);
+  assert.equal(preview.candidates[0].status, "UNFUNDED");
+  assert.equal(preview.candidates[0].reason, "BALANCE_UNAVAILABLE");
 });

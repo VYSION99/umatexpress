@@ -16,8 +16,9 @@ const TERMINAL_STATES: Record<string, { label: string; hint: string }> = {
   PAYMENT_RECEIVED_REVIEW: { label: "Payment under review", hint: "We are matching your payment manually. You will be contacted." },
   PAYMENT_FAILED: { label: "Payment failed", hint: "The payment did not go through. Join the queue again to retry." },
   EXPIRED: { label: "Hold expired", hint: "The checkout hold ran out before payment. Join the queue again." },
-  CANCELLED_BY_STUDENT: { label: "Cancelled", hint: "This ride was cancelled." },
-  CANCELLED_BY_DRIVER: { label: "Cancelled by driver", hint: "The driver cancelled. Join another campusRide." },
+  CANCELLED_BY_STUDENT: { label: "Cancelled", hint: "You gave up this seat. Any fare due back is shown below." },
+  CANCELLED_BY_DRIVER: { label: "Cancelled by driver", hint: "The driver cancelled. Any fare due back is shown below." },
+  NO_DRIVER_FOUND: { label: "No driver found", hint: "Nobody took your seat in time, so your fare is on its way back." },
   NO_SHOW: { label: "Missed pickup", hint: "The driver marked this trip as a no-show." },
 };
 

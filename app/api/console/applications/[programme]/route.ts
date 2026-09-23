@@ -1,4 +1,5 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
+import { registerDriverApplication } from "@/lib/campus-engine/driver-onboarding";
 import { consoleApplicationById } from "@/lib/console-applications";
 import { registerLandlord } from "@/lib/hostel-engine/landlord";
 import { registerOrganizer } from "@/lib/organizers";
@@ -18,6 +19,8 @@ async function submitApplication(programme: string, body: Record<string, unknown
       return registerOrganizer(body);
     case "landlord":
       return registerLandlord(body);
+    case "driver":
+      return registerDriverApplication(body);
     default:
       throw new CampusEngineError("INVALID_STATE", "This application is not being accepted yet.", 501);
   }

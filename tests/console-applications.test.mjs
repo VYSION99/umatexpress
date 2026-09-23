@@ -68,16 +68,24 @@ test("every console role has a declared way in", () => {
   for (const role of CONSOLE_ROLES) assert.ok(ways.has(role), `${role} has no declared way into the console`);
 });
 
-test("an operational role is never self-service", () => {
+test("staff roles are never self-service, and a job that is stays behind review", () => {
   const invited = new Set(consoleInvitedAccess.flatMap((entry) => entry.roles));
-  assert.ok(invited.has("DRIVER") && invited.has("MODERATOR") && invited.has("ADMIN"), "drivers and staff are set up by the team, not by the form");
+  assert.ok(invited.has("MODERATOR") && invited.has("ADMIN"), "staff accounts are created by an administrator, never by the form");
+  assert.ok(!invited.has("DRIVER"), "a driver applies for the job like every other provider");
   for (const application of openConsoleApplications()) {
-    assert.ok(!invited.has(application.role), `${application.id} would hand out an operational role through a public form`);
+    assert.ok(!invited.has(application.role), `${application.id} would hand out a staff role through a public form`);
   }
   for (const entry of consoleInvitedAccess) {
     for (const role of entry.roles) assert.ok(CONSOLE_ROLES.includes(role), `${entry.id} lists an unknown role: ${role}`);
     assert.ok(entry.title.trim() && entry.detail.trim() && entry.contact.trim(), `${entry.id} is missing copy`);
   }
+});
+
+test("an application that opens a working door keeps it shut until it is reviewed", () => {
+  const driver = consoleApplicationById("driver");
+  assert.equal(driver.role, "DRIVER", "the form files a driver application");
+  assert.equal(driver.activation, "REVIEW", "and the account cannot sign in before the decision");
+  assert.equal(driver.reviewService, "campus", "the campus console owns the decision");
 });
 
 test("the page every open application is filled in on exists", async () => {

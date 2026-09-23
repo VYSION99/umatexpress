@@ -180,6 +180,8 @@
 .console-panel-close { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 999px; background: #ffffff; color: var(--ui-muted, #57675f); font-size: 12px; font-weight: 800; cursor: pointer; }
 .console-panel-close:hover { border-color: var(--ui-green, #0d694d); color: var(--ui-green, #0d694d); }
 .console-reason { display: block; margin-top: 4px; color: #9c3026; font-size: 11px; font-weight: 600; }
+.console-runbook { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 8px; color: var(--ui-muted, #57675f); font-size: 12.5px; line-height: 1.6; }
+.console-runbook strong { color: var(--ui-ink, #12261f); }
 .console-note { margin: 14px 0 0; color: var(--ui-muted, #57675f); font-size: 12px; line-height: 1.6; }
 .console-subhead { margin: 26px 0 12px; font-size: 13px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-muted, #57675f); }
 
@@ -212,6 +214,9 @@
 .console-table tr:last-child td { border-bottom: 0; }
 .console-table td strong { display: block; font-size: 14px; }
 .console-table td small { display: block; margin-top: 3px; color: var(--ui-muted, #57675f); font-size: 12px; }
+/* A money column that breaks between the symbol and the figure reads as two
+   numbers, so amounts never wrap and their digits hold a fixed width. */
+.console-money { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .console-table a { color: var(--ui-cyan, #0e7490); font-weight: 700; }
 .console-table input[type="text"] { width: min(100%, 220px); min-height: 40px; padding: 0 12px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 11px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 13px; font-weight: 600; }
 .console-table input[type="text"]:focus { outline: 2px solid var(--ui-green, #0d694d); outline-offset: 1px; border-color: transparent; }
@@ -222,6 +227,7 @@
 .console-row-actions button.console-danger { border-color: #e8c3bd; color: #9c3026; }
 .console-row-actions button.console-danger:hover { border-color: #9c3026; color: #9c3026; }
 .console-row-actions button:disabled { opacity: .6; cursor: progress; }
+.console-row-actions button.is-current { border-color: var(--ui-green, #0d694d); background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-row-actions select { min-height: 36px; max-width: 220px; padding: 0 11px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 11px; background: #ffffff; color: var(--ui-ink, #12261f); font-size: 12px; font-weight: 700; }
 
 /* A code Paystack sent to the account holder: typed in once, never stored. */
@@ -231,7 +237,7 @@
 .console-otp button { display: inline-flex; align-items: center; min-height: 36px; padding: 0 13px; border: 0; border-radius: 11px; background: var(--ui-green, #0d694d); color: #ffffff; font-size: 12px; font-weight: 800; cursor: pointer; }
 .console-otp button:disabled { opacity: .6; cursor: progress; }
 
-.console-badge { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; background: var(--ui-cyan-soft, #e6f3f7); color: var(--ui-cyan, #0e7490); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.console-badge { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; background: var(--ui-cyan-soft, #e6f3f7); color: var(--ui-cyan, #0e7490); font-size: 11px; font-weight: 800; letter-spacing: .04em; white-space: nowrap; }
 .console-badge-pending, .console-badge-pending_review { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
 .console-badge-approved, .console-badge-verified { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-rejected, .console-badge-suspended { background: #fff0ee; color: #9c3026; }
@@ -245,6 +251,16 @@
 .console-badge-released { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-success { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
 .console-badge-reversed, .console-badge-failed { background: #fff0ee; color: #9c3026; }
+.console-badge-requested { background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
+.console-badge-paid { background: var(--ui-green-soft, #e6f2ec); color: var(--ui-green-deep, #0b5740); }
+.console-badge-declined { background: #eef1f4; color: #48545f; }
+.console-danger-text { color: #9c3026; }
+/* A strip of totals above a desk's table: the numbers an operator checks
+   before deciding anything, in the order they read them. */
+.console-stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
+.console-stat-row > span { display: grid; gap: 2px; min-width: 132px; padding: 12px 15px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 16px; background: #ffffff; }
+.console-stat-row small { color: var(--ui-muted, #57675f); font-size: 10.5px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.console-stat-row strong { font-size: 20px; letter-spacing: -.02em; color: var(--ui-ink, #12261f); }
 
 /* Money totals sit above the ledger tables. Pesewas are formatted for display
    only: every value in the API and the database stays an integer. */
@@ -366,3 +382,30 @@
 .console-stat-grid span { display: block; color: var(--ui-muted, #57675f); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .console-stat-grid strong { display: block; margin: 7px 0 4px; font-size: 19px; }
 .console-stat-grid small { color: var(--ui-muted, #57675f); font-size: 11.5px; line-height: 1.5; }
+
+/* Payout desk: patterned action tiles, a one-line status strip, fact tiles and
+   a disclosure for the explanation that used to sit in the page as prose. */
+.console-panel-close:disabled { opacity: .55; cursor: not-allowed; }
+.console-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 10px; }
+.console-panel h2 + .console-subhead { margin-top: 4px; }
+.console-action { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 13px 15px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 15px; background: #ffffff; color: var(--ui-ink, #12261f); font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.console-action strong { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
+.console-action small { color: var(--ui-muted, #57675f); font-size: 11.5px; line-height: 1.45; }
+.console-action:hover:not(:disabled) { border-color: var(--ui-green, #0d694d); }
+.console-action:disabled { opacity: .55; cursor: not-allowed; }
+.console-action.is-primary { border-color: transparent; background: var(--ui-green, #0d694d); }
+.console-action.is-primary strong { color: #ffffff; }
+.console-action.is-primary small { color: rgba(255, 255, 255, .85); }
+.console-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; padding: 13px 16px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 16px; background: #fbfdfc; font-size: 13px; line-height: 1.5; }
+.console-strip .console-row-actions { margin-left: auto; }
+.console-strip.is-warning { border-color: #f0d8a8; background: var(--ui-yellow-soft, #fdf6df); color: var(--ui-yellow-ink, #8a5a06); }
+.console-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; margin: 0 0 14px; }
+.console-fact { padding: 11px 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 13px; background: #fbfdfc; }
+.console-fact span { display: block; color: var(--ui-muted, #57675f); font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.console-fact strong { display: block; margin-top: 5px; font-size: 13.5px; word-break: break-word; }
+.console-fact small { display: block; margin-top: 3px; color: var(--ui-muted, #57675f); font-size: 11px; }
+.console-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.console-chip { padding: 5px 10px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 999px; color: var(--ui-muted, #57675f); font-size: 11px; font-weight: 700; }
+.console-disclosure { margin-top: 14px; }
+.console-disclosure summary { cursor: pointer; color: var(--ui-cyan, #0e7490); font-size: 12px; font-weight: 800; }
+.console-disclosure p { margin: 10px 0 0; color: var(--ui-muted, #57675f); font-size: 12px; line-height: 1.7; }

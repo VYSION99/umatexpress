@@ -3,6 +3,8 @@ import { ensureCampusRideTables, type CampusQueueEntry } from "@/lib/campus-ride
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { requireNearestRide } from "@/lib/campus-engine/matching";
 import { quoteCampusFare } from "@/lib/campus-engine/pricing";
+import { splitCommission } from "@/lib/money";
+import { platformSettingNumber } from "@/lib/platform-settings";
 import { campusAudit } from "@/lib/campus-engine/audit";
 import { ridePin } from "@/lib/campus-engine/state";
 import { applyCampusQueueTransition, campusHoldExpiry, campusQueueEntryState, claimCampusQueueSlot, releaseCampusSlots, releaseExpiredCampusHolds } from "@/lib/campus-engine/queue";
@@ -31,7 +33,12 @@ export async function requestCampusRide(input: { passengerName?: string; phone?:
   const matched = await requireNearestRide({ pickupZoneId, destinationZoneId, pickupLatitude: input.pickupLatitude, pickupLongitude: input.pickupLongitude, limit: rideId ? 20 : 1 });
   const match = rideId ? matched.matches.find((item) => item.id === rideId) : matched.match;
   if (!match) throw new CampusEngineError("NO_DRIVER_FOUND", "The selected campusRide is no longer available. Please refresh and choose another ride.", 409);
-  const quote = quoteCampusFare({ corridor: match.corridor, minutes: match.estimatedMinutes, paystackFeePercent: await getPaystackFeePercentRuntime() });
+  const quote = quoteCampusFare({ corridor: match.corridor, paystackFeePercent: await getPaystackFeePercentRuntime() });
+  // A corridor with no tariff fails closed. The price of a seat is the published
+  // corridor fare and there is no safe default for one: the fallback that used
+  // to sit in the quote priced a corridor at a fifth of its fare and the driver
+  // was paid on that basis.
+  if (quote.subtotal <= 0) throw new CampusEngineError("FARE_NOT_CONFIGURED", "This corridor has no fare set, so a seat cannot be booked on it yet. Please choose another campusRide.", 409);
   const reference = ref();
   const pin = ridePin();
 
@@ -84,8 +91,11 @@ export async function initializeCampusRideQueue(input: { passengerName?: string;
   const stamp = new Date().toISOString();
   const currency = await getPaystackCurrencyRuntime();
   await turso(
-    "INSERT INTO campus_payments (id,queue_entry_id,reference,provider,amount,currency,status,access_token_hash,fare_amount,fee_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-    [crypto.randomUUID(), ride.queueEntryId, paymentReference, provider, ride.quote.total, currency, "PENDING", accessTokenHash, ride.quote.subtotal, ride.quote.paystackFee, stamp, stamp],
+    "INSERT INTO campus_payments (id,queue_entry_id,reference,provider,amount,currency,status,access_token_hash,fare_amount,fee_amount,fare_floor,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    // The floor in force when the seat was sold. A margin report reads it back,
+    // so a tariff that was cheap by design can be told from one that was cheap
+    // by accident — and a later tariff change cannot rewrite that.
+    [crypto.randomUUID(), ride.queueEntryId, paymentReference, provider, ride.quote.total, currency, "PENDING", accessTokenHash, ride.quote.subtotal, ride.quote.paystackFee, Math.max(0, Number(ride.match.corridor?.floorAmount) || 0), stamp, stamp],
   );
   const paystack = await initializePaystackTransaction({
     email: input.email || `${String(input.phone || "student").replace(/\D/g, "") || "student"}@campusride.local`,
@@ -98,9 +108,9 @@ export async function initializeCampusRideQueue(input: { passengerName?: string;
   return { ...ride, provider, paymentReference, authorizationUrl: paystack.authorizationUrl, message:"Redirecting to Paystack Checkout.", cookie: paymentAccessCookie(paymentReference, accessToken, input.secure) };
 }
 
-export async function markCampusRidePaymentSuccessful(reference: string, amount: number, transactionId: string, requestId = "") {
+export async function markCampusRidePaymentSuccessful(reference: string, amount: number, transactionId: string, requestId = "", fees = 0) {
   await ensureCampusRideTables();
-  const payment = rowsToObjects(await turso("SELECT id,queue_entry_id,reference,provider,amount,status FROM campus_payments WHERE reference = ? AND provider = 'PAYSTACK' LIMIT 1", [reference]))[0];
+  const payment = rowsToObjects(await turso("SELECT id,queue_entry_id,reference,provider,amount,fare_amount,status FROM campus_payments WHERE reference = ? AND provider = 'PAYSTACK' LIMIT 1", [reference]))[0];
   if (!payment) return { handled: false, reason: "CAMPUS_PAYMENT_NOT_FOUND" };
   const stamp = new Date().toISOString();
   const entryId = String(payment.queue_entry_id);
@@ -126,9 +136,19 @@ export async function markCampusRidePaymentSuccessful(reference: string, amount:
     await campusAudit({ actorType:"system", action:"CAMPUS_PAYMENT_REVIEW", targetType:"campus_payment", targetReference:reference, details:{ reason:"PAYSTACK_HOLD_EXPIRED", transactionId, requestId } });
     return { handled: true, status: "PAID_REVIEW" };
   }
-  await turso("UPDATE campus_payments SET status = 'SUCCESSFUL', raw_response = ?, paid_at = ?, updated_at = ? WHERE reference = ? AND status <> 'SUCCESSFUL'", [transactionId || "PAYSTACK_SUCCESS", stamp, stamp, reference]);
+  // The split is written once, at settlement, and never recomputed: a later
+  // change to the commission rate applies to the next ride, not to a ride already
+  // sold. The commission base is the fare, never the checkout total, which
+  // carries Paystack's fee and that fee is not revenue.
+  const commissionBps = Math.max(0, Math.round(await platformSettingNumber("campus_commission_bps")));
+  const fareAmount = Math.max(0, Number(payment.fare_amount) || 0) || Number(payment.amount || 0);
+  const split = splitCommission(fareAmount, commissionBps);
+  await turso(
+    "UPDATE campus_payments SET status = 'SUCCESSFUL', raw_response = ?, paid_at = ?, updated_at = ?, commission_bps = ?, commission_amount = ?, net_amount = ?, paystack_fee_actual = ? WHERE reference = ? AND status <> 'SUCCESSFUL'",
+    [transactionId || "PAYSTACK_SUCCESS", stamp, stamp, commissionBps, split.commission, split.net, Math.max(0, Math.round(Number(fees) || 0)), reference],
+  );
   await incrementMetric("payment_success");
-  await campusAudit({ actorType:"system", action:"PAYMENT_SUCCESS", targetType:"campus_payment", targetReference:reference, details:{ amount:payment.amount, requestId } });
+  await campusAudit({ actorType:"system", action:"PAYMENT_SUCCESS", targetType:"campus_payment", targetReference:reference, details:{ amount:payment.amount, fareAmount, commissionBps, commission:split.commission, net:split.net, requestId } });
   return { handled: true, status: "SUCCESSFUL" };
 }
 
@@ -176,7 +196,7 @@ export async function verifyCampusRidePayment(request: Request, reference: strin
     const providerStatus = await verifyPaystackTransaction(reference);
     status = String(providerStatus.status || "PENDING").toUpperCase();
     if (status === "SUCCESSFUL") {
-      const applied = await markCampusRidePaymentSuccessful(reference, Number(providerStatus.amount), providerStatus.financialTransactionId || "", requestId);
+      const applied = await markCampusRidePaymentSuccessful(reference, Number(providerStatus.amount), providerStatus.financialTransactionId || "", requestId, Number(providerStatus.fees || 0));
       status = String(applied?.status || "SUCCESSFUL").toUpperCase();
     } else if (status === "FAILED") {
       await markCampusRidePaymentFailed(reference, providerStatus.reason || "PAYMENT_FAILED", providerStatus.financialTransactionId || "", requestId);

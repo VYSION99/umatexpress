@@ -1,6 +1,7 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { assertConsolePassword, createConsoleAccount, ensureConsoleAccountsTable } from "@/lib/console-auth";
+import { notifyParty, providerKycNotice } from "@/lib/notify-templates";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 /**
@@ -373,6 +374,11 @@ export async function reviewHostelLandlordKyc(input: {
     targetReference: landlord.id,
     details: { from: landlord.kycStatus, reason },
   }).catch(() => undefined);
+  await notifyParty({
+    recipient: landlord.email,
+    reference: landlord.id,
+    notice: providerKycNotice("landlord", input.action, { reason }),
+  });
   return getHostelLandlord(landlord.id);
 }
 

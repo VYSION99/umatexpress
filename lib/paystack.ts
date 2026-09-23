@@ -19,6 +19,8 @@ type PaystackVerifyResponse = {
     currency?: string;
     status?: "success" | "failed" | "abandoned" | "reversed" | "pending" | "ongoing" | "processing" | "queued";
     gateway_response?: string;
+    /** What Paystack actually charged for the transaction, in pesewas. */
+    fees?: number;
   };
 };
 
@@ -146,6 +148,10 @@ export async function verifyPaystackTransaction(reference: string) {
     financialTransactionId: result.data.id ? String(result.data.id) : "",
     amount: Number(result.data.amount || 0),
     currency: result.data.currency || "",
+    // The configured percentage is an estimate; this is what the rail took. The
+    // two are stored separately so a drift between them is visible rather than
+    // silently paid for by the platform.
+    fees: Number(result.data.fees || 0),
     reason: result.data.gateway_response || result.message || "",
   };
 }

@@ -1,8 +1,23 @@
-export type CampusNotifyTemplate = "driver_accepted" | "driver_arrived" | "trip_completed" | "driver_cancelled";
+import { cedis } from "@/lib/campus-fare-math";
+
+export type CampusNotifyTemplate =
+  | "driver_accepted"
+  | "driver_arrived"
+  | "trip_completed"
+  | "driver_cancelled"
+  | "campus_cancelled"
+  | "campus_no_ride"
+  | "campus_ride_ended"
+  | "campus_refund_declined"
+  | "campus_seats_open";
 
 export type CampusNotifyContext = {
   driverName: string;
   queuePosition: number;
+  /** A refund's amount, in pesewas, when the message is about money coming back. */
+  amount?: number;
+  /** How long the platform waited for a driver before refunding, in minutes. */
+  windowMinutes?: number;
 };
 
 /** The inbox line for each template, so the subject and the body agree. */
@@ -11,6 +26,11 @@ export const CAMPUS_NOTIFY_SUBJECTS: Record<CampusNotifyTemplate, string> = {
   driver_arrived: "Your campusRide driver has arrived",
   trip_completed: "Your campusRide trip is complete",
   driver_cancelled: "Your campusRide ride was cancelled",
+  campus_cancelled: "Your campusRide seat is cancelled",
+  campus_no_ride: "No driver took your campusRide seat",
+  campus_ride_ended: "Your campusRide ride ended before boarding",
+  campus_refund_declined: "Your campusRide refund needs a look",
+  campus_seats_open: "A seat just opened on your campusRide route",
 };
 
 /**
@@ -55,7 +75,49 @@ export function campusNotification(template: CampusNotifyTemplate, context: Camp
   if (template === "trip_completed") {
     return { title: "Trip completed", message: `Your trip with ${driver} is complete. Thanks for riding!` };
   }
+  // The refund templates share a shape: what happened, then the money. The
+  // amount is only named when the policy actually owes one, so a cancellation
+  // the passenger keeps paying for does not read like a refund.
+  if (template === "campus_cancelled") {
+    const refund = context.amount ? ` ${cedis(context.amount)} is on its way back to you.` : " No refund is due for this seat.";
+    return { title: "Ride cancelled", message: `Your campusRide seat is cancelled.${refund}` };
+  }
+  if (template === "campus_no_ride") {
+    const waited = context.windowMinutes ? ` inside ${context.windowMinutes} minutes` : "";
+    return {
+      title: "No driver found",
+      message: `No driver took your seat${waited}, so your fare is being refunded. ${cedis(context.amount || 0)} is on the way back to you.`,
+    };
+  }
+  if (template === "campus_refund_declined") {
+    return {
+      title: "Refund to review",
+      message: "We could not send your campusRide refund automatically. Reply to this message and support will finish it by hand.",
+    };
+  }
+  if (template === "campus_ride_ended") {
+    return {
+      title: "Ride ended",
+      message: `Your campusRide trip ended before you boarded. ${cedis(context.amount || 0)} is on the way back to you.`,
+    };
+  }
   return { title: "Ride cancelled", message: `${driver} cancelled your pickup. Join the queue again for another ride.` };
+}
+
+/**
+ * The message a watched route sends when a seat opens. It answers the two
+ * questions the student is about to ask — which run, and what it costs — so the
+ * decision can be made without opening the app first.
+ */
+export function campusSeatWatchNotice(input: { corridorName: string; seatsOpen: number; fare: number }) {
+  const corridor = input.corridorName || "your campusRide route";
+  const seats = Math.max(1, Math.round(input.seatsOpen || 1));
+  const seatLine = seats === 1 ? "A seat has opened" : `${seats} seats have opened`;
+  const fareLine = input.fare ? ` for GH₵ ${(input.fare / 100).toFixed(2)}` : "";
+  return {
+    title: "A seat opened",
+    message: `${seatLine} on ${corridor}${fareLine}. Open campusRide and join the queue before it fills.`,
+  };
 }
 
 /** Queue status that triggers a passenger notification, if any. */

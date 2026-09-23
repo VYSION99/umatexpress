@@ -20,7 +20,7 @@ process.env.ADMIN_SESSION_SECRET = "test-admin-session-secret-at-least-32-chars"
 process.env.ADMIN_EMAILS = "admin@example.com";
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const SCHEMA_VERSIONS = { campusRide: "2026-09-18.1", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
+const SCHEMA_VERSIONS = { campusRide: "2026-09-23.2", scheduledTrips: "2026-09-18.2", tripOrganizers: "2026-09-18.3", organizerPayouts: "2026-09-18.2" };
 
 const trips = [
   { id: "trip-a", title: "UMaT to Accra", route_from: "UMaT", route_to: "Accra", travel_date: "2026-10-03", departure_time: "06:30", arrival_time: "11:30", price: 180, capacity: 50, coach_type: "VIP Coach", tag: "Morning", amenities: '["AC"]', notes: "", active: 1, archived: 0, display_order: 1, organizer_id: "org-a", review_status: "APPROVED", created_at: "2026-09-01T00:00:00.000Z" },
@@ -73,13 +73,13 @@ function handle(sql, args) {
     return ok(student ? table(["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"], [{ ...student, created_at: "", last_login_at: "" }]) : empty);
   }
 
-  if (/^SELECT id, booking_id, provider, reference_id, amount, status, access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id, booking_id, provider, reference_id, amount,.*access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
-    return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "status", "access_token_hash"], [payment]) : empty);
+    return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "currency", "status", "access_token_hash"], [{ ...payment, currency: payment.currency || "GHS" }]) : empty);
   }
-  if (/^SELECT booking_id, amount, status FROM payments WHERE reference_id = \? AND provider = 'PAYSTACK' LIMIT 1/.test(sql)) {
+  if (/^SELECT booking_id, amount,.*status FROM payments WHERE reference_id = \? AND provider = 'PAYSTACK' LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
-    return ok(payment ? table(["booking_id", "amount", "status"], [payment]) : empty);
+    return ok(payment ? table(["booking_id", "amount", "currency", "status"], [{ ...payment, currency: payment.currency || "GHS" }]) : empty);
   }
   if (/^UPDATE seat_holds SET status = 'BOOKED'/.test(sql)) {
     const hold = seatHolds.find((item) => item.booking_id === args[0] && item.status === "HELD" && item.expires_at >= String(args[1]));

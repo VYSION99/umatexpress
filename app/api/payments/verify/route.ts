@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     await ensurePaymentsTable();
 
     const payment = rowsToObjects(await turso(
-      "SELECT id, booking_id, provider, reference_id, amount, status, access_token_hash FROM payments WHERE reference_id = ? LIMIT 1",
+      "SELECT id, booking_id, provider, reference_id, amount, currency, status, access_token_hash FROM payments WHERE reference_id = ? LIMIT 1",
       [reference],
     ))[0];
     if (!payment) return respond({ error: "Payment was not found." }, { status: 404 });
@@ -62,11 +62,17 @@ export async function GET(request: Request) {
       const now = new Date().toISOString();
 
       if (status === "SUCCESSFUL") {
-        if (provider === "PAYSTACK" && Number(providerStatus.amount || 0) !== Number(payment.amount || 0)) {
+        // Only a currency the provider actually reported can be a mismatch: an
+        // absent one says nothing, and treating it as wrong parks a paid
+        // booking in review and stops its payout from ever accruing.
+        const providerCurrency = String(providerStatus.currency || "").toUpperCase();
+        const currencyMismatch = provider === "PAYSTACK" && providerCurrency !== ""
+          && providerCurrency !== String(payment.currency || "").toUpperCase();
+        if (provider === "PAYSTACK" && (Number(providerStatus.amount || 0) !== Number(payment.amount || 0) || currencyMismatch)) {
           status = "PAID_REVIEW";
           await turso(
-            "UPDATE payments SET status = 'PAID_REVIEW', failure_reason = 'PAYSTACK_AMOUNT_MISMATCH', updated_at = ?, completed_at = ? WHERE reference_id = ?",
-            [now, now, reference],
+            "UPDATE payments SET status = 'PAID_REVIEW', failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
+            [currencyMismatch ? "PAYSTACK_CURRENCY_MISMATCH" : "PAYSTACK_AMOUNT_MISMATCH", now, now, reference],
           );
           await turso(
             "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ?",
@@ -93,12 +99,12 @@ export async function GET(request: Request) {
           );
         } else {
           await turso(
-            "UPDATE payments SET status = 'SUCCESSFUL', financial_transaction_id = ?, failure_reason = NULL, updated_at = ?, completed_at = ? WHERE reference_id = ?",
-            [providerStatus.financialTransactionId || "", now, now, reference],
-          );
-          await turso(
             "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'CONFIRMED', confirmed_at = ? WHERE id = ?",
             [now, String(payment.booking_id)],
+          );
+          await turso(
+            "UPDATE payments SET status = 'SUCCESSFUL', financial_transaction_id = ?, failure_reason = NULL, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('FAILED','PAID_REVIEW')",
+            [providerStatus.financialTransactionId || "", now, now, reference],
           );
           // The ledger write must never turn a successful payment into an
           // error, so it logs its own failure and the admin backfill catches it.
@@ -110,10 +116,10 @@ export async function GET(request: Request) {
         }
       } else if (status === "FAILED") {
         await turso(
-          "UPDATE payments SET status = 'FAILED', failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ?",
+          "UPDATE payments SET status = 'FAILED', failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
           [providerStatus.reason || "PAYMENT_FAILED", now, now, reference],
         );
-        await turso("UPDATE bookings SET payment_status = 'FAILED', booking_status = 'PAYMENT_FAILED' WHERE id = ?", [String(payment.booking_id)]);
+        await turso("UPDATE bookings SET payment_status = 'FAILED', booking_status = 'PAYMENT_FAILED' WHERE id = ? AND booking_status NOT IN ('CONFIRMED','PAYMENT_RECEIVED_REVIEW','CANCELLED')", [String(payment.booking_id)]);
         await turso("DELETE FROM seat_holds WHERE booking_id = ? AND status = 'HELD'", [String(payment.booking_id)]);
       } else {
         await turso("UPDATE payments SET status = 'PENDING', updated_at = ? WHERE reference_id = ?", [now, reference]);

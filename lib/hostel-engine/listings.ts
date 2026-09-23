@@ -4,6 +4,7 @@ import { ensureHostelTables } from "@/lib/hostel-engine/landlord";
 import { distanceToCampusMeters, isCoordinate } from "@/lib/hostel-engine/geo";
 import { listApprovedHostelPhotos, listApprovedPhotoCovers } from "@/lib/hostel-engine/photos";
 import { listPropertyReviews, reviewSummaryForProperties } from "@/lib/hostel-engine/reviews";
+import { notifyParty, providerListingNotice } from "@/lib/notify-templates";
 import { rowsToObjects, turso } from "@/lib/turso";
 
 /**
@@ -154,6 +155,18 @@ function reviewListingView(row: Record<string, unknown>): ReviewListing {
     landlordKycStatus: String(row.landlord_kyc_status || "PENDING"),
     propertyStatus: String(row.property_status || "DRAFT"),
   };
+}
+
+/**
+ * The bed as the landlord built it, for a message about it: a review decision
+ * is read by the person who owns the row, so it names the building, the room
+ * and the bed instead of a listing id they have never seen.
+ */
+function listingLabel(row: Record<string, unknown>) {
+  return [row.property_name, row.room_label, row.space_label]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function requiredId(value: unknown, label: string) {
@@ -403,8 +416,12 @@ export async function reviewHostelListing(input: {
   const reason = String(input.reason ?? "").trim();
 
   const row = rowsToObjects(await turso(
-    `SELECT ${LISTING_COLUMNS},p.id AS property_id,COALESCE(p.status,'DRAFT') AS property_status
-     FROM hostel_listings l JOIN hostel_spaces s ON s.id = l.space_id JOIN hostel_rooms r ON r.id = s.room_id JOIN hostel_properties p ON p.id = r.property_id
+    `SELECT ${LISTING_COLUMNS},
+       p.id AS property_id,COALESCE(p.status,'DRAFT') AS property_status,p.name AS property_name,
+       r.label AS room_label,s.label AS space_label,
+       COALESCE(h.id,'') AS landlord_id,COALESCE(h.email,'') AS landlord_email
+     ${LISTING_JOINS}
+     LEFT JOIN hostel_landlords h ON h.id = p.landlord_id
      WHERE l.id = ? LIMIT 1`,
     [listingId],
   ))[0];
@@ -448,6 +465,15 @@ export async function reviewHostelListing(input: {
     targetReference: listingId,
     details: { from: current, to: transition.to, reason },
   }).catch(() => undefined);
+
+  // The landlord is the second party to this decision and is told in the same
+  // voice as every other provider: approving a listing, sending one back to
+  // draft and suspending a live listing read as three different messages.
+  await notifyParty({
+    recipient: row.landlord_email,
+    reference: listingId,
+    notice: providerListingNotice("landlord", input.action, { listing: listingLabel(row), reason }),
+  });
 
   return { ...listingView(row), status: transition.to, reviewReason: transition.to === "APPROVED" ? "" : reason, reviewedAt: stamp, reviewedBy: input.actor };
 }

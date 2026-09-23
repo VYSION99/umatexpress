@@ -50,7 +50,20 @@ export type PlatformSettingKey =
   | "cinema_max_recording_minutes"
   | "cinema_whiteboard_enabled"
   | "cinema_whiteboard_generations_per_hour"
-  | "cinema_board_auto_minutes";
+  | "cinema_board_auto_minutes"
+  /* campusRide fares: the cost model behind the floor and the markup behind the ceiling */
+  | "campus_commission_bps"
+  | "campus_fare_cost_per_km"
+  | "campus_fare_cost_per_minute"
+  | "campus_fare_standing_cost"
+  | "campus_fare_assumed_seats"
+  | "campus_fare_load_factor_bps"
+  | "campus_fare_max_markup_bps"
+  | "campus_fare_min_amount"
+  | "campus_fare_max_amount"
+  /* campusRide seat cancellations: how long a paid seat may sit unmatched, and whether the sweep may refund it unattended */
+  | "campus_unmatched_refund_minutes"
+  | "campus_auto_refund_unmatched";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -274,6 +287,136 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: 10,
     min: 5,
     max: 60,
+  },
+  /*
+   * campusRide fares.
+   *
+   * A campus fare is one published number per corridor and it never moves with
+   * demand, which is what makes a hike impossible. That also leaves the tariff
+   * unable to defend itself, so a floor and a ceiling are computed from the cost
+   * model below and enforced when a fare is saved —
+   * see docs/CampusRide/FARE_POLICY.md. The cost figures are placeholders until
+   * operations supplies the real ones, and the operations console says so
+   * wherever a floor is shown.
+   */
+  {
+    key: "campus_commission_bps",
+    kind: "number",
+    label: "campusRide commission",
+    summary: "The platform's share of a campus fare, in basis points.",
+    detail: "Taken from the fare and never from the checkout total, because the total carries Paystack's fee and that fee is not revenue. It is written onto the payment when it settles and never recomputed, so a change here applies to the next ride rather than to one already sold. 1000 is ten percent; vacationRide organizers are on 300.",
+    env: "CAMPUS_COMMISSION_BPS",
+    fallback: 1_000,
+    min: 0,
+    max: 5_000,
+  },
+  {
+    key: "campus_fare_cost_per_km",
+    kind: "number",
+    label: "Campus fare cost per kilometre",
+    summary: "Fuel and wear for one kilometre, in pesewas.",
+    detail: "Fuel and wear, and nothing else. The distance is doubled before it is counted, because the shuttle has to come back. 240 is GH\u20b52.40: roughly GH\u20b515.00 a litre at 13 litres per 100 kilometres, plus about GH\u20b50.45 a kilometre set aside for tyres, servicing and replacement. It is a recommendation rather than a measurement until operations confirms the price and the consumption they actually see — every floor and every ceiling moves with it.",
+    env: "CAMPUS_FARE_COST_PER_KM",
+    fallback: 240,
+    min: 0,
+    max: 100_000,
+  },
+  {
+    key: "campus_fare_cost_per_minute",
+    kind: "number",
+    label: "Campus fare cost per minute",
+    summary: "The cost of occupying the vehicle and its driver for one minute, in pesewas.",
+    detail: "Driver pay plus the vehicle's time-driven overheads — insurance, licence, the cost of a day standing — divided by the minutes a day the vehicle is actually productive. 30 is GH\u20b50.30: a driver on about GH\u20b580 a day plus GH\u20b525 of overheads over 360 productive minutes. Counted twice for a round trip, like the distance. Read it as the cost of a vehicle-minute and not as a wage, because the minute a trip takes is a minute no other trip can use.",
+    env: "CAMPUS_FARE_COST_PER_MINUTE",
+    fallback: 30,
+    min: 0,
+    max: 100_000,
+  },
+  {
+    key: "campus_fare_standing_cost",
+    kind: "number",
+    label: "Campus fare standing cost",
+    summary: "What one campus departure costs whatever its length, in pesewas.",
+    detail: "The part of a trip that does not scale with distance or time: the wait at the gate, and the marshalling that happens once per departure. It is added once per round trip rather than per kilometre, so a short corridor is not made to look free. 150 is GH\u20b51.50.",
+    env: "CAMPUS_FARE_STANDING_COST",
+    fallback: 150,
+    min: 0,
+    max: 100_000,
+  },
+  {
+    key: "campus_fare_assumed_seats",
+    kind: "number",
+    label: "Campus fare planned seats",
+    summary: "The seats a campus corridor is planned around.",
+    detail: "The vehicle a corridor is run with, not the vehicle that happens to turn up. It matters because the floor divides a trip's cost by the seats a trip is expected to sell, and never by the vehicle's full capacity: a tariff built on a full vehicle loses money on every trip that runs as it actually runs. A single corridor may override it with its own planned load, which is how a run served by a larger vehicle lowers its floor without anyone subsidising it.",
+    env: "CAMPUS_FARE_ASSUMED_SEATS",
+    fallback: 6,
+    min: 1,
+    max: 60,
+  },
+  {
+    key: "campus_fare_load_factor_bps",
+    kind: "number",
+    label: "Campus fare load factor",
+    summary: "The share of those seats a campus trip is expected to sell, in basis points.",
+    detail: "7000 is seventy percent. Six planned seats at seventy percent is four sold seats, and that is the number the floor divides by. Raising it lowers every floor, which is exactly the trade a busier corridor may deserve and a quiet one may not.",
+    env: "CAMPUS_FARE_LOAD_FACTOR_BPS",
+    fallback: 7_000,
+    min: 100,
+    max: 10_000,
+  },
+  {
+    key: "campus_fare_max_markup_bps",
+    kind: "number",
+    label: "Campus fare markup ceiling",
+    summary: "How far above the floor a campus fare may be priced, in basis points.",
+    detail: "6000 is a sixty percent markup, so a corridor whose floor is GH\u20b58.23 may be priced up to GH\u20b513.17 and is refused above it. This is the second guard rather than a second price: any tariff between the floor and the ceiling is a decision someone can defend, and the ceiling only stops the decision being unreasonable.",
+    env: "CAMPUS_FARE_MAX_MARKUP_BPS",
+    fallback: 6_000,
+    min: 0,
+    max: 10_000,
+  },
+  {
+    key: "campus_fare_min_amount",
+    kind: "number",
+    label: "Campus fare range minimum",
+    summary: "The smallest campus fare that may be saved, in pesewas.",
+    detail: "One half of the typo guard. The console's fare field is in cedis and the database stores pesewas, so one misplaced decimal is a fifty-cedi ride; a fare outside the band is refused outright rather than acknowledged. 100 is GH\u20b51.00.",
+    env: "CAMPUS_FARE_MIN_AMOUNT_PESEWAS",
+    fallback: 100,
+    min: 0,
+    max: 1_000_000,
+  },
+  {
+    key: "campus_fare_max_amount",
+    kind: "number",
+    label: "Campus fare range maximum",
+    summary: "The largest campus fare that may be saved, in pesewas.",
+    detail: "The other half of the typo guard, and the reason a corridor priced in cedis cannot be saved as a hundred times itself. 3000 is GH\u20b530.00; widen it here if a longer corridor genuinely costs more, because a fare above this is refused before the floor is even consulted.",
+    env: "CAMPUS_FARE_MAX_AMOUNT_PESEWAS",
+    fallback: 3_000,
+    min: 0,
+    max: 1_000_000,
+  },
+  {
+    key: "campus_unmatched_refund_minutes",
+    kind: "number",
+    label: "campusRide unmatched refund window",
+    summary: "How long a paid seat may wait for a driver before the sweep refunds it, in minutes.",
+    detail: "A passenger who paid for a seat nobody took should not have to ask for their money back, so the sweep waits this long and then returns the fare. A campus shuttle turns around in minutes rather than hours, so the window is short by design: 30 is the default, and it measures from the moment the passenger paid rather than from when a driver was expected. Shortening it refunds earlier and empties the queue of money that is not earning a ride; lengthening it keeps a seat open for a driver who is still on the way. It only applies to a seat no one has taken — once a driver accepts, the seat is theirs and cancelling is the passenger's own choice under the cancellation policy.",
+    env: "CAMPUS_UNMATCHED_REFUND_MINUTES",
+    fallback: 30,
+    min: 0,
+    max: 43_200,
+  },
+  {
+    key: "campus_auto_refund_unmatched",
+    kind: "toggle",
+    label: "campusRide automatic unmatched refunds",
+    summary: "Let the scheduled job send unmatched-seat refunds without an administrator.",
+    detail: "On, the sweep approves each unmatched-seat refund as it is recorded, so Paystack returns the fare on its own. Off, the refund is still recorded and the passenger is still told, but it waits for an administrator in the campus refund desk before money leaves. This is deliberately separate from the payout switches: a refund returns money the platform already holds for a service it did not deliver, which is not the same act as releasing a payee's earnings. It is still reversible, so an operator who wants every refund reviewed can turn it off and lose only the automatic part.",
+    env: "CAMPUS_AUTO_REFUND_UNMATCHED",
+    fallback: false,
   },
 ];
 

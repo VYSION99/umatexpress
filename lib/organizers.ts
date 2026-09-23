@@ -7,6 +7,7 @@ import {
   revokeConsoleSessions,
 } from "@/lib/console-auth";
 import { ensureScheduledTripsTable } from "@/lib/dynamic-trips";
+import { notifyParty, providerDecisionNotice, providerKycNotice } from "@/lib/notify-templates";
 import { lastFour, maskAccountNumber, openSecret, sealSecret } from "@/lib/secret-box";
 import { findPayoutDestination, isPayoutMethod, type PayoutMethod } from "@/lib/paystack-banks";
 import { EMPTY_FLYER_PROMO, normalizeFlyerPromo, type FlyerPromo } from "@/lib/trip-notice";
@@ -349,6 +350,14 @@ export async function setOrganizerStatus(input: {
     targetType: "trip_organizer",
     targetReference: organizer.id,
     details: { from: organizer.status, reason },
+  });
+  // The decision is recorded either way; the applicant is told through the
+  // outbox, which is also the in-app record. A messaging failure is logged and
+  // never turns a recorded decision into an error on the console.
+  await notifyParty({
+    recipient: organizer.email,
+    reference: organizer.id,
+    notice: providerDecisionNotice("organizer", input.action, { reason }),
   });
   return getOrganizer(organizer.id);
 }
@@ -778,6 +787,13 @@ export async function reviewOrganizerKyc(input: {
     targetType: "trip_organizer",
     targetReference: organizer.id,
     details: { from: organizer.kycStatus, reason },
+  });
+  // KYC is what a payout waits on, so the outcome is worth telling them: a
+  // verified account can be paid, and a rejected one knows what to correct.
+  await notifyParty({
+    recipient: organizer.email,
+    reference: organizer.id,
+    notice: providerKycNotice("organizer", input.action, { reason }),
   });
   return getOrganizer(organizer.id);
 }

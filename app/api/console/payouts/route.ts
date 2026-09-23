@@ -1,6 +1,6 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
-import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutMinimumAmount, payoutReleaseMinutes, payoutTransferFee, platformPayoutBalance, recordPayoutBatch } from "@/lib/organizer-payouts";
+import { listPayoutOrganizers, organizerStatement, payoutAutoEnabled, payoutMinimumAmount, payoutReleaseMinutes, payoutTransferFee, platformPayoutBalance, previewPayoutRun, recordPayoutBatch } from "@/lib/organizer-payouts";
 import { getOrganizer, getOrganizerProfile } from "@/lib/organizers";
 import { getPaymentProviderRuntime, getPaystackFeePercentRuntime } from "@/lib/paystack";
 
@@ -29,8 +29,14 @@ export async function GET(request: Request) {
         getPaystackFeePercentRuntime(),
         payoutReleaseMinutes(),
       ]);
+      // What the next run would do, alongside what is owed: the desk answers
+      // "why has this organizer not been paid" without running the job. It is
+      // handed the balance read above rather than reading Paystack again, so the
+      // forecast cannot contradict the figure printed next to it.
+      const preview = await previewPayoutRun({ balance });
       return Response.json({
         organizers,
+        preview,
         automation: {
           enabled: autoEnabled,
           provider,

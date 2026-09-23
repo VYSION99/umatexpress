@@ -459,7 +459,7 @@
 
 /* Restrained depth system for the student CampusRide experience. */
 .campus-student-shell{--campus-depth:0 18px 38px rgba(22,55,43,.10),0 3px 8px rgba(22,55,43,.06);--campus-depth-hover:0 24px 48px rgba(22,55,43,.15),0 6px 12px rgba(22,55,43,.08);background:radial-gradient(circle at 86% 4%,rgba(226,179,76,.14),transparent 24%),linear-gradient(145deg,#f4f3ed,#edf4ef 62%,#f8f7f2);padding-top:18px}.campus-student-shell .campus-hero{min-height:78px;margin-bottom:12px;padding:12px 16px;border-radius:20px;box-shadow:var(--campus-depth);background:rgba(255,255,252,.94)}.campus-student-shell .campus-logo{width:70px;height:58px;border-radius:15px;box-shadow:0 8px 16px rgba(18,46,36,.12),inset 0 1px rgba(255,255,255,.85)}.campus-student-shell .campus-logo img{max-width:58px;max-height:48px}.campus-student-shell .campus-hero h1{font:750 clamp(25px,3vw,32px)/1.1 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.035em}.campus-student-shell .campus-hero nav{max-width:430px}.campus-student-shell .campus-hero nav a{min-height:44px;display:flex;align-items:center;padding:8px 12px;border-radius:13px;box-shadow:0 4px 9px rgba(22,55,43,.06)}.campus-student-shell .campus-status-banner{margin-bottom:12px;padding:10px 15px;border-radius:14px;background:rgba(248,252,248,.9);font-size:12px}.campus-student-shell .campus-two-column{align-items:start;grid-template-columns:minmax(0,1.04fr) minmax(350px,.96fr)}
-.campus-student-shell :is(.nearest-ride-finder,.ride-match-list,.campus-map-widget,.campus-ai-widget){border-color:rgba(42,78,64,.12);background:rgba(255,255,252,.95);box-shadow:var(--campus-depth)}.campus-student-shell .nearest-ride-finder{position:relative;z-index:2;margin-bottom:14px;padding:15px;border-radius:18px}.campus-student-shell .nearest-ride-finder select{min-height:48px;border-radius:12px;border-color:#cdd9d1;background:linear-gradient(#fff,#fbfcfa);box-shadow:inset 0 1px 2px rgba(20,50,38,.05)}.campus-student-shell :is(.nearest-ride-finder button,.ride-match-card button,.campus-ai-widget button){min-height:48px;border-radius:12px;background:linear-gradient(180deg,#17684f,#0d563f);box-shadow:0 6px 0 #083e2e,0 11px 20px rgba(13,86,63,.20);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease}.campus-student-shell :is(.nearest-ride-finder button,.ride-match-card button,.campus-ai-widget button):hover{filter:brightness(1.06);transform:translateY(-2px);box-shadow:0 8px 0 #083e2e,0 15px 24px rgba(13,86,63,.24)}.campus-student-shell :is(.nearest-ride-finder button,.ride-match-card button,.campus-ai-widget button):active{transform:translateY(4px);box-shadow:0 2px 0 #083e2e,0 5px 10px rgba(13,86,63,.18)}.campus-student-shell :is(button,select,input,textarea):focus-visible{outline:3px solid #d7a92d;outline-offset:3px}
+.campus-student-shell :is(.nearest-ride-finder,.ride-match-list,.campus-map-widget,.campus-ai-widget){border-color:rgba(42,78,64,.12);background:rgba(255,255,252,.95);box-shadow:var(--campus-depth)}.campus-student-shell .nearest-ride-finder{position:relative;z-index:2;margin-bottom:14px;padding:15px;border-radius:18px}.campus-student-shell .nearest-ride-finder select{min-height:48px;border-radius:12px;border-color:#cdd9d1;background:linear-gradient(#fff,#fbfcfa);box-shadow:inset 0 1px 2px rgba(20,50,38,.05)}.campus-student-shell :is(.nearest-ride-finder button,.ride-match-card button,.campus-ai-widget button){min-height:48px;border-radius:12px;background:linear-gradient(180deg,#17684f,#0d563f);box-shadow:0 6px 0 #083e2e,0 11px 20px rgba(13,86,63,.20);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease}.campus-student-shell :is(.nearest-ride-finder button,.ride-match-card button,.campus-ai-widget button):hover{filter:brightness(1.06);transform:translateY(-2px);box-shadow:0 8px 0 #083e2e,0 15px 24px rgba(13,86,63,.24)}.campus-student-shell :is(.nearest-ride-finder button,.ride-match-card button,.campus-ai-widget button):active{transform:translateY(4px);box-shadow:0 2px 0 #083e2e,0 5px 10px rgba(13,86,63,.18)}.campus-student-shell :is(button,select,input,textarea,a):focus-visible{outline:3px solid #d7a92d;outline-offset:3px}
 .campus-student-shell .ride-match-list{padding:16px;border-radius:20px}.campus-student-shell .ride-match-list>h2{margin-bottom:12px;font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:20px;font-weight:750}.ride-match-options{display:grid;gap:13px}.campus-student-shell .ride-match-card{position:relative;padding:16px;border-radius:17px;background:linear-gradient(145deg,#fff,#fbfcfa);box-shadow:0 9px 18px rgba(22,55,43,.07),inset 0 1px #fff;transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}.campus-student-shell .ride-match-card:hover{transform:translateY(-2px);box-shadow:0 15px 28px rgba(22,55,43,.11),inset 0 1px #fff}.campus-student-shell .ride-match-card.is-selected{border:2px solid #177456;box-shadow:0 18px 34px rgba(15,91,66,.17),0 0 0 4px rgba(23,116,86,.08);background:linear-gradient(145deg,#fff,#f1faf5)}.campus-student-shell .ride-match-card>div:first-child{flex-direction:row-reverse}.campus-student-shell .ride-match-card>div:first-child>strong{font-size:18px;margin-right:auto}.campus-student-shell .ride-match-card ul{margin-bottom:12px}.campus-student-shell .ride-match-card li{display:inline-flex;align-items:center;gap:5px;background:#eef3ef;border:1px solid #dfe8e2}.ride-select-control{width:100%}.ride-selected-actions{display:flex;align-items:center;justify-content:space-between!important;gap:12px;flex-wrap:wrap}.ride-selected-actions>span{display:inline-flex!important;align-items:center;gap:6px;padding:6px 9px!important;background:#dff5e9!important;color:#126447!important}.ride-selected-actions>.queue-join-form{width:100%}.campus-student-shell .queue-join-form{padding:14px;border-radius:14px;background:#fff;box-shadow:inset 0 0 0 1px rgba(23,116,86,.05)}.campus-student-shell .queue-join-form input{min-height:46px}.campus-student-shell .queue-join-form div button:last-child{box-shadow:0 4px 0 #d0dad3,0 7px 12px rgba(22,55,43,.08);background:#eef3ef;color:#17352a}
 .campus-student-shell .campus-map-widget{padding:16px;border-radius:20px}.campus-student-shell .campus-map-top h2{font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:19px;font-weight:750}.campus-student-shell .campus-map-canvas{min-height:345px;border-radius:17px;border-color:#cdddcf;background:radial-gradient(circle at 18% 30%,rgba(224,176,52,.18),transparent 19%),linear-gradient(135deg,#dbece1,#f9f3db);box-shadow:inset 0 3px 12px rgba(18,46,36,.09)}.campus-student-shell .campus-map-grid{background-image:linear-gradient(rgba(13,105,77,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(13,105,77,.09) 1px,transparent 1px),linear-gradient(32deg,transparent 47%,rgba(255,255,255,.72) 48%,rgba(255,255,255,.72) 53%,transparent 54%);background-size:38px 38px,38px 38px,150px 150px}.campus-student-shell .campus-map-pin{border:1px solid rgba(35,72,57,.11);box-shadow:0 7px 0 rgba(42,83,66,.11),0 13px 22px rgba(18,46,36,.13)}.campus-student-shell .campus-vehicle-dot{width:42px;height:42px;background:linear-gradient(145deg,#f5bb42,#dd7e19);color:#fff;border:4px solid #fff;box-shadow:0 7px 0 #9c5111,0 13px 22px rgba(72,46,13,.26);transition:transform .18s ease,box-shadow .18s ease}.campus-student-shell .campus-vehicle-dot.is-selected{transform:translateY(-4px) scale(1.14);background:linear-gradient(145deg,#2b9571,#0d6148);box-shadow:0 9px 0 #074936,0 18px 30px rgba(7,73,54,.28);z-index:3}.campus-student-shell .campus-ai-widget{border-radius:20px}.campus-student-shell .campus-ai-widget textarea{min-height:82px}
 @media(max-width:900px){.campus-student-shell .campus-hero{grid-template-columns:auto 1fr}.campus-student-shell .campus-hero nav{grid-column:1/-1;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;padding-bottom:3px}.campus-student-shell .campus-two-column{grid-template-columns:1fr}.campus-student-shell .nearest-ride-finder{grid-template-columns:1fr 1fr auto}.campus-student-shell .campus-map-widget{margin-top:0}}
@@ -477,7 +477,7 @@
 .admin-login-card{border-color:rgba(39,76,61,.14);background:rgba(255,255,252,.97);box-shadow:0 10px 0 rgba(16,55,42,.07),0 30px 70px rgba(18,45,35,.14)}.admin-login-card .login-logo{filter:drop-shadow(0 9px 12px rgba(32,24,15,.16))}.admin-login-card input{min-height:48px;box-shadow:inset 0 2px 4px rgba(18,46,36,.05)}.admin-login-card button{min-height:48px;background:linear-gradient(180deg,#17684f,#0d563f);box-shadow:0 6px 0 #083e2e,0 12px 22px rgba(13,86,63,.2)}.admin-login-card button:hover{transform:translateY(-2px);box-shadow:0 8px 0 #083e2e,0 16px 26px rgba(13,86,63,.23)}.admin-login-card button:active{transform:translateY(4px);box-shadow:var(--ui-press)}.admin-login-card :is(input,button,a):focus-visible{outline:3px solid var(--ui-gold);outline-offset:3px}
 .admin-page :is(.metric-grid article,.admin-table-card,.trip-scheduler-card,.trip-visibility-card,.scheduled-trip-item,.ai-response-box){border-color:rgba(39,76,61,.13);box-shadow:var(--ui-depth-sm)}.admin-page :is(.metric-grid article,.scheduled-trip-item,.trip-scheduler-card,.trip-visibility-card){transition:transform .16s ease,box-shadow .16s ease}.admin-page :is(.metric-grid article,.scheduled-trip-item):hover{transform:translateY(-2px);box-shadow:var(--ui-depth-md)}.admin-page :is(.save-schedule,.save-flyer,.ai-helper-button,.secondary-ai-button){min-height:44px;box-shadow:0 5px 0 rgba(8,62,46,.88),0 10px 19px rgba(13,86,63,.16);transition:transform .15s ease,box-shadow .15s ease}.admin-page :is(.save-schedule,.save-flyer,.ai-helper-button,.secondary-ai-button):active{transform:translateY(3px);box-shadow:var(--ui-press)}.admin-page :is(button,input,select,textarea,a):focus-visible{outline:3px solid var(--ui-gold);outline-offset:3px}
 .trip-card{box-shadow:0 6px 0 rgba(16,55,42,.06),0 15px 28px rgba(18,46,36,.07)}.trip-card:hover{box-shadow:0 9px 0 rgba(16,55,42,.07),0 23px 38px rgba(18,46,36,.12)}.trip-card.selected{box-shadow:0 8px 0 rgba(13,105,77,.15),0 22px 42px rgba(13,105,77,.15)}.summary,.flyer-promo,.search-card{box-shadow:var(--ui-depth-md)}.primary-button,.confirm-button{box-shadow:0 6px 0 #083e2e,0 12px 22px rgba(13,86,63,.2);transition:transform .15s ease,box-shadow .15s ease}.primary-button:active,.confirm-button:active{transform:translateY(4px);box-shadow:var(--ui-press)}.seats button.chosen{transform:translateY(-2px);box-shadow:0 5px 0 #91a52d,0 10px 18px rgba(213,240,75,.18)}
-.status-card,.payment-status-page>.ticket-card{box-shadow:0 10px 0 rgba(8,32,24,.18),0 34px 80px rgba(0,0,0,.24)}.ticket-seat-card{box-shadow:0 7px 0 #98ad2f,0 17px 30px rgba(16,40,30,.18)}.ticket-details>div,.ticket-grid>span{box-shadow:0 4px 0 rgba(16,55,42,.05),0 8px 16px rgba(18,46,36,.06)}.ticket-actions button{min-height:46px;background:linear-gradient(180deg,#17684f,#0d563f);box-shadow:0 5px 0 #083e2e,0 10px 18px rgba(13,86,63,.2);transition:transform .15s ease,box-shadow .15s ease}.ticket-actions button:active{transform:translateY(3px);box-shadow:var(--ui-press)}.campus-ticket-interface{background:radial-gradient(circle at 80% 5%,rgba(214,167,45,.18),transparent 28%),linear-gradient(145deg,#17382d,#0d281f)}
+.status-card,.payment-status-page>.ticket-card{box-shadow:0 10px 0 rgba(8,32,24,.18),0 34px 80px rgba(0,0,0,.24)}.ticket-seat-card{box-shadow:0 7px 0 #98ad2f,0 17px 30px rgba(16,40,30,.18)}.ticket-details>div,.ticket-grid>span{box-shadow:0 4px 0 rgba(16,55,42,.05),0 8px 16px rgba(18,46,36,.06)}.ticket-actions button{min-height:46px;background:linear-gradient(180deg,#17684f,#0d563f);box-shadow:0 5px 0 #083e2e,0 10px 18px rgba(13,86,63,.2);transition:transform .15s ease,box-shadow .15s ease}.ticket-actions button:active{transform:translateY(3px);box-shadow:var(--ui-press)}.campus-ticket-interface{background:radial-gradient(circle at 80% 5%,rgba(214,167,45,.18),transparent 28%),linear-gradient(145deg,#17382d,#0d281f)}.campus-ticket-interface :is(button,input,select,textarea):focus-visible{outline:3px solid var(--ui-gold,#d6a72d);outline-offset:3px}
 @media(max-width:760px){.campus-driver-shell,.campus-admin-shell{padding:12px}.campus-driver-shell .campus-hero,.campus-admin-shell .campus-hero{grid-template-columns:54px 1fr;gap:11px;padding:10px}.campus-driver-shell .campus-logo,.campus-admin-shell .campus-logo{width:54px;height:49px}.campus-driver-shell .campus-logo img,.campus-admin-shell .campus-logo img{max-width:44px;max-height:40px}.campus-driver-shell .campus-hero nav,.campus-admin-shell .campus-hero nav{grid-column:1/-1;display:flex;flex-wrap:nowrap;overflow-x:auto;padding-bottom:3px}.campus-driver-shell .campus-two-column,.campus-admin-shell .campus-two-column{grid-template-columns:1fr}.admin-login-card{padding:24px 20px}.admin-login-card h1{font-size:32px}}
 @media(prefers-reduced-motion:reduce){.campus-driver-shell *,.campus-admin-shell *,.admin-login-page *,.admin-page *,.status-page *,.payment-status-page *{transition:none!important;animation-duration:.001ms!important}.campus-driver-shell :is(.campus-widget-card,button):hover,.campus-admin-shell :is(.campus-panel,button):hover,.admin-page :is(article,button):hover,.admin-login-card button:hover{transform:none!important}}
 @media print{.status-card,.payment-status-page>.ticket-card,.ticket-seat-card,.ticket-details>div,.ticket-grid>span{box-shadow:none}}
@@ -488,9 +488,9 @@
 .campus-live-progress{margin:0 0 14px;padding:16px 18px;border:1px solid rgba(39,76,61,.13);border-radius:20px;background:rgba(255,255,252,.97);box-shadow:0 8px 0 rgba(16,55,42,.05),0 20px 40px rgba(18,46,36,.08)}
 .campus-live-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
 .campus-live-head>div:first-child{display:grid;gap:3px}
-.campus-live-head small{font-size:10px;letter-spacing:.13em;text-transform:uppercase;font-weight:900;color:#738179}
+.campus-live-head small{font-size:10px;letter-spacing:.13em;text-transform:uppercase;font-weight:900;color:var(--ui-muted,#57675f)}
 .campus-live-head strong{font-size:19px;letter-spacing:-.02em}
-.campus-live-head span{font-size:12px;color:#65766d}
+.campus-live-head span{font-size:12px;color:var(--ui-muted,#57675f)}
 .campus-live-eta{display:grid;justify-items:center;gap:2px;min-width:104px;padding:10px 12px;border-radius:16px;background:var(--mint);color:#0b3f2e;text-align:center}
 .campus-live-eta svg{color:var(--green)}
 .campus-live-eta b{font-size:16px}
@@ -504,17 +504,41 @@
 .campus-live-steps li>div{display:grid;gap:1px;padding-top:2px}
 .campus-live-steps strong{font-size:13px}
 .campus-live-steps li.is-current strong{color:var(--green)}
-.campus-live-steps small{font-size:11px;color:#6d7d74}
+.campus-live-steps small{font-size:11px;color:var(--ui-muted,#57675f)}
+/* A caveat next to the ETA, in the quietest voice on the card: it is the
+   difference between a live position and the route's usual time. */
+.campus-live-note{margin:10px 0 0;font-size:11px;line-height:1.5;color:var(--ui-muted,#57675f)}
 .campus-live-driver{display:flex;align-items:center;gap:7px;margin:14px 0 0;padding-top:12px;border-top:1px dashed #d5ddd7;font-size:12px;color:#4a5c52}
 .campus-offline-banner{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:11px 14px;border-radius:14px;background:#fff5dc;border:1px solid #e8d194;color:#6b5215;font-size:12px;font-weight:700}
 .campus-ticket-notice{margin:0 0 12px;text-align:center;font-size:12px;font-weight:700;color:var(--green)}
+/* campusRide cancelling a seat: the policy quote first, then a decision. The
+   refund line stays up after the seat is gone, because that is when a passenger
+   most wants to know where their money is. */
+.campus-refund-line{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 12px;padding:11px 14px;border-radius:14px;background:#eef7f1;border:1px solid #cfe4d8;color:#0b3f2e;font-size:12.5px;font-weight:750;text-align:center}
+.campus-refund-line svg{flex:0 0 auto;color:var(--green)}
+.campus-refund-line.is-requested,.campus-refund-line.is-approved{background:#fff8e6;border-color:#ecd9a3;color:#6b5215}
+.campus-refund-line.is-failed,.campus-refund-line.is-declined{background:#fdecec;border-color:#f2c9c9;color:#a12b2b}
+.campus-cancel-panel{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;margin:0 0 12px;padding:14px 16px;border:1px solid rgba(39,76,61,.13);border-radius:18px;background:rgba(255,255,252,.97);box-shadow:0 8px 0 rgba(16,55,42,.05),0 20px 40px rgba(18,46,36,.08)}
+.campus-cancel-panel>div:first-child{display:grid;gap:3px}
+.campus-cancel-panel strong{font-size:14px}
+.campus-cancel-panel small{font-size:11.5px;color:var(--ui-muted,#57675f);line-height:1.5}
+.campus-cancel-amount{color:var(--green);font-weight:800}
+.campus-cancel-button{border:1px solid rgba(13,105,77,.35);border-radius:999px;background:transparent;color:var(--green);min-height:44px;padding:11px 18px;font-size:12.5px;font-weight:900;cursor:pointer;white-space:nowrap}
+.campus-cancel-button:hover{background:#eef7f1}
+.campus-cancel-confirm{grid-column:1/-1;display:grid;gap:10px;padding-top:12px;border-top:1px dashed #d5ddd7}
+.campus-cancel-confirm p{margin:0;font-size:13px;font-weight:750;color:var(--ink)}
+.campus-cancel-confirm>div{display:flex;gap:9px;flex-wrap:wrap}
+.campus-cancel-confirm button{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(39,76,61,.2);border-radius:12px;background:#fff;color:var(--ink);min-height:44px;padding:10px 16px;font-size:12.5px;font-weight:850;cursor:pointer}
+.campus-cancel-confirm button.is-danger{border-color:#e0b4b4;background:#fdecec;color:#a12b2b}
+.campus-cancel-confirm button:disabled{opacity:.6;cursor:not-allowed}
+@media(max-width:600px){.campus-cancel-panel{grid-template-columns:1fr}}
 .queue-join-remembered{color:var(--green);font-weight:700}
 .queue-join-remembered .queue-join-forget{margin-left:6px;padding:2px 8px;border:1px solid rgba(13,105,77,.35);border-radius:999px;background:transparent;color:var(--green);font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
 .driver-summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:12px}
 .driver-summary-grid>span{display:grid;gap:3px;padding:11px 12px;border:1px solid rgba(39,76,61,.13);border-radius:14px;background:rgba(255,255,255,.72);font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#738179}
 .driver-summary-grid strong{font-size:22px;letter-spacing:-.03em;color:var(--ink)}
 @media(max-width:600px){.campus-live-head{flex-direction:column}.campus-live-eta{justify-items:start;text-align:left;width:100%}}
-@media print{.campus-live-progress,.campus-offline-banner,.campus-ticket-notice{display:none!important}}
+@media print{.campus-live-progress,.campus-offline-banner,.campus-ticket-notice,.campus-cancel-panel,.campus-refund-line,.campus-feedback-panel{display:none!important}}
 
 /* ========================================
    campusRide SHELL
@@ -567,7 +591,7 @@
    ======================================== */
 
 .payment-status-page{min-height:100vh;display:grid;place-items:center;align-content:center;gap:16px;padding:24px}
-.payment-status-page>:is(.travel-ticket,.campus-live-progress,.campus-offline-banner){width:min(860px,100%)}
+.payment-status-page>:is(.travel-ticket,.campus-live-progress,.campus-offline-banner,.campus-cancel-panel,.campus-refund-line,.campus-feedback-panel,.ticket-actions){width:min(860px,100%)}
 .payment-status-page>h1{margin:0;text-align:center;color:#fffefa;font:750 clamp(24px,3.6vw,36px)/1.15 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.03em}
 .payment-status-page>p{margin:0;max-width:52ch;text-align:center;color:#d5e4da;font-size:14px;line-height:1.65}
 .payment-status-page>a{padding:13px 20px;border-radius:12px;background:#fffefa;color:var(--green);font-weight:800}
@@ -860,3 +884,116 @@
 .hostel-resident-refund-chip{display:inline-flex;align-items:center;justify-self:start;border-radius:999px;padding:5px 11px;font-size:11px;font-weight:900;letter-spacing:.04em;background:var(--ui-yellow-soft);color:var(--ui-yellow-ink)}
 .hostel-resident-refund-paid{background:var(--ui-green-soft);color:var(--ui-green-deep)}
 .hostel-resident-refund-declined,.hostel-resident-refund-failed{background:#fdecec;color:#a12b2b}
+
+/* campusRide fare guardrails. A corridor's fare is checked against the floor and
+   the ceiling below before it can be saved, so the console shows both next to the
+   number it is about to accept. A status is carried by the chip's words as well as
+   its colour: `UNCHECKED` is a tariff nobody has measured, not a passing one. */
+.campus-fare-hint{color:var(--ui-muted);font-size:11px;font-weight:700}
+.campus-fare-ack{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:750;color:var(--ui-ink)}
+.campus-fare-ack input{width:auto}
+.campus-fare-guard{margin-top:18px;padding-top:16px;border-top:1px solid var(--ui-line);display:grid;gap:10px}
+.campus-fare-guard-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.campus-fare-guard-head p{margin:0;color:var(--ui-green);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
+.campus-fare-guard-head h3{margin:3px 0 0;font-size:17px}
+.campus-fare-guard-summary{padding:7px 11px;border-radius:999px;background:var(--ui-green-soft);color:var(--ui-green-deep);font-size:11px;font-weight:900}
+.campus-fare-guard-caveat{margin:0;color:var(--ui-muted);font-size:11.5px;font-weight:700;line-height:1.5}
+.campus-fare-guard-rows{display:grid;gap:10px}
+.campus-fare-guard-rows article{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:6px 12px;padding:12px 13px;border:1px solid var(--ui-line);border-radius:14px;background:#fff}
+.campus-fare-guard-rows article>div{min-width:0}
+.campus-fare-guard-rows strong{display:block;font-size:14.5px}
+.campus-fare-guard-rows article>div>span{display:block;margin-top:3px;color:var(--ui-muted);font-size:11.5px;font-weight:750}
+.campus-fare-guard-rows small{grid-column:1/-1;color:var(--ui-muted);font-size:11.5px;font-weight:700;line-height:1.5}
+.campus-fare-guard-chip{align-self:start;padding:5px 10px;border-radius:999px;font-size:10.5px;font-weight:900;letter-spacing:.03em;background:#eef4ef;color:#43594f;white-space:nowrap}
+.campus-fare-guard-chip.is-ok{background:var(--ui-green-soft);color:var(--ui-green-deep)}
+.campus-fare-guard-chip.is-below_floor,.campus-fare-guard-chip.is-unpriced{background:#fdecec;color:#a12b2b}
+.campus-fare-guard-chip.is-above_ceiling,.campus-fare-guard-chip.is-out_of_range{background:var(--ui-yellow-soft);color:var(--ui-yellow-ink)}
+@media(max-width:650px){.campus-fare-guard-rows article{grid-template-columns:1fr}.campus-fare-guard-chip{justify-self:start}}
+.campus-fare-guard-costs{margin:0;padding:9px 11px;border:1px dashed var(--ui-line);border-radius:12px;background:#fbfdfc;color:var(--ui-muted);font-size:11.5px;font-weight:750}
+
+/* ========================================
+   campusRide DEPARTURES
+   Route-first entry: the board answers "what is running" before the finder asks
+   "where are you going", and it is where a student asks to be told when a route
+   has nothing live.
+   ======================================== */
+
+.departure-board{margin:0 0 18px;padding:18px 20px;border:1px solid rgba(39,76,61,.13);border-radius:22px;background:rgba(255,255,252,.97);box-shadow:0 8px 0 rgba(16,55,42,.05),0 20px 40px rgba(18,46,36,.08)}
+.departure-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.departure-head p{margin:0 0 4px;font-size:10px;letter-spacing:.14em;font-weight:900;color:var(--ui-muted,#57675f)}
+.departure-head h2{margin:0 0 4px;font-size:20px;letter-spacing:-.025em}
+.departure-head span{font-size:12px;color:var(--ui-muted,#57675f)}
+.departure-total{display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:999px;background:var(--mint);color:#0b3f2e;font-size:12px;font-weight:800}
+.departure-message{display:flex;align-items:center;gap:8px;margin:14px 0 0;padding:11px 14px;border-radius:14px;background:#eef7f1;border:1px solid #cfe4d8;color:#0b3f2e;font-size:12.5px;font-weight:750}
+.departure-error{margin:14px 0 0;padding:11px 14px;border-radius:14px;background:#fdecec;border:1px solid #f2c9c9;color:#a12b2b;font-size:12.5px;font-weight:750}
+.departure-hint{margin:12px 0 0;font-size:12px;color:var(--ui-muted,#57675f)}
+.departure-hint a{color:var(--green);font-weight:800}
+.departure-list{list-style:none;display:grid;gap:10px;margin:16px 0 0;padding:0}
+.departure-empty{margin:0;padding:20px 18px;border:1px dashed rgba(39,76,61,.22);border-radius:16px;background:#fbfdfc;color:var(--ui-muted,#57675f);font-size:13px;line-height:1.6;text-align:center;list-style:none}.departure-row{display:grid;grid-template-columns:minmax(180px,1.6fr) minmax(150px,1fr) auto auto;align-items:center;gap:14px;padding:13px 15px;border:1px solid rgba(39,76,61,.12);border-radius:16px;background:#fff}
+.departure-row.is-live{border-color:#bfe0cd;background:linear-gradient(180deg,#fbfefc,#f4fbf7)}
+.departure-row.is-selected{border-color:var(--green);box-shadow:0 0 0 3px rgba(13,105,77,.12)}
+.departure-route{display:grid;gap:3px;min-width:0}
+.departure-route strong{font-size:14px;letter-spacing:-.01em}
+.departure-route small{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ui-muted,#57675f)}
+.departure-facts{display:flex;gap:16px}
+.departure-facts span{display:grid;gap:2px}
+.departure-facts b{display:inline-flex;align-items:center;gap:4px;font-size:13.5px}
+.departure-facts small{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ui-muted,#57675f);font-weight:800}
+.departure-seats{display:grid;justify-items:center;gap:1px;min-width:74px;padding:7px 10px;border-radius:13px;background:var(--mint);color:#0b3f2e}
+.departure-seats b{font-size:18px;letter-spacing:-.03em}
+.departure-seats b.is-quiet{color:var(--ui-muted,#57675f)}
+.departure-seats small{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:900;color:#2f5f4c}
+.departure-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.departure-actions a,.departure-actions button{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 14px;border:1px solid rgba(39,76,61,.2);border-radius:11px;background:#fff;color:var(--ink);font-size:12.5px;font-weight:850;cursor:pointer;white-space:nowrap}
+.departure-actions .departure-join{background:var(--green);border-color:var(--green);color:#fff}
+.departure-actions button:hover{border-color:var(--green);color:var(--green)}
+.departure-watching{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:850;color:var(--green)}
+.departure-watch-form{grid-column:1/-1;display:grid;gap:9px;padding-top:12px;border-top:1px dashed #d5ddd7}
+.departure-watch-form p{margin:0;font-size:13px;font-weight:750}
+.departure-watch-form small{font-size:11.5px;color:var(--ui-muted,#57675f)}
+.departure-watch-form input{width:100%;max-width:340px;min-height:44px;padding:0 12px;border:1px solid rgba(39,76,61,.2);border-radius:11px;font:inherit;font-size:13px;outline:none}
+.departure-watch-form input:focus-visible{outline:2px solid var(--ui-cyan,#0e7490);outline-offset:1px}
+.departure-watch-form>div{display:flex;gap:8px;flex-wrap:wrap}
+.departure-watch-form button{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 15px;border:1px solid rgba(39,76,61,.2);border-radius:11px;background:#fff;color:var(--ink);font-size:12.5px;font-weight:850;cursor:pointer}
+.departure-watch-form button[type="submit"]{background:var(--ui-yellow,#eab308);border-color:var(--ui-yellow,#eab308);color:var(--ui-yellow-ink,#3f3000)}
+.departure-watch-form button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:760px){.departure-row{grid-template-columns:1fr 1fr;row-gap:12px}.departure-actions{grid-column:1/-1;justify-content:flex-start}}
+
+/* ========================================
+   campusRide POST-TRIP FEEDBACK
+   A score and a complaint are different acts and look different: the score is
+   one row of stars the driver sees as an average, the complaint opens a form
+   because a person has to read it.
+   ======================================== */
+
+.campus-feedback-panel{margin:0 0 12px;padding:16px 18px;border:1px solid rgba(39,76,61,.13);border-radius:20px;background:rgba(255,255,252,.97);box-shadow:0 8px 0 rgba(16,55,42,.05),0 20px 40px rgba(18,46,36,.08)}
+.campus-feedback-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.campus-feedback-head p{margin:0 0 4px;font-size:10px;letter-spacing:.14em;font-weight:900;color:var(--ui-muted,#57675f)}
+.campus-feedback-head h2{margin:0 0 4px;font-size:18px;letter-spacing:-.02em}
+.campus-feedback-head span{font-size:12px;color:var(--ui-muted,#57675f)}
+.campus-rating{display:flex;align-items:center;gap:4px}
+.campus-rating button{display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:12px;background:none;cursor:pointer;color:#7b8a80;line-height:0}.campus-rating button:hover{color:var(--ui-yellow-ink,#8a5a06)}.campus-rating button:focus-visible{outline:3px solid var(--ui-gold,#d6a72d);outline-offset:2px}
+.campus-rating button.is-on{color:var(--ui-yellow-ink,#8a5a06)}
+.campus-rating button.is-on svg{fill:var(--ui-yellow,#eab308)}
+.campus-rating small{margin-left:6px;font-size:12px;font-weight:850;color:#3f5147}
+.campus-feedback-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:14px}
+.campus-feedback-actions input{flex:1 1 220px;min-height:44px;padding:0 12px;border:1px solid rgba(39,76,61,.2);border-radius:11px;font:inherit;font-size:13px;outline:none}
+.campus-feedback-actions input:focus-visible{outline:2px solid var(--ui-cyan,#0e7490);outline-offset:1px}
+.campus-feedback-actions button{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 15px;border:1px solid var(--green);border-radius:11px;background:var(--green);color:#fff;font-size:12.5px;font-weight:850;cursor:pointer}
+.campus-feedback-actions button.campus-report-button{background:#fff;border-color:#e8c3bd;color:#9c3026}
+.campus-feedback-actions button:disabled{opacity:.55;cursor:not-allowed}
+.campus-report-form{display:grid;gap:9px;margin-top:14px;padding-top:14px;border-top:1px dashed #d5ddd7}
+.campus-report-form strong{font-size:14px}
+.campus-report-form small{font-size:11.5px;color:var(--ui-muted,#57675f)}
+.campus-report-form select,.campus-report-form textarea{width:100%;min-height:44px;padding:10px 12px;border:1px solid rgba(39,76,61,.2);border-radius:11px;font:inherit;font-size:13px;outline:none}
+.campus-report-form textarea{resize:vertical;min-height:92px}
+.campus-report-form select:focus-visible,.campus-report-form textarea:focus-visible{outline:2px solid var(--ui-cyan,#0e7490);outline-offset:1px}
+.campus-report-form>div{display:flex;gap:8px;flex-wrap:wrap}
+.campus-report-form button{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 15px;border:1px solid rgba(39,76,61,.2);border-radius:11px;background:#fff;color:var(--ink);font-size:12.5px;font-weight:850;cursor:pointer}
+.campus-report-form button[type="submit"]{background:#fdecec;border-color:#e8c3bd;color:#9c3026}
+.campus-report-form button:disabled{opacity:.55;cursor:not-allowed}
+.campus-feedback-message{display:flex;align-items:center;gap:8px;margin:14px 0 0;font-size:12.5px;font-weight:750;color:var(--green)}
+.campus-feedback-error{margin:14px 0 0;font-size:12.5px;font-weight:750;color:#a12b2b}
+/* The driver's own record: a line under today's totals, never a single review. */
+.campus-driver-rating{display:block;margin-top:10px;font-size:12px;color:#57675f}
+.campus-driver-rating strong{color:var(--ink)}

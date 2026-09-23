@@ -1,4 +1,5 @@
 import { requireDriver } from "@/lib/campus-engine/driver-auth";
+import { campusDriverRatingSummary } from "@/lib/campus-engine/feedback";
 import { ensureCampusRideTables } from "@/lib/campus-ride";
 import { utcDay } from "@/lib/observability";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
@@ -9,7 +10,7 @@ const ACTIVE_SQL = "'PAID_WAITING','ACCEPTED_BY_DRIVER','DRIVER_ARRIVED','BOARDE
 export async function driverSummary(request: Request) {
   const driver = await requireDriver(request);
   const day = utcDay();
-  const empty = { configured: false, day, completed: 0, boarded: 0, grossFares: 0, activeQueue: 0, nextPickup: null as null | { reference: string; queuePosition: number; passengerName: string; pickupZone: string } };
+  const empty = { configured: false, day, completed: 0, boarded: 0, grossFares: 0, activeQueue: 0, rating: { average: 0, count: 0, lastAt: "", visible: false }, nextPickup: null as null | { reference: string; queuePosition: number; passengerName: string; pickupZone: string } };
   if (!(await isTursoConfiguredRuntime())) return empty;
   await ensureCampusRideTables();
 
@@ -35,9 +36,15 @@ export async function driverSummary(request: Request) {
     [driver.id],
   ))[0];
 
+  // The driver's own running average, never a single review: one unhappy trip
+  // is noise, and showing it as a comment would teach drivers to avoid the
+  // passengers most likely to complain.
+  const rating = await campusDriverRatingSummary(driver.id).catch(() => ({ average: 0, count: 0, lastAt: "", visible: false }));
+
   return {
     configured: true,
     day,
+    rating,
     completed: Number(totals?.completed || 0),
     boarded: Number(totals?.boarded || 0),
     grossFares: Number(totals?.gross || 0),

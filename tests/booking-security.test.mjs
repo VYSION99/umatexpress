@@ -460,8 +460,11 @@ test("campusRide Paystack settlement confirms queue and reserves a slot", async 
       const names = ["ride_pin", "accepted_at", "arrived_at", "boarded_at", "completed_at", "cancelled_at"];
       return Response.json({ results: [{ type: "ok", response: { result: { rows: names.map((name) => [{ value: 0 }, { value: name }]), cols: [{ name: "cid" }, { name: "name" }] } } }] });
     }
-    if (sql.includes("SELECT id,queue_entry_id,reference,provider,amount,status FROM campus_payments")) {
-      return Response.json({ results: [{ type: "ok", response: { result: { rows: [[{ value: "payment-1" }, { value: "queue-1" }, { value: "pay-ref-1" }, { value: "PAYSTACK" }, { value: 18358 }, { value: "PENDING" }]], cols: [{ name: "id" }, { name: "queue_entry_id" }, { name: "reference" }, { name: "provider" }, { name: "amount" }, { name: "status" }] } } }] });
+    // The payment read carries the fare as well as the checkout total, because
+    // the settlement split is taken from the fare and the rail's fee is not
+    // revenue. It is matched loosely so the column list may grow.
+    if (/SELECT id,queue_entry_id,reference,provider,amount,(fare_amount,)?status FROM campus_payments/.test(sql)) {
+      return Response.json({ results: [{ type: "ok", response: { result: { rows: [[{ value: "payment-1" }, { value: "queue-1" }, { value: "pay-ref-1" }, { value: "PAYSTACK" }, { value: 18358 }, { value: 18000 }, { value: "PENDING" }]], cols: [{ name: "id" }, { name: "queue_entry_id" }, { name: "reference" }, { name: "provider" }, { name: "amount" }, { name: "fare_amount" }, { name: "status" }] } } }] });
     }
     return Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [], affected_row_count: 1 } } }] });
   };

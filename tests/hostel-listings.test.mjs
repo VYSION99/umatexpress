@@ -22,6 +22,7 @@ const rooms = [];
 const spaces = [];
 const periods = [];
 const listings = [];
+const notices = [];
 const statements = [];
 
 function cell(value) {
@@ -39,7 +40,7 @@ const LISTING_ROW_COLUMNS = [
   "id", "space_id", "period_id", "price", "status", "review_reason", "submitted_at", "reviewed_at", "reviewed_by", "created_at", "updated_at",
   "space_status", "room_status", "room_label", "space_label", "property_id", "property_name", "property_status",
   "period_name", "period_starts_on", "period_active", "utilities_enabled", "utilities_fee", "capacity",
-  "landlord_id", "landlord_name", "landlord_phone", "landlord_kyc_status",
+  "landlord_id", "landlord_name", "landlord_phone", "landlord_kyc_status", "landlord_email",
 ];
 const PERIOD_ROW_COLUMNS = ["id", "name", "starts_on", "ends_on", "active", "created_at"];
 const PROPERTY_ROW_COLUMNS = ["id", "landlord_id", "name", "address", "latitude", "longitude", "utilities_enabled", "status", "created_at", "updated_at"];
@@ -70,6 +71,7 @@ function listingRow(listing) {
     landlord_name: landlord.organization || landlord.name || "",
     landlord_phone: landlord.phone || "",
     landlord_kyc_status: landlord.kyc_status || "PENDING",
+    landlord_email: landlord.email || "",
   };
 }
 
@@ -143,6 +145,10 @@ function handle(sql, args) {
     const [id, spaceId, periodId, price, createdAt, updatedAt] = args;
     listings.push({ id, space_id: spaceId, period_id: periodId, price: Number(price), status: "DRAFT", review_reason: "", submitted_at: "", reviewed_at: "", reviewed_by: "", created_at: createdAt, updated_at: updatedAt });
     return ok();
+  }
+  if (/INSERT INTO notification_outbox/.test(sql)) {
+    notices.push({ recipient: args[2], template: args[3], subject: args[4], message: args[5], reference: args[6] });
+    return ok({ affected_row_count: 1 });
   }
   if (/^SELECT l\.id AS listing_id/.test(sql)) {
     // The public read: only approved beds, with the property filter when asked.
@@ -543,6 +549,41 @@ test("suspending hides a live bed for a stated reason", async () => {
   const suspended = await reviewHostelListing({ listingId: listing.id, action: "SUSPEND", reason: "Building condemned by the assembly.", actor: "admin@umat.edu.gh" });
   assert.equal(suspended.status, "SUSPENDED");
   assert.equal(suspended.reviewReason, "Building condemned by the assembly.");
+});
+
+/**
+ * The two-party half of a review. The landlord owns the bed and is the one who
+ * has to act on the decision, so each decision reaches them as its own message,
+ * naming the bed they built and carrying the reason a rejection or a suspension
+ * depends on.
+ */
+test("a review decision reaches the landlord, one message per outcome", async () => {
+  notices.length = 0;
+  const { beds } = await buildProperty("landlord-a", 2, { name: "Owusu Hostels" });
+  const period = await buildPeriod();
+  const live = await createHostelListing("landlord-a", { spaceId: beds[0].id, periodId: period.id, price: 205000 });
+  const draft = await createHostelListing("landlord-a", { spaceId: beds[1].id, periodId: period.id, price: 150000 });
+
+  await submitHostelListing("landlord-a", live.id);
+  await reviewHostelListing({ listingId: live.id, action: "APPROVE", actor: "mod@umat.edu.gh" });
+  assert.deepEqual(notices.map((row) => row.template), ["landlord_listing_approved"]);
+  assert.equal(notices[0].recipient, "owusu@example.com", "the landlord is the second party, not the reviewer");
+  assert.equal(notices[0].reference, live.id, "the reference is the listing, so one decision cannot send twice");
+  assert.match(notices[0].subject, /live/i);
+  assert.match(notices[0].message, /Owusu Hostels/, "a decision names the bed the landlord built, not a listing id");
+
+  notices.length = 0;
+  await reviewHostelListing({ listingId: live.id, action: "SUSPEND", reason: "Student complaint under investigation.", actor: "admin@umat.edu.gh" });
+  assert.deepEqual(notices.map((row) => row.template), ["landlord_listing_suspended"]);
+  assert.match(notices[0].message, /Student complaint under investigation/, "a suspension says why the listing came down");
+  assert.match(notices[0].message, /stays hidden/i, "the landlord is told the listing does not come back on its own");
+
+  notices.length = 0;
+  await submitHostelListing("landlord-a", draft.id);
+  await reviewHostelListing({ listingId: draft.id, action: "REJECT", reason: "The photo shows a different building.", actor: "mod@umat.edu.gh" });
+  assert.deepEqual(notices.map((row) => row.template), ["landlord_listing_rejected"]);
+  assert.match(notices[0].message, /The photo shows a different building/, "a rejection carries the reason, or it is a dead end");
+  assert.match(notices[0].subject, /needs changes/i);
 });
 
 test("only approved beds in live rooms are visible to students", async () => {

@@ -65,10 +65,12 @@ const contactFields: readonly ConsoleApplicationField[] = [
 ];
 
 /**
- * Every service someone may apply for. An application never mints an
- * operational role: a driver or a moderator is set up by the team that runs
- * them (see `consoleInvitedAccess`), or the apply page would be a way to
- * promote yourself.
+ * Every service someone may apply for. An application never makes anyone
+ * operational on its own: a driver application writes a parked account and an
+ * inactive driver record, a moderator or administrator is still created by an
+ * administrator (see `consoleInvitedAccess`), and publishing, payouts and
+ * visibility stay behind their own reviews. An apply page must never be a way
+ * to promote yourself.
  */
 export const consoleApplications: readonly ConsoleApplication[] = [
   {
@@ -112,6 +114,20 @@ export const consoleApplications: readonly ConsoleApplication[] = [
     ],
   },
   {
+    id: "driver",
+    role: "DRIVER",
+    title: "Drive on campusRide",
+    short: "campusRide driver",
+    blurb: "Take a queue and move students around campus.",
+    detail: "Apply to drive on campusRide. Operations reviews every application before you can sign in, then assigns the vehicle, zone and corridor you drive.",
+    applyLabel: "Apply to drive",
+    status: "OPEN",
+    activation: "REVIEW",
+    reviewService: "campus",
+    endpoint: "/api/console/applications/driver",
+    fields: [...contactFields, passwordField(10)],
+  },
+  {
     id: "vendor",
     role: null,
     title: "Sell on campus",
@@ -146,7 +162,7 @@ export const consoleApplications: readonly ConsoleApplication[] = [
  * OPEN while its handler is still being built — the API answers 501 instead of
  * pretending — but this list and the OPEN status must agree the day it ships.
  */
-export const implementedConsoleApplicationIds: readonly string[] = ["organizer", "landlord"];
+export const implementedConsoleApplicationIds: readonly string[] = ["organizer", "landlord", "driver"];
 
 export function consoleApplicationById(id: string): ConsoleApplication | null {
   return consoleApplications.find((application) => application.id === id) || null;
@@ -170,13 +186,6 @@ export type ConsoleInvitedAccess = {
 };
 
 export const consoleInvitedAccess: readonly ConsoleInvitedAccess[] = [
-  {
-    id: "driver",
-    roles: ["DRIVER"],
-    title: "CampusRide driver",
-    detail: "Drivers are added by CampusRide operations together with their vehicle, zone and corridor. There is no public driver sign-up.",
-    contact: "Ask CampusRide operations to add you to a vehicle and zone.",
-  },
   {
     id: "staff",
     roles: ["ADMIN", "MODERATOR"],

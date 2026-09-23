@@ -1,6 +1,8 @@
 import { ensureCampusRideTables } from "@/lib/campus-ride";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { campusPickupEta } from "@/lib/campus-engine/eta";
 import { estimateWaitMinutes, queueProgress, waitLabel } from "@/lib/campus-engine/progress";
+import { campusRefundQuote, latestCampusRefundForEntry } from "@/lib/campus-engine/refunds";
 import { paymentTokenFromRequest, verifyPaymentToken } from "@/lib/payment-access";
 import { incrementMetric } from "@/lib/observability";
 import { studentOwnsEmail } from "@/lib/student-auth";
@@ -21,15 +23,17 @@ export async function campusQueueStatus(request: Request, reference: string) {
   await ensureCampusRideTables();
 
   const row = rowsToObjects(await turso(
-    `SELECT q.id, q.reference, q.ride_id, q.queue_position, q.payment_status, q.queue_status,
+    `SELECT q.id, q.reference, q.ride_id, q.queue_position, q.payment_status, q.queue_status, q.amount,
         q.created_at, q.accepted_at, q.arrived_at, q.boarded_at, q.completed_at, q.cancelled_at, q.email,
+        COALESCE(p.fare_amount,0) AS fare_amount, COALESCE(p.fee_amount,0) AS fee_amount, p.reference AS payment_reference,
         COALESCE(oz.name,'') AS pickup_zone, COALESCE(dz.name,'') AS destination_zone,
         COALESCE(c.name,'') AS corridor_name, COALESCE(c.estimated_minutes,0) AS estimated_minutes,
         COALESCE(r.capacity,0) AS capacity, COALESCE(r.status,'') AS ride_status, COALESCE(r.accepting_queue,0) AS accepting_queue,
         COALESCE(r.current_latitude,0) AS current_latitude, COALESCE(r.current_longitude,0) AS current_longitude,
         COALESCE(r.last_location_at,'') AS last_location_at,
         COALESCE(d.name,'') AS driver_name, COALESCE(v.label,'') AS vehicle_label, COALESCE(v.plate_number,'') AS plate_number,
-        COALESCE(dz2.name,'') AS driver_zone, p.status AS payment_status_db, p.access_token_hash
+        COALESCE(dz2.name,'') AS driver_zone, p.status AS payment_status_db, p.access_token_hash,
+        oz.latitude AS pickup_latitude, oz.longitude AS pickup_longitude
        FROM campus_queue_entries q
        JOIN campus_payments p ON p.queue_entry_id = q.id
        LEFT JOIN campus_rides r ON r.id = q.ride_id
@@ -69,6 +73,29 @@ export async function campusQueueStatus(request: Request, reference: string) {
   // Without a vehicle capacity the batch estimate would be misleading, so the
   // passenger sees "people ahead" only.
   const estimatedWaitMinutes = active && capacity > 0 ? estimateWaitMinutes({ peopleAhead: peopleAhead || 0, capacity, tripMinutes }) : null;
+  // Once a driver has the seat, a live position beats a queue-batch estimate:
+  // the passenger is waiting on one vehicle rather than on a turn. Before that,
+  // there is nobody to measure and this stays null.
+  const claimed = status === "ACCEPTED_BY_DRIVER" || status === "DRIVER_ARRIVED";
+  const pickupEta = claimed
+    ? campusPickupEta({
+        driverPosition: { latitude: Number(row.current_latitude || 0), longitude: Number(row.current_longitude || 0) },
+        driverPositionAt: String(row.last_location_at || ""),
+        pickupZone: { latitude: Number(row.pickup_latitude || 0), longitude: Number(row.pickup_longitude || 0) },
+        driverZoneId: String(row.current_zone_id || ""),
+        pickupZoneId: String(row.pickup_zone_id || ""),
+        arrived: status === "DRIVER_ARRIVED",
+        corridorMinutes: tripMinutes,
+      })
+    : null;
+  // What cancelling would cost, and whatever the policy already recorded. Both
+  // are read on the same request as the status so the ticket's Cancel button and
+  // its refund line can never disagree with the ledger behind them.
+  const cancellation = campusRefundQuote({
+    id: String(row.id), reference, rideId, queueStatus: status, paymentStatus: String(row.payment_status_db || row.payment_status || ""),
+    amount: Number(row.amount || 0), fareAmount: Number(row.fare_amount || 0), feeAmount: Number(row.fee_amount || 0), email: String(row.email || ""),
+  });
+  const refundRow = await latestCampusRefundForEntry(String(row.id));
   await incrementMetric("queue_status_check");
 
   return {
@@ -79,6 +106,9 @@ export async function campusQueueStatus(request: Request, reference: string) {
     peopleAhead,
     estimatedWaitMinutes,
     waitLabel: estimatedWaitMinutes === null ? null : waitLabel(estimatedWaitMinutes),
+    pickupEta: pickupEta
+      ? { minutes: pickupEta.minutes, label: pickupEta.label, source: pickupEta.source, distanceKm: pickupEta.distanceKm, note: pickupEta.note }
+      : null,
     progress: queueProgress(status),
     route: {
       pickupZone: String(row.pickup_zone || ""),
@@ -95,6 +125,10 @@ export async function campusQueueStatus(request: Request, reference: string) {
       lastSeenAt: String(row.last_location_at || ""),
     },
     ride: { id: rideId, capacity, status: String(row.ride_status || ""), acceptingQueue: Number(row.accepting_queue) === 1 },
+    cancellation,
+    refund: refundRow
+      ? { id: refundRow.id, amount: refundRow.amount, status: refundRow.status, cause: refundRow.cause, settledAt: refundRow.settledAt, createdAt: refundRow.createdAt }
+      : null,
     updatedAt: new Date().toISOString(),
   };
 }

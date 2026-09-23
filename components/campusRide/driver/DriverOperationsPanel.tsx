@@ -16,6 +16,7 @@ type DriverSummary = {
   boarded: number;
   grossFares: number;
   activeQueue: number;
+  rating?: { average: number; count: number; visible: boolean };
   nextPickup: { reference: string; queuePosition: number; passengerName: string; pickupZone: string } | null;
 };
 
@@ -122,6 +123,37 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
   };
 
   if (!data) return <CampusStatusBanner title="Loading driver workspace" message="Checking your driver profile and today's queue." />;
+  // Grouping is the whole point of a manifest: a driver at a gate is asking
+  // "who is in the vehicle" and "who am I still collecting", and neither
+  // question is answered by one list ordered by queue position.
+  const manifest = {
+    waiting: queue.filter((entry) => entry.queueStatus === "PAID_WAITING"),
+    enRoute: queue.filter((entry) => ["ACCEPTED_BY_DRIVER", "DRIVER_ARRIVED"].includes(entry.queueStatus)),
+    aboard: queue.filter((entry) => entry.queueStatus === "BOARDED"),
+  };
+  const renderEntry = (entry: CampusQueueEntry) => <article key={entry.reference} className="campus-queue-entry">
+    <div>
+      <strong>{entry.passengerName}</strong>
+      <small>#{entry.queuePosition} · {entry.queueStatus.replace(/_/g, " ")}</small>
+    </div>
+    <span>{entry.pickupZone || entry.pickupZoneId} → {entry.destinationZone || entry.destinationZoneId}</span>
+    <span>{entry.phone} · GH₵ {(entry.amount / 100).toFixed(2)}</span>
+    {entry.queueStatus === "DRIVER_ARRIVED" && <input
+      inputMode="numeric"
+      maxLength={4}
+      placeholder="Enter passenger PIN"
+      value={pins[entry.reference] || ""}
+      onChange={(event)=>setPins((current)=>({ ...current, [entry.reference]:event.target.value.replace(/\D/g, "").slice(0, 4) }))}
+    />}
+    <div className="campus-button-row">
+      {entry.queueStatus === "PAID_WAITING" && <button disabled={saving==="accept"} onClick={()=>queueAction(entry, "accept")}>Accept</button>}
+      {entry.queueStatus === "ACCEPTED_BY_DRIVER" && <button disabled={saving==="arrived"} onClick={()=>queueAction(entry, "arrived")}>Mark arrived</button>}
+      {entry.queueStatus === "DRIVER_ARRIVED" && <button disabled={saving==="verify-pin"} onClick={()=>queueAction(entry, "verify-pin")}>Verify PIN</button>}
+      {entry.queueStatus === "BOARDED" && <button disabled={saving==="complete"} onClick={()=>queueAction(entry, "complete")}>Complete</button>}
+      {["ACCEPTED_BY_DRIVER","DRIVER_ARRIVED"].includes(entry.queueStatus) && <button disabled={saving==="no-show"} onClick={()=>queueAction(entry, "no-show")}>No-show</button>}
+      {["PAID_WAITING","ACCEPTED_BY_DRIVER","DRIVER_ARRIVED","BOARDED"].includes(entry.queueStatus) && <button disabled={saving==="cancel"} onClick={()=>queueAction(entry, "cancel")}>Cancel</button>}
+    </div>
+  </article>;
   const vehicle = data.vehicles.find((item) => item.id === data.driver.vehicleId);
   const currentZone = data.zones.find((item) => item.id === data.driver.currentZoneId);
 
@@ -144,6 +176,15 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
           <span>Boarded<strong>{summary?.boarded ?? 0}</strong></span>
           <span>In queue<strong>{summary?.activeQueue ?? 0}</strong></span>
         </div>
+        {/* An average over a handful of trips means nothing yet, so it is shown
+            as a count until there is enough of it to read. */}
+        <small className="campus-driver-rating">
+          {summary?.rating?.visible
+            ? <>Passenger rating <strong>{summary?.rating?.average?.toFixed(1)}</strong> from {summary?.rating?.count} rated trips</>
+            : (summary?.rating?.count || 0) > 0
+              ? `${summary?.rating?.count} rated ${summary?.rating?.count === 1 ? "trip" : "trips"} so far — the average appears at three.`
+              : "No passenger ratings yet."}
+        </small>
         {summary?.nextPickup && <small className="campus-admin-message">Next pickup: {summary.nextPickup.passengerName} (#{summary.nextPickup.queuePosition}{summary.nextPickup.pickupZone ? ` · ${summary.nextPickup.pickupZone}` : ""})</small>}
       </section>
 
@@ -185,33 +226,36 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
         </div>}
       </section>
 
-      <section className="campus-widget-card campus-driver-queue">
-        <p>PASSENGER QUEUE</p>
-        <h2>Paid waiting passengers</h2>
-        {!queue.length ? <span>No paid passengers are waiting for this driver yet.</span> : queue.map((entry) => <article key={entry.reference} className="campus-queue-entry">
-          <div>
-            <strong>{entry.passengerName}</strong>
-            <small>#{entry.queuePosition} · {entry.queueStatus.replace(/_/g, " ")}</small>
-          </div>
-          <span>{entry.pickupZone || entry.pickupZoneId} → {entry.destinationZone || entry.destinationZoneId}</span>
-          <span>{entry.phone} · GH₵ {(entry.amount / 100).toFixed(2)}</span>
-          {entry.queueStatus === "DRIVER_ARRIVED" && <input
-            inputMode="numeric"
-            maxLength={4}
-            placeholder="Enter passenger PIN"
-            value={pins[entry.reference] || ""}
-            onChange={(event)=>setPins((current)=>({ ...current, [entry.reference]:event.target.value.replace(/\D/g, "").slice(0, 4) }))}
-          />}
-          <div className="campus-button-row">
-            {entry.queueStatus === "PAID_WAITING" && <button disabled={saving==="accept"} onClick={()=>queueAction(entry, "accept")}>Accept</button>}
-            {entry.queueStatus === "ACCEPTED_BY_DRIVER" && <button disabled={saving==="arrived"} onClick={()=>queueAction(entry, "arrived")}>Mark arrived</button>}
-            {entry.queueStatus === "DRIVER_ARRIVED" && <button disabled={saving==="verify-pin"} onClick={()=>queueAction(entry, "verify-pin")}>Verify PIN</button>}
-            {entry.queueStatus === "BOARDED" && <button disabled={saving==="complete"} onClick={()=>queueAction(entry, "complete")}>Complete</button>}
-            {["ACCEPTED_BY_DRIVER","DRIVER_ARRIVED"].includes(entry.queueStatus) && <button disabled={saving==="no-show"} onClick={()=>queueAction(entry, "no-show")}>No-show</button>}
-            {["PAID_WAITING","ACCEPTED_BY_DRIVER","DRIVER_ARRIVED","BOARDED"].includes(entry.queueStatus) && <button disabled={saving==="cancel"} onClick={()=>queueAction(entry, "cancel")}>Cancel</button>}
-          </div>
-        </article>)}
+      <section className="campus-widget-card campus-driver-manifest">
+        <p>TRIP MANIFEST</p>
+        <h2>{data.ride ? `${manifest.aboard.length} aboard · ${data.ride.availableSlots} of ${data.ride.capacity} seats left` : "No ride open"}</h2>
+        <span>The manifest builds itself: a passenger appears when they pay, moves as you accept them and verify their PIN, and leaves when the trip ends.</span>
+        <div className="driver-summary-grid">
+          <span>Waiting<strong>{manifest.waiting.length}</strong></span>
+          <span>On the way<strong>{manifest.enRoute.length}</strong></span>
+          <span>Aboard<strong>{manifest.aboard.length}</strong></span>
+        </div>
+        {!queue.length && <span>No paid passengers have joined this ride yet.</span>}
       </section>
+
+      {manifest.enRoute.length > 0 && <section className="campus-widget-card campus-driver-queue">
+        <p>COLLECT NEXT</p>
+        <h2>On the way</h2>
+        {manifest.enRoute.map(renderEntry)}
+      </section>}
+
+      {manifest.waiting.length > 0 && <section className="campus-widget-card campus-driver-queue">
+        <p>WAITING</p>
+        <h2>Paid, not yet accepted</h2>
+        {manifest.waiting.map(renderEntry)}
+      </section>}
+
+      {manifest.aboard.length > 0 && <section className="campus-widget-card campus-driver-queue">
+        <p>ABOARD</p>
+        <h2>In the vehicle</h2>
+        {manifest.aboard.map(renderEntry)}
+      </section>}
+
       {error && <p className="campus-admin-error">{error}</p>}
     </div>
     <div>

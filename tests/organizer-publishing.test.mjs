@@ -42,6 +42,7 @@ const profiles = new Map(organizers.map((organizer) => [organizer.id, {
 }]));
 
 const statements = [];
+const notices = [];
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -71,9 +72,12 @@ function handle(sql, args) {
     const trip = trips.find((item) => item.id === args[0] && item.organizer_id === args[1]);
     return ok(trip ? table(["id", "review_status"], [trip]) : empty);
   }
-  if (/^SELECT id,organizer_id,review_status FROM scheduled_trips WHERE id = \? LIMIT 1/.test(sql)) {
+  if (/FROM scheduled_trips t LEFT JOIN trip_organizers o ON o\.id = t\.organizer_id\s+WHERE t\.id = \? LIMIT 1/.test(sql)) {
     const trip = trips.find((item) => item.id === args[0]);
-    return ok(trip ? table(["id", "organizer_id", "review_status"], [trip]) : empty);
+    const owner = trip && organizers.find((item) => item.id === trip.organizer_id);
+    return ok(trip ? table(["id", "organizer_id", "review_status", "title", "route_from", "route_to", "organizer_email"], [{
+      ...trip, organizer_email: owner?.email || "",
+    }]) : empty);
   }
   if (/FROM scheduled_trips t LEFT JOIN trip_organizers o/.test(sql)) {
     const pending = trips.filter((trip) => trip.review_status === "PENDING_REVIEW" && !trip.archived);
@@ -146,6 +150,10 @@ function handle(sql, args) {
       trip.active = 0;
     }
     return ok(empty);
+  }
+  if (/INSERT INTO notification_outbox/.test(sql)) {
+    notices.push({ recipient: args[2], template: args[3], subject: args[4], message: args[5], reference: args[6] });
+    return ok({ affected_row_count: 1 });
   }
   if (/^UPDATE trip_organizers SET kyc_id_type=\?/.test(sql)) {
     const profile = profiles.get(args[4]);
@@ -461,4 +469,38 @@ test("suspending a live trip is an admin action, and it survives an organizer ed
   // returns it to the queue rather than straight back to live.
   const resubmitted = await review(owner, tripId, "SUBMIT");
   assert.equal((await resubmitted.json()).trip.reviewStatus, "PENDING_REVIEW");
+});
+
+/**
+ * The two-party half of a trip review. A trip is the organizer's listing, so a
+ * reviewer's decision reaches the organizer as its own message, naming the
+ * departure they sold — and their own SUBMIT is not a message to themselves.
+ */
+test("a trip decision reaches the organizer, and submitting tells nobody", async () => {
+  const owner = await cookieFor("acc-a");
+  const tripId = await createTrip(owner, "Enquiry run");
+
+  notices.length = 0;
+  await review(owner, tripId, "SUBMIT");
+  assert.deepEqual(notices, [], "an organizer is not emailed about their own move");
+
+  notices.length = 0;
+  await review(await cookieFor("acc-mod"), tripId, "APPROVE");
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_listing_approved"]);
+  assert.equal(notices[0].recipient, "a@example.com", "the organizer is the second party, not the reviewer");
+  assert.equal(notices[0].reference, tripId, "the reference is the trip, so one decision cannot send twice");
+  assert.match(notices[0].subject, /vacationRide trip is live/i);
+  assert.match(notices[0].message, /Enquiry run/, "the decision names the departure the organizer sold");
+
+  notices.length = 0;
+  await review(await cookieFor("acc-admin"), tripId, "SUSPEND", "Coach was not roadworthy.");
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_listing_suspended"]);
+  assert.match(notices[0].message, /Coach was not roadworthy/, "a suspension says why the trip came down");
+
+  notices.length = 0;
+  await review(owner, tripId, "SUBMIT");
+  await review(await cookieFor("acc-mod"), tripId, "REJECT", "The departure time is outside the corridor window.");
+  assert.deepEqual(notices.map((row) => row.template), ["organizer_listing_rejected"]);
+  assert.match(notices[0].message, /outside the corridor window/, "a rejection carries the reason, or it is a dead end");
+  assert.match(notices[0].subject, /needs changes/i);
 });
