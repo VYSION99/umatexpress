@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Camera, Check, ImagePlus, Loader2, Star, Trash2 } from "lucide-react";
+import { Camera, Check, CircleNotch, ImageSquare, Star, Trash } from "@phosphor-icons/react";
 
 type Photo = {
-  id: string; propertyId: string; roomId: string; caption: string; sortOrder: number;
+  id: string; propertyId: string; roomId: string; mediaKind: "PHOTO" | "FLOOR_PLAN"; caption: string; sortOrder: number;
   status: string; contentType: string; bytes: number; reviewReason: string; createdAt: string;
 };
 
@@ -28,6 +28,7 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
   const [photos, setPhotos] = useState<Photo[] | null>(null);
   const [caption, setCaption] = useState("");
   const [roomId, setRoomId] = useState("");
+  const [mediaKind, setMediaKind] = useState<"PHOTO" | "FLOOR_PLAN">("PHOTO");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [editing, setEditing] = useState<{ id: string; caption: string } | null>(null);
@@ -74,6 +75,7 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
       const form = new FormData();
       form.set("propertyId", propertyId);
       form.set("roomId", roomId);
+      form.set("mediaKind", mediaKind);
       form.set("caption", caption);
       form.set("file", file);
       const response = await fetch("/api/console/hostel/photos", { method: "POST", credentials: "same-origin", body: form });
@@ -81,6 +83,7 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
       if (!response.ok) throw new Error(data.error || "That photo could not be uploaded.");
       setCaption("");
       setRoomId("");
+      setMediaKind("PHOTO");
       if (fileInput.current) fileInput.current.value = "";
       onNotice(`${propertyName}: photo uploaded and sent for review.`);
       await load();
@@ -103,8 +106,11 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
       <label>Photo
         <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" required />
       </label>
-      <label>Room (optional)
-        <select value={roomId} onChange={(event) => setRoomId(event.target.value)}>
+      <label>Media type
+        <select value={mediaKind} onChange={(event) => setMediaKind(event.target.value as "PHOTO" | "FLOOR_PLAN")}><option value="PHOTO">Photo</option><option value="FLOOR_PLAN">Room floor plan</option></select>
+      </label>
+      <label>Room {mediaKind === "FLOOR_PLAN" ? "(required)" : "(optional)"}
+        <select value={roomId} required={mediaKind === "FLOOR_PLAN"} onChange={(event) => setRoomId(event.target.value)}>
           <option value="">The property as a whole</option>
           {rooms.map((room) => <option key={room.id} value={room.id}>{room.label}</option>)}
         </select>
@@ -113,14 +119,14 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
         <input type="text" value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={160} placeholder="Water tank and yard" />
       </label>
       <button type="submit" disabled={busy === "upload"}>
-        {busy === "upload" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <ImagePlus size={15} aria-hidden />}
+        {busy === "upload" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <ImageSquare size={15} aria-hidden />}
         Upload photo
       </button>
     </form>
     <p className="console-note">JPEG, PNG or WebP, up to {Math.round(MAX_BYTES / 1024 / 1024)} MB each.</p>
 
     {!photos
-      ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading photos…</p>
+      ? <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading photos…</p>
       : photos.length === 0
         ? <p className="console-empty">No photos yet. A listing with a photo gets picked; a listing without one gets scrolled past.</p>
         : <ul className="console-gallery">
@@ -128,7 +134,7 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
             <img src={`/api/console/hostel/photos/${photo.id}`} alt={photo.caption || `${propertyName} photo`} loading="lazy" />
             <div className="console-photo-body">
               <span className={`console-badge console-badge-${photo.status === "APPROVED" ? "approved" : photo.status === "REJECTED" ? "rejected" : "pending"}`}>
-                {STATUS_LABEL[photo.status] || photo.status}
+                {STATUS_LABEL[photo.status] || photo.status} · {photo.mediaKind === "FLOOR_PLAN" ? "Floor plan" : "Photo"}
               </span>
               {photo.reviewReason && <small className="console-reason">{photo.reviewReason}</small>}
               {editing?.id === photo.id
@@ -177,7 +183,7 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
                 if (!response.ok) throw new Error(data.error || "That photo could not be removed.");
                 onNotice("Photo removed.");
                 await load();
-              })}><Trash2 size={14} aria-hidden />Remove</button>
+              })}><Trash size={14} aria-hidden />Remove</button>
             </div>
           </li>)}
         </ul>}

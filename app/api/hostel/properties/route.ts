@@ -9,9 +9,9 @@ const NO_STORE = { "Cache-Control": "no-store" };
 const SORTS = ["distance", "price", "name"] as const;
 type Sort = (typeof SORTS)[number];
 
-/** The browse catalogue changes only on a review decision, so the edge may hold it. */
-const CACHE_SECONDS = 60;
-const CACHE_SWR_SECONDS = 600;
+/** Availability changes on holds and payments; keep browse snapshots short-lived. */
+const CACHE_SECONDS = 15;
+const CACHE_SWR_SECONDS = 0;
 /** A campus network puts hundreds of students behind one address. */
 const READ_LIMIT = 240;
 
@@ -47,7 +47,11 @@ export async function GET(request: Request) {
     return await withEdgeCache(request, { path: `/api/hostel/properties${url.search}`, maxAge: CACHE_SECONDS, staleWhileRevalidate: CACHE_SWR_SECONDS }, async () => {
       const result = await withTransientRetry(
         () => listPublicProperties({
+          q: (url.searchParams.get("q") || "").slice(0, 100),
+          page: boundedParam(url.searchParams.get("page"), 100000),
+          pageSize: boundedParam(url.searchParams.get("pageSize"), 48),
           periodId: url.searchParams.get("periodId") || undefined,
+          propertyIds: (url.searchParams.get("ids") || "").split(",").map(value => value.trim()).filter(value => value.length > 0 && value.length <= 80).slice(0, 4),
           maxDistanceM: boundedParam(url.searchParams.get("maxDistance"), 50_000),
           maxPrice: boundedParam(url.searchParams.get("maxPrice"), 50_000_000),
           minSpaces: boundedParam(url.searchParams.get("minSpaces"), 60),

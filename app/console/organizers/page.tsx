@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, BusFront, Check, Clock, Eye, UserX } from "lucide-react";
+import { Bus, Check, Clock, Eye, SealCheck, UserMinus } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -169,14 +169,14 @@ function ApplicationQueue({ session }: { session: ConsoleSessionInfo }) {
                 <td className="console-row-actions">
                   {organizer.status === "PENDING" && <>
                     <button disabled={busy === organizer.id} onClick={() => decide(organizer, "APPROVE")}><Check size={15}/>Approve</button>
-                    <button disabled={busy === organizer.id} onClick={() => decide(organizer, "REJECT")}><UserX size={15}/>Reject</button>
+                    <button disabled={busy === organizer.id} onClick={() => decide(organizer, "REJECT")}><UserMinus size={15}/>Reject</button>
                   </>}
-                  {organizer.status === "APPROVED" && <button disabled={busy === organizer.id} onClick={() => decide(organizer, "SUSPEND")}><UserX size={15}/>Suspend</button>}
+                  {organizer.status === "APPROVED" && <button disabled={busy === organizer.id} onClick={() => decide(organizer, "SUSPEND")}><UserMinus size={15}/>Suspend</button>}
                   {organizer.status === "SUSPENDED" && <button disabled={busy === organizer.id} onClick={() => decide(organizer, "APPROVE")}><Check size={15}/>Reinstate</button>}
                   {organizer.status === "REJECTED" && <button disabled={busy === organizer.id} onClick={() => decide(organizer, "APPROVE")}><Clock size={15}/>Approve anyway</button>}
                   {organizer.status === "APPROVED" && organizer.kycStatus === "PENDING" && <>
-                    <button disabled={busy === organizer.id} onClick={() => decideKyc(organizer, "VERIFY_KYC")}><BadgeCheck size={15}/>Verify KYC</button>
-                    <button disabled={busy === organizer.id} onClick={() => decideKyc(organizer, "REJECT_KYC")}><UserX size={15}/>Reject KYC</button>
+                    <button disabled={busy === organizer.id} onClick={() => decideKyc(organizer, "VERIFY_KYC")}><SealCheck size={15}/>Verify KYC</button>
+                    <button disabled={busy === organizer.id} onClick={() => decideKyc(organizer, "REJECT_KYC")}><UserMinus size={15}/>Reject KYC</button>
                   </>}
                   {session.account.role === "ADMIN" && organizer.status === "APPROVED" &&
                     <button disabled={busy === organizer.id} onClick={() => reveal(organizer)}><Eye size={15}/>Reveal</button>}
@@ -242,7 +242,7 @@ function TripReviewPanel() {
   }
 
   return <section className="console-panel">
-    <h2><BusFront size={18}/>Trips awaiting review</h2>
+    <h2><Bus size={18}/>Trips awaiting review</h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
     {trips.length === 0
@@ -258,7 +258,7 @@ function TripReviewPanel() {
               <td>GHS {trip.price}</td>
               <td className="console-row-actions">
                 <button disabled={busy === trip.id} onClick={() => decide(trip, "APPROVE")}><Check size={15}/>Approve</button>
-                <button disabled={busy === trip.id} onClick={() => decide(trip, "REJECT")}><UserX size={15}/>Reject</button>
+                <button disabled={busy === trip.id} onClick={() => decide(trip, "REJECT")}><UserMinus size={15}/>Reject</button>
               </td>
             </tr>
           ))}
@@ -314,7 +314,7 @@ function AssignmentPanel({ organizers }: { organizers: Organizer[] }) {
   }
 
   return <section className="console-panel">
-    <h2><BusFront size={18}/>Trip ownership</h2>
+    <h2><Bus size={18}/>Trip ownership</h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {trips.length === 0
       ? <p className="console-empty">{error ? "" : "No trips to assign."}</p>

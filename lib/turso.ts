@@ -1,7 +1,7 @@
 import { envValue } from "@/lib/runtime-env";
 
 type SqlArg = { type: "text" | "integer" | "null"; value?: string };
-type TursoResult = { rows?: unknown[]; cols?: Array<{ name: string }>; affected_row_count?: number };
+type TursoResult = { rows?: unknown[]; cols?: Array<{ name: string }>; affected_row_count?: number; step_results?: Array<TursoResult | null>; step_errors?: Array<{ message?: string } | null> };
 type TursoStep = { error?: { message?: string }; response?: { result?: TursoResult } };
 
 async function pipeline(requests: Array<Record<string, unknown>>) {
@@ -51,6 +51,31 @@ export async function turso(sql: string, values: Array<string | number | null> =
     : { type: typeof value === "number" ? "integer" as const : "text" as const, value: String(value) }));
   const [first] = await pipeline([{ type: "execute", stmt: { sql, args } }]);
   return stepResult(first);
+}
+
+/** Atomic, ordered writes on one Hrana stream. Failed steps skip COMMIT;
+ * ROLLBACK (and closing the stream) releases the write lock on every failure. */
+export async function tursoTransaction(statements: Array<{ sql: string; args: Array<string | number | null> }>) {
+  if (!statements.length) return [];
+  const steps: Array<Record<string, unknown>> = [{ stmt: { sql: "BEGIN IMMEDIATE", args: [] } }];
+  for (const statement of statements) {
+    steps.push({ condition: { type: "ok", step: steps.length - 1 }, stmt: {
+      sql: statement.sql,
+      args: statement.args.map(value => value === null ? { type: "null" } : { type: typeof value === "number" ? "integer" : "text", value: String(value) }),
+    } });
+  }
+  const commit = steps.length;
+  steps.push({ condition: { type: "ok", step: commit - 1 }, stmt: { sql: "COMMIT", args: [] } });
+  steps.push({ condition: { type: "and", conds: [{ type: "ok", step: 0 }, { type: "not", cond: { type: "ok", step: commit } }] }, stmt: { sql: "ROLLBACK", args: [] } });
+  const [response] = await pipeline([{ type: "batch", batch: { steps } }]);
+  const result = stepResult(response);
+  const failure = result.step_errors?.find(Boolean);
+  if (failure) throw new Error(failure.message || "Database transaction failed.");
+  if (!result.step_results?.[commit]) throw new Error("Database transaction did not commit.");
+  return result.step_results.slice(1, commit).map(row => {
+    if (!row) throw new Error("Database transaction returned an incomplete result.");
+    return row;
+  });
 }
 
 /**

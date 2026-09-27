@@ -2,11 +2,12 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables, HOSTEL_DEFAULT_COMMISSION_BPS } from "@/lib/hostel-engine/landlord";
 import { ensureHostelMessageTables } from "@/lib/hostel-engine/message-schema";
+import { ESCROW_FLOOR_DAYS, hostelReleaseAfter } from "@/lib/hostel-engine/periods";
 import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { hashPaymentToken } from "@/lib/payment-access";
 import { initializePaystackTransaction } from "@/lib/paystack";
-import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
  * Hostel residency: the bed a student paid for.
@@ -39,9 +40,6 @@ export const HOSTEL_HOLD_MINUTES = 10;
 export const HOSTEL_HOLD_GRACE_MINUTES = 15;
 
 export { HOSTEL_DEFAULT_COMMISSION_BPS };
-
-/** Days before the academic year starts that a landlord's share becomes payable. */
-export const HOSTEL_RELEASE_LEAD_DAYS = 3;
 
 const RESIDENCY_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS hostel_bookings (
@@ -209,17 +207,23 @@ export function splitHostelPayment(totalAmount: number, commissionBps: number) {
 }
 
 /**
- * A landlord is paid shortly before the year they let begins, not the day the
- * student pays, so a refund or a cancellation is settled out of money the
- * platform still holds. A year that already started is due immediately.
+ * What the ledger stores for a booking: the documented escrow rule as a
+ * timestamp, so a landlord is paid shortly before the year they let begins
+ * rather than the day the student pays.
+ *
+ * `hostelReleaseAfter` owns that rule — three days before the year starts, or
+ * seven days after the student actually paid, whichever is later — and this
+ * wrapper adds only the tolerance a settlement needs. It runs after the money
+ * has been taken, so a period date that cannot be parsed falls back to the
+ * escrow floor instead of failing a payment that already succeeded. Writing the
+ * day at midnight keeps one format in the column whichever branch ruled.
  */
-export function releaseAfterFor(periodStartsOn: unknown, now = new Date()) {
-  const parsed = new Date(`${String(periodStartsOn || "").trim()}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) {
-    return new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString();
+export function releaseAfterFor(periodStartsOn: unknown, confirmedAt?: string, now = new Date()) {
+  try {
+    return `${hostelReleaseAfter(String(periodStartsOn || ""), confirmedAt)}T00:00:00.000Z`;
+  } catch {
+    return new Date(now.getTime() + ESCROW_FLOOR_DAYS * 24 * 60 * 60_000).toISOString();
   }
-  parsed.setUTCDate(parsed.getUTCDate() - HOSTEL_RELEASE_LEAD_DAYS);
-  return new Date(Math.max(parsed.getTime(), now.getTime())).toISOString();
 }
 
 function bookingReference() {
@@ -288,9 +292,8 @@ export type StartHostelBookingInput = {
 
 /**
  * Claims a bed and opens Paystack checkout. The claim is one conditional
- * UPDATE, so two students racing for the same bed cannot both win; everything
- * after the claim compensates on failure rather than leaving a held bed with no
- * way to pay for it.
+ * UPDATE, so two students racing for the same bed cannot both win; the claim and booking insert commit together. Provider initialization runs
+ * after commit, with compensation if checkout cannot be opened.
  */
 export async function startHostelBooking(input: StartHostelBookingInput) {
   if (!(await isTursoConfiguredRuntime())) {
@@ -320,11 +323,6 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
   }
 
   const stamp = new Date().toISOString();
-  const claimed = await turso("UPDATE hostel_spaces SET status = 'RESERVED', updated_at = ? WHERE id = ? AND status = 'AVAILABLE'", [stamp, String(listing.space_id)]);
-  if (Number(claimed?.affected_row_count || 0) !== 1) {
-    throw new CampusEngineError("INVALID_STATE", "That bed has just been taken. Pick another one.", 409);
-  }
-
   const price = Math.max(0, Math.round(Number(listing.price || 0)));
   const utilitiesFee = Number(listing.utilities_enabled ?? 0) === 1 ? Math.max(0, Math.round(Number(listing.utilities_fee || 0))) : 0;
   const split = splitHostelPayment(price + utilitiesFee, Number(listing.commission_bps || HOSTEL_DEFAULT_COMMISSION_BPS));
@@ -332,17 +330,21 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
   const token = paymentToken();
   const holdExpiresAt = new Date(Date.now() + HOSTEL_HOLD_MINUTES * 60_000).toISOString();
 
-  await turso(
-    `INSERT INTO hostel_bookings (id,reference,listing_id,space_id,room_id,property_id,landlord_id,period_id,student_email,student_name,student_phone,
+  const [claimed, inserted] = await tursoTransaction([
+    { sql: "UPDATE hostel_spaces SET status = 'RESERVED', updated_at = ? WHERE id = ? AND status = 'AVAILABLE'", args: [stamp, String(listing.space_id)] },
+    { sql: `INSERT INTO hostel_bookings (id,reference,listing_id,space_id,room_id,property_id,landlord_id,period_id,student_email,student_name,student_phone,
        price,utilities_fee,total_amount,commission_bps,commission_amount,net_amount,status,hold_expires_at,access_token_hash,note,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING_PAYMENT',?,?,?,?,?)`,
-    [
+     SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING_PAYMENT',?,?,?,?,? WHERE changes() = 1`,
+    args: [
       crypto.randomUUID(), reference, listingId, String(listing.space_id), String(listing.room_id), String(listing.property_id), String(listing.landlord_id),
       String(listing.period_id), studentEmail, String(input.student.name || "").slice(0, 100), String(input.student.phone || "").slice(0, 30),
       price, utilitiesFee, split.gross, split.commissionBps, split.commission, split.net, holdExpiresAt, await hashPaymentToken(token),
       String(input.note || "").slice(0, 300), stamp, stamp,
-    ],
-  );
+    ] },
+  ]);
+  if (Number(claimed.affected_row_count) !== 1 || Number(inserted.affected_row_count) !== 1) {
+    throw new CampusEngineError("INVALID_STATE", "That bed has just been taken. Pick another one.", 409);
+  }
 
   try {
     const paystack = await initializePaystackTransaction({
@@ -444,7 +446,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
      VALUES (?,?,?,?,?,?,?,'ACCRUED',?,?,?) ON CONFLICT(booking_id) DO NOTHING`,
     [
       crypto.randomUUID(), booking.id, booking.landlordId, booking.totalAmount, booking.commissionBps, booking.commissionAmount, booking.netAmount,
-      releaseAfterFor(booking.periodStartsOn), stamp, stamp,
+      releaseAfterFor(booking.periodStartsOn, stamp), stamp, stamp,
     ],
   );
   await incrementMetric("hostel_booking_paid");

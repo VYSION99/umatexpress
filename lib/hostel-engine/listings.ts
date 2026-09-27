@@ -63,6 +63,7 @@ export type ReviewListing = LandlordListing & {
 export type PublicSpace = {
   listingId: string;
   spaceId: string;
+  roomId: string;
   roomLabel: string;
   spaceLabel: string;
   capacity: number;
@@ -98,6 +99,12 @@ export type PublicProperty = {
 /** The filters the browse page may ask for, all optional. */
 export type PublicPropertyQuery = {
   periodId?: string;
+  propertyId?: string;
+  propertyIds?: string[];
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  enrich?: boolean;
   maxDistanceM?: number;
   maxPrice?: number;
   minSpaces?: number;
@@ -481,8 +488,7 @@ export async function reviewHostelListing(input: {
 /**
  * What a signed-out visitor may see. Every gate in the platform meets here: the
  * listing is approved, its bed has not been retired, its room is active, and its
- * property has not been suspended. Bookings land in Phase 2, so for now every
- * approved bed is free.
+ * property has not been suspended. Only AVAILABLE beds pass; held and occupied beds remain hidden.
  */
 export async function listPublicSpaces(input: { propertyId?: string; periodId?: string } = {}) {
   await ensureHostelTables();
@@ -501,7 +507,7 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
   if (propertyId) { filters.push("p.id = ?"); args.push(propertyId); }
 
   const rows = rowsToObjects(await turso(
-    `SELECT l.id AS listing_id,s.id AS space_id,r.label AS room_label,s.label AS space_label,r.capacity,l.price,
+    `SELECT l.id AS listing_id,s.id AS space_id,r.id AS room_id,r.label AS room_label,s.label AS space_label,r.capacity,l.price,
        COALESCE(r.utilities_fee,0) AS utilities_fee,COALESCE(p.utilities_enabled,0) AS utilities_enabled
      FROM hostel_listings l
      JOIN hostel_spaces s ON s.id = l.space_id
@@ -517,6 +523,7 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
     return {
       listingId: String(row.listing_id || ""),
       spaceId: String(row.space_id || ""),
+      roomId: String(row.room_id || ""),
       roomLabel: String(row.room_label || ""),
       spaceLabel: String(row.space_label || ""),
       capacity: Number(row.capacity || 0),
@@ -545,8 +552,22 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
   const period = periodId
     ? rowsToObjects(await turso("SELECT id,name,starts_on,ends_on FROM hostel_periods WHERE id = ? AND COALESCE(active,1) = 1 LIMIT 1", [periodId]))[0]
     : rowsToObjects(await turso("SELECT id,name,starts_on,ends_on FROM hostel_periods WHERE COALESCE(active,1) = 1 ORDER BY starts_on DESC LIMIT 1"))[0];
-  if (!period) return { period: null, properties: [] as PublicProperty[] };
+  if (!period) return { period: null, properties: [] as PublicProperty[], mapProperties: [] as PublicProperty[], total: 0, page: 1, pageCount: 0 };
 
+  const clauses: string[] = [];
+  const args: Array<string | number | null> = [String(period.id)];
+  if (query.propertyId) { clauses.push("p.id = ?"); args.push(query.propertyId); }
+  if (query.propertyIds?.length) {
+    const ids = [...new Set(query.propertyIds)].slice(0, 4);
+    clauses.push(`p.id IN (${ids.map(() => "?").join(",")})`);
+    args.push(...ids);
+  }
+  const search = (query.q || "").trim().slice(0, 100);
+  if (search) { clauses.push("(instr(lower(p.name), lower(?)) > 0 OR instr(lower(COALESCE(p.address,'')), lower(?)) > 0)"); args.push(search, search); }
+  if (query.utilitiesOnly) clauses.push("COALESCE(p.utilities_enabled,0) = 1");
+  const having: string[] = [];
+  if (Number.isFinite(query.maxPrice) && query.maxPrice! >= 0) { having.push("min_total <= ?"); args.push(query.maxPrice!); }
+  if (Number.isFinite(query.minSpaces) && query.minSpaces! > 1) { having.push("available_spaces >= ?"); args.push(query.minSpaces!); }
   const rows = rowsToObjects(await turso(
     `SELECT p.id AS property_id,p.name AS property_name,COALESCE(p.address,'') AS property_address,p.latitude,p.longitude,
        p.campus_distance_m,COALESCE(p.utilities_enabled,0) AS utilities_enabled,COALESCE(p.status,'DRAFT') AS property_status,
@@ -560,9 +581,11 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
        AND COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'
        AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
        AND COALESCE(p.status,'DRAFT') <> 'SUSPENDED'
+       ${clauses.length ? "AND " + clauses.join(" AND ") : ""}
      GROUP BY p.id
+     ${having.length ? "HAVING " + having.join(" AND ") : ""}
      ORDER BY p.name COLLATE NOCASE ASC`,
-    [String(period.id)],
+    args,
   ));
 
   const properties: PublicProperty[] = rows.map((row) => {
@@ -594,6 +617,8 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
 
   const { maxDistanceM, minSpaces, maxPrice } = query;
   const filtered = properties.filter((property) => {
+    if (query.propertyId && property.id !== query.propertyId) return false;
+    if (search && !`${property.name} ${property.address}`.toLowerCase().includes(search.toLowerCase())) return false;
     if (query.utilitiesOnly === true && !property.utilitiesEnabled) return false;
     if (typeof maxDistanceM === "number" && Number.isFinite(maxDistanceM) && maxDistanceM >= 0) {
       if (property.distanceM === null || property.distanceM > maxDistanceM) return false;
@@ -614,22 +639,26 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
     return left.name.localeCompare(right.name);
   });
 
-  // One extra query for every card's photo and one for its review score, rather
-  // than joins that would multiply the bed rows above.
-  const [covers, ratings] = await Promise.all([
-    listApprovedPhotoCovers(filtered.map((property) => property.id)),
-    reviewSummaryForProperties(filtered.map((property) => property.id)),
-  ]);
-  filtered.forEach((property) => {
-    property.coverPhotoId = covers.get(property.id)?.id || null;
-    const rating = ratings.get(property.id);
-    property.ratingAverage = rating?.average || 0;
-    property.ratingCount = rating?.count || 0;
-  });
+  const total = filtered.length;
+  const pageSize = Math.min(48, Math.max(1, Math.floor(query.pageSize || 12)));
+  const pageCount = Math.ceil(total / pageSize);
+  const page = Math.min(Math.max(1, Math.floor(query.page || 1)), Math.max(1, pageCount));
+  const pageProperties = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // Map pins carry only summary data and never trigger image/review queries.
+  const mapProperties = filtered.filter(property => property.latitude !== null && property.longitude !== null).slice(0, 60);
+  if (query.enrich !== false) {
+    const ids = pageProperties.map(property => property.id);
+    const [covers, ratings] = await Promise.all([listApprovedPhotoCovers(ids), reviewSummaryForProperties(ids)]);
+    pageProperties.forEach(property => {
+      property.coverPhotoId = covers.get(property.id)?.id || null;
+      property.ratingAverage = ratings.get(property.id)?.average || 0;
+      property.ratingCount = ratings.get(property.id)?.count || 0;
+    });
+  }
 
   return {
     period: { id: String(period.id), name: String(period.name), startsOn: String(period.starts_on), endsOn: String(period.ends_on) },
-    properties: filtered,
+    properties: pageProperties, mapProperties, total, page, pageCount,
   };
 }
 
@@ -641,7 +670,7 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
 export async function getPublicProperty(propertyId: string, periodId?: string) {
   const id = String(propertyId ?? "").trim();
   if (!id) return null;
-  const { period, properties } = await listPublicProperties({ periodId });
+  const { period, properties } = await listPublicProperties({ periodId, propertyId: id, pageSize: 1 });
   const property = properties.find((item) => item.id === id);
   if (!property || !period) return null;
   const [{ spaces }, photos, reviews] = await Promise.all([

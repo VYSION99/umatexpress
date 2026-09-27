@@ -1,7 +1,7 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { NOTIFICATION_SWEEP_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
+import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
 import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
 import { runCinemaCleanup } from "@/lib/cinema-engine/cleanup";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
@@ -9,6 +9,7 @@ import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/l
 import { logEvent } from "@/lib/observability";
 import { runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
 import { runHostelPayoutReconcileJob, runHostelPayoutReleaseJob } from "@/lib/hostel-engine/payouts";
+import { scanHostelAvailability } from "@/lib/hostel-engine/watchlist";
 import { runHostelRefundReconcile } from "@/lib/hostel-engine/refunds";
 
 // Durable Object classes must be exported from the Worker entry point. The
@@ -93,6 +94,10 @@ const worker = {
       // Ten at a time: each row costs a claim, a send and a status write, and
       // one invocation has fifty subrequests to spend.
       ctx.waitUntil(runNotificationSweep({ limit: 10 }));
+      return;
+    }
+    if (controller?.cron === HOSTEL_AVAILABILITY_CRON) {
+      ctx.waitUntil(scanHostelAvailability().catch(error => { logEvent("error", "hostel_availability_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
       return;
     }
     if (controller?.cron === PAYOUT_RELEASE_CRON) {

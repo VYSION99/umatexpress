@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Download, NotebookPen, Trash2 } from "lucide-react";
+import { Check, Copy, DownloadSimple, Notebook, Trash } from "@phosphor-icons/react";
 
 /** Long enough for a lecture's worth of notes, short enough for one storage row. */
 const NOTES_MAX_CHARS = 20_000;
@@ -88,7 +88,7 @@ export function CinemaNotes({ roomId }: { roomId: string }) {
 
   return <section className="cinema-card cinema-notes">
     <div className="cinema-presence-head">
-      <h2><NotebookPen size={16} aria-hidden /> My notes</h2>
+      <h2><Notebook size={16} aria-hidden /> My notes</h2>
       <span className="cinema-notes-saved">{loaded ? (saved ? <><Check size={12} aria-hidden /> Saved on this device</> : "Saving…") : "Opening…"}</span>
     </div>
     <textarea
@@ -101,8 +101,8 @@ export function CinemaNotes({ roomId }: { roomId: string }) {
     />
     <div className="cinema-notes-actions">
       <button type="button" className="secondary" disabled={!text} onClick={() => void copy()}><Copy size={13} aria-hidden /> Copy</button>
-      <button type="button" className="secondary" disabled={!text} onClick={download}><Download size={13} aria-hidden /> Download</button>
-      <button type="button" className="secondary" disabled={!text} onClick={() => { change(""); try { window.localStorage.removeItem(key); } catch { /* nothing to clear */ } }}><Trash2 size={13} aria-hidden /> Clear</button>
+      <button type="button" className="secondary" disabled={!text} onClick={download}><DownloadSimple size={13} aria-hidden /> Download</button>
+      <button type="button" className="secondary" disabled={!text} onClick={() => { change(""); try { window.localStorage.removeItem(key); } catch { /* nothing to clear */ } }}><Trash size={13} aria-hidden /> Clear</button>
       <span className="cinema-notes-count">{text.length}/{NOTES_MAX_CHARS}</span>
     </div>
     <p className="cinema-note cinema-sub">Private to this device and this room. Nothing here is sent to the room or its host.</p>

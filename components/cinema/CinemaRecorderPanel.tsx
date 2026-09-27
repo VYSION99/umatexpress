@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Circle, Download, Pause, Play, Trash2 } from "lucide-react";
+import { Circle, DownloadSimple, Pause, Play, Trash } from "@phosphor-icons/react";
 import type { CinemaMedia } from "./useCinemaMedia";
 import type { CinemaRecorder } from "./useCinemaRecorder";
 
@@ -93,10 +93,10 @@ export function CinemaRecorderPanel({ media, recorder, connected }: { media: Cin
           <small>{clockTime(recording.durationSeconds)} · {Math.max(1, Math.round(recording.sizeBytes / (1024 * 1024)))} MB</small>
         </span>
         <a className="cinema-record-download" href={`/api/cinema/recordings/${recording.id}/file`} download>
-          <Download size={13} aria-hidden /> Download
+          <DownloadSimple size={13} aria-hidden /> Download
         </a>
         <button type="button" className="cinema-record-delete" aria-label="Delete this recording" onClick={() => void recorder.discard(recording.id)}>
-          <Trash2 size={13} aria-hidden />
+          <Trash size={13} aria-hidden />
         </button>
       </li>)}
     </ul>}

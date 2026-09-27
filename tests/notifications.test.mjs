@@ -60,6 +60,19 @@ test("a passenger without a recipient is skipped", async () => {
   assert.equal(db.prepare("SELECT COUNT(*) AS c FROM notification_outbox").get().c, 0);
 });
 
+test("a message queued for a handset is stored on the sms channel, and email stays the default", async () => {
+  const { queueNotification } = await vite.ssrLoadModule("/lib/notifications.ts");
+  const db = newDatabase();
+  const exec = sqliteExecutor(db);
+  const base = { subject: "Driver arrived", message: "Driver arrived.", nowIso: "2026-01-01T00:00:00.000Z" };
+
+  await queueNotification(exec, { ...base, recipient: "0201234567", template: "driver_arrived", reference: "CR-10", channel: "sms" });
+  await queueNotification(exec, { ...base, recipient: "ama@st.umat.edu.gh", template: "driver_arrived", reference: "CR-11" });
+
+  assert.equal(db.prepare("SELECT channel FROM notification_outbox WHERE reference = ?").get("CR-10").channel, "sms");
+  assert.equal(db.prepare("SELECT channel FROM notification_outbox WHERE reference = ?").get("CR-11").channel, "email");
+});
+
 test("claiming a message is exclusive, so two workers cannot both send it", async () => {
   const { queueNotification, claimNotification } = await vite.ssrLoadModule("/lib/notifications.ts");
   const db = newDatabase();

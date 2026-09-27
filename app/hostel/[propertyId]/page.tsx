@@ -1,13 +1,23 @@
+import "@/components/campusRide/hostel/hostel.css";
+import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, BedDouble, DoorClosed, MapPin, Zap } from "lucide-react";
+import { ArrowLeft, Bed, Door, Lightning, MapPin } from "@phosphor-icons/react/ssr";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
-import { HostelBookButton } from "@/components/campusRide/hostel/HostelBookButton";
-import { HostelMap } from "@/components/campusRide/hostel/HostelMap";
+import { HostelChoiceActions, HostelChoicesPanel, HostelChoicesProvider } from "@/components/campusRide/hostel/HostelChoices";
+import { HostelBedPicker } from "@/components/campusRide/hostel/HostelBedPicker";
+import { HostelViewingRequest } from "@/components/campusRide/hostel/HostelViewingRequest";
+import { HostelWalkingRoutes } from "@/components/campusRide/hostel/HostelWalkingRoutes";
+import { listWalkingDestinations } from "@/lib/hostel-engine/walking";
+import { HostelVerificationCard } from "@/components/campusRide/hostel/HostelVerificationCard";
+import { listPublicHostelVerifications } from "@/lib/hostel-engine/verification";
+import { HostelRoomMedia } from "@/components/campusRide/hostel/HostelRoomMedia";
+import { HostelGallery } from "@/components/campusRide/hostel/HostelGallery";
+import { DeferredHostelMap } from "@/components/campusRide/hostel/DeferredHostelMap";
 import { PropertyAssistant } from "@/components/campusRide/hostel/PropertyAssistant";
 import { PropertyReviews } from "@/components/campusRide/hostel/PropertyReviews";
-import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
+import { bedsLabel, distanceLabel } from "@/components/campusRide/hostel/format";
 import { getPublicProperty } from "@/lib/hostel-engine/listings";
 import { defaultHostelPeriodId, listHostelPeriods } from "@/lib/hostel-engine/periods";
 
@@ -16,9 +26,17 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+const loadProperty = cache(async (propertyId: string, requestedPeriod?: string) => {
+  const periods = await listHostelPeriods();
+  const periodId = periods.some(item => item.id === requestedPeriod) ? requestedPeriod : defaultHostelPeriodId(periods);
+  return getPublicProperty(propertyId, periodId);
+});
+
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { propertyId } = await params;
-  const record = await getPublicProperty(propertyId);
+  const query = (await searchParams) || {};
+  const requested = Array.isArray(query.periodId) ? query.periodId[0] : query.periodId;
+  const record = await loadProperty(propertyId, requested);
   if (!record) return { title: "Hostel not found | UMaTeXPRESS" };
   return {
     title: `${record.property.name} | Hostel Finder | UMaTeXPRESS`,
@@ -35,70 +53,37 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
   const { propertyId } = await params;
   const query = (await searchParams) || {};
   const requestedPeriod = Array.isArray(query.periodId) ? query.periodId[0] : query.periodId;
-  const periods = await listHostelPeriods();
-  const periodId = periods.some((item) => item.id === requestedPeriod) ? requestedPeriod : defaultHostelPeriodId(periods);
-  const record = await getPublicProperty(propertyId, periodId);
+  const record = await loadProperty(propertyId, requestedPeriod);
   if (!record) notFound();
-  const { period, property, spaces, photos } = record;
-
-  const rooms = new Map<string, typeof spaces>();
-  spaces.forEach((space) => rooms.set(space.roomLabel, [...(rooms.get(space.roomLabel) || []), space]));
-  const cheapest = spaces.reduce((lowest, space) => Math.min(lowest, space.total), Number.POSITIVE_INFINITY);
+  const { period, property, spaces, photos, reviews } = record;
+  const [verifications, destinations] = await Promise.all([listPublicHostelVerifications(property.id), listWalkingDestinations()]);
 
   return <CampusShell area="HOSTELFINDER" title={property.name} subtitle={`${period.name} · ${bedsLabel(property.availableSpaces)}`}>
     <nav className="hostel-breadcrumb">
       <Link href={`/hostel?periodId=${encodeURIComponent(period.id)}`}><ArrowLeft size={14} aria-hidden /> All hostels</Link>
     </nav>
+    <HostelChoicesProvider periodId={period.id}><HostelChoicesPanel /><HostelChoiceActions propertyId={property.id} propertyName={property.name} /></HostelChoicesProvider>
     <div className="hostel-layout">
       <div className="hostel-main">
-        {photos.length > 0 && <section className="hostel-gallery">
-          <img className="hostel-gallery-main" src={`/api/hostel/photos/${photos[0].id}`} alt={photos[0].caption || `${property.name} from outside`} />
-          {photos.length > 1 && <ul className="hostel-gallery-strip">
-            {photos.slice(1).map((photo) => <li key={photo.id}>
-              <img src={`/api/hostel/photos/${photo.id}`} alt={photo.caption || `${property.name} photo`} loading="lazy" />
-            </li>)}
-          </ul>}
-        </section>}
+        <HostelGallery photos={photos.filter(photo => !photo.roomId && photo.mediaKind === "PHOTO")} name={property.name} />
         <section className="hostel-detail-card">
           <p>ABOUT THIS HOSTEL</p>
           <h2>{property.address || "Address shared on request"}</h2>
           <ul className="hostel-card-facts">
             <li><MapPin size={12} aria-hidden />{distanceLabel(property.distanceM)}</li>
-            <li><DoorClosed size={12} aria-hidden />{property.roomCount} {property.roomCount === 1 ? "room" : "rooms"}</li>
-            <li><BedDouble size={12} aria-hidden />{bedsLabel(property.availableSpaces)}</li>
-            {property.utilitiesEnabled && <li><Zap size={12} aria-hidden />Utilities billed per room</li>}
+            <li><Door size={12} aria-hidden />{property.roomCount} {property.roomCount === 1 ? "room" : "rooms"}</li>
+            <li><Bed size={12} aria-hidden />{bedsLabel(property.availableSpaces)}</li>
+            {property.utilitiesEnabled && <li><Lightning size={12} aria-hidden />Total includes utilities</li>}
           </ul>
           <p className="hostel-detail-note">Prices are for the whole {period.name}, from {new Date(`${period.startsOn}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} to {new Date(`${period.endsOn}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.</p>
         </section>
-        <section className="hostel-rooms">
-          <div className="hostel-results-head">
-            <h2>Rooms and beds</h2>
-            <span>From {cedis(cheapest)} a year</span>
-          </div>
-          {[...rooms.entries()].map(([roomLabel, beds]) => <article key={roomLabel} className="hostel-room">
-            <header>
-              <strong>{roomLabel}</strong>
-              <span>{beds.length} of {beds[0]?.capacity || beds.length} beds free in this room</span>
-            </header>
-            <ul>
-              {beds.map((bed) => <li key={bed.spaceId}>
-                <div>
-                  <strong>{bed.spaceLabel || "Bed"}</strong>
-                  <span>One student · room of {bed.capacity}</span>
-                </div>
-                <div className="hostel-bed-price">
-                  <span>{cedis(bed.price)} rent{bed.utilitiesFee > 0 ? ` + ${cedis(bed.utilitiesFee)} utilities` : ""}</span>
-                  <strong>{cedis(bed.total)}</strong>
-                </div>
-                <HostelBookButton listingId={bed.listingId} bedLabel={`${bed.spaceLabel || "bed"} in ${roomLabel}`} />
-              </li>)}
-            </ul>
-          </article>)}
-        </section>
-        <PropertyReviews propertyId={property.id} />
+        <HostelRoomMedia photos={photos} spaces={spaces} />
+        <HostelViewingRequest propertyId={property.id} />
+        <HostelBedPicker spaces={spaces} periodName={period.name} />
+        <PropertyReviews key={property.id} propertyId={property.id} initial={{ reviews: reviews.map(({ id, rating, title, body, studentName, createdAt, reply, repliedAt }) => ({ id, rating, title, body, studentName, createdAt, reply, repliedAt })), summary: { average: property.ratingAverage, count: property.ratingCount } }} />
       </div>
       <aside className="hostel-side">
-        <HostelMap properties={[{
+        <DeferredHostelMap periodId={period.id} properties={[{
           id: property.id,
           name: property.name,
           latitude: property.latitude,
@@ -107,12 +92,15 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
           minTotal: property.minTotal,
           distanceM: property.distanceM,
         }]} title="Where you would live" />
+        <HostelVerificationCard checks={verifications} />
+        <HostelWalkingRoutes propertyId={property.id} directDistanceM={property.distanceM} destinations={destinations} />
         <PropertyAssistant propertyId={property.id} propertyName={property.name} />
+        <p className="hostel-detail-note">Distances are approximate: supplied by the hostel or measured in a straight line from the campus reference point. They are not walking routes.</p>
         <section className="hostel-how">
           <p>BEFORE YOU BOOK</p>
           <ul>
-            <li><BedDouble size={16} aria-hidden /><span>One booking is one bed. Two beds means two bookings.</span></li>
-            <li><Zap size={16} aria-hidden /><span>{property.utilitiesEnabled ? "Utilities are charged per room and already added to the yearly total." : "This landlord does not add a utilities fee."}</span></li>
+            <li><Bed size={16} aria-hidden /><span>One booking is one bed. Two beds means two bookings.</span></li>
+            <li><Lightning size={16} aria-hidden /><span>{property.utilitiesEnabled ? "Each bed’s displayed total includes the utilities fee shown in its price breakdown." : "No utilities fee is collected with this booking. Confirm any separate charges with the hostel."}</span></li>
             <li><MapPin size={16} aria-hidden /><span>{property.latitude !== null && property.longitude !== null ? "The pin is the location the landlord registered with the platform." : "This landlord has not pinned the building yet — call before you travel."}</span></li>
           </ul>
         </section>

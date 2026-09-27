@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, CreditCard, IdCard, Info, ShieldAlert } from "lucide-react";
+import { CreditCard, IdentificationCard, Info, SealCheck, ShieldWarning } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -108,7 +108,7 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
     <section className="console-panel">
-      <h2><IdCard size={18}/>Identity verification
+      <h2><IdentificationCard size={18}/>Identity verification
         {profile && <span className={`console-badge console-badge-${profile.kycStatus.toLowerCase()}`}>{profile.kycStatus}</span>}
       </h2>
       {profile?.kycReason && <p className="console-note">Reviewer said: {profile.kycReason}</p>}
@@ -121,7 +121,7 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <label>Document number
           <input type="text" required value={kyc.idNumber} onChange={(event) => setKyc({ ...kyc, idNumber: event.target.value })} placeholder={profile?.kycIdNumberMasked || "GHA-000000000-0"} />
         </label>
-        <button disabled={busy === "kyc"}><BadgeCheck size={16}/>{busy === "kyc" ? "Submitting…" : "Submit for verification"}</button>
+        <button disabled={busy === "kyc"}><SealCheck size={16}/>{busy === "kyc" ? "Submitting…" : "Submit for verification"}</button>
       </form>
       <p className="console-note">Only the document type and number are recorded. No scan is uploaded, so keep the original safe.</p>
     </section>
@@ -149,7 +149,7 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <button disabled={busy === "payout"}><CreditCard size={16}/>{busy === "payout" ? "Saving…" : "Save payout details"}</button>
       </form>
       <p className="console-note">
-        <ShieldAlert size={13}/> The number is encrypted at rest and shown to administrators masked; opening it in full is recorded in the audit log.
+        <ShieldWarning size={13}/> The number is encrypted at rest and shown to administrators masked; opening it in full is recorded in the audit log.
       </p>
       <p className="console-note">
         Payouts are addressed to this exact account, so changing any detail here retires the saved payee and the next payout is addressed again.

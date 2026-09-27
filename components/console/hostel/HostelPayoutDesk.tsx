@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BadgeCheck, Banknote, Eye, Loader2, RefreshCw } from "lucide-react";
+import { ArrowsClockwise, CircleNotch, Eye, Money, SealCheck } from "@phosphor-icons/react";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type PayoutLandlord = {
@@ -180,7 +180,7 @@ export function HostelPayoutDesk() {
     });
   }
 
-  if (!overview) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading the payout ledger…</p>;
+  if (!overview) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading the payout ledger…</p>;
 
   const now = new Date().toISOString();
   // A known balance that cannot cover the payout is a refusal waiting to
@@ -206,8 +206,8 @@ export function HostelPayoutDesk() {
     </p>}
 
     <section className="console-panel">
-      <h2><Banknote size={18} aria-hidden />Landlords owed
-        <button type="button" className="console-panel-close" onClick={() => void run(load)}><RefreshCw size={14} aria-hidden />Refresh</button>
+      <h2><Money size={18} aria-hidden />Landlords owed
+        <button type="button" className="console-panel-close" onClick={() => void run(load)}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
       </h2>
       {error && <div className="console-alert" role="alert">{error}</div>}
       {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -234,9 +234,9 @@ export function HostelPayoutDesk() {
     </section>
 
     {statement && <section className="console-panel">
-      <h2><Banknote size={18} aria-hidden />{statement.landlord.name}
+      <h2><Money size={18} aria-hidden />{statement.landlord.name}
         <button type="button" className="console-panel-close" disabled={busy === "reconcile"} onClick={() => void reconcile()}>
-          <RefreshCw size={14} aria-hidden />{busy === "reconcile" ? "Checking…" : "Reconcile transfers"}
+          <ArrowsClockwise size={14} aria-hidden />{busy === "reconcile" ? "Checking…" : "Reconcile transfers"}
         </button>
         <button type="button" className="console-panel-close" onClick={() => { setStatement(null); setRevealed(""); }}>Close</button>
       </h2>
@@ -284,11 +284,11 @@ export function HostelPayoutDesk() {
           title={shortOfSettled ? `Paystack's settled balance is ${cedis(overview.settledBalance || 0)}; this payout waits until it can be covered.` : undefined}
           onClick={() => void send()}
         >
-          {busy === "send" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Banknote size={15} aria-hidden />}
+          {busy === "send" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Money size={15} aria-hidden />}
           Send {cedis(statement.totals.payableAmount)} with Paystack
         </button>
         <button type="submit" className="console-secondary" disabled={busy === "record" || reference.trim().length < 3 || statement.totals.payableAmount <= 0}>
-          {busy === "record" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <BadgeCheck size={15} aria-hidden />}
+          {busy === "record" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <SealCheck size={15} aria-hidden />}
           Record a transfer made by hand
         </button>
       </form>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { Sparkle } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CinemaBoardPolicy, CinemaPlaybackState } from "@/lib/cinema-engine/protocol";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
@@ -254,7 +254,7 @@ export function CinemaWhiteboardPanel(input: {
                 </select>
               </label>
               <button type="submit" disabled={!canAsk}>
-                <Sparkles size={15} aria-hidden /> {busy ? "Thinking…" : "Ask"}
+                <Sparkle size={15} aria-hidden /> {busy ? "Thinking…" : "Ask"}
               </button>
             </div>
             <p className="cinema-note cinema-sub">

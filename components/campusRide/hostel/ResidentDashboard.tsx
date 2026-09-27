@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { AlertTriangle, Bell, CheckCircle2, Loader2, MessageSquare, Phone, RotateCcw, Send, Star, Wrench } from "lucide-react";
+import { ArrowCounterClockwise, Bell, Chat, CheckCircle, CircleNotch, PaperPlaneTilt, Phone, Star, Warning, Wrench } from "@phosphor-icons/react";
 import { Stars } from "./PropertyReviews";
 import { cedis } from "./format";
 import { subscribeToHostelThread } from "./message-stream-client";
@@ -109,11 +109,11 @@ export function ResidentDashboard() {
     }
   };
 
-  if (!residencies) return <p className="hostel-resident-loading"><Loader2 size={16} className="console-spin" aria-hidden /> Loading your residency…</p>;
+  if (!residencies) return <p className="hostel-resident-loading"><CircleNotch size={16} className="console-spin" aria-hidden /> Loading your residency…</p>;
 
   if (!residencies.length) {
     return <section className="hostel-empty">
-      <AlertTriangle size={26} aria-hidden />
+      <Warning size={26} aria-hidden />
       <h2>No paid bed on this account yet</h2>
       <p>Once a hostel payment is confirmed, your bed, your host&apos;s number and the services you asked for appear here.</p>
       {error && <p className="hostel-book-error">{error}</p>}
@@ -270,7 +270,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
         <span>{booking.roomLabel}{booking.spaceLabel ? ` · ${booking.spaceLabel}` : ""} · {booking.periodName}</span>
       </div>
       <span className={`hostel-resident-chip hostel-resident-chip-${booking.status.toLowerCase()}`}>
-        {booking.status === "PAID" ? <CheckCircle2 size={13} aria-hidden /> : <AlertTriangle size={13} aria-hidden />}
+        {booking.status === "PAID" ? <CheckCircle size={13} aria-hidden /> : <Warning size={13} aria-hidden />}
         {statusLabel[booking.status] || booking.status}
       </span>
     </header>
@@ -314,7 +314,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
                     onClick={() => void onRequest(booking.reference, plugin.pluginId)}
                     disabled={busy === `service:${plugin.pluginId}`}
                   >
-                    {busy === `service:${plugin.pluginId}` ? <Loader2 size={13} className="console-spin" aria-hidden /> : null}
+                    {busy === `service:${plugin.pluginId}` ? <CircleNotch size={13} className="console-spin" aria-hidden /> : null}
                     {last && !OPEN_SERVICE_STATUSES.includes(last.status) ? "Ask again" : "Ask for this"}
                   </button>}
               {last && !open && <small className="hostel-resident-muted">Last: {statusLabel[last.status] || last.status} · {when(last.createdAt)}</small>}
@@ -351,7 +351,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
             <input value={reviewTitle} onChange={(event) => setReviewTitle(event.target.value)} placeholder="A headline (optional)" maxLength={120} />
             <textarea value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} placeholder="What were the room, the water, the gate like?" maxLength={1500} rows={3} />
             <button type="submit" disabled={savingReview || !rating || !reviewBody.trim()}>
-              {savingReview ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Star size={14} aria-hidden />} Post review
+              {savingReview ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Star size={14} aria-hidden />} Post review
             </button>
             {reviewError && <span className="hostel-book-error">{reviewError}</span>}
           </form>
@@ -359,7 +359,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
     </section>
 
     <section className="hostel-resident-refund">
-      <p><RotateCcw size={13} aria-hidden /> CANCELLING THIS BED</p>
+      <p><ArrowCounterClockwise size={13} aria-hidden /> CANCELLING THIS BED</p>
       {residency.refund
         ? <div className="hostel-resident-refund-state">
           <span className={`hostel-resident-refund-chip hostel-resident-refund-${residency.refund.status.toLowerCase()}`}>
@@ -389,7 +389,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
               rows={2}
             />
             <button type="submit" disabled={refundBusy}>
-              {refundBusy ? <Loader2 size={14} className="console-spin" aria-hidden /> : <RotateCcw size={14} aria-hidden />} Ask to cancel and refund
+              {refundBusy ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <ArrowCounterClockwise size={14} aria-hidden />} Ask to cancel and refund
             </button>
             <small className="hostel-resident-muted">The bed stays yours until an administrator approves, and the money moves after that.</small>
             {refundError && <span className="hostel-book-error">{refundError}</span>}
@@ -402,7 +402,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
 
     <section className="hostel-resident-thread">
       <button type="button" className="hostel-resident-thread-toggle" onClick={() => { if (thread === null) void loadThread(); else setThread(null); }}>
-        <MessageSquare size={15} aria-hidden />
+        <Chat size={15} aria-hidden />
         {thread === null ? "Open the thread with your host" : "Hide the thread"}
         {residency.unreadMessages > 0 && <span className="hostel-resident-unread">{residency.unreadMessages}</span>}
       </button>
@@ -421,7 +421,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh }: {
           : <form onSubmit={send}>
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Write to your host…" maxLength={2000} rows={3} />
             <button type="submit" disabled={sending || !draft.trim()}>
-              {sending ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Send size={14} aria-hidden />} Send
+              {sending ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <PaperPlaneTilt size={14} aria-hidden />} Send
             </button>
           </form>}
         {threadError && <span className="hostel-book-error">{threadError}</span>}

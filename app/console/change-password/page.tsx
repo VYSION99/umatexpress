@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound } from "lucide-react";
+import { Key } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 
 export default function ConsoleChangePasswordPage() {
@@ -52,7 +52,7 @@ function ChangePasswordForm({ session }: { session: ConsoleSessionInfo }) {
       <label>New password<input type="password" autoComplete="new-password" required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
       <label>Confirm new password<input type="password" autoComplete="new-password" required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
       {error && <div className="console-auth-error" role="alert">{error}</div>}
-      <button disabled={submitting}><KeyRound size={17} />{submitting ? "Saving…" : "Save new password"}</button>
+      <button disabled={submitting}><Key size={17} />{submitting ? "Saving…" : "Save new password"}</button>
       <small>At least {staff ? 12 : 10} characters with uppercase, lowercase, a number and a symbol. Changing the password signs out every other device.</small>
     </form>
   </main>;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LocateFixed } from "lucide-react";
+import { Crosshair } from "@phosphor-icons/react";
 import { CampusAiAssistant } from "@/components/campusRide/shared/CampusAiAssistant";
 import { CampusMap } from "@/components/campusRide/shared/CampusMap";
 import { CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";
@@ -202,7 +202,7 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
         <p>LOCATION</p>
         <h2>Current zone</h2>
         <select name="currentZoneId" defaultValue={data.driver.currentZoneId}>{data.zones.map((zone)=><option key={zone.id} value={zone.id}>{zone.name}</option>)}</select>
-        <div className="campus-button-row"><button disabled={saving==="location"}>{saving==="location" ? "Updating..." : "Update zone"}</button><button type="button" disabled={saving==="gps"} onClick={updateFromDeviceGps}><LocateFixed size={16}/>{saving==="gps" ? "Updating GPS..." : "Use device GPS"}</button></div>
+        <div className="campus-button-row"><button disabled={saving==="location"}>{saving==="location" ? "Updating..." : "Update zone"}</button><button type="button" disabled={saving==="gps"} onClick={updateFromDeviceGps}><Crosshair size={16}/>{saving==="gps" ? "Updating GPS..." : "Use device GPS"}</button></div>
         {gpsStatus && <small>{gpsStatus}</small>}
       </form>
 

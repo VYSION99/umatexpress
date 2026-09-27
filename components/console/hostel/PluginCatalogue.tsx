@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, Loader2, PackagePlus, PencilLine, X } from "lucide-react";
+import { Check, CircleNotch, NotePencil, Package, X } from "@phosphor-icons/react";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type Plugin = {
@@ -91,7 +91,7 @@ export function PluginCatalogue() {
   }
 
   return <section className="console-panel">
-    <h2><PackagePlus size={18} aria-hidden />Service catalogue
+    <h2><Package size={18} aria-hidden />Service catalogue
       {editing && <button type="button" className="console-panel-close" onClick={() => { setEditing(""); setDraft({ ...EMPTY }); }}><X size={14} aria-hidden />Cancel edit</button>}
     </h2>
     <p className="console-note">
@@ -126,13 +126,13 @@ export function PluginCatalogue() {
         <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} maxLength={400} rows={2} placeholder="What the resident gets." />
       </label>
       <button type="submit" disabled={busy === "save" || !draft.name.trim() || (!editing && !draft.code.trim())}>
-        {busy === "save" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Check size={15} aria-hidden />}
+        {busy === "save" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Check size={15} aria-hidden />}
         {editing ? "Save changes" : "Add to catalogue"}
       </button>
     </form>
 
     {!plugins
-      ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading the catalogue…</p>
+      ? <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading the catalogue…</p>
       : <table className="console-table">
         <thead><tr><th>Service</th><th>Category</th><th>Platform fee</th><th>Resident default</th><th>State</th><th></th></tr></thead>
         <tbody>
@@ -143,7 +143,7 @@ export function PluginCatalogue() {
             <td>{cedis(plugin.suggestedResidentPrice)}</td>
             <td><span className={`console-badge console-badge-${plugin.active ? "approved" : "draft"}`}>{plugin.active ? "ON SALE" : "HIDDEN"}</span></td>
             <td className="console-row-actions">
-              <button type="button" onClick={() => edit(plugin)}><PencilLine size={15} aria-hidden />Edit</button>
+              <button type="button" onClick={() => edit(plugin)}><NotePencil size={15} aria-hidden />Edit</button>
             </td>
           </tr>)}
         </tbody>

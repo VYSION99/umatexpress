@@ -25,7 +25,7 @@ const rooms = [{ id: "room-a", property_id: "property-a", label: "A1" }];
 const photos = [];
 
 const PHOTO_COLUMNS = [
-  "id", "property_id", "landlord_id", "room_id", "caption", "sort_order", "status", "content_type",
+  "id", "property_id", "landlord_id", "room_id", "media_kind", "caption", "sort_order", "status", "content_type",
   "bytes", "review_reason", "reviewed_by", "reviewed_at", "created_at", "updated_at",
 ];
 
@@ -72,9 +72,9 @@ function handle(sql, args) {
     return ok(table(["lowest"], [{ lowest: list.length ? Math.min(...list.map((photo) => photo.sort_order)) : 0 }]));
   }
   if (/^INSERT INTO hostel_property_photos/.test(sql)) {
-    const [id, propertyId, landlordId, roomId, r2Key, caption, sortOrder, contentType, bytes, createdAt, updatedAt] = args;
+    const [id, propertyId, landlordId, roomId, mediaKind, r2Key, caption, sortOrder, contentType, bytes, createdAt, updatedAt] = args;
     photos.push({
-      id, property_id: propertyId, landlord_id: landlordId, room_id: roomId, r2_key: r2Key, caption,
+      id, property_id: propertyId, landlord_id: landlordId, room_id: roomId, media_kind: mediaKind, r2_key: r2Key, caption,
       sort_order: Number(sortOrder), status: "PENDING", content_type: contentType, bytes: Number(bytes),
       review_reason: "", reviewed_by: "", reviewed_at: "", created_at: createdAt, updated_at: updatedAt,
     });
@@ -94,14 +94,14 @@ function handle(sql, args) {
     const rows = photos.filter((photo) => photo.status === "PENDING").sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     return ok(rows.length ? table(PHOTO_COLUMNS, rows) : empty);
   }
-  if (/^SELECT id,caption,sort_order FROM hostel_property_photos WHERE property_id = \? AND status = 'APPROVED'/.test(sql)) {
+  if (/^SELECT id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE property_id = \? AND status = 'APPROVED'/.test(sql)) {
     const rows = forProperty(args[0]).filter((photo) => photo.status === "APPROVED");
-    return ok(rows.length ? table(["id", "caption", "sort_order"], rows) : empty);
+    return ok(rows.length ? table(["id", "room_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
   }
-  if (/^SELECT id,property_id,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND property_id IN/.test(sql)) {
+  if (/^SELECT id,property_id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN/.test(sql)) {
     const wanted = new Set(args);
-    const rows = photos.filter((photo) => photo.status === "APPROVED" && wanted.has(photo.property_id)).sort(bySort);
-    return ok(rows.length ? table(["id", "property_id", "caption", "sort_order"], rows) : empty);
+    const rows = photos.filter((photo) => photo.status === "APPROVED" && photo.media_kind === "PHOTO" && !photo.room_id && wanted.has(photo.property_id)).sort(bySort);
+    return ok(rows.length ? table(["id", "property_id", "room_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
   }
   if (/^UPDATE hostel_property_photos SET status = \?/.test(sql)) {
     const [status, reason, by, at, updatedAt, id] = args;
@@ -162,8 +162,12 @@ function fakeBucket() {
 
 const bytes = (text) => new TextEncoder().encode(text).buffer;
 
+globalThis.__hostelPhotoEnv = { CLOUDFLARE_R2_BINDING: "PRIVATE_BUCKET", CLOUDFLARE_IMAGES_BINDING: "IMAGES" };
+
 const root = fileURLToPath(new URL("..", import.meta.url));
-const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
+const vite = await createServer({ plugins: [{ name: "hostel-photo-test-env", enforce: "pre", resolveId(id) { if (id.endsWith("/lib/runtime-env") || id.endsWith("/lib/runtime-env.ts")) return "\0hostel-photo-env"; }, load(id) { if (id === "\0hostel-photo-env") return `export const runtimeEnv = async () => globalThis.__hostelPhotoEnv;
+export async function envValue(name, aliases = []) { for (const key of [name, ...aliases]) { const value = globalThis.__hostelPhotoEnv[key] ?? process.env[key]; if (typeof value === 'string' && value.trim()) return value.trim(); } return ''; }
+export async function envList(name) { return (await envValue(name)).toLowerCase().split(',').map(value => value.trim()).filter(Boolean); }`; } }], appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
 
 const {
@@ -351,4 +355,69 @@ test("the gallery and the review queue are behind their console roles", async ()
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photoId: "x", action: "APPROVE" }),
   }));
   assert.equal(decide.status, 401);
+});
+
+
+test("resized photos reuse approved bytes but a rejected photo cannot use the cache", async () => {
+  const bucket = fakeBucket();
+  const photo = await upload({ propertyId: "property-e", landlordId: "landlord-b", bucket });
+  await reviewHostelPhoto({ photoId: photo.id, action: "APPROVE", actor: "admin@umat.edu.gh" });
+  let transforms = 0;
+  const cache = new Map();
+  const oldCaches = globalThis.caches;
+  globalThis.caches = { default: {
+    async match(request) { return cache.get(request.url)?.clone(); },
+    async put(request, response) { cache.set(request.url, response.clone()); },
+  } };
+  globalThis.__hostelPhotoEnv.PRIVATE_BUCKET = bucket;
+  globalThis.__hostelPhotoEnv.IMAGES = { input() { return { transform(options) {
+    assert.equal(options.width, 640);
+    return { async output(options) { transforms++; assert.equal(options.format, "image/webp"); return { response() { return new Response("resized-webp", { headers: { "Content-Type": "image/webp" } }); } }; } };
+  } }; } };
+  try {
+    const request = new Request(`https://umatexpress.test/api/hostel/photos/${photo.id}?width=640`);
+    const first = await publicPhotoRoute.GET(request, params(photo.id));
+    assert.equal(first.status, 200, await first.clone().text());
+    assert.equal(first.headers.get("content-type"), "image/webp");
+    assert.equal(first.headers.get("cache-control"), "private, max-age=0, must-revalidate");
+    assert.equal(await first.text(), "resized-webp");
+    assert.equal((await publicPhotoRoute.GET(request, params(photo.id))).status, 200);
+    assert.equal(transforms, 1);
+    await reviewHostelPhoto({ photoId: photo.id, action: "REJECT", reason: "Remove photo", actor: "admin@umat.edu.gh" });
+    assert.equal((await publicPhotoRoute.GET(request, params(photo.id))).status, 404);
+    assert.equal(transforms, 1);
+  } finally {
+    globalThis.caches = oldCaches;
+    delete globalThis.__hostelPhotoEnv.IMAGES;
+    delete globalThis.__hostelPhotoEnv.PRIVATE_BUCKET;
+  }
+});
+
+test("resizing failures fall back to the original image", async () => {
+  const bucket = fakeBucket();
+  const photo = await upload({ propertyId: "property-e", landlordId: "landlord-b", bucket });
+  await reviewHostelPhoto({ photoId: photo.id, action: "APPROVE", actor: "admin@umat.edu.gh" });
+  globalThis.__hostelPhotoEnv.PRIVATE_BUCKET = bucket;
+  globalThis.__hostelPhotoEnv.IMAGES = { input() { return { transform() { throw new Error("Images unavailable"); } }; } };
+  try {
+    const result = await publicPhotoRoute.GET(new Request(`https://umatexpress.test/api/hostel/photos/${photo.id}?width=320`), params(photo.id));
+    assert.equal(result.status, 200, await result.clone().text());
+    assert.equal(result.headers.get("content-type"), "image/jpeg");
+    assert.equal(await result.text(), "jpeg-bytes");
+  } finally {
+    delete globalThis.__hostelPhotoEnv.IMAGES;
+    delete globalThis.__hostelPhotoEnv.PRIVATE_BUCKET;
+  }
+});
+
+test("a room floor plan uses the photo review gate and cannot become a card cover", async () => {
+  const bucket = fakeBucket();
+  await assert.rejects(() => upload({ mediaKind: "FLOOR_PLAN", bucket }), (error) => error?.code === "VALIDATION_ERROR");
+  const plan = await upload({ mediaKind: "FLOOR_PLAN", roomId: "room-a", caption: "A1 layout", bucket });
+  assert.equal(plan.mediaKind, "FLOOR_PLAN");
+  assert.deepEqual((await listApprovedHostelPhotos("property-a")).some((item) => item.id === plan.id), false);
+  await reviewHostelPhoto({ photoId: plan.id, action: "APPROVE", actor: "admin@umat.edu.gh" });
+  const approved = await listApprovedHostelPhotos("property-a");
+  assert.equal(approved.find((item) => item.id === plan.id)?.roomId, "room-a");
+  assert.equal((await listApprovedPhotoCovers(["property-a"])).get("property-a")?.id === plan.id, false);
 });

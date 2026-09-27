@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole } from "@/components/admin/console-services";
 import { ConsoleBriefStrip } from "@/components/console/ConsoleBriefStrip";

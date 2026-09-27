@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, MessageSquareQuote, Star } from "lucide-react";
+import { CircleNotch, Quotes, Star } from "@phosphor-icons/react";
 
 type Review = {
   id: string; rating: number; title: string; body: string; studentName: string;
@@ -24,11 +24,11 @@ export function Stars({ rating, size = 14 }: { rating: number; size?: number }) 
  * can add one, so the score is anchored to stays that actually happened; the
  * page never offers a box a visitor could type into.
  */
-export function PropertyReviews({ propertyId }: { propertyId: string }) {
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [reviews, setReviews] = useState<Review[]>([]);
+export function PropertyReviews({ propertyId, initial }: { propertyId: string; initial?: { summary: Summary; reviews: Review[] } }) {
+  const [summary, setSummary] = useState<Summary | null>(initial?.summary || null);
+  const [reviews, setReviews] = useState<Review[]>(initial?.reviews || []);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initial);
 
   const load = useCallback(async () => {
     setError("");
@@ -46,21 +46,24 @@ export function PropertyReviews({ propertyId }: { propertyId: string }) {
   }, [propertyId]);
 
   useEffect(() => {
-    queueMicrotask(() => void load());
-  }, [load]);
+    if (!initial) queueMicrotask(() => void load());
+  }, [load, initial]);
 
-  if (loading) return <section className="hostel-reviews"><p className="hostel-resident-muted"><Loader2 size={14} className="console-spin" aria-hidden /> Reading what residents said…</p></section>;
-  if (error) return <section className="hostel-reviews"><p className="hostel-book-error">{error}</p></section>;
+  const displayedSummary = initial?.summary ?? summary;
+  const displayedReviews = initial?.reviews ?? reviews;
+
+  if (!initial && loading) return <section className="hostel-reviews"><p className="hostel-resident-muted"><CircleNotch size={14} className="console-spin" aria-hidden /> Reading what residents said…</p></section>;
+  if (!initial && error) return <section className="hostel-reviews"><p className="hostel-book-error">{error}</p></section>;
 
   return <section className="hostel-reviews">
     <div className="hostel-results-head">
       <h2>What residents said</h2>
-      {summary && summary.count > 0 && <span className="hostel-review-score"><Stars rating={summary.average} />{summary.average.toFixed(1)} · {summary.count} {summary.count === 1 ? "review" : "reviews"}</span>}
+      {displayedSummary && displayedSummary.count > 0 && <span className="hostel-review-score"><Stars rating={displayedSummary.average} />{displayedSummary.average.toFixed(1)} · {displayedSummary.count} {displayedSummary.count === 1 ? "review" : "reviews"}</span>}
     </div>
-    {reviews.length === 0
+    {displayedReviews.length === 0
       ? <p className="hostel-resident-muted">No review yet. The first student to pay for a bed here can write one from their resident page.</p>
       : <ul className="hostel-review-list">
-        {reviews.map((review) => <li key={review.id}>
+        {displayedReviews.map((review) => <li key={review.id}>
           <header>
             <Stars rating={review.rating} />
             <strong>{review.title || `${review.rating} out of 5`}</strong>
@@ -68,7 +71,7 @@ export function PropertyReviews({ propertyId }: { propertyId: string }) {
           </header>
           <p>{review.body}</p>
           {review.reply && <div className="hostel-review-reply">
-            <MessageSquareQuote size={14} aria-hidden />
+            <Quotes size={14} aria-hidden />
             <div>
               <strong>The hostel replied</strong>
               <span>{review.reply}</span>

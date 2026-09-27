@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { GeoJSONSource, LngLatBoundsLike, LngLatLike, Map as MapLibreMap, Marker } from "maplibre-gl";
-import { CarFront, LocateFixed, MapPin } from "lucide-react";
+import { Car, Crosshair, MapPin } from "@phosphor-icons/react";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
 import { corridorGeometry, routeMetrics } from "@/lib/campus-route-geometry";
@@ -263,11 +263,11 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
     <div className="campus-map-frame">
       <div ref={containerRef} className="campus-map-canvas real-map-canvas" aria-label="Interactive CampusRide map" />
       {!mapReady && !mapError && <div className="real-map-loading"><MapPin size={22}/><span>Loading real map...</span></div>}
-      {mapError && <div className="real-map-error"><LocateFixed size={22}/><span>{mapError}</span></div>}
+      {mapError && <div className="real-map-error"><Crosshair size={22}/><span>{mapError}</span></div>}
     </div>
     <div className="real-map-legend">
       <span><MapPin size={14}/> Zone</span>
-      <span><CarFront size={14}/> Ride</span>
+      <span><Car size={14}/> Ride</span>
       {routeStats && <span>{Math.max(1, Math.round(routeStats.durationSeconds / 60))} min ETA · {(routeStats.distanceMeters / 1000).toFixed(1)} km</span>}
       <span>{routeStats?.fallback ? "Estimated route" : "Surveyed corridor"} · OpenStreetMap</span>
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { BadgeCheck, Bell, Check, Loader2, MessageSquare, Phone, Plus, Send, UserX, Wallet, X } from "lucide-react";
+import { Bell, Chat, Check, CircleNotch, PaperPlaneTilt, Phone, Plus, SealCheck, UserMinus, Wallet, X } from "@phosphor-icons/react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { cedis } from "@/components/campusRide/hostel/format";
 import { subscribeToHostelThread } from "@/components/campusRide/hostel/message-stream-client";
@@ -453,7 +453,7 @@ function ResidentsTable({ residents, busy, onThread }: {
         <td><span className={`console-badge console-badge-${resident.status.toLowerCase().replace("_", "")}`}>{statusLabel[resident.status] || resident.status}</span></td>
         <td><span>{resident.unreadMessages} unread</span><small>{resident.openServices} open service{resident.openServices === 1 ? "" : "s"}</small></td>
         <td className="console-row-actions">
-          <button type="button" disabled={busy === resident.id} onClick={() => onThread(resident)}><MessageSquare size={15} aria-hidden />Message</button>
+          <button type="button" disabled={busy === resident.id} onClick={() => onThread(resident)}><Chat size={15} aria-hidden />Message</button>
         </td>
       </tr>)}
     </tbody>
@@ -544,7 +544,7 @@ function ServicesPanel({ catalogue, subscriptions, periods, properties, busy, on
         <input type="text" inputMode="decimal" value={form.residentPrice} onChange={(event) => setForm({ ...form, residentPrice: event.target.value })} placeholder={chosen ? (chosen.suggestedResidentPrice / 100).toFixed(2) : "0.00"} />
       </label>
       <button type="submit" disabled={busy === "subscribe" || !form.pluginId || !form.periodId}>
-        {busy === "subscribe" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Plus size={15} aria-hidden />}
+        {busy === "subscribe" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Plus size={15} aria-hidden />}
         Pay {chosen ? cedis(chosen.price) : "the fee"} and switch on
       </button>
     </form>
@@ -562,7 +562,7 @@ function ServicesPanel({ catalogue, subscriptions, periods, properties, busy, on
           <td><span className={`console-badge console-badge-${subscription.status.toLowerCase().replace("_", "")}`}>{statusLabel[subscription.status] || subscription.status}</span></td>
           <td className="console-row-actions">
             {subscription.status === "PENDING_PAYMENT" && <>
-              <a className="console-inline-link" href={`/api/console/hostel/plugins/verify?reference=${encodeURIComponent(subscription.reference)}`}><BadgeCheck size={15} aria-hidden />I have paid</a>
+              <a className="console-inline-link" href={`/api/console/hostel/plugins/verify?reference=${encodeURIComponent(subscription.reference)}`}><SealCheck size={15} aria-hidden />I have paid</a>
               <button type="button" disabled={busy === `cancel:${subscription.reference}`} onClick={() => onCancel(subscription)}><X size={15} aria-hidden />Cancel</button>
             </>}
           </td>
@@ -596,7 +596,7 @@ function TeamPanel({ managers, isOwner, ownerEmail, busy, onInvite, onRevoke }: 
         <label>Phone<input type="text" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="024 000 0000" /></label>
         <label>Console password<input type="text" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 10 characters" /></label>
         <button type="submit" disabled={busy === "invite" || !form.name || !form.email || !form.password}>
-          {busy === "invite" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Plus size={15} aria-hidden />}
+          {busy === "invite" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Plus size={15} aria-hidden />}
           Add manager
         </button>
       </form>
@@ -619,7 +619,7 @@ function TeamPanel({ managers, isOwner, ownerEmail, busy, onInvite, onRevoke }: 
           <td><span className={`console-badge console-badge-${manager.status.toLowerCase() === "active" ? "approved" : "rejected"}`}>{statusLabel[manager.status] || manager.status}</span></td>
           <td className="console-row-actions">
             {isOwner && manager.status === "ACTIVE" && <button type="button" disabled={busy === `revoke:${manager.id}`} onClick={() => onRevoke(manager)}>
-              <UserX size={15} aria-hidden />Remove
+              <UserMinus size={15} aria-hidden />Remove
             </button>}
           </td>
         </tr>)}
@@ -647,7 +647,7 @@ function NoticesPanel({ announcements, properties, busy, onPublish }: {
       <label>Title<input type="text" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Water tank cleaning on Saturday" /></label>
       <label className="console-field-wide">Message<textarea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} rows={3} placeholder="Say what happens, when, and what residents should do." /></label>
       <button type="submit" disabled={busy === "notice" || !form.title || !form.body}>
-        {busy === "notice" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Bell size={15} aria-hidden />}
+        {busy === "notice" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Bell size={15} aria-hidden />}
         Publish to residents
       </button>
     </form>
@@ -717,7 +717,7 @@ function PayoutAccountForm({ account, destinations, busy, onSave }: {
       <input type="text" value={form.accountNumber} onChange={(event) => setForm({ ...form, accountNumber: event.target.value })} maxLength={40} placeholder={account?.ready ? "Enter the number again to replace it" : "Account or mobile money number"} />
     </label>
     <button type="submit" disabled={busy === "payout-account" || !form.accountName.trim() || !form.accountNumber.trim() || !form.bankCode}>
-      {busy === "payout-account" ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Check size={15} aria-hidden />}
+      {busy === "payout-account" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Check size={15} aria-hidden />}
       Save account
     </button>
   </form>;
@@ -760,7 +760,7 @@ function PayoutsPanel({ account, statement, destinations, isOwner, busy, onSaveA
 
     <h3 className="console-subhead">Bed earnings</h3>
     {!statement
-      ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading your statement…</p>
+      ? <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading your statement…</p>
       : statement.entries.length === 0
         ? <p className="console-empty">No bed payment has landed yet. Each paid resident appears here with the platform&apos;s 3% already taken out.</p>
         : <table className="console-table">
@@ -857,12 +857,12 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
   };
 
   return <section className="console-panel">
-    <h2><MessageSquare size={18} aria-hidden />Thread with {name}
+    <h2><Chat size={18} aria-hidden />Thread with {name}
       <button type="button" className="console-panel-close" onClick={onClose}>Close</button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {messages === null
-      ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading the thread…</p>
+      ? <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading the thread…</p>
       : messages.length === 0
         ? <p className="console-empty">No messages yet. Say hello and confirm the move-in details.</p>
         : <ul className="console-thread">
@@ -877,7 +877,7 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
         <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} maxLength={2000} placeholder="Write back to the resident…" />
       </label>
       <button type="submit" disabled={sending || !draft.trim()}>
-        {sending ? <Loader2 size={15} className="console-spin" aria-hidden /> : <Send size={15} aria-hidden />}
+        {sending ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <PaperPlaneTilt size={15} aria-hidden />}
         Send
       </button>
     </form>

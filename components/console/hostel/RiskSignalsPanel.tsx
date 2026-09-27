@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, Loader2, Radar, ShieldAlert, X } from "lucide-react";
+import { Broadcast, Checks, CircleNotch, ShieldWarning, X } from "@phosphor-icons/react";
 
 type Signal = {
   id: string; signalKey: string; severity: string; entityType: string; entityId: string;
@@ -97,13 +97,13 @@ export function RiskSignalsPanel() {
     });
   }
 
-  if (!signals) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Reading the signals…</p>;
+  if (!signals) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Reading the signals…</p>;
 
   return <section className="console-panel">
-    <h2><Radar size={18} aria-hidden />Supply signals
+    <h2><Broadcast size={18} aria-hidden />Supply signals
       {summary && summary.open > 0 && <span className="console-badge console-badge-rejected">{summary.open} open</span>}
       <button type="button" className="console-panel-close" onClick={() => void run(scan)} disabled={busy === "scan"}>
-        {busy === "scan" ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Radar size={14} aria-hidden />} Rescan now
+        {busy === "scan" ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Broadcast size={14} aria-hidden />} Rescan now
       </button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
@@ -122,7 +122,7 @@ export function RiskSignalsPanel() {
       : <ul className="console-reviews">
         {signals.map((signal) => <li key={signal.id}>
           <header>
-            <span className={`console-badge console-badge-${severityBadge(signal.severity)}`}><ShieldAlert size={11} aria-hidden />{signal.severity}</span>
+            <span className={`console-badge console-badge-${severityBadge(signal.severity)}`}><ShieldWarning size={11} aria-hidden />{signal.severity}</span>
             <strong>{signal.title}</strong>
             <small>{signal.entityType.toLowerCase()} · {when(signal.createdAt)}</small>
           </header>
@@ -132,7 +132,7 @@ export function RiskSignalsPanel() {
             ? <div className="console-row-actions">
               <input type="text" value={notes[signal.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [signal.id]: event.target.value }))} placeholder="What did you find?" maxLength={500} />
               <button type="button" className="console-secondary" disabled={busy === signal.id || !(notes[signal.id] || "").trim()} onClick={() => void resolve(signal, "REVIEW")}>
-                {busy === signal.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <CheckCheck size={14} aria-hidden />} Mark reviewed
+                {busy === signal.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Checks size={14} aria-hidden />} Mark reviewed
               </button>
               <button type="button" className="console-secondary" disabled={busy === signal.id || !(notes[signal.id] || "").trim()} onClick={() => void resolve(signal, "DISMISS")}>
                 <X size={14} aria-hidden /> Dismiss

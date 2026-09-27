@@ -1,29 +1,47 @@
 /* ========================================
    STUDENT HOMEPAGE
-   Figma Make layout, rebuilt on a white
-   surface with the yellow / green / dark
-   cyan palette. Only this file may style
+   Student service layout on a white
+   surface with the gold / green / white
+   palette. Only this file may style
    `.home`; `launcher.css` stays shared with
    the management console.
    ======================================== */
 
 .launcher.home {
   /* The palette itself lives in app/palette.css so the client home, campusRide
-     and vacationRide cannot drift apart. */
+     and vacationRide cannot drift apart: gold, green and white, nothing else. */
   --home-green: var(--ui-green);
   --home-green-soft: var(--ui-green-soft);
-  --home-cyan: var(--ui-cyan);
-  --home-cyan-soft: var(--ui-cyan-soft);
-  --home-yellow: var(--ui-yellow);
-  --home-yellow-soft: var(--ui-yellow-soft);
-  --home-yellow-ink: var(--ui-yellow-ink);
+  --home-gold: var(--ui-gold);
+  --home-gold-deep: var(--ui-gold-deep);
+  --home-gold-soft: var(--ui-gold-soft);
+  --home-gold-ink: var(--ui-gold-ink);
+  --home-neutral: var(--ui-neutral);
+  --home-neutral-soft: var(--ui-neutral-soft);
   --home-ink: var(--ui-ink);
   --home-muted: var(--ui-muted);
   --home-line: var(--ui-line);
-  --home-shadow: var(--ui-card-shadow);
+
+  /* One radius scale, three steps. 999px is kept for a pill that states a
+     condition — a count, a status — and never for a surface. */
+  --home-r-xs: 4px;
+  --home-r-sm: 8px;
+  --home-r-lg: 12px;
+
+  /* Flat by default: a border says where a card begins. Depth is spent on the
+     one thing that genuinely floats above the page, which is the dialog. */
+  --home-shadow: none;
   --home-shadow-lg: var(--ui-card-shadow-lg);
 
-  background: var(--ui-surface);
+  /* The page is ruled paper, not a glow: a flat white field with a hairline
+     every 32px, so the surface has texture with no gradient in it. */
+  --home-rule: rgba(18, 38, 31, .055);
+
+  background-color: var(--ui-surface);
+  background-image:
+    linear-gradient(var(--home-rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--home-rule) 1px, transparent 1px);
+  background-size: 32px 32px;
   color: var(--home-ink);
   padding-bottom: env(safe-area-inset-bottom);
 }
@@ -62,7 +80,7 @@
   height: 40px;
   flex-shrink: 0;
 
-  border-radius: 13px;
+  border-radius: var(--home-r-sm);
   object-fit: contain;
 }
 
@@ -76,7 +94,7 @@
 
 .home-wordmark em {
   font-style: normal;
-  color: var(--home-cyan);
+  color: var(--home-green);
 }
 
 .home-tagline {
@@ -104,7 +122,7 @@
   min-height: 44px;
   padding: 0 14px;
 
-  border-radius: 12px;
+  border-radius: var(--home-r-sm);
   color: var(--home-muted);
   font-size: 13px;
   font-weight: 700;
@@ -126,7 +144,7 @@
   padding: 0;
 
   border: 1px solid var(--home-line);
-  border-radius: 13px;
+  border-radius: var(--home-r-sm);
   background: #fff;
   color: var(--home-ink);
 }
@@ -143,7 +161,7 @@
 
 .home-icon-button:hover,
 .home-guest:hover {
-  border-color: #cfded6;
+  border-color: var(--ui-green-line);
   background: var(--home-green-soft);
   color: var(--home-green);
 }
@@ -172,26 +190,29 @@
   margin-bottom: 26px;
 
   border: 1px solid var(--home-line);
-  border-radius: 28px;
+  /* One hard rule down the left edge is the first thing the page says: this is
+     a printed header, not a card floating in fog. */
+  border-left: 4px solid var(--home-green);
+  border-radius: var(--home-r-lg);
 
-  background:
-    radial-gradient(115% 120% at 92% 4%, var(--home-yellow-soft) 0%, transparent 52%),
-    radial-gradient(120% 130% at -8% 108%, var(--home-cyan-soft) 0%, transparent 58%),
-    #ffffff;
-  box-shadow: var(--home-shadow-lg);
+  background: #ffffff;
 }
 
-.home-hero:after {
+/* The mark carries the hero's empty right half as a watermark. The bar already
+   shows the logo, so this is texture rather than a second announcement: the
+   art is cut out of its black plate by scripts/build-logo-watermark.py and
+   dropped to a tint, and it never takes a pointer or a tab stop. */
+.home-hero::after {
   content: "";
   position: absolute;
-  right: -70px;
-  bottom: -96px;
+  top: 16px;
+  right: 16px;
 
-  width: 230px;
-  height: 230px;
+  width: clamp(96px, 26%, 132px);
+  aspect-ratio: 256 / 231;
 
-  border-radius: 50%;
-  background: var(--home-green-soft);
+  background: url("/logo-watermark.png") center / contain no-repeat;
+  opacity: .16;
   pointer-events: none;
 }
 
@@ -206,7 +227,7 @@
   padding: 6px 13px;
   margin-bottom: 18px;
 
-  border: 1px solid #bfe0cd;
+  border: 1px solid var(--ui-green-line);
   border-radius: 999px;
   background: #fff;
 
@@ -231,7 +252,7 @@
 
 .home-hero h1 em {
   font-style: normal;
-  color: var(--home-cyan);
+  color: var(--home-green);
 }
 
 .home-hero > p {
@@ -281,7 +302,7 @@
 
   border: 0;
   background: none;
-  color: var(--home-cyan);
+  color: var(--home-green);
   font-size: 13px;
   font-weight: 750;
 }
@@ -314,8 +335,8 @@
 }
 
 .home-card {
-  --card-ink: var(--home-cyan);
-  --card-soft: var(--home-cyan-soft);
+  --card-ink: var(--home-neutral);
+  --card-soft: var(--home-neutral-soft);
 
   flex: 0 0 172px;
   scroll-snap-align: start;
@@ -327,15 +348,14 @@
   padding: 16px;
 
   border: 1px solid var(--home-line);
-  border-radius: 22px;
+  border-radius: var(--home-r-sm);
   background: #fff;
   box-shadow: var(--home-shadow);
-  transition: box-shadow .18s ease, transform .18s ease;
+  transition: border-color .15s ease;
 }
 
 .home-card:hover {
-  box-shadow: var(--home-shadow-lg);
-  transform: translateY(-2px);
+  border-color: var(--home-green);
 }
 
 .home-card.is-green {
@@ -343,9 +363,14 @@
   --card-soft: var(--home-green-soft);
 }
 
-.home-card.is-yellow {
-  --card-ink: var(--home-yellow-ink);
-  --card-soft: var(--home-yellow-soft);
+.home-card.is-gold {
+  --card-ink: var(--home-gold-ink);
+  --card-soft: var(--home-gold-soft);
+}
+
+.home-card.is-neutral {
+  --card-ink: var(--home-neutral);
+  --card-soft: var(--home-neutral-soft);
 }
 
 .home-card-icon {
@@ -356,9 +381,27 @@
   height: 46px;
   flex-shrink: 0;
 
-  border-radius: 14px;
+  border-radius: var(--home-r-sm);
   background: var(--card-soft);
   color: var(--card-ink);
+}
+
+/* The card picture bleeds to the card's edges: at 172px wide on a phone an
+   inset image is too small to read as anything but a smudge, and clipping it
+   against the border is what makes it look like artwork rather than a tile
+   dropped into the padding. The radius is the card's own 8px less its 1px
+   border so the two curves meet instead of crossing. */
+.home-card-art {
+  margin: -16px -16px 13px;
+  overflow: hidden;
+  border-radius: 7px 7px 0 0;
+  background: var(--card-soft);
+}
+
+.home-card-art img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .home-card h3 {
@@ -426,8 +469,8 @@
    ======================================== */
 
 .home-feature {
-  --card-ink: var(--home-cyan);
-  --card-soft: var(--home-cyan-soft);
+  --card-ink: var(--home-neutral);
+  --card-soft: var(--home-neutral-soft);
 
   position: relative;
   overflow: hidden;
@@ -436,9 +479,9 @@
   margin-bottom: 22px;
 
   border: 1px solid var(--home-line);
-  border-radius: 26px;
+  border-radius: var(--home-r-lg);
   background: #fff;
-  box-shadow: var(--home-shadow-lg);
+  box-shadow: var(--home-shadow);
 }
 
 .home-feature.is-green {
@@ -446,9 +489,14 @@
   --card-soft: var(--home-green-soft);
 }
 
-.home-feature.is-yellow {
-  --card-ink: var(--home-yellow-ink);
-  --card-soft: var(--home-yellow-soft);
+.home-feature.is-gold {
+  --card-ink: var(--home-gold-ink);
+  --card-soft: var(--home-gold-soft);
+}
+
+.home-feature.is-neutral {
+  --card-ink: var(--home-neutral);
+  --card-soft: var(--home-neutral-soft);
 }
 
 .home-feature-head {
@@ -495,7 +543,7 @@
   width: 22px;
   height: 22px;
 
-  border-radius: 50%;
+  border-radius: var(--home-r-xs);
   background: var(--card-soft);
   color: var(--card-ink);
   font-style: normal;
@@ -538,7 +586,7 @@
 
   margin-bottom: 18px;
   border: 1px solid var(--home-line);
-  border-radius: 18px;
+  border-radius: var(--home-r-sm);
   background: var(--card-soft);
 }
 
@@ -549,8 +597,8 @@
   object-fit: cover;
 }
 
-/* A partner's own artwork sits on a soft plate so a logo that was drawn for a
-   dark background or a white page still belongs to the card. */
+/* A partner's own artwork sits on a flat white plate so a logo drawn for a dark
+   background still gets the light field it needs — no tint, no gradient. */
 .home-brand-plate {
   display: grid;
   place-items: center;
@@ -559,8 +607,8 @@
   padding: clamp(16px, 4vw, 30px);
 
   border: 1px solid var(--home-line);
-  border-radius: 18px;
-  background: linear-gradient(140deg, #ffffff, var(--card-soft));
+  border-radius: var(--home-r-sm);
+  background: #fff;
 }
 
 .home-brand-plate img {
@@ -580,8 +628,8 @@
   padding: clamp(16px, 4vw, 26px);
 
   border: 1px solid var(--home-line);
-  border-radius: 18px;
-  background: linear-gradient(140deg, #ffffff, var(--card-soft));
+  border-radius: var(--home-r-sm);
+  background: #fff;
 }
 
 .home-brand-lockup img {
@@ -596,13 +644,15 @@
   letter-spacing: -.8px;
 }
 
-.home-feature.is-yellow .home-cta {
-  background: var(--home-yellow);
-  color: var(--home-yellow-ink);
+/* The gold card is the one that states a condition, so its action is gold too;
+   ink on gold clears 7:1, where gold ink on gold would not. */
+.home-feature.is-gold .home-cta {
+  background: var(--home-gold);
+  color: var(--ui-ink);
 }
 
-.home-feature.is-yellow .home-cta:hover {
-  background: #ecc900;
+.home-feature.is-gold .home-cta:hover {
+  background: var(--home-gold-deep);
 }
 
 .home-feature-copy {
@@ -623,7 +673,7 @@
   min-height: 50px;
   padding: 0 22px;
 
-  border-radius: 15px;
+  border-radius: var(--home-r-sm);
   background: var(--home-green);
   color: #fff;
   font-size: 14px;
@@ -631,15 +681,7 @@
 }
 
 .home-cta:hover {
-  background: #0b5740;
-}
-
-.home-feature.is-cyan .home-cta {
-  background: var(--home-cyan);
-}
-
-.home-feature.is-cyan .home-cta:hover {
-  background: #0b5f76;
+  background: var(--ui-green-deep);
 }
 
 
@@ -656,19 +698,25 @@
 .home-soon article {
   padding: 16px;
 
-  border: 1px dashed #d5e2da;
-  border-radius: 20px;
-  background: var(--home-green-soft);
+  border: 1px dashed var(--ui-green-line);
+  border-radius: var(--home-r-sm);
+  /* A service that is not live yet has nothing to signal, so it rests on the
+     neutral tint and only the three available cards carry a hue. */
+  background: var(--home-neutral-soft);
   color: var(--home-ink);
   box-shadow: var(--home-shadow);
 }
 
-.home-soon article.is-cyan {
-  background: var(--home-cyan-soft);
+.home-soon article.is-green {
+  background: var(--home-green-soft);
 }
 
-.home-soon article.is-yellow {
-  background: var(--home-yellow-soft);
+.home-soon article.is-gold {
+  background: var(--home-gold-soft);
+}
+
+.home-soon article.is-neutral {
+  background: var(--home-neutral-soft);
 }
 
 .home-soon svg {
@@ -698,9 +746,9 @@
   margin-bottom: 22px;
 
   border: 1px solid var(--home-line);
-  border-radius: 26px;
+  border-radius: var(--home-r-lg);
   background: #fff;
-  box-shadow: var(--home-shadow-lg);
+  box-shadow: var(--home-shadow);
 }
 
 .home-bookings-head {
@@ -717,9 +765,9 @@
   width: 46px;
   height: 46px;
 
-  border-radius: 14px;
-  background: var(--home-yellow-soft);
-  color: var(--home-yellow-ink);
+  border-radius: var(--home-r-sm);
+  background: var(--home-gold-soft);
+  color: var(--home-gold-ink);
 }
 
 .home-bookings-head h2 {
@@ -782,7 +830,7 @@
 
   border: 0;
   background: none;
-  color: var(--home-cyan);
+  color: var(--home-green);
   font-size: 12.5px;
   font-weight: 750;
 }
@@ -809,7 +857,7 @@
   min-height: 44px;
   border: 0;
   background: none;
-  color: var(--home-cyan);
+  color: var(--home-green);
   font-size: 12.5px;
   font-weight: 750;
 }
@@ -854,7 +902,7 @@
     min-height: 50px;
 
     border: 0;
-    border-radius: 14px;
+    border-radius: var(--home-r-sm);
     background: transparent;
 
     color: var(--home-muted);
@@ -910,7 +958,7 @@
 .launcher.home .launch-directory a,
 .launcher.home .launch-panel-message a,
 .launcher.home .launch-reset {
-  color: var(--home-cyan);
+  color: var(--home-green);
 }
 
 .launcher.home .launch-directory button,
@@ -926,17 +974,17 @@
 
 .launcher.home .launch-directory button[aria-pressed=true],
 .launcher.home .launch-customise button[aria-pressed=true] {
-  border-color: #bfe0cd;
+  border-color: var(--ui-green-line);
   background: var(--home-green-soft);
   color: var(--home-green);
 }
 
 .launcher.home .launch-empty {
-  border-color: #d5e2da;
+  border-color: var(--ui-green-line);
 }
 
 .launcher.home :is(a, button, input):focus-visible {
-  outline-color: var(--home-cyan);
+  outline-color: var(--home-green);
 }
 
 
@@ -981,8 +1029,8 @@
 }
 
 .profile-account-badge.is-guest {
-  background: var(--home-yellow-soft);
-  color: var(--home-yellow-ink);
+  background: var(--home-gold-soft);
+  color: var(--home-gold-ink);
 }
 
 a.profile-save,
@@ -1016,7 +1064,7 @@ a.profile-forget {
   min-height: 46px;
   padding: 0 13px;
   border: 1px solid var(--home-line);
-  border-radius: 13px;
+  border-radius: var(--home-r-sm);
   background: var(--ui-surface);
   color: var(--home-ink);
   font-size: 14px;
@@ -1038,7 +1086,7 @@ a.profile-forget {
   min-height: 46px;
   padding: 0 16px;
   border: 1px solid transparent;
-  border-radius: 13px;
+  border-radius: var(--home-r-sm);
   font-size: 13.5px;
   font-weight: 800;
   cursor: pointer;
@@ -1113,7 +1161,7 @@ a.profile-forget {
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--home-line);
-  border-radius: 15px;
+  border-radius: var(--home-r-sm);
   background: var(--ui-surface);
   box-shadow: var(--home-shadow);
 }
@@ -1139,16 +1187,16 @@ a.profile-forget {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 11px;
-  background: var(--home-yellow-soft);
-  color: var(--home-yellow-ink);
+  border-radius: var(--home-r-xs);
+  background: var(--home-gold-soft);
+  color: var(--home-gold-ink);
 }
 
 .profile-tickets li a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--home-cyan);
+  color: var(--home-green);
   font-size: 12.5px;
   font-weight: 800;
   white-space: nowrap;
@@ -1160,7 +1208,7 @@ a.profile-forget {
   width: 30px;
   height: 30px;
   border: 1px solid var(--home-line);
-  border-radius: 10px;
+  border-radius: var(--home-r-xs);
   background: var(--ui-surface);
   color: var(--home-muted);
   cursor: pointer;
@@ -1216,14 +1264,17 @@ a.profile-forget {
 
   .home-hero {
     padding: 46px 48px 50px;
-    border-radius: 32px;
+    border-radius: var(--home-r-lg);
   }
 
-  .home-hero:after {
-    right: -40px;
-    bottom: -120px;
-    width: 320px;
-    height: 320px;
+  /* Wide enough for the mark to move out of the corner and fill the right half
+     instead, clear of the headline column. */
+  .home-hero::after {
+    top: 50%;
+    right: clamp(20px, 3vw, 40px);
+    width: clamp(180px, 27%, 300px);
+    transform: translateY(-50%);
+    opacity: .18;
   }
 
   .home-rail {
@@ -1308,7 +1359,7 @@ a.profile-forget {
   border: 2px solid #fff;
   border-radius: 999px;
 
-  background: var(--home-yellow);
+  background: var(--home-gold);
 }
 
 .feed {
@@ -1346,7 +1397,7 @@ a.profile-forget {
 }
 
 .feed-read-all:hover {
-  border-color: #bfe0cd;
+  border-color: var(--ui-green-line);
   background: var(--home-green-soft);
 }
 
@@ -1365,7 +1416,7 @@ a.profile-forget {
 
   padding: 13px 14px;
   border: 1px solid var(--home-line);
-  border-radius: 14px;
+  border-radius: var(--home-r-sm);
 
   background: #fff;
   box-shadow: var(--home-shadow);
@@ -1373,7 +1424,7 @@ a.profile-forget {
 
 /* An unread row keeps the accent so the newest message is obvious. */
 .feed li.is-unread {
-  border-left: 3px solid var(--home-yellow);
+  border-left: 3px solid var(--home-gold);
 }
 
 .feed-item-head {
@@ -1407,5 +1458,189 @@ a.profile-forget {
 
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--home-cyan);
+  color: var(--home-green);
+}
+
+/* Homepage composition. Shared service and account styles remain above. */
+.launcher.home {
+  --home-r-sm: 12px;
+  --home-r-lg: 22px;
+  background: #f8faf8;
+}
+.home-bar { padding-inline: max(24px, calc((100% - 1200px) / 2)); }
+.home-main { width: min(1200px, calc(100% - 64px)); padding-top: 40px; }
+.home-main, #services, #bookings { scroll-margin-top: 100px; }
+.home-hero {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  align-items: center;
+  gap: 56px;
+  padding: 28px 0 56px;
+  margin-bottom: 32px;
+  border: 0;
+  border-bottom: 1px solid var(--home-line);
+  border-radius: 0;
+  background: transparent;
+}
+.home-hero::after { content: none; }
+.home-hero h1 { font-size: clamp(42px, 4.8vw, 66px); line-height: 1.08; letter-spacing: -.055em; max-width: none; margin-bottom: 22px; }
+.home-hero-copy > p { max-width: 43ch; margin: 0; font-size: 16px; line-height: 1.8; color: var(--home-muted); }
+.home-pill { margin-bottom: 24px; background: var(--home-green-soft); border: 0; padding: 8px 12px; }
+.home-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.home-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 0 15px; border: 1px solid var(--home-line); border-radius: 12px; background: #fff; color: var(--home-ink); font-size: 13px; font-weight: 700; }
+.home-secondary:hover { border-color: var(--home-green); }
+.home-hero-caption { display: flex; align-items: center; gap: 8px; margin-top: 22px; color: var(--home-muted); font-size: 11px; }
+.home-hero-caption > span { width: 6px; height: 6px; border-radius: 50%; background: var(--home-green); }
+.home-day { padding: 30px; border-radius: 24px; background: #103f32; color: #fff; box-shadow: 0 16px 36px #12261f12; }
+.home-day-heading { display: flex; align-items: center; justify-content: space-between; color: #e7c678; font-size: 10px; letter-spacing: .16em; font-weight: 750; }
+.home-day h2 { margin: 26px 0 12px; font-size: 32px; line-height: 1.15; letter-spacing: -.035em; font-weight: 650; }
+.home-day > p { margin: 0 0 24px; color: #c7dad1; font-size: 13px; line-height: 1.6; }
+.home-day-list { display: grid; gap: 9px; }
+.home-day-list > div { display: flex; align-items: center; gap: 12px; padding: 14px 12px; border: 1px solid #ffffff21; border-radius: 12px; background: #ffffff08; }
+.home-day-list > div > span { display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: 10px; background: #ffffff12; color: #e7c678; }
+.home-day-list > div > div { flex: 1; min-width: 0; }
+.home-day-list strong { display: block; font-size: 13px; font-weight: 650; }
+.home-day-list small { display: block; margin-top: 5px; font-size: 11px; line-height: 1.5; color: #c7dad1; }
+.home-day-list > div > svg { color: #c7dad1; }
+.home-day-footer { display: flex; align-items: center; gap: 6px; padding-top: 22px; color: #c7dad1; font-size: 10px; }
+.home-day-footer span { margin-left: auto; }
+.home-section { margin-bottom: 40px; }
+.home-section-head { align-items: center; margin-bottom: 20px; }
+.home-kicker { margin: 0 0 8px; color: var(--home-muted); font-size: 10px; font-weight: 750; letter-spacing: .13em; }
+.home-section-head h2 { font-size: 25px; letter-spacing: -.035em; }
+.home-section-head button { min-width: 60px; justify-content: flex-end; }
+.home-rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; padding: 0; overflow: visible; }
+.home-card { min-width: 0; padding: 20px; border-radius: 16px; transition: border-color .2s, box-shadow .2s; }
+.home-card:hover { box-shadow: 0 8px 24px #12261f0a; }
+.home-card-art { margin: -20px -20px 4px; border-radius: 15px 15px 0 0; }
+.home-card-art img { aspect-ratio: 840 / 310; object-fit: cover; }
+.home-card h3 { font-size: 17px; }
+.home-card p { font-size: 13px; }
+.home-card-link { justify-content: space-between; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--home-line); }
+.home-feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 40px; }
+.home-feature-grid:empty { display: none; }
+.home-feature-grid .home-feature { display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; padding: 26px; margin: 0; }
+.home-feature-head { align-items: flex-start; margin-bottom: 24px; }
+.home-feature-head p { line-height: 1.6; }
+.home-feature-grid .home-cta { align-self: flex-start; margin-top: auto; }
+.home-feature-grid .home-steps { margin-bottom: 24px; }
+.home-steps li { padding-bottom: 8px; }
+.home-feature-grid .home-photo { margin-bottom: 18px; }
+.home-photo img { height: 180px; }
+.home-brand-plate, .home-brand-lockup { height: 144px; }
+.home-brand-plate img { max-height: 100%; width: auto; max-width: 100%; object-fit: contain; }
+.home-feature-copy { max-width: none; }
+.home-bookings { background: var(--home-green-soft); border-color: var(--ui-green-line); padding: 30px; }
+.home-bookings-head > p { margin-bottom: 0; }
+.home-note { padding: 0 0 20px; }
+.home button { cursor: pointer; }
+.home :is(a, button, input):focus-visible { outline: 3px solid var(--home-gold); outline-offset: 4px; }
+.home-guest span { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1000px) {
+  .home-hero { gap: 28px; }
+  .home-day { padding: 24px; }
+  .home-nav-desktop a { padding-inline: 9px; }
+}
+@media (max-width: 719px) {
+  .home-main { width: calc(100% - 32px); padding-top: 24px; }
+  .home-bar { padding: 10px 16px; gap: 8px; }
+  .home-hero { grid-template-columns: 1fr; padding: 10px 0 30px; gap: 30px; margin-bottom: 28px; }
+  .home-hero h1 { font-size: clamp(40px, 9vw, 58px); }
+  .home-hero-copy > p { font-size: 15px; }
+  .home-day {
+    border: 1px solid #42715e;
+    background: linear-gradient(145deg, #1b5642, #103f32 65%);
+    box-shadow: inset 0 1px 0 #ffffff20, 0 7px 0 #0a2f24, 0 18px 26px -12px #103f3240;
+    margin-bottom: 8px;
+  }
+  .home-day h2 { font-size: 28px; }
+  .home-day-list > div {
+    background: linear-gradient(140deg, #ffffff12, #ffffff05);
+    box-shadow: 0 3px 0 #082c224d;
+  }
+  /* Solid lower edges give the cards depth without tilting readable text.
+     Keep the effect inside the mobile layout; no pointer tracking is needed. */
+  .home-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 14px;
+    padding-bottom: 8px;
+  }
+  .home-card {
+    --card-edge: #d5dfd9;
+    position: relative;
+    padding: 12px;
+    border: 1px solid #fff;
+    border-radius: 20px;
+    background: linear-gradient(155deg, #fff 35%, var(--card-soft));
+    box-shadow: inset 0 0 0 1px #12261f0a, 0 6px 0 var(--card-edge), 0 12px 18px -8px #12261f30;
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .home-card.is-green { --card-edge: #bad7c7; }
+  .home-card.is-gold { --card-edge: #e5d4a7; }
+  .home-card:hover {
+    border-color: #fff;
+    box-shadow: inset 0 0 0 1px #12261f0a, 0 6px 0 var(--card-edge), 0 12px 18px -8px #12261f30;
+  }
+  .home-card:has(.home-card-link:active) {
+    transform: translateY(4px);
+    box-shadow: inset 0 0 0 1px #12261f0a, 0 2px 0 var(--card-edge), 0 5px 10px -6px #12261f30;
+  }
+  .home-card:focus-within { border-color: var(--home-green); }
+  .home-card-art {
+    margin: 0 0 6px;
+    border: 1px solid #fff;
+    border-radius: 12px;
+    box-shadow: 0 3px 0 var(--card-edge), 0 6px 10px -5px #12261f26;
+  }
+  .home-card > .home-card-icon {
+    width: 50px;
+    height: 50px;
+    margin: 5px 0 8px;
+    border: 1px solid #ffffffcc;
+    border-radius: 15px;
+    background: linear-gradient(140deg, #fff, var(--card-soft));
+    box-shadow: 0 4px 0 var(--card-edge), 0 8px 12px -6px #12261f30;
+    transform: rotate(-6deg);
+  }
+  .home-card > .home-card-icon svg { transform: rotate(6deg); }
+  .home-card .home-card-link {
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid #ffffffd9;
+    border-radius: 10px;
+    background: #ffffffb3;
+    box-shadow: 0 2px 0 var(--card-edge);
+    text-decoration: none;
+  }
+  .home-card-art img { aspect-ratio: 840 / 394; }
+  .home-card h3 { font-size: 14px; flex-wrap: wrap; }
+  .home-card p, .home-card-link { font-size: 12px; }
+  .home-card-link { gap: 4px; }
+  .home-card-link svg { flex: none; }
+  .home-feature-grid { grid-template-columns: 1fr; gap: 26px; }
+  .home-feature-grid .home-feature, .home-bookings {
+    padding: 22px;
+    border: 1px solid #dce6df;
+    box-shadow: inset 0 1px 0 #fff, 0 5px 0 #dce6df, 0 12px 22px -12px #12261f30;
+  }
+  .home-feature .home-card-icon, .home-bookings-head > span {
+    border: 1px solid #fff;
+    box-shadow: 0 3px 0 #d5dfd9;
+  }
+  .home-section-head h2 { font-size: 21px; }
+  .home-wordmark { font-size: 15px; }
+  .home-tagline { font-size: 10px; }
+  .home-guest { padding: 0 11px; }
+  .home-guest span { display: none; }
+  .home-mark { width: 32px; height: 32px; }
+  .home-brand { gap: 7px; }
+  .home-bar-actions { gap: 6px; }
+}
+@media (max-width: 359px) {
+  .home-rail { grid-template-columns: minmax(0, 1fr); }
+  .home-card-art img { max-height: 140px; object-fit: cover; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-card { transition: none; }
+  .home-card:has(.home-card-link:active) { transform: none; }
 }

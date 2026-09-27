@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LocateFixed } from "lucide-react";
+import { Crosshair } from "@phosphor-icons/react";
 import type { CampusCorridor, CampusZone } from "@/lib/campus-ride";
 
 export function NearestRideFinder({ zones, corridors }: { zones: CampusZone[]; corridors: CampusCorridor[] }) {
@@ -36,7 +36,7 @@ export function NearestRideFinder({ zones, corridors }: { zones: CampusZone[]; c
     </div>
     <div className="nearest-ride-actions">
       <button type="submit">Find nearest ride</button>
-      <button type="button" className="nearest-location-button" onClick={useCurrentLocation}><LocateFixed size={17}/> Use my location</button>
+      <button type="button" className="nearest-location-button" onClick={useCurrentLocation}><Crosshair size={17}/> Use my location</button>
     </div>
     {locationStatus && <small className="nearest-location-status">{locationStatus}</small>}
   </form>;

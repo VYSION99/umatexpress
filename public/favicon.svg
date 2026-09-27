@@ -1,24 +1,39 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- UMaTeXPRESS mark: the leaf and its circuit traces on the dark plate, drawn
+       as vectors so the tab icon stays sharp at 16px and on any DPI. -->
   <defs>
-    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
-      <stop stop-color="#5A120B"/>
-      <stop offset="1" stop-color="#2D0301"/>
-    </radialGradient>
-    <linearGradient id="runner" x1="15" y1="43" x2="43" y2="14" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FF1E1E"/>
-      <stop offset=".48" stop-color="#FF6B1A"/>
-      <stop offset="1" stop-color="#FFC12C"/>
+    <linearGradient id="plate" x1="6" y1="2" x2="58" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#082216"/>
+      <stop offset="1" stop-color="#010c07"/>
     </linearGradient>
+    <linearGradient id="leaf" x1="18" y1="14" x2="42" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b9f96d"/>
+      <stop offset=".52" stop-color="#4cc94a"/>
+      <stop offset="1" stop-color="#16793a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(32 30) scale(26 21)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3fd45f" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#3fd45f" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <rect width="64" height="64" rx="12" fill="url(#bg)"/>
-  <path d="M51 7C49 5 46 5 44 8C42 5 39 5 37 7C35 9 35 12 37 14L44 21L51 14C53 12 53 9 51 7Z" stroke="white" stroke-width="2.2" stroke-linejoin="round"/>
-  <path d="M28 17L13 19L27 21L34 18L28 17Z" fill="#FF5A1E"/>
-  <path d="M21 25L5 27L20 29L31 26L21 25Z" fill="#FF3318"/>
-  <path d="M35 12C38 11 41 13 42 16C43 18 42 20 40 22L46 23L43 26L38 25L35 29L31 27L31 22C29 20 29 18 30 16C31 14 32 13 35 12Z" fill="url(#runner)"/>
-  <path d="M25 19C29 17 35 17 38 20L35 26L29 25L22 31L16 34L14 31L19 25L25 19Z" fill="url(#runner)"/>
-  <path d="M38 20L41 23L43 32L40 34L36 27L33 25L38 20Z" fill="url(#runner)"/>
-  <path d="M43 27H51V35H44L41 33V29L43 27Z" fill="#FFA322"/>
-  <path d="M25 25L20 35L13 43L10 40L15 33L18 27L25 25Z" fill="url(#runner)"/>
-  <path d="M20 35L30 40L40 39C43 39 45 43 42 45L31 46L17 38L20 35Z" fill="url(#runner)"/>
-  <path d="M14 43L8 51L5 49L10 41L14 43Z" fill="url(#runner)"/>
+
+  <rect width="64" height="64" rx="14" fill="url(#plate)"/>
+  <ellipse cx="32" cy="30" rx="26" ry="21" fill="url(#glow)"/>
+
+  <g stroke="#4fd36a" stroke-width="1.5" stroke-linecap="round" opacity=".6">
+    <path d="M6 24h9M5 32h8M7 40h9"/>
+    <path d="M48 22h10M49 31h10M47 40h10"/>
+  </g>
+  <g fill="#6ee27f" opacity=".75">
+    <circle cx="6" cy="24" r="1.3"/><circle cx="5" cy="32" r="1.3"/><circle cx="7" cy="40" r="1.3"/>
+    <circle cx="58" cy="22" r="1.3"/><circle cx="59" cy="31" r="1.3"/><circle cx="57" cy="40" r="1.3"/>
+  </g>
+
+  <!-- The leaf runs slightly large for its box: at 16px the plate and the leaf
+       have about six pixels between them, and a leaf drawn to scale muddies into
+       the plate at that size. -->
+  <g transform="translate(32 33) scale(1.14) translate(-32 -33)">
+    <path d="M20 54C11 36 21 14 46 10C46 30 37 46 20 54Z" fill="url(#leaf)"/>
+    <path d="M24 50C30 38 36 25 43 14" stroke="#f3ffe6" stroke-width="1.5" stroke-linecap="round" opacity=".85"/>
+  </g>
 </svg>

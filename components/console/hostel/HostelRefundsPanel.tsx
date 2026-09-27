@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Ban, CheckCircle2, Loader2, RotateCcw, Search, Undo2, Wallet } from "lucide-react";
+import { ArrowCounterClockwise, ArrowUUpLeft, CheckCircle, CircleNotch, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type Refund = {
@@ -113,15 +113,15 @@ export function HostelRefundsPanel() {
     });
   }
 
-  if (!refunds) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Opening the refund queue…</p>;
+  if (!refunds) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Opening the refund queue…</p>;
 
   const overrideValue = (refund: Refund) => (overrides[refund.id] || "").trim();
 
   return <section className="console-panel">
-    <h2><RotateCcw size={18} aria-hidden />Refund queue
+    <h2><ArrowCounterClockwise size={18} aria-hidden />Refund queue
       {summary && summary.requested > 0 && <span className="console-badge console-badge-pending">{summary.requested} waiting</span>}
       <button type="button" className="console-panel-close" onClick={() => void reconcile()} disabled={busy === "reconcile"}>
-        {busy === "reconcile" ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Search size={14} aria-hidden />} Ask Paystack
+        {busy === "reconcile" ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <MagnifyingGlass size={14} aria-hidden />} Ask Paystack
       </button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
@@ -140,7 +140,7 @@ export function HostelRefundsPanel() {
       : <ul className="console-reviews">
         {refunds.map((refund) => <li key={refund.id}>
           <header>
-            <span className={`console-badge console-badge-${badge(refund.status)}`}><Undo2 size={11} aria-hidden />{refund.status}</span>
+            <span className={`console-badge console-badge-${badge(refund.status)}`}><ArrowUUpLeft size={11} aria-hidden />{refund.status}</span>
             <strong>{refund.studentEmail || "Student"} · {cedis(refund.amount)}</strong>
             <small>{refund.reference} · asked {when(refund.createdAt)}</small>
           </header>
@@ -172,11 +172,11 @@ export function HostelRefundsPanel() {
             </div>
             <div className="console-row-actions">
               <button type="button" className="console-primary" disabled={busy === refund.id} onClick={() => void act(refund, "APPROVE")}>
-                {busy === refund.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <CheckCircle2 size={14} aria-hidden />}
+                {busy === refund.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <CheckCircle size={14} aria-hidden />}
                 {overrideValue(refund) ? `Approve at ${overrideValue(refund)}%` : `Approve ${cedis(refund.amount)}`}
               </button>
               <button type="button" className="console-secondary" disabled={busy === refund.id || !(reasons[refund.id] || "").trim()} onClick={() => void act(refund, "DECLINE")}>
-                <Ban size={14} aria-hidden /> Decline with reason
+                <Prohibit size={14} aria-hidden /> Decline with reason
               </button>
             </div>
           </>}

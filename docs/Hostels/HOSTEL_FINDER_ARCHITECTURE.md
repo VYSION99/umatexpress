@@ -291,6 +291,9 @@ sql/015_hostel_payouts.sql
 - Partial-year / semester bookings (later phase).
 - Encryption-at-rest implementation detail for landlord payout accounts.
 - Mobile money vs bank default for landlords.
+- **Service plugins are on hold** — the catalogue, landlord subscriptions and resident
+  service requests ship, but the hold-window rule and the missing vendor are open
+  decisions. See `HOSTEL_FINDER_SERVICE_PLUGINS.md` before changing any of it.
 
 ---
 

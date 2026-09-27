@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRing, CarFront, CheckCircle2, Clock, Loader2, MapPin } from "lucide-react";
+import { BellRinging, Car, CheckCircle, CircleNotch, Clock, MapPin } from "@phosphor-icons/react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
 import { readProfile } from "@/lib/passenger-profile";
@@ -96,10 +96,10 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
         <h2>Every campus route, right now</h2>
         <span>Open a route to join its queue, or ask to be told when a seat appears.</span>
       </div>
-      <span className="departure-total"><CarFront size={16}/>{rides.filter((ride) => String(ride.status).toUpperCase() === "OPEN").length} riding now</span>
+      <span className="departure-total"><Car size={16}/>{rides.filter((ride) => String(ride.status).toUpperCase() === "OPEN").length} riding now</span>
     </div>
 
-    {message && <p className="departure-message"><CheckCircle2 size={15}/>{message}</p>}
+    {message && <p className="departure-message"><CheckCircle size={15}/>{message}</p>}
     {error && <p className="departure-error">{error}</p>}
 
     <ul className="departure-list">
@@ -128,9 +128,9 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
               {seats > 0 ? "Join this queue" : "See this route"}
             </Link>
             {seats === 0 && (state === "done"
-              ? <span className="departure-watching"><BellRing size={14}/>Watching</span>
+              ? <span className="departure-watching"><BellRinging size={14}/>Watching</span>
               : <button type="button" onClick={() => setOpenWatchFor(openWatchFor === corridor.id ? "" : corridor.id)}>
-                <BellRing size={14}/>Notify me
+                <BellRinging size={14}/>Notify me
               </button>)}
           </div>
           {openWatchFor === corridor.id && <form className="departure-watch-form" onSubmit={(event) => { event.preventDefault(); void watch(corridor.id); }}>
@@ -147,7 +147,7 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
                 />}
             <div>
               <button type="submit" disabled={!canWatch || state === "working"}>
-                {state === "working" ? <><Loader2 size={14} className="spin"/>Saving…</> : "Watch this route"}
+                {state === "working" ? <><CircleNotch size={14} className="spin"/>Saving…</> : "Watch this route"}
               </button>
               <button type="button" onClick={() => setOpenWatchFor("")}>Not now</button>
             </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Clapperboard, Loader2, RefreshCw, Square, Users } from "lucide-react";
+import { ArrowsClockwise, CircleNotch, FilmSlate, Square, Users } from "@phosphor-icons/react";
 
 type ConsoleRoom = {
   id: string;
@@ -84,11 +84,11 @@ export function CinemaRoomsPanel() {
     }
   }
 
-  if (!rooms) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Reading the rooms…</p>;
+  if (!rooms) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Reading the rooms…</p>;
 
   return <section className="console-panel">
-    <h2><Clapperboard size={18} aria-hidden />Study rooms
-      <button type="button" className="console-panel-close" onClick={() => void load()}><RefreshCw size={14} aria-hidden />Refresh</button>
+    <h2><FilmSlate size={18} aria-hidden />Study rooms
+      <button type="button" className="console-panel-close" onClick={() => void load()}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -125,7 +125,7 @@ export function CinemaRoomsPanel() {
                 ? confirmed === room.id
                   ? <>
                     <button type="button" className="console-danger" disabled={busy === room.id} onClick={() => void endRoom(room)}>
-                      {busy === room.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Square size={14} aria-hidden />} End it
+                      {busy === room.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Square size={14} aria-hidden />} End it
                     </button>
                     <button type="button" disabled={busy === room.id} onClick={() => setConfirmed("")}>Cancel</button>
                   </>

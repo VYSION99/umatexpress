@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, type ChangeEvent } from "react";
-import { SlidersHorizontal } from "lucide-react";
+import { useState, useTransition, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { SlidersHorizontal } from "@phosphor-icons/react";
 
 export type HostelFilterValues = {
+  q?: string;
   periodId: string;
   maxDistance: string;
   maxPrice: string;
@@ -16,21 +19,30 @@ type PeriodOption = { id: string; name: string };
 
 /**
  * The browse filters. This is a real GET form first — without JavaScript it
- * still submits to `/hostel` — and a change on any dropdown applies immediately
- * when the browser can run one line of script.
+ * still submits to `/hostel` — and the enhanced form applies all filters together through client navigation.
  */
 export function HostelFilters({ periods, value, matchCount }: { periods: PeriodOption[]; value: HostelFilterValues; matchCount: number }) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const applyOnChange = (event: ChangeEvent<HTMLFormElement>) => {
-    if (event.target instanceof HTMLSelectElement) formRef.current?.requestSubmit();
-  };
-  return <form ref={formRef} className="hostel-filters" action="/hostel" method="get" onChange={applyOnChange}>
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [expanded, setExpanded] = useState(false);
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    new FormData(event.currentTarget).forEach((entry, key) => {
+      if (String(entry).trim()) params.set(key, String(entry).trim());
+    });
+    startTransition(() => router.push(`/hostel?${params}`, { scroll: false }));
+  }
+  return <form key={JSON.stringify(value)} className="hostel-filters" action="/hostel" method="get" onSubmit={submit} aria-busy={pending}>
     <div className="hostel-filters-head">
       <SlidersHorizontal size={16} aria-hidden />
-      <strong>Filter the map</strong>
+      <strong>Find your next home</strong>
       <span>{matchCount} {matchCount === 1 ? "home" : "homes"} match</span>
     </div>
-    <div className="hostel-filter-grid">
+    <label className="hostel-search"><span>Hostel name or area</span><input type="search" name="q" maxLength={100} defaultValue={value.q || ""} placeholder="Search by name or neighbourhood" /></label>
+    <button type="button" className="hostel-filter-toggle" aria-expanded={expanded} aria-controls="hostel-filter-options" onClick={() => setExpanded(!expanded)}>Filters & academic year</button>
+    <div id="hostel-filter-options" className={`hostel-filter-grid${expanded ? " is-expanded" : ""}`}>
+      <noscript><style>{`.hostel-filter-grid{display:grid!important}`}</style></noscript>
       <label>
         <span>Academic year</span>
         <select name="periodId" defaultValue={value.periodId}>
@@ -75,9 +87,9 @@ export function HostelFilters({ periods, value, matchCount }: { periods: PeriodO
       </label>
       <label className="hostel-filter-check">
         <input type="checkbox" name="utilities" value="1" defaultChecked={value.utilities} />
-        <span>Utilities included</span>
+        <span>Utilities in total</span>
       </label>
     </div>
-    <button type="submit" className="hostel-filter-apply">Show homes</button>
+    <div className="hostel-filter-actions"><button type="submit" className="hostel-filter-apply" disabled={pending}>{pending ? "Finding homes…" : "Show homes"}</button><Link href={`/hostel?periodId=${encodeURIComponent(value.periodId)}`} scroll={false}>Reset filters</Link><span role="status">{pending ? "Updating results…" : ""}</span></div>
   </form>;
 }

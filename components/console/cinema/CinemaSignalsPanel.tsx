@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, Flag, Loader2, MessageSquareX, RefreshCw, Square, TriangleAlert, VideoOff, X } from "lucide-react";
+import { ArrowsClockwise, ChatSlash, Checks, CircleNotch, Flag, Square, VideoCameraSlash, Warning, X } from "@phosphor-icons/react";
 
 type Signal = {
   id: string;
@@ -119,12 +119,12 @@ export function CinemaSignalsPanel() {
     }
   }
 
-  if (!signals) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Reading the reports…</p>;
+  if (!signals) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Reading the reports…</p>;
 
   return <section className="console-panel">
     <h2><Flag size={18} aria-hidden />Watch reports
       {summary && summary.open > 0 && <span className="console-badge console-badge-rejected">{summary.open} open</span>}
-      <button type="button" className="console-panel-close" onClick={() => void load()}><RefreshCw size={14} aria-hidden />Refresh</button>
+      <button type="button" className="console-panel-close" onClick={() => void load()}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -154,14 +154,14 @@ export function CinemaSignalsPanel() {
             {signal.entityType === "UPLOAD" ? ` · ${text(signal.evidence.uploadFilename)}${fileSize(signal.evidence.uploadSizeBytes) ? ` (${fileSize(signal.evidence.uploadSizeBytes)})` : ""} — uploaded by ${text(signal.evidence.uploaderName)}` : ""}
           </p>
           {signal.entityType === "UPLOAD" && Number(signal.evidence.uploaderRemovals || 0) > 0 && <p className="console-note">
-            <TriangleAlert size={12} aria-hidden /> This uploader has {Number(signal.evidence.uploaderRemovals)} earlier video takedown{Number(signal.evidence.uploaderRemovals) === 1 ? "" : "s"} on this platform.
+            <Warning size={12} aria-hidden /> This uploader has {Number(signal.evidence.uploaderRemovals)} earlier video takedown{Number(signal.evidence.uploaderRemovals) === 1 ? "" : "s"} on this platform.
           </p>}
           <small>Last reported by {signal.reporterName || "a student"}.</small>
           {signal.status === "OPEN"
             ? <div className="console-row-actions">
               <input type="text" value={notes[signal.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [signal.id]: event.target.value }))} placeholder="What did you find?" maxLength={500} />
               <button type="button" disabled={busy === signal.id || !(notes[signal.id] || "").trim()} onClick={() => void resolve(signal, "REVIEW")}>
-                {busy === signal.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <CheckCheck size={14} aria-hidden />} Mark reviewed
+                {busy === signal.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Checks size={14} aria-hidden />} Mark reviewed
               </button>
               <button type="button" disabled={busy === signal.id || !(notes[signal.id] || "").trim()} onClick={() => void resolve(signal, "DISMISS")}>
                 <X size={14} aria-hidden /> Dismiss
@@ -170,10 +170,10 @@ export function CinemaSignalsPanel() {
             : <p className="console-note">{signal.reviewNote ? `${signal.reviewedBy}: ${signal.reviewNote}` : `Closed by ${signal.reviewedBy}.`}</p>}
           {signal.status === "OPEN" && <div className="console-row-actions">
             {signal.entityType === "MESSAGE" && <button type="button" disabled={busy === signal.id} onClick={() => void act(signal, "REMOVE_MESSAGE")}>
-              <MessageSquareX size={14} aria-hidden /> Remove message
+              <ChatSlash size={14} aria-hidden /> Remove message
             </button>}
             {signal.entityType === "UPLOAD" && <button type="button" className="console-danger" disabled={busy === signal.id} onClick={() => void act(signal, "REMOVE_VIDEO")}>
-              <VideoOff size={14} aria-hidden /> Remove video
+              <VideoCameraSlash size={14} aria-hidden /> Remove video
             </button>}
             <button type="button" disabled={busy === signal.id} onClick={() => void act(signal, "END_ROOM")}>
               <Square size={14} aria-hidden /> End room

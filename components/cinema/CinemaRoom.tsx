@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  Flag, Lock, LockOpen, Mail, MessagesSquare, MicOff, NotebookPen, Play, Radio, Send, Sparkles, Square, Timer, UserPlus, X,
-} from "lucide-react";
+import { Chats, Envelope, Flag, Lock, LockOpen, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Radio, Sparkle, Square, Timer, UserPlus, X } from "@phosphor-icons/react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
@@ -337,7 +335,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         aria-expanded={sheet === "notes"}
         aria-controls="cinema-sheet-notes"
         onClick={() => openSheet("notes")}
-      ><NotebookPen size={18} aria-hidden /></button>
+      ><Notebook size={18} aria-hidden /></button>
       <button
         type="button"
         className={sheet === "invite" ? "is-active" : ""}
@@ -355,7 +353,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         aria-expanded={sheet === "chat"}
         aria-controls="cinema-sheet-chat"
         onClick={() => openSheet("chat")}
-      ><MessagesSquare size={18} aria-hidden /></button>
+      ><Chats size={18} aria-hidden /></button>
     </nav>
     {sheet && <button type="button" className="cinema-sheet-backdrop" aria-label="Close the open panel" onClick={closeSheet} />}
     <div className="cinema-stage">
@@ -364,7 +362,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
           <div className="cinema-video-title">
             <strong>{room.title}</strong>
             {room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Private</span>}
-            {room.isPrivate && !room.isHost && <span className="cinema-chip is-private"><Mail size={11} aria-hidden /> Invited guest</span>}
+            {room.isPrivate && !room.isHost && <span className="cinema-chip is-private"><Envelope size={11} aria-hidden /> Invited guest</span>}
             {pendingStart && startsInSeconds > 0 && <span className="cinema-chip is-scheduled"><Timer size={11} aria-hidden /> Starts in {clockTime(startsInSeconds)}</span>}
             {room.status === "LIVE" && endsAtMs > 0 && <span className="cinema-chip is-scheduled"><Timer size={11} aria-hidden /> Runs until {clockCopy(room.endsAt)}</span>}
           </div>
@@ -420,20 +418,20 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
           />
         </div>}
         <div className="cinema-toolbar-group">
-          {account && <ToolButton label="AI board" active={sheet === "board"} onClick={showBoard}><Sparkles size={18} aria-hidden /></ToolButton>}
-          <ToolButton label="Notes" active={sheet === "notes"} onClick={() => openSheet("notes")}><NotebookPen size={18} aria-hidden /></ToolButton>
+          {account && <ToolButton label="AI board" active={sheet === "board"} onClick={showBoard}><Sparkle size={18} aria-hidden /></ToolButton>}
+          <ToolButton label="Notes" active={sheet === "notes"} onClick={() => openSheet("notes")}><Notebook size={18} aria-hidden /></ToolButton>
           <ToolButton label="Invite" active={sheet === "invite"} onClick={() => openSheet("invite")}><UserPlus size={18} aria-hidden /></ToolButton>
-          <ToolButton label="Chat" active={sheet === "chat"} onClick={() => openSheet("chat")}><MessagesSquare size={18} aria-hidden /></ToolButton>
+          <ToolButton label="Chat" active={sheet === "chat"} onClick={() => openSheet("chat")}><Chats size={18} aria-hidden /></ToolButton>
         </div>
         {room.isHost && active && <div className="cinema-toolbar-group is-host">
           {room.status === "CREATED" && !pendingStart && <ToolButton label="Open" disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={18} aria-hidden /></ToolButton>}
           {!room.isPrivate && (room.joinLocked
             ? <ToolButton label="Unlock" disabled={Boolean(busy)} onClick={() => void act("UNLOCK")}><LockOpen size={18} aria-hidden /></ToolButton>
             : <ToolButton label="Lock" disabled={Boolean(busy)} onClick={() => void act("LOCK")}><Lock size={18} aria-hidden /></ToolButton>)}
-          <ToolButton label="Mute all" active={muteSent} onClick={askMuteAll}><MicOff size={18} aria-hidden /></ToolButton>
+          <ToolButton label="Mute all" active={muteSent} onClick={askMuteAll}><MicrophoneSlash size={18} aria-hidden /></ToolButton>
           <ToolButton label="End room" danger disabled={Boolean(busy)} onClick={() => void act("END")}><Square size={18} aria-hidden /></ToolButton>
         </div>}
-        {muteSent && <span className="cinema-chip is-live" role="status"><MicOff size={11} aria-hidden /> Room asked to mute</span>}
+        {muteSent && <span className="cinema-chip is-live" role="status"><MicrophoneSlash size={11} aria-hidden /> Room asked to mute</span>}
       </div>
       {/* The old Voice & video card is gone; what it had to say that the
           buttons cannot is one line here, where the call's pictures live. */}
@@ -602,7 +600,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
                 onChange={(event) => setDraft(event.target.value)}
               />
               <button type="submit" aria-label="Send the message" disabled={!draft.trim() || live.state !== "live"}>
-                <Send size={15} aria-hidden />
+                <PaperPlaneTilt size={15} aria-hidden />
               </button>
             </form>
             <p className="cinema-note cinema-sub">
@@ -659,8 +657,8 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
         {!room.isPrivate && (room.joinLocked
           ? <button type="button" disabled={Boolean(busy)} aria-label="Let people in again" data-tip="Let people in again" onClick={() => void act("UNLOCK")}><LockOpen size={17} aria-hidden /></button>
           : <button type="button" disabled={Boolean(busy)} aria-label="Lock the door" data-tip="Lock the door" onClick={() => void act("LOCK")}><Lock size={17} aria-hidden /></button>)}
-        <button type="button" className={muteSent ? "is-active" : ""} aria-label="Mute everyone" data-tip="Mute everyone" onClick={askMuteAll}><MicOff size={17} aria-hidden /></button>
-        <button type="button" aria-label="AI whiteboard" data-tip="AI whiteboard" aria-expanded={sheet === "board"} aria-controls="cinema-sheet-board" onClick={showBoard}><Sparkles size={17} aria-hidden /></button>
+        <button type="button" className={muteSent ? "is-active" : ""} aria-label="Mute everyone" data-tip="Mute everyone" onClick={askMuteAll}><MicrophoneSlash size={17} aria-hidden /></button>
+        <button type="button" aria-label="AI whiteboard" data-tip="AI whiteboard" aria-expanded={sheet === "board"} aria-controls="cinema-sheet-board" onClick={showBoard}><Sparkle size={17} aria-hidden /></button>
         <button type="button" className="danger" disabled={Boolean(busy)} aria-label="End the room" data-tip="End the room" onClick={() => void act("END")}><Square size={17} aria-hidden /></button>
       </div>}
     </nav>
@@ -668,7 +666,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
     <div className="cinema-toasts" aria-live="polite">
       {toasts.map((toast) => <article key={toast.id} className="cinema-toast">
         <header>
-          <span className="cinema-toast-tag"><Sparkles size={11} aria-hidden /> Session board</span>
+          <span className="cinema-toast-tag"><Sparkle size={11} aria-hidden /> Session board</span>
           <button type="button" aria-label="Dismiss this summary" onClick={() => dismissToast(toast.id)}><X size={13} aria-hidden /></button>
         </header>
         <strong>{toast.title}</strong>

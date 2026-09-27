@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       listPropertyReviews(propertyId, { limit }),
       reviewSummaryForProperty(propertyId),
     ]);
-    return Response.json({ ok: true, summary, reviews }, { headers: NO_STORE });
+    return Response.json({ ok: true, summary, reviews: reviews.map(({ id, rating, title, body, studentName, createdAt, reply, repliedAt }) => ({ id, rating, title, body, studentName, createdAt, reply, repliedAt })) }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

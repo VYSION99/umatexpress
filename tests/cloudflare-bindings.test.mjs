@@ -89,8 +89,8 @@ test("turning Cinema off keeps the rate limiter's migration untouched", async ()
 });
 
 test("each cron trigger names one job", async () => {
-  const { WORKER_CRONS, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
-  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON]);
+  const { WORKER_CRONS, HOSTEL_AVAILABILITY_CRON, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
+  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON]);
   assert.equal(new Set(WORKER_CRONS).size, WORKER_CRONS.length);
   assert.match(CAMPUS_RECONCILE_CRON, /^\*\/\d+ /);
 
@@ -208,14 +208,19 @@ test("a queue-driven dispatch delivers only the rows it was given", async () => 
     token: process.env.TURSO_AUTH_TOKEN,
     key: process.env.RESEND_API_KEY,
     from: process.env.RESEND_FROM,
+    sailupKey: process.env.SAILUP_API_KEY,
+    sailupSender: process.env.SAILUP_SENDER_ID,
   };
   process.env.TURSO_DATABASE_URL = "libsql://example.test";
   process.env.TURSO_AUTH_TOKEN = "test-token";
   process.env.RESEND_API_KEY = "re_test_key";
   process.env.RESEND_FROM = "UMaTeXPRESS <rides@example.test>";
+  process.env.SAILUP_API_KEY = "sailup_test_key";
+  process.env.SAILUP_SENDER_ID = "UMaTeXPRESS";
   const originalFetch = globalThis.fetch;
   const statements = [];
   const recipients = [];
+  const texts = [];
   const tursoResult = (names, rows) => ({
     results: [{ type: "ok", response: { result: { cols: names.map((name) => ({ name })), rows: rows.map((row) => row.map((value) => ({ value }))) } } }],
   });
@@ -225,12 +230,21 @@ test("a queue-driven dispatch delivers only the rows it was given", async () => 
       recipients.push(JSON.parse(String(init?.body)).to[0]);
       return Response.json({ id: "email-1" });
     }
+    if (String(url).includes("api.sailup.io")) {
+      const body = JSON.parse(String(init?.body));
+      texts.push({ from: body.from, to: body.to[0], text: body.body });
+      return new Response(JSON.stringify({ id: "sms-1", quantity: 1 }), { status: 202 });
+    }
     const { sql, args } = JSON.parse(String(init?.body)).requests[0].stmt;
     statements.push({ sql, args: (args || []).map((arg) => arg.value) });
-    if (sql.includes("SELECT id,recipient,subject,template,message,reference")) {
+    if (sql.includes("FROM notification_outbox WHERE status = 'PENDING'")) {
       return Response.json(tursoResult(
-        ["id", "recipient", "subject", "template", "message", "reference"],
-        [["n-1", "ama@st.umat.edu.gh", "Driver accepted", "driver_accepted", "Driver accepted you.", "CR-1"]],
+        ["id", "channel", "recipient", "subject", "template", "message", "reference"],
+        [
+          ["n-1", "email", "ama@st.umat.edu.gh", "Driver accepted", "driver_accepted", "Driver accepted you.", "CR-1"],
+          // The same action reaching a handset instead of an inbox.
+          ["n-2", "sms", "0201234567", "Driver accepted", "driver_accepted", "Driver accepted you.", "CR-2"],
+        ],
       ));
     }
     return Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [], affected_row_count: 1 } } }] });
@@ -238,18 +252,29 @@ test("a queue-driven dispatch delivers only the rows it was given", async () => 
 
   try {
     const { dispatchPendingNotifications } = await vite.ssrLoadModule("/lib/notifications.ts");
-    const result = await dispatchPendingNotifications({ ids: ["n-1"] });
+    const result = await dispatchPendingNotifications({ ids: ["n-1", "n-2"] });
 
-    assert.equal(result.sent, 1);
+    assert.equal(result.sent, 2);
     assert.deepEqual(recipients, ["ama@st.umat.edu.gh"]);
-    const select = statements.find((entry) => entry.sql.includes("SELECT id,recipient,subject,template,message,reference"));
-    assert.match(select.sql, /AND id IN \(\?\)/);
+    // The text leaves through Sailup, from the registered sender ID, to the one
+    // spelling of the number the provider accepts.
+    assert.equal(texts.length, 1);
+    assert.equal(texts[0].from, "UMaTeXPRESS");
+    assert.equal(texts[0].to, "+233201234567");
+    assert.match(texts[0].text, /^Driver accepted you\./);
+    const select = statements.find((entry) => entry.sql.includes("FROM notification_outbox WHERE status = 'PENDING'"));
+    assert.match(select.sql, /AND id IN \(\?,\?\)/);
     assert.ok(select.args.includes("n-1"));
+    assert.ok(select.args.includes("n-2"));
     // Retention pruning belongs to the cron sweep, not to every queue message.
     assert.equal(statements.some((entry) => entry.sql.startsWith("DELETE FROM notification_outbox")), false);
   } finally {
     globalThis.fetch = originalFetch;
-    for (const [name, value] of [["TURSO_DATABASE_URL", previous.url], ["TURSO_AUTH_TOKEN", previous.token], ["RESEND_API_KEY", previous.key], ["RESEND_FROM", previous.from]]) {
+    for (const [name, value] of [
+      ["TURSO_DATABASE_URL", previous.url], ["TURSO_AUTH_TOKEN", previous.token],
+      ["RESEND_API_KEY", previous.key], ["RESEND_FROM", previous.from],
+      ["SAILUP_API_KEY", previous.sailupKey], ["SAILUP_SENDER_ID", previous.sailupSender],
+    ]) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
     }
   }

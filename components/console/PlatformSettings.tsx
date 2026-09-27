@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { ArrowsClockwise, CircleNotch, SlidersHorizontal } from "@phosphor-icons/react";
 
 type PlatformSetting = {
   key: string;
@@ -110,11 +110,11 @@ export function PlatformSettings() {
     });
   }
 
-  if (!settings) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading platform settings…</p>;
+  if (!settings) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading platform settings…</p>;
 
   return <section className="console-panel">
     <h2><SlidersHorizontal size={18} aria-hidden />Deployment switches
-      <button type="button" className="console-panel-close" onClick={() => void run(load)}><RefreshCw size={14} aria-hidden />Refresh</button>
+      <button type="button" className="console-panel-close" onClick={() => void run(load)}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}

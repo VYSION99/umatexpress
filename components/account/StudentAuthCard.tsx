@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { LogOut, ShieldCheck } from "lucide-react";
+import { ShieldCheck, SignOut } from "@phosphor-icons/react";
 import { STUDENT_EMAIL_DOMAIN } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
 import { writeProfile } from "@/lib/passenger-profile";
@@ -66,7 +66,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
       <small>{account.name ? `Booking as ${account.name}.` : "Add your name when you book."} This account covers campusRide and vacationRide.</small>
       <div className="student-auth-actions">
         <Link className="is-primary" href={destination}>Continue</Link>
-        <button type="button" onClick={signOut} disabled={loading}><LogOut size={15} aria-hidden /> Sign out</button>
+        <button type="button" onClick={signOut} disabled={loading}><SignOut size={15} aria-hidden /> Sign out</button>
       </div>
     </div>;
   }

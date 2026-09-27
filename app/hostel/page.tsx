@@ -1,8 +1,10 @@
+import "@/components/campusRide/hostel/hostel.css";
+import Link from "next/link";
 import type { Metadata } from "next";
-import { BedDouble, KeyRound, MapPinned } from "lucide-react";
+import { Bed, Key, MapPinLine } from "@phosphor-icons/react/ssr";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { HostelFilters } from "@/components/campusRide/hostel/HostelFilters";
-import { HostelMap } from "@/components/campusRide/hostel/HostelMap";
+import { HostelBrowseView } from "@/components/campusRide/hostel/HostelBrowseView";
 import { HostelPropertyList } from "@/components/campusRide/hostel/HostelPropertyList";
 import { listPublicProperties } from "@/lib/hostel-engine/listings";
 import { defaultHostelPeriodId, listHostelPeriods } from "@/lib/hostel-engine/periods";
@@ -33,14 +35,17 @@ export default async function HostelPage({ searchParams }: { searchParams?: Prom
   const sortParam = first(params.sort);
   const sort: "distance" | "price" | "name" = sortParam === "distance" || sortParam === "price" ? sortParam : "name";
   const filters = {
+    q: first(params.q).trim().slice(0, 100),
     maxDistance: bounded(first(params.maxDistance), 50_000),
     maxPrice: bounded(first(params.maxPrice), 50_000_000),
     minSpaces: bounded(first(params.minSpaces), 60),
     utilities: first(params.utilities) === "1",
     sort,
   };
-  const { period, properties } = await listPublicProperties({
+  const { period, properties, mapProperties, total, page, pageCount } = await listPublicProperties({
     periodId,
+    q: filters.q,
+    page: Number(bounded(first(params.page), 100000)) || 1,
     maxDistanceM: filters.maxDistance === "" ? undefined : Number(filters.maxDistance),
     maxPrice: filters.maxPrice === "" ? undefined : Number(filters.maxPrice),
     minSpaces: filters.minSpaces === "" ? undefined : Number(filters.minSpaces),
@@ -48,43 +53,48 @@ export default async function HostelPage({ searchParams }: { searchParams?: Prom
     sort,
   });
 
-  return <CampusShell area="HOSTELFINDER" title="Find your own corner of campus" subtitle="Approved hostel beds around UMaT, with the yearly price and the walk to campus in plain sight.">
+  const pageHref = (number: number) => {
+    const next = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => { if (first(value)) next.set(key, first(value)); });
+    next.set("page", String(number));
+    if (period) next.set("periodId", period.id);
+    return `/hostel?${next}`;
+  };
+  return <CampusShell area="HOSTELFINDER" title="Find your own corner of campus" subtitle="Approved hostel beds around UMaT, with the total yearly price and approximate distance to campus in plain sight.">
     {period ? <>
       <section className="campus-status-banner">
         <strong>{period.name}</strong>
         <span>Every bed below is approved by the platform. Browsing is open to everyone.</span>
       </section>
-      <div className="hostel-layout">
+      <div className="hostel-layout hostel-browse-layout">
         <div className="hostel-main">
           <HostelFilters
             periods={periods.map((item) => ({ id: item.id, name: item.name }))}
             value={{ periodId: period.id, ...filters }}
-            matchCount={properties.length}
+            matchCount={total}
           />
-          <HostelPropertyList properties={properties} />
+          <HostelBrowseView periodId={period.id} properties={mapProperties.map(property => ({ id: property.id, name: property.name, latitude: property.latitude, longitude: property.longitude, availableSpaces: property.availableSpaces, minTotal: property.minTotal, distanceM: property.distanceM }))}>
+            <HostelPropertyList properties={properties} periodId={period.id} total={total} />
+            {pageCount > 1 && <nav className="hostel-pagination" aria-label="Hostel result pages">
+              {page > 1 && <Link href={pageHref(page - 1)} scroll={false}>Previous</Link>}
+              <span>Page {page} of {pageCount}</span>
+              {page < pageCount && <Link href={pageHref(page + 1)} scroll={false}>Next</Link>}
+            </nav>}
+          </HostelBrowseView>
         </div>
         <aside className="hostel-side">
-          <HostelMap properties={properties.map((property) => ({
-            id: property.id,
-            name: property.name,
-            latitude: property.latitude,
-            longitude: property.longitude,
-            availableSpaces: property.availableSpaces,
-            minTotal: property.minTotal,
-            distanceM: property.distanceM,
-          }))} />
           <section className="hostel-how">
             <p>HOW IT WORKS</p>
             <ul>
-              <li><MapPinned size={16} aria-hidden /><span><strong>Find a home.</strong> Browse every approved hostel and open the one that fits.</span></li>
-              <li><BedDouble size={16} aria-hidden /><span><strong>Pick a bed.</strong> Rooms hold up to six beds, each priced for the academic year.</span></li>
-              <li><KeyRound size={16} aria-hidden /><span><strong>Sign in to book.</strong> Booking opens with the next release and uses your @st.umat.edu.gh email.</span></li>
+              <li><MapPinLine size={16} aria-hidden /><span><strong>Find a home.</strong> Browse every approved hostel and open the one that fits.</span></li>
+              <li><Bed size={16} aria-hidden /><span><strong>Pick a bed.</strong> Rooms hold up to six beds, each priced for the academic year.</span></li>
+              <li><Key size={16} aria-hidden /><span><strong>Sign in to book.</strong> Use your @st.umat.edu.gh email, then hold a bed for ten minutes while you pay.</span></li>
             </ul>
           </section>
         </aside>
       </div>
     </> : <section className="hostel-empty">
-      <BedDouble size={26} aria-hidden />
+      <Bed size={26} aria-hidden />
       <h2>The next academic year is not open yet</h2>
       <p>Landlords list their beds a term before students move in. Check back here, or sign in later with your @st.umat.edu.gh email.</p>
     </section>}

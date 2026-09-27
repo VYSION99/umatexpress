@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CameraOff, Circle, Mic, MicOff } from "lucide-react";
+import { Camera, CameraSlash, Circle, Microphone, MicrophoneSlash } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { CinemaMedia } from "./useCinemaMedia";
 import type { CinemaRecorder } from "./useCinemaRecorder";
@@ -40,7 +40,7 @@ export function CinemaCallButtons(input: {
       aria-label={media.micOn ? "Turn my microphone off" : "Turn my microphone on"}
       data-tip={media.policy.voice ? (media.micOn ? "Mic on — tap to mute" : "Mic off — tap to talk") : "Voice is switched off on this deployment"}
       onClick={() => void media.toggleMic()}
-    >{face("Mic", media.micOn ? <Mic size={18} aria-hidden /> : <MicOff size={18} aria-hidden />)}</button>
+    >{face("Mic", media.micOn ? <Microphone size={18} aria-hidden /> : <MicrophoneSlash size={18} aria-hidden />)}</button>
     <button
       type="button"
       className={media.cameraOn ? "is-active" : ""}
@@ -49,7 +49,7 @@ export function CinemaCallButtons(input: {
       aria-label={media.cameraOn ? "Turn my camera off" : "Turn my camera on"}
       data-tip={media.policy.camera ? (media.cameraOn ? "Camera on — tap to turn it off" : "Camera off — tap to appear") : "Camera is switched off on this deployment"}
       onClick={() => void media.toggleCamera()}
-    >{face("Camera", media.cameraOn ? <Camera size={18} aria-hidden /> : <CameraOff size={18} aria-hidden />)}</button>
+    >{face("Camera", media.cameraOn ? <Camera size={18} aria-hidden /> : <CameraSlash size={18} aria-hidden />)}</button>
     <button
       type="button"
       className={recording ? "is-recording" : input.recordOpen ? "is-active" : ""}

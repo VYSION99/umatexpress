@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BedDouble, Building2, BusFront, Loader2, RefreshCw, Star, Wallet } from "lucide-react";
+import { ArrowsClockwise, Bed, Buildings, Bus, CircleNotch, Star, Wallet } from "@phosphor-icons/react";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type Analytics = {
@@ -51,21 +51,21 @@ export function HostelAnalytics() {
   }, [load]);
 
   if (error) return <section className="console-panel"><div className="console-alert" role="alert">{error}</div></section>;
-  if (!data) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Counting the year…</p>;
+  if (!data) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Counting the year…</p>;
 
   const peak = Math.max(1, ...data.bookings.trend.map((day) => day.amount));
 
   return <>
     <section className="console-totals">
-      <article><span><BedDouble size={12} aria-hidden />BEDS FILLED</span><strong>{percent(data.occupancy.rate)}</strong><small>{data.occupancy.occupied} of {data.occupancy.total} bed spaces</small></article>
-      <article><span><BusFront size={12} aria-hidden />PAID BOOKINGS</span><strong>{data.bookings.paid}</strong><small>{cedis(data.bookings.paidValue)} collected · {data.bookings.distinctStudents} students</small></article>
+      <article><span><Bed size={12} aria-hidden />BEDS FILLED</span><strong>{percent(data.occupancy.rate)}</strong><small>{data.occupancy.occupied} of {data.occupancy.total} bed spaces</small></article>
+      <article><span><Bus size={12} aria-hidden />PAID BOOKINGS</span><strong>{data.bookings.paid}</strong><small>{cedis(data.bookings.paidValue)} collected · {data.bookings.distinctStudents} students</small></article>
       <article><span><Wallet size={12} aria-hidden />LANDLORD SHARE</span><strong>{cedis(data.money.net)}</strong><small>{cedis(data.money.released)} released · {cedis(data.money.accrued)} held</small></article>
-      <article><span><Building2 size={12} aria-hidden />PLATFORM 3%</span><strong>{cedis(data.money.commission)}</strong><small>on {cedis(data.money.gross)} of bed rent</small></article>
+      <article><span><Buildings size={12} aria-hidden />PLATFORM 3%</span><strong>{cedis(data.money.commission)}</strong><small>on {cedis(data.money.gross)} of bed rent</small></article>
     </section>
 
     <section className="console-panel">
-      <h2><BusFront size={18} aria-hidden />Paid bookings, last 14 days
-        <button type="button" className="console-panel-close" onClick={() => void load()}><RefreshCw size={14} aria-hidden />Refresh</button>
+      <h2><Bus size={18} aria-hidden />Paid bookings, last 14 days
+        <button type="button" className="console-panel-close" onClick={() => void load()}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
       </h2>
       <ul className="console-chart" aria-label="Paid bookings per day">
         {data.bookings.trend.map((day) => <li key={day.day}>
@@ -79,7 +79,7 @@ export function HostelAnalytics() {
     </section>
 
     <section className="console-panel">
-      <h2><Building2 size={18} aria-hidden />Buildings carrying the year</h2>
+      <h2><Buildings size={18} aria-hidden />Buildings carrying the year</h2>
       {data.topProperties.length === 0
         ? <p className="console-empty">No paid booking yet.</p>
         : <table className="console-table">

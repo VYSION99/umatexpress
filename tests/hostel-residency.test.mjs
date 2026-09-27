@@ -639,6 +639,8 @@ function handle(sql, args) {
   return ok(empty);
 }
 
+let failBookingInsert = false;
+
 globalThis.fetch = async (url, init) => {
   const target = String(typeof url === "string" ? url : url?.url || "");
   if (target.includes("api.paystack.co")) {
@@ -651,12 +653,37 @@ globalThis.fetch = async (url, init) => {
     return { ok: true, json: async () => ({ status: true, data: { authorization_url: `https://checkout.paystack.com/${body.reference}`, access_code: "ac_test", reference: body.reference } }) };
   }
   const body = JSON.parse(init.body);
-  const results = body.requests
-    .filter((request) => request.type === "execute")
-    .map(({ stmt }) => {
-      const args = (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value));
-      return handle(stmt.sql, args);
-    });
+  const results = body.requests.filter(request => request.type !== "close").map(request => {
+    if (request.type === "execute") return handle(request.stmt.sql, (request.stmt.args || []).map(arg => arg.type === "null" ? null : arg.value));
+    assert.equal(request.type, "batch");
+    const snapshot = { spaces: structuredClone(spaces), bookings: structuredClone(bookings) };
+    const step_results = [], step_errors = [];
+    let changes = 0;
+    const condition = value => !value || (value.type === "ok" ? Boolean(step_results[value.step]) : value.type === "not" ? !condition(value.cond) : value.type === "and" ? value.conds.every(condition) : false);
+    for (const step of request.batch.steps) {
+      let result = null, error = null;
+      if (condition(step.condition)) {
+        const { sql, args = [] } = step.stmt;
+        if (sql === "ROLLBACK") {
+          spaces.splice(0, spaces.length, ...snapshot.spaces);
+          bookings.splice(0, bookings.length, ...snapshot.bookings);
+          result = {};
+        } else if (sql === "BEGIN IMMEDIATE" || sql === "COMMIT") result = {};
+        else if (/INSERT INTO hostel_bookings/.test(sql) && failBookingInsert) {
+          failBookingInsert = false;
+          error = { message: "Injected booking insert failure" };
+        } else if (/WHERE changes\(\) = 1/.test(sql) && changes !== 1) result = { affected_row_count: 0 };
+        else {
+          const response = handle(sql, args.map(arg => arg.type === "null" ? null : arg.value));
+          result = response.response?.result || null;
+          error = response.error || null;
+          changes = Number(result?.affected_row_count || 0);
+        }
+      }
+      step_results.push(result); step_errors.push(error);
+    }
+    return ok({ step_results, step_errors });
+  });
   results.push({ type: "ok" });
   return { ok: true, json: async () => ({ results }) };
 };
@@ -670,8 +697,9 @@ after(async () => vite.close());
 
 const {
   HOSTEL_DEFAULT_COMMISSION_BPS, listHostelBookingsForLandlord,
-  releaseExpiredHostelHolds, settleHostelBooking, startHostelBooking,
+  releaseAfterFor, releaseExpiredHostelHolds, settleHostelBooking, startHostelBooking,
 } = await vite.ssrLoadModule("/lib/hostel-engine/residency.ts");
+const { hostelReleaseAfter } = await vite.ssrLoadModule("/lib/hostel-engine/periods.ts");
 const {
   activatePluginSubscription, cancelPluginSubscription, decideHostelService, getPluginSubscriptionByReference,
   listHostelPlugins, listLandlordPluginSubscriptions, listResidentPlugins, listServiceRequestsForBooking,
@@ -741,6 +769,14 @@ async function expectError(promise, code, status) {
   });
 }
 
+test("a failed booking insert rolls back the reserved bed", async () => {
+  failBookingInsert = true;
+  await assert.rejects(holdBed("listing-a"), /Injected booking insert failure/);
+  assert.equal(spaces.find(item => item.id === "space-a").status, "AVAILABLE");
+  assert.equal(bookings.length, 0);
+  assert.equal(paystackAmounts.size, 0, "checkout must not start before the transaction commits");
+});
+
 test("a bed is claimed once, and the split is the platform's 3%", async () => {
   const first = await holdBed("listing-a");
   heldA = first;
@@ -789,6 +825,12 @@ test("settling writes the payout once, turns the bed over and opens the thread",
   assert.equal(Number(payout[0].commission_amount), 3_750);
   assert.equal(Number(payout[0].net_amount), 121_250);
   assert.equal(payout[0].status, "ACCRUED");
+  // The row carries the documented escrow rule rather than a second copy of it,
+  // and the year it belongs to started long ago — so the seven days after the
+  // student paid are what hold the money, not the year.
+  const period = periods.find((item) => item.id === "period-1");
+  assert.equal(payout[0].release_after, `${hostelReleaseAfter(period.starts_on, settled.booking.paidAt)}T00:00:00.000Z`);
+  assert.ok(payout[0].release_after > new Date().toISOString(), "a booking paid today is not payable today");
 
   const studentMail = outbox.filter((item) => item.template === "hostel_booking_confirmed" && item.reference === reference);
   const hostMail = outbox.filter((item) => item.template === "hostel_booking_landlord" && item.reference === `${reference}:host`);
@@ -824,6 +866,24 @@ test("a short payment is held for review and the bed stays reserved", async () =
   assert.equal(settled.status, "PAYMENT_REVIEW");
   assert.equal(spaces.find((item) => item.id === "space-c").status, "RESERVED");
   assert.equal(payouts.some((item) => item.booking_id === held.booking.id), false);
+});
+
+test("the release date the ledger stores is the documented escrow rule, on both branches", async () => {
+  const late = "2030-09-02";
+  const paidTheDayBefore = "2030-09-01T09:00:00.000Z";
+
+  // A last-minute booking keeps a real dispute window: the year is three days
+  // away, so seven days after the student paid is what rules — and the row says
+  // so, rather than becoming payable the moment the money landed.
+  assert.equal(releaseAfterFor(late, paidTheDayBefore, new Date(paidTheDayBefore)), "2030-09-08T00:00:00.000Z");
+  assert.equal(releaseAfterFor(late, paidTheDayBefore, new Date(paidTheDayBefore)), `${hostelReleaseAfter(late, paidTheDayBefore)}T00:00:00.000Z`);
+
+  // An early booking is held to the year, and not a day longer.
+  assert.equal(releaseAfterFor(late, "2030-01-05T09:00:00.000Z"), "2030-08-30T00:00:00.000Z");
+
+  // A period date that cannot be parsed must not fail a settlement that has
+  // already taken the money: the escrow floor is the tolerated answer.
+  assert.equal(releaseAfterFor("not-a-date", paidTheDayBefore, new Date(paidTheDayBefore)), "2030-09-08T09:00:00.000Z");
 });
 
 test("money that lands after the hold expired goes to a person, not to the void", async () => {

@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BadgeCheck, BedDouble, Building2, Check, DoorOpen, MapPin, PencilLine, Plus, RotateCcw, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowCounterClockwise, Bed, Buildings, Check, DoorOpen, MapPin, NotePencil, PaperPlaneTilt, Plus, SealCheck, ShieldCheck, Trash } from "@phosphor-icons/react";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 import { HostelReviewQueue } from "@/components/console/hostel/HostelReviewQueue";
+import { HostelViewingDesk } from "@/components/console/hostel/HostelViewingDesk";
 import { PropertyPhotos } from "@/components/console/hostel/PropertyPhotos";
 
 type Landlord = {
@@ -387,7 +388,7 @@ function HostelWorkspace() {
     </section>
 
     <section className="console-panel">
-      <h2><Building2 size={18}/>Add a property</h2>
+      <h2><Buildings size={18}/>Add a property</h2>
       <form className="console-form" onSubmit={addProperty}>
         <label>Property name
           <input type="text" required minLength={2} maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Green View Hostel" />
@@ -412,7 +413,7 @@ function HostelWorkspace() {
     </section>
 
     <section className="console-panel">
-      <h2><BedDouble size={18}/>Your properties</h2>
+      <h2><Bed size={18}/>Your properties</h2>
       {!properties
         ? <p className="console-empty">Loading your properties…</p>
         : properties.length === 0
@@ -442,7 +443,7 @@ function HostelWorkspace() {
     </section>
 
     {detail && <section className="console-panel">
-      <h2><Building2 size={18}/>{detail.property.name}
+      <h2><Buildings size={18}/>{detail.property.name}
         <span className={badge(detail.property.status)}>{detail.property.status.replace("_", " ")}</span>
         <button className="console-panel-close" onClick={() => setPropertyEdit(propertyEdit
           ? null
@@ -453,7 +454,7 @@ function HostelWorkspace() {
             longitude: detail.property.longitude === null ? "" : String(detail.property.longitude),
             utilitiesEnabled: detail.property.utilitiesEnabled,
           })}>
-          <PencilLine size={14}/>{propertyEdit ? "Close editor" : "Edit details"}
+          <NotePencil size={14}/>{propertyEdit ? "Close editor" : "Edit details"}
         </button>
       </h2>
       <p className="console-note">
@@ -479,6 +480,8 @@ function HostelWorkspace() {
         <button disabled={busy === "property-edit"}><Check size={16}/>{busy === "property-edit" ? "Saving…" : "Save details"}</button>
       </form>}
     </section>}
+
+    {detail && <HostelViewingDesk propertyId={detail.property.id} />}
 
     {detail && <PropertyPhotos
       propertyId={detail.property.id}
@@ -512,7 +515,7 @@ function HostelWorkspace() {
     </section>}
 
     {detail && <section className="console-panel">
-      <h2><BedDouble size={18}/>Rooms and beds</h2>
+      <h2><Bed size={18}/>Rooms and beds</h2>
       {detail.rooms.length === 0
         ? <p className="console-empty">No rooms yet. Add the first one above.</p>
         : <table className="console-table">
@@ -543,7 +546,7 @@ function HostelWorkspace() {
                       status: room.status,
                     });
                     setError(""); setSaved("");
-                  }}><PencilLine size={15}/>Edit</button>
+                  }}><NotePencil size={15}/>Edit</button>
                   <button onClick={() => {
                     setRoomEdit(null);
                     setPanels(panels?.kind === "beds" && panels.roomId === room.id ? null : { kind: "beds", roomId: room.id });
@@ -560,7 +563,7 @@ function HostelWorkspace() {
     </section>}
 
     {detail && roomEdit && <section className="console-panel">
-      <h2><PencilLine size={18}/>Edit {roomEdit.label}
+      <h2><NotePencil size={18}/>Edit {roomEdit.label}
         <button className="console-panel-close" onClick={() => setRoomEdit(null)}>Close</button>
       </h2>
       <form className="console-form" onSubmit={saveRoomEdit}>
@@ -619,8 +622,8 @@ function HostelWorkspace() {
                     <Check size={15}/>Save name
                   </button>
                   {space.status === "RETIRED"
-                    ? <button disabled={busy === space.id} onClick={() => void setBedStatus(space, "AVAILABLE")}><RotateCcw size={15}/>Restore</button>
-                    : <button disabled={busy === space.id} onClick={() => void setBedStatus(space, "RETIRED")}><Trash2 size={15}/>Retire</button>}
+                    ? <button disabled={busy === space.id} onClick={() => void setBedStatus(space, "AVAILABLE")}><ArrowCounterClockwise size={15}/>Restore</button>
+                    : <button disabled={busy === space.id} onClick={() => void setBedStatus(space, "RETIRED")}><Trash size={15}/>Retire</button>}
                 </td>
               </tr>;
             })}
@@ -632,7 +635,7 @@ function HostelWorkspace() {
     </section>}
 
     {detail && <section className="console-panel">
-      <h2><BadgeCheck size={18}/>Beds for sale</h2>
+      <h2><SealCheck size={18}/>Beds for sale</h2>
       {periods !== null && periods.length === 0
         ? <p className="console-empty">The platform has not opened an academic year yet. You can price beds as soon as it does.</p>
         : <form className="console-form" onSubmit={addListing}>
@@ -677,8 +680,8 @@ function HostelWorkspace() {
                     {listing.reviewReason && <small className="console-reason">{listing.reviewReason}</small>}
                   </td>
                   <td className="console-row-actions">
-                    {listing.status === "DRAFT" && <button disabled={busy === listing.id} onClick={() => void submitListing(listing)}><Send size={15}/>Submit for review</button>}
-                    {listing.status !== "SUSPENDED" && listingEdit?.id !== listing.id && <button disabled={busy === listing.id} onClick={() => setListingEdit({ id: listing.id, price: cedisInput(listing.price) })}><PencilLine size={15}/>Change rent</button>}
+                    {listing.status === "DRAFT" && <button disabled={busy === listing.id} onClick={() => void submitListing(listing)}><PaperPlaneTilt size={15}/>Submit for review</button>}
+                    {listing.status !== "SUSPENDED" && listingEdit?.id !== listing.id && <button disabled={busy === listing.id} onClick={() => setListingEdit({ id: listing.id, price: cedisInput(listing.price) })}><NotePencil size={15}/>Change rent</button>}
                     {listingEdit?.id === listing.id && <>
                       <input
                         type="text"
@@ -690,7 +693,7 @@ function HostelWorkspace() {
                       <button disabled={busy === listing.id} onClick={() => void saveListingPrice(listing)}><Check size={15}/>Save rent</button>
                       <button disabled={busy === listing.id} onClick={() => setListingEdit(null)}>Cancel</button>
                     </>}
-                    {(listing.status === "DRAFT" || listing.status === "PENDING_REVIEW") && <button disabled={busy === listing.id} onClick={() => void removeListing(listing)}><Trash2 size={15}/>Withdraw</button>}
+                    {(listing.status === "DRAFT" || listing.status === "PENDING_REVIEW") && <button disabled={busy === listing.id} onClick={() => void removeListing(listing)}><Trash size={15}/>Withdraw</button>}
                   </td>
                 </tr>
               ))}

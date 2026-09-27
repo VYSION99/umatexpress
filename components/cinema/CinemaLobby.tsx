@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Clapperboard, Globe, Link2, Lock, Search, Upload } from "lucide-react";
+import { FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } from "@phosphor-icons/react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
@@ -179,7 +179,7 @@ export function CinemaLobby() {
     <h2>Sign in to open a room</h2>
     <p className="cinema-note">Cinema rooms are for UMaT students. Sign in with your <strong>@st.umat.edu.gh</strong> account and the room you were sent is waiting.</p>
     <div className="cinema-controls cinema-sub">
-      <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in <Clapperboard size={16} /></Link>
+      <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in <FilmSlate size={16} /></Link>
     </div>
   </section>;
 
@@ -207,7 +207,7 @@ export function CinemaLobby() {
         <h2>Find a video</h2>
         <p className="cinema-note">Search YouTube and pick what the room plays — a lecture, a documentary, a film. Your choice lands in the form below.</p>
         <label className="cinema-search">
-          <Search size={16} aria-hidden />
+          <MagnifyingGlass size={16} aria-hidden />
           <input
             value={query}
             onChange={(event) => searchFor(event.target.value)}
@@ -222,7 +222,7 @@ export function CinemaLobby() {
             <button type="button" onClick={() => pick(result)} aria-label={`Use ${result.title}`}>
               {result.thumbnail
                 ? <img src={result.thumbnail} alt="" loading="lazy" />
-                : <span className="cinema-search-blank" aria-hidden><Clapperboard size={16} /></span>}
+                : <span className="cinema-search-blank" aria-hidden><FilmSlate size={16} /></span>}
               <span>
                 <strong>{result.title}</strong>
                 {result.channel && <small>{result.channel}</small>}
@@ -246,10 +246,10 @@ export function CinemaLobby() {
           </label>
           <div className="cinema-choice" role="radiogroup" aria-label="Where the video comes from">
             <button type="button" role="radio" aria-checked={source === "YOUTUBE"} className={source === "YOUTUBE" ? "is-on" : ""} onClick={() => setSource("YOUTUBE")}>
-              <Link2 size={15} aria-hidden /> YouTube link
+              <LinkSimple size={15} aria-hidden /> YouTube link
             </button>
             <button type="button" role="radio" aria-checked={source === "UPLOAD"} className={source === "UPLOAD" ? "is-on" : ""} onClick={() => setSource("UPLOAD")}>
-              <Upload size={15} aria-hidden /> Play a file
+              <UploadSimple size={15} aria-hidden /> Play a file
             </button>
           </div>
           {source === "YOUTUBE"
@@ -344,7 +344,7 @@ export function CinemaLobby() {
                 type="button"
                 className="cinema-chip is-button is-upload"
                 onClick={() => { setError(""); setUploadRoom(room); }}
-              ><Upload size={11} aria-hidden /> Add the file</button>}
+              ><UploadSimple size={11} aria-hidden /> Add the file</button>}
             </div>
           </li>)}
         </ul>}

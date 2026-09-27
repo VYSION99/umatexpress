@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Banknote, BusFront, CalendarClock, Clock3, TrendingUp, Users, Wallet } from "lucide-react";
+import { Bus, CalendarBlank, Clock, Money, TrendUp, Users, Wallet, Warning } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -88,20 +88,20 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
 
     {totals && <section className="console-totals">
       <article><span><Wallet size={13}/> Balance</span><strong>{cedis(totals.balance)}</strong><small>{totals.debt > 0 ? "After a refunded payout" : "Owed to you today"}</small></article>
-      <article><span><Clock3 size={13}/> Ready to pay</span><strong>{cedis(totals.ready)}</strong><small>Past its release window</small></article>
-      <article><span><Banknote size={13}/> Awaiting release</span><strong>{cedis(Math.max(0, totals.accrued - totals.ready))}</strong><small>Still inside the release gate</small></article>
-      <article><span><Banknote size={13}/> Paid out</span><strong>{cedis(totals.released)}</strong><small>{statement?.batches.length || 0} payout{statement?.batches.length === 1 ? "" : "s"} recorded</small></article>
+      <article><span><Clock size={13}/> Ready to pay</span><strong>{cedis(totals.ready)}</strong><small>Past its release window</small></article>
+      <article><span><Money size={13}/> Awaiting release</span><strong>{cedis(Math.max(0, totals.accrued - totals.ready))}</strong><small>Still inside the release gate</small></article>
+      <article><span><Money size={13}/> Paid out</span><strong>{cedis(totals.released)}</strong><small>{statement?.batches.length || 0} payout{statement?.batches.length === 1 ? "" : "s"} recorded</small></article>
     </section>}
 
     {totals && totals.debt > 0 && <div className="console-alert" role="alert">
-      <AlertTriangle size={15}/> A booking was refunded after its payout, so {cedis(totals.debt)} is carried against your next earnings.
+      <Warning size={15}/> A booking was refunded after its payout, so {cedis(totals.debt)} is carried against your next earnings.
     </div>}
 
     {insights && insights.trips > 0 && <section className="console-totals">
-      <article><span><TrendingUp size={13}/> Seats sold</span><strong>{insights.seatsSold} / {insights.seatsOffered}</strong><small>{percent(insights.sellThrough)} of everything you published</small></article>
-      <article><span><BusFront size={13}/> Live trips</span><strong>{insights.liveTrips}</strong><small>{insights.trips} published in total</small></article>
+      <article><span><TrendUp size={13}/> Seats sold</span><strong>{insights.seatsSold} / {insights.seatsOffered}</strong><small>{percent(insights.sellThrough)} of everything you published</small></article>
+      <article><span><Bus size={13}/> Live trips</span><strong>{insights.liveTrips}</strong><small>{insights.trips} published in total</small></article>
       <article><span><Wallet size={13}/> Fares earned</span><strong>{cedis(insights.gross)}</strong><small>{cedis(insights.net)} after commission</small></article>
-      <article><span><CalendarClock size={13}/> Next departure</span><strong>{insights.nextDeparture ? when(insights.nextDeparture.travelDate) : "—"}</strong><small>{insights.nextDeparture ? `${insights.nextDeparture.from} → ${insights.nextDeparture.to} · ${insights.nextDeparture.departureTime}` : "Nothing scheduled ahead"}</small></article>
+      <article><span><CalendarBlank size={13}/> Next departure</span><strong>{insights.nextDeparture ? when(insights.nextDeparture.travelDate) : "—"}</strong><small>{insights.nextDeparture ? `${insights.nextDeparture.from} → ${insights.nextDeparture.to} · ${insights.nextDeparture.departureTime}` : "Nothing scheduled ahead"}</small></article>
     </section>}
 
     {trips.length > 0 && <section className="console-panel">
@@ -134,7 +134,7 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     </section>}
 
     <section className="console-panel">
-      <h2><Banknote size={18}/>Booking by booking</h2>
+      <h2><Money size={18}/>Booking by booking</h2>
       {!statement || statement.entries.length === 0
         ? <p className="console-empty">Nothing yet. Earnings appear here as soon as a booking is confirmed.</p>
         : <table className="console-table">
@@ -160,7 +160,7 @@ function EarningsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     </section>
 
     <section className="console-panel">
-      <h2><Banknote size={18}/>Payouts recorded</h2>
+      <h2><Money size={18}/>Payouts recorded</h2>
       {!statement || statement.batches.length === 0
         ? <p className="console-empty">No payout has been recorded yet.</p>
         : <table className="console-table">

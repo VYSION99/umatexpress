@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { CheckCircle2, Flag, Loader2, Star } from "lucide-react";
+import { CheckCircle, CircleNotch, Flag, Star } from "@phosphor-icons/react";
 
 type FeedbackState = {
   completed: boolean;
@@ -159,7 +159,7 @@ export function TripFeedback({ reference }: { reference: string }) {
         onChange={(event) => setComment(event.target.value)}
       />
       <button type="button" onClick={saveRating} disabled={!score || busy === "rating"}>
-        {busy === "rating" ? <><Loader2 size={15} className="spin"/>Saving…</> : "Submit rating"}
+        {busy === "rating" ? <><CircleNotch size={15} className="spin"/>Saving…</> : "Submit rating"}
       </button>
       {state.canReport ? (reportOpen
         ? null
@@ -184,12 +184,12 @@ export function TripFeedback({ reference }: { reference: string }) {
         onChange={(event) => setDetails(event.target.value)}
       />
       <div>
-        <button type="submit" disabled={busy === "report"}>{busy === "report" ? <><Loader2 size={15} className="spin"/>Sending…</> : "Send report"}</button>
+        <button type="submit" disabled={busy === "report"}>{busy === "report" ? <><CircleNotch size={15} className="spin"/>Sending…</> : "Send report"}</button>
         <button type="button" onClick={() => setReportOpen(false)}>Cancel</button>
       </div>
     </form>}
 
-    {message && <p className="campus-feedback-message"><CheckCircle2 size={15}/>{message}</p>}
+    {message && <p className="campus-feedback-message"><CheckCircle size={15}/>{message}</p>}
     {error && <p className="campus-feedback-error">{error}</p>}
   </section>;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { House } from "lucide-react";
+import { House } from "@phosphor-icons/react";
 import { navLabel, navServices } from "@/components/launcher/services";
 import { useLauncherLayout } from "@/components/launcher/useLauncherLayout";
 

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { BadgeCheck, BedDouble, CalendarClock, Check, IdCard, Plus, ShieldAlert, UserX, X } from "lucide-react";
+import { Bed, CalendarBlank, Check, IdentificationCard, Plus, SealCheck, ShieldWarning, UserMinus, X } from "@phosphor-icons/react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { PropertyVerificationReview } from "@/components/console/hostel/PropertyVerificationReview";
 import { PhotoReviewQueue } from "@/components/console/hostel/PhotoReviewQueue";
 
 type Listing = {
@@ -181,9 +182,10 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
     <PhotoReviewQueue onNotice={setSaved} />
+    <PropertyVerificationReview />
 
     <section className="console-panel">
-      <h2><IdCard size={18}/>Landlord verification
+      <h2><IdentificationCard size={18}/>Landlord verification
         {pendingKyc.length > 0 && <span className="console-badge">{pendingKyc.length}</span>}
       </h2>
       {!landlords
@@ -216,8 +218,8 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
                       value={kycReasons[landlord.id] || ""}
                       onChange={(event) => setKycReasons({ ...kycReasons, [landlord.id]: event.target.value })}
                     />
-                    <button disabled={busy === `kyc-${landlord.id}`} onClick={() => void decideKyc(landlord, "VERIFY")}><BadgeCheck size={15}/>Verify KYC</button>
-                    <button disabled={busy === `kyc-${landlord.id}`} onClick={() => void decideKyc(landlord, "REJECT")}><UserX size={15}/>Reject KYC</button>
+                    <button disabled={busy === `kyc-${landlord.id}`} onClick={() => void decideKyc(landlord, "VERIFY")}><SealCheck size={15}/>Verify KYC</button>
+                    <button disabled={busy === `kyc-${landlord.id}`} onClick={() => void decideKyc(landlord, "REJECT")}><UserMinus size={15}/>Reject KYC</button>
                   </td>
                 </tr>
               ))}
@@ -229,7 +231,7 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
     </section>
 
     <section className="console-panel">
-      <h2><BedDouble size={18}/>Waiting for review
+      <h2><Bed size={18}/>Waiting for review
         {queue && <span className="console-badge">{queue.length}</span>}
       </h2>
       {!queue
@@ -275,7 +277,7 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
     </section>
 
     <section className="console-panel">
-      <h2><ShieldAlert size={18}/>Live listings
+      <h2><ShieldWarning size={18}/>Live listings
         {live && <span className="console-badge">{live.length}</span>}
       </h2>
       {!live
@@ -301,7 +303,7 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
                           value={reasons[listing.id] || ""}
                           onChange={(event) => setReasons({ ...reasons, [listing.id]: event.target.value })}
                         />
-                        <button disabled={busy === listing.id} onClick={() => void decide(listing, "SUSPEND")}><ShieldAlert size={15}/>Suspend</button>
+                        <button disabled={busy === listing.id} onClick={() => void decide(listing, "SUSPEND")}><ShieldWarning size={15}/>Suspend</button>
                       </>
                       : <span className="console-note">An administrator can suspend a live bed.</span>}
                   </td>
@@ -315,7 +317,7 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
     </section>
 
     {isAdmin && <section className="console-panel">
-      <h2><CalendarClock size={18}/>Academic years</h2>
+      <h2><CalendarBlank size={18}/>Academic years</h2>
       <form className="console-form" onSubmit={addPeriod}>
         <label>Year name
           <input type="text" required minLength={8} maxLength={60} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="2026/27 Academic Year" />

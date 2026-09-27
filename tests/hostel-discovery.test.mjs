@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
+const renderToStaticMarkup = element => renderMarkup(createElement(AppRouterContext.Provider, { value: { push() {}, replace() {}, refresh() {}, prefetch() {} } }, element));
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
@@ -109,14 +111,14 @@ function handle(sql, args) {
 
   // The cover on a card, and the gallery on one building's page. Both read
   // approved rows only, which is the gate these tests exist to keep honest.
-  if (/FROM hostel_property_photos WHERE status = 'APPROVED' AND property_id IN/.test(sql)) {
+  if (/FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN/.test(sql)) {
     const wanted = new Set(args);
-    const rows = photos.filter((photo) => photo.status === "APPROVED" && wanted.has(photo.property_id)).sort((left, right) => left.sort_order - right.sort_order);
-    return ok(rows.length ? table(["id", "property_id", "caption", "sort_order"], rows) : empty);
+    const rows = photos.filter((photo) => photo.status === "APPROVED" && (photo.media_kind || "PHOTO") === "PHOTO" && !photo.room_id && wanted.has(photo.property_id)).sort((left, right) => left.sort_order - right.sort_order);
+    return ok(rows.length ? table(["id", "property_id", "room_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
   }
   if (/FROM hostel_property_photos WHERE property_id = \? AND status = 'APPROVED'/.test(sql)) {
     const rows = photos.filter((photo) => photo.status === "APPROVED" && photo.property_id === args[0]).sort((left, right) => left.sort_order - right.sort_order);
-    return ok(rows.length ? table(["id", "caption", "sort_order"], rows) : empty);
+    return ok(rows.length ? table(["id", "room_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
   }
   return ok(empty);
 }
@@ -325,11 +327,11 @@ test("the browse page renders the filters, the map and the cards", async () => {
   assert.match(html, /Green Court Hostel/);
   assert.match(html, /2 beds available/);
   assert.match(html, /GH₵ 1,950/, "the card shows the yearly total with utilities");
-  assert.match(html, /Filter the map/);
+  assert.match(html, /Find your next home/);
   assert.match(html, /Academic year/);
-  assert.match(html, /Interactive Hostel Finder map/);
-  assert.match(html, /hostel-marker|Loading real map/);
-  assert.match(html, /href="\/hostel\/property-a"/);
+  assert.match(html, /Results view/);
+  assert.doesNotMatch(html, /Loading real map/, "map must not load in list view");
+  assert.match(html, /href="\/hostel\/property-a\?periodId=period-1"/);
   assert.match(html, /\/api\/hostel\/photos\/photo-a1/, "the card shows the approved cover");
   assert.equal(/\/api\/hostel\/photos\/photo-a2/.test(html), false, "the pending photo has no public URL on the page");
   assert.equal(/Suspended Lodge/.test(html), false, "a suspended building cannot appear anywhere on the page");
@@ -339,9 +341,9 @@ test("one hostel's page lists its approved beds and 404s for a suspended buildin
   seed();
   const html = renderToStaticMarkup(await HostelPropertyPage({ params: Promise.resolve({ propertyId: "property-a" }), searchParams: Promise.resolve({}) }));
   assert.match(html, /Green Court Hostel/);
-  assert.match(html, /Rooms and beds/);
+  assert.match(html, /Choose your room and bed/);
   assert.match(html, /Room 1/);
-  assert.match(html, /GH₵ 1,800/, "the bed rent renders");
+  assert.match(html, /Includes GH₵ 150 utilities/, "the bed shows included utilities");
   assert.match(html, /GH₵ 1,950/, "rent plus utilities renders");
   assert.match(html, /2026\/27 Academic Year/);
   assert.match(html, /hostel-gallery-main/);
@@ -366,4 +368,44 @@ test("the launcher and the public nav send students to /hostel", async () => {
   assert.equal(campusNavState("ACCOUNT").activeHref, "");
   assert.equal(campusNavState("CINEMA").activeHref, "/cinema");
   assert.equal(campusNavState("VACATION").activeHref, "/vacation");
+});
+
+
+test("opening one hostel scopes the aggregate and photo queries to that property", async () => {
+  seed();
+  await getPublicProperty("property-a", PERIOD.id);
+  const aggregate = statements.find(item => /^SELECT p\.id AS property_id/.test(item.sql));
+  assert.match(aggregate.sql, /AND p\.id = \?/);
+  assert.deepEqual(aggregate.args, [PERIOD.id, "property-a"]);
+  const covers = statements.find(item => /hostel_property_photos WHERE status/.test(item.sql));
+  assert.deepEqual(covers.args, ["property-a"]);
+});
+
+test("search and pagination enrich only the displayed cards", async () => {
+  seed();
+  properties.find(item => item.id === "property-b").status = "APPROVED";
+  const result = await listPublicProperties({ periodId: PERIOD.id, pageSize: 1, page: 2 });
+  assert.equal(result.total, 2);
+  assert.equal(result.pageCount, 2);
+  assert.equal(result.properties.length, 1);
+  const covers = statements.find(item => /hostel_property_photos WHERE status/.test(item.sql));
+  assert.deepEqual(covers.args, [result.properties[0].id]);
+  assert.equal((await listPublicProperties({ periodId: PERIOD.id, q: "hospital" })).properties[0].id, "property-a");
+  assert.equal((await listPublicProperties({ periodId: PERIOD.id, q: "missing" })).total, 0);
+  assert.equal((await listPublicProperties({ periodId: PERIOD.id, pageSize: 1, page: 999 })).page, 2);
+});
+
+test("cards preserve the selected academic year", async () => {
+  seed();
+  const html = renderToStaticMarkup(await HostelPage({ searchParams: Promise.resolve({ periodId: NEXT_YEAR.id }) }));
+  assert.match(html, /href="\/hostel\/property-a\?periodId=period-2"/);
+  assert.match(html, /GH₵ 2,750/);
+});
+
+test("comparison scopes the public aggregate to the requested buildings", async () => {
+  seed();
+  await propertiesGet(new Request("https://umatexpress.test/api/hostel/properties?periodId=period-1&ids=property-a,property-c&pageSize=4"));
+  const aggregate = statements.find(item => /^SELECT p\.id AS property_id/.test(item.sql));
+  assert.match(aggregate.sql, /p\.id IN \(\?,\?\)/);
+  assert.deepEqual(aggregate.args, [PERIOD.id, "property-a", "property-c"]);
 });

@@ -16,7 +16,7 @@ after(async () => vite.close());
 const { services, defaultPreferences, normalizePreferences, homepageServices, isServiceHidden, navServices, navLabel } = await vite.ssrLoadModule("/components/launcher/services.ts");
 const { default: CampusLauncher } = await vite.ssrLoadModule("/components/launcher/CampusLauncher.tsx");
 
-const ACCENTS = new Set(["cyan", "green", "yellow"]);
+const ACCENTS = new Set(["gold", "green", "neutral"]);
 const PARTNERS = {
   research: "https://acmdresearch.com",
   clipad: "https://clipad.optavel.com",

@@ -223,3 +223,16 @@ test("hiding needs a reason and is audited; publishing back undoes it", async ()
   assert.equal(published.status, "PUBLISHED");
   assert.equal((await getHostelReviewForBooking("booking-1")).status, "PUBLISHED");
 });
+
+
+test("the public reviews endpoint excludes account and moderation fields", async () => {
+  await writeReview();
+  const { GET } = await vite.ssrLoadModule("/app/api/hostel/reviews/route.ts");
+  const response = await GET(new Request("https://umatexpress.test/api/hostel/reviews?propertyId=property-1"));
+  assert.equal(response.status, 200);
+  const { reviews: publicReviews } = await response.json();
+  assert.equal(publicReviews[0].title, "Quiet and close");
+  for (const key of ["studentEmail", "bookingId", "landlordId", "hiddenReason", "moderatedBy"]) {
+    assert.equal(key in publicReviews[0], false, `${key} must stay server-side`);
+  }
+});

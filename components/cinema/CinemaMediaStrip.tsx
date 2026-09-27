@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Camera, CameraOff, ChevronRight, Circle, Mic, MicOff, X } from "lucide-react";
+import { Camera, CameraSlash, CaretRight, Circle, Microphone, MicrophoneSlash, X } from "@phosphor-icons/react";
 import type { CinemaPresenceMember } from "@/lib/cinema-engine/protocol";
 import { MediaStreamVideo } from "./CinemaMediaVideo";
 import type { CinemaMedia } from "./useCinemaMedia";
@@ -63,14 +63,14 @@ export function CinemaMediaStrip(input: {
     {options.stream
       ? <MediaStreamVideo stream={options.stream} muted={options.muted} className="cinema-strip-video" />
       : <div className="cinema-strip-placeholder">
-        {!options.camera && <CameraOff size={13} aria-hidden />}
+        {!options.camera && <CameraSlash size={13} aria-hidden />}
         <span>{options.name}</span>
       </div>}
     <footer>
       <strong title={options.name}>{options.name}</strong>
       <span className="cinema-media-flags">
-        {options.mic ? <Mic size={11} aria-label="Microphone on" /> : <MicOff size={11} aria-label="Microphone off" />}
-        {options.camera ? <Camera size={11} aria-label="Camera on" /> : <CameraOff size={11} aria-label="Camera off" />}
+        {options.mic ? <Microphone size={11} aria-label="Microphone on" /> : <MicrophoneSlash size={11} aria-label="Microphone off" />}
+        {options.camera ? <Camera size={11} aria-label="Camera on" /> : <CameraSlash size={11} aria-label="Camera off" />}
         {options.recording && <Circle size={10} className="cinema-recording-dot" aria-label="Recording" />}
       </span>
     </footer>
@@ -114,7 +114,7 @@ export function CinemaMediaStrip(input: {
       onClick={() => setMore((current) => !current)}
     >
       <span>+{overflow.length}</span>
-      <ChevronRight size={14} aria-hidden />
+      <CaretRight size={14} aria-hidden />
     </button>}
 
     {more && <>

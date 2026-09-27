@@ -58,7 +58,15 @@ def main() -> None:
     inner = round(180 * 0.92)
     bleed(emblem.resize((inner, inner), Image.LANCZOS), (180 - inner) // 2).save(PUBLIC / "apple-touch-icon.png")
 
-    print("wrote icon-192.png, icon-512.png, icon-maskable-192.png, icon-maskable-512.png, apple-touch-icon.png")
+    # The tab icon. Browsers still ask for /favicon.ico before they read the
+    # declared links, and a real 16/32/48 icon beats letting the browser scale
+    # the 512 down on its own. Same emblem as the app icon, so the tab and the
+    # home screen cannot disagree.
+    emblem.resize((48, 48), Image.LANCZOS).save(
+        PUBLIC / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)]
+    )
+
+    print("wrote icon-192.png, icon-512.png, icon-maskable-192.png, icon-maskable-512.png, apple-touch-icon.png, favicon.ico")
 
 
 if __name__ == "__main__":

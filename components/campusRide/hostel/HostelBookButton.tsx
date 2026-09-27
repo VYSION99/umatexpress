@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarClock, Loader2 } from "lucide-react";
+import { CalendarBlank, CircleNotch } from "@phosphor-icons/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 
 /**
@@ -12,6 +13,7 @@ import { useStudentAccount } from "@/components/account/useStudentAccount";
  * useful rather than about security.
  */
 export function HostelBookButton({ listingId, bedLabel }: { listingId: string; bedLabel: string }) {
+  const router = useRouter();
   const { ready, account } = useStudentAccount();
   const [from, setFrom] = useState("/hostel");
   const [busy, setBusy] = useState(false);
@@ -33,7 +35,10 @@ export function HostelBookButton({ listingId, bedLabel }: { listingId: string; b
         body: JSON.stringify({ listingId }),
       });
       const data = await response.json() as { authorizationUrl?: string; reference?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || "That bed could not be held.");
+      if (!response.ok) {
+        if (response.status === 409) router.refresh();
+        throw new Error(data.error || "That bed could not be held.");
+      }
       if (!data.authorizationUrl) throw new Error("The checkout could not be opened. Please try again.");
       // Paystack has to be a real navigation: the checkout page is another origin.
       window.location.assign(data.authorizationUrl);
@@ -46,7 +51,7 @@ export function HostelBookButton({ listingId, bedLabel }: { listingId: string; b
   return <div className="hostel-book">
     {ready && !account
       ? <Link className="hostel-book-button" href={`/account?next=${encodeURIComponent(from)}`}>
-        <CalendarClock size={14} aria-hidden />Sign in to hold
+        <CalendarBlank size={14} aria-hidden />Sign in to hold
       </Link>
       : <button
         type="button"
@@ -55,7 +60,7 @@ export function HostelBookButton({ listingId, bedLabel }: { listingId: string; b
         disabled={busy || !ready}
         aria-label={`Hold ${bedLabel} for ten minutes`}
       >
-        {busy ? <Loader2 size={14} className="console-spin" aria-hidden /> : <CalendarClock size={14} aria-hidden />}
+        {busy ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <CalendarBlank size={14} aria-hidden />}
         {!ready ? "Checking your account…" : busy ? "Holding…" : "Hold this bed"}
       </button>}
     {error ? <small className="hostel-book-error">{error}</small> : <small>Held for 10 minutes while you pay.</small>}

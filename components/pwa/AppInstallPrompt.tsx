@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Smartphone, X } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { DeviceMobile, DownloadSimple, X } from "@phosphor-icons/react";
+import { entrance } from "@/components/ui/motion";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -50,6 +52,7 @@ function serviceWorkerAllowed() {
 }
 
 export function AppInstallPrompt() {
+  const reducedMotion = useReducedMotion();
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [standalone, setStandalone] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -127,13 +130,13 @@ export function AppInstallPrompt() {
 
   if (!shouldRender) return null;
 
-  return <aside className={`app-install-prompt${expanded ? " is-expanded" : ""}`} aria-label="Install UMaTeXPRESS app">
+  return <motion.aside className={`app-install-prompt${expanded ? " is-expanded" : ""}`} aria-label="Install UMaTeXPRESS app" {...entrance(reducedMotion)}>
     <button className="app-install-main" onClick={install}>
-      <span><Smartphone size={18} /></span>
+      <span><DeviceMobile size={18} /></span>
       <strong>{expanded ? copy.title : "Install app"}</strong>
       {expanded && <small>{copy.body}</small>}
-      <i><Download size={16} /> {copy.action}</i>
+      <i><DownloadSimple size={16} /> {copy.action}</i>
     </button>
     <button className="app-install-dismiss" aria-label="Dismiss install prompt" onClick={dismiss}><X size={16} /></button>
-  </aside>;
+  </motion.aside>;
 }

@@ -17,8 +17,9 @@ This document defines the onboarding and verification process for **Trip Organiz
 
 - Organizer applies at the console (`/console/register`) with **name, phone,
   email, organization and password**. Email plus password is the credential, not
-  phone: the console identity already works that way, and Resend is the
-  platform's only messaging provider (there is no SMS channel).
+  phone: the console identity already works that way, and neither delivery
+  channel is required to sign in — Resend sends mail and Sailup sends texts, and
+  the phone on the row is a contact number rather than a second credential.
 - System creates a `console_accounts` row (role `ORGANIZER`, status `PENDING`)
   and a matching `trip_organizers` row (status `PENDING`).
 - The application joins the review queue for an admin or moderator.

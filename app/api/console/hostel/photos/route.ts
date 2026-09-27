@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       landlordId: host.landlordId,
       propertyId: String(form.get("propertyId") || ""),
       roomId: String(form.get("roomId") || ""),
+      mediaKind: String(form.get("mediaKind") || "PHOTO") as "PHOTO" | "FLOOR_PLAN",
       caption: String(form.get("caption") || ""),
       contentType: String(file.type || "").toLowerCase(),
       body: await file.arrayBuffer(),

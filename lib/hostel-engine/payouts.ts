@@ -20,9 +20,11 @@ import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@
  * marks entries `RELEASED` once an administrator has actually transferred them.
  *
  * The release policy is the one the rollout plan set: an entry becomes payable
- * three days before the academic year starts (`release_after`), so a student
- * who changes their mind before move-in can still be refunded out of money the
- * platform has not yet sent on.
+ * three days before the academic year starts (`release_after`), or seven days
+ * after the student paid if that is later, so a student who changes their mind
+ * before move-in can still be refunded out of money the platform has not yet
+ * sent on. Both halves live in `hostelReleaseAfter`; the rule a landlord is
+ * actually paid by is the one stamped onto the row.
  */
 
 /** One batch should stay reviewable by a person; a landlord's year is not one row. */

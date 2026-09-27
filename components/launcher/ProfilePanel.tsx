@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, LogOut, ShieldCheck, Ticket, User, X } from "lucide-react";
+import { ArrowRight, Check, ShieldCheck, SignOut, Ticket, User, X } from "@phosphor-icons/react";
 import { ticketHref, writeProfile } from "@/lib/passenger-profile";
 import type { StudentAccount } from "@/lib/student-auth";
 import { publishStudentAccount, useStudentAccount } from "@/components/account/useStudentAccount";
@@ -94,7 +94,7 @@ export function ProfilePanel() {
     </div>
     <div className="profile-actions">
       <button className="profile-save" disabled={busy !== ""} onClick={save}><Check size={16} aria-hidden /> {busy === "save" ? "Saving…" : "Save details"}</button>
-      <button className="profile-forget" disabled={busy !== ""} onClick={signOut}>{busy === "signout" ? "Signing out…" : <><LogOut size={15} aria-hidden /> Sign out</>}</button>
+      <button className="profile-forget" disabled={busy !== ""} onClick={signOut}>{busy === "signout" ? "Signing out…" : <><SignOut size={15} aria-hidden /> Sign out</>}</button>
     </div>
     {status && <p className="profile-status" role="status">{status}</p>}
     {ticketsBlock}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkle } from "@phosphor-icons/react";
 import type { ConsoleBrief, ConsoleBriefItem } from "@/lib/console-assistant";
 
 /** Action items lead; the rest keep the order the brief read them in. */
@@ -42,7 +42,7 @@ export function ConsoleBriefStrip() {
 
   return <section className={`console-brief-strip${hasActions ? " has-actions" : ""}`} aria-label="Daily brief">
     <div className="console-brief-lead">
-      <span className="console-brief-kicker"><Sparkles size={15}/> Daily brief</span>
+      <span className="console-brief-kicker"><Sparkle size={15}/> Daily brief</span>
       <p>{brief.summary}</p>
     </div>
     {items.length > 0 && <ul>

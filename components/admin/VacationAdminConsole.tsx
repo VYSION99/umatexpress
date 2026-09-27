@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, CircleDollarSign, Copy, Edit3, Megaphone, RefreshCw, Save, Sparkles, TicketCheck, Trash2, Users } from "lucide-react";
+import { ArrowsClockwise, Copy, CurrencyCircleDollar, FloppyDisk, Megaphone, PencilSimple, Robot, Sparkle, Ticket, Trash, Users } from "@phosphor-icons/react";
 import { formatTime } from "@/lib/trips";
 import { type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
 import { EMPTY_FLYER_PROMO } from "@/lib/trip-notice";
@@ -251,7 +251,7 @@ export function VacationAdminConsole() {
   return <div className="console-body admin-page">
     <div className="console-panel-toolbar">
       <p>VACATIONRIDE OPERATIONS</p>
-      <button className="console-panel-close" onClick={load}><RefreshCw size={14} className={loading?"spin":""}/>{loading?"Refreshing…":"Refresh"}</button>
+      <button className="console-panel-close" onClick={load}><ArrowsClockwise size={14} className={loading?"spin":""}/>{loading?"Refreshing…":"Refresh"}</button>
     </div>
       <section className="trip-scheduler-card" id="trip-editor">
         <div className="trip-scheduler-header"><div><p>TRIP SCHEDULER</p><h2>{editingTripId ? "Edit vacationRide trip" : "Schedule a vacationRide trip"}</h2></div><span>Create multiple departures, routes, dates, fares, and coach setups.</span></div>
@@ -272,12 +272,12 @@ export function VacationAdminConsole() {
           <label className="trip-toggle-row"><span>Trip status</span><div className="trip-toggle-box"><input type="checkbox" checked={newTrip.active} onChange={(event)=>setNewTrip((current)=>({...current,active:event.target.checked}))} /><strong>{newTrip.active ? "Active" : "Inactive"}</strong></div></label>
         </div>
         <div className="trip-scheduler-actions">
-          <button className="save-schedule" disabled={tripSaving} onClick={createTrip}><Save size={16}/>{tripSaving ? "Saving..." : editingTripId ? "Update trip" : "Create trip"}</button>
+          <button className="save-schedule" disabled={tripSaving} onClick={createTrip}><FloppyDisk size={16}/>{tripSaving ? "Saving..." : editingTripId ? "Update trip" : "Create trip"}</button>
           {editingTripId && <button className="admin-action-link" disabled={tripSaving} onClick={resetTripForm}>Cancel edit</button>}
-          <button className="ai-helper-button" disabled={aiLoading} onClick={() => askAi("suggestion")}><Sparkles size={16}/>{aiLoading ? "Thinking..." : "AI suggestion"}</button>
+          <button className="ai-helper-button" disabled={aiLoading} onClick={() => askAi("suggestion")}><Sparkle size={16}/>{aiLoading ? "Thinking..." : "AI suggestion"}</button>
         </div>
         {saveMessage && <small className="admin-save-message">{saveMessage}</small>}
-        {aiSuggestion && <div className="ai-response-box"><div className="ai-response-header"><Bot size={16}/> AI assistant</div><AiSuggestionCard suggestion={aiSuggestion}/></div>}
+        {aiSuggestion && <div className="ai-response-box"><div className="ai-response-header"><Robot size={16}/> AI assistant</div><AiSuggestionCard suggestion={aiSuggestion}/></div>}
         <div className="scheduled-trip-list">
           <h3>Scheduled trips</h3>
           {scheduledTrips.length ? scheduledTrips.map((trip,index) => (
@@ -287,12 +287,12 @@ export function VacationAdminConsole() {
               <ul><li>{formatTime(trip.time)} - {formatTime(trip.arrival)}</li><li>{trip.coachType}</li><li>GH₵ {trip.price}</li><li>{trip.capacity} seats</li><li>Order {trip.displayOrder}</li></ul>
               <small>{trip.amenities.join(" · ")}{trip.notes ? ` · ${trip.notes}` : ""}</small>
               <div className="scheduled-trip-actions">
-                <button onClick={()=>editTrip(trip)}><Edit3 size={14}/> Edit</button>
+                <button onClick={()=>editTrip(trip)}><PencilSimple size={14}/> Edit</button>
                 <button onClick={()=>editTrip(trip,true)}><Copy size={14}/> Duplicate</button>
                 <button onClick={()=>toggleTrip(trip)}>{trip.active ? "Hide" : "Show"}</button>
                 <button disabled={index===0} onClick={()=>moveTrip(trip,-1)}>Move up</button>
                 <button disabled={index===scheduledTrips.length-1} onClick={()=>moveTrip(trip,1)}>Move down</button>
-                <button className="danger" onClick={()=>archiveTrip(trip)}><Trash2 size={14}/> Archive</button>
+                <button className="danger" onClick={()=>archiveTrip(trip)}><Trash size={14}/> Archive</button>
               </div>
             </article>
           )) : <div className="admin-empty">No custom trips scheduled yet.</div>}
@@ -304,7 +304,7 @@ export function VacationAdminConsole() {
         <div className="schedule-editor">
           <fieldset><legend>Morning coach</legend><label>Departure<input type="time" value={schedule.morningDeparture} onChange={(event)=>updateTime("morningDeparture",event.target.value)}/></label><label>Arrival<input type="time" value={schedule.morningArrival} onChange={(event)=>updateTime("morningArrival",event.target.value)}/></label></fieldset>
           <fieldset><legend>Afternoon / evening coach</legend><label>Departure<input type="time" value={schedule.eveningDeparture} onChange={(event)=>updateTime("eveningDeparture",event.target.value)}/></label><label>Arrival<input type="time" value={schedule.eveningArrival} onChange={(event)=>updateTime("eveningArrival",event.target.value)}/></label></fieldset>
-          <button className="save-schedule" disabled={saving} onClick={()=>saveSettings(schedule,"Schedule saved.")}><Save size={16}/>{saving?"Saving…":"Save times"}</button>
+          <button className="save-schedule" disabled={saving} onClick={()=>saveSettings(schedule,"Schedule saved.")}><FloppyDisk size={16}/>{saving?"Saving…":"Save times"}</button>
         </div>
       </section>
       <section className="trip-visibility-card flyer-editor">
@@ -320,9 +320,9 @@ export function VacationAdminConsole() {
           <label>Features and amenities<textarea value={flyerPromo.amenities.join("\n")} onChange={(event)=>updateFlyer("amenities",splitLines(event.target.value))}/></label>
           <label>Organizer contacts<textarea value={flyerPromo.contacts.join("\n")} onChange={(event)=>updateFlyer("contacts",splitLines(event.target.value))}/></label>
         </div>
-        <button className="save-schedule save-flyer" disabled={saving} onClick={()=>saveSettings({flyerPromo},"Flyer promo saved.")}><Save size={16}/>{saving?"Saving...":"Save flyer"}</button>
+        <button className="save-schedule save-flyer" disabled={saving} onClick={()=>saveSettings({flyerPromo},"Flyer promo saved.")}><FloppyDisk size={16}/>{saving?"Saving...":"Save flyer"}</button>
       </section>
-      <div className="metric-grid"><article><Users/><span>Total bookings</span><strong>{bookings.length}</strong></article><article><TicketCheck/><span>Confirmed seats</span><strong>{confirmed.length}</strong></article><article><CircleDollarSign/><span>Payments received</span><strong>GH₵ {revenue.toFixed(2)}</strong></article></div>
+      <div className="metric-grid"><article><Users/><span>Total bookings</span><strong>{bookings.length}</strong></article><article><Ticket/><span>Confirmed seats</span><strong>{confirmed.length}</strong></article><article><CurrencyCircleDollar/><span>Payments received</span><strong>GH₵ {revenue.toFixed(2)}</strong></article></div>
       <section className="admin-table-card"><div><h2>Recent passengers</h2><span>Latest bookings across vacationRide trips</span></div>
       {error?<div className="admin-empty"><strong>Admin services need attention</strong><p>{error}</p><small>Check Turso, Paystack, AI, and admin environment values.</small></div>:
       <div className="table-wrap"><table><thead><tr><th>Passenger</th><th>Seat</th><th>Travel date</th><th>Departure</th><th>Reference</th><th>Payment</th><th>Amount</th><th>Action</th></tr></thead><tbody>{bookings.map((booking)=>{ const isCancelled=booking.booking_status==="CANCELLED"||booking.payment_status==="CANCELLED"; return <tr key={booking.reference}><td><strong>{booking.passenger_name}</strong><span>{booking.phone}</span></td><td>{booking.seat}</td><td>{booking.travel_date}</td><td><strong>{booking.departure_time?formatTime(booking.departure_time):(booking.trip_id==="2"?"1:00 PM":"6:30 AM")}</strong></td><td>{booking.reference}</td><td><span className={`payment-state ${booking.booking_status === "PAYMENT_RECEIVED_REVIEW" ? "PENDING" : booking.payment_status}`}>{booking.booking_status === "PAYMENT_RECEIVED_REVIEW" ? "PAID · REVIEW" : booking.payment_status}</span></td><td>GH₵ {(Number(booking.amount)/100).toFixed(2)}</td><td>{isCancelled?<button className="admin-cancel-button delete" onClick={() => deleteCancelledBooking(booking.reference)}>Delete</button>:<button className="admin-cancel-button" onClick={() => cancelBooking(booking.reference)}>Cancel</button>}</td></tr>; })}</tbody></table>{!loading&&!bookings.length&&<div className="admin-empty">No bookings yet.</div>}</div>}</section>

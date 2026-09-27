@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, ExternalLink, Grid2X2, Home, LockKeyhole, LogOut, Search, ShieldCheck, X } from "lucide-react";
+import { ArrowRight, ArrowSquareOut, House, LockKey, MagnifyingGlass, ShieldCheck, SignOut, SquaresFour, X } from "@phosphor-icons/react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole, consoleServicesForRole, consoleServiceById, consoleServiceNavForRole } from "@/components/admin/console-services";
 import { ConsoleAssistant } from "@/components/console/ConsoleAssistant";
@@ -89,8 +89,8 @@ export function ConsoleShell({
       </Link>
       <span className="console-sidebar-label">CONSOLE</span>
       <nav aria-label="Console home">
-        <Link href="/console" aria-current={service === "home" ? "page" : undefined}><Home size={19}/> Home</Link>
-        <button type="button" onClick={() => setPanel(true)}><Grid2X2 size={19}/> All services</button>
+        <Link href="/console" aria-current={service === "home" ? "page" : undefined}><House size={19}/> Home</Link>
+        <button type="button" onClick={() => setPanel(true)}><SquaresFour size={19}/> All services</button>
       </nav>
       {groups.map((group) => <Fragment key={group.group}>
         <span className="console-sidebar-label">{group.group.toUpperCase()}</span>
@@ -111,7 +111,7 @@ export function ConsoleShell({
         </nav>
       </Fragment>)}
       <div className="console-sidebar-bottom">
-        <Link href="/"><ExternalLink size={17}/> Student homepage</Link>
+        <Link href="/"><ArrowSquareOut size={17}/> Student homepage</Link>
         <span><ShieldCheck size={18}/> {roleLabel} workspace</span>
       </div>
     </aside>
@@ -121,7 +121,7 @@ export function ConsoleShell({
         <Link href="/console" className="console-mobile-brand" aria-label="Console home"><img src="/logo-mark.png" width="40" height="40" alt=""/><span>Console</span></Link>
         <span className="console-breadcrumb">Console <span>/</span> {current ? current.title : "Home"}</span>
         <form className="launch-search" onSubmit={(event) => { event.preventDefault(); setPanel(true); }}>
-          <Search size={18}/>
+          <MagnifyingGlass size={18}/>
           <input aria-label="Find a service" placeholder="Find a service…" value={query} onChange={(event) => setQuery(event.target.value)}/>
           <button aria-label="Search services"><ArrowRight size={17}/></button>
         </form>
@@ -131,7 +131,7 @@ export function ConsoleShell({
           {actions}
         </div>
         <button className="console-signout" onClick={signOut} disabled={signingOut}>
-          <LogOut size={17}/><span>{signingOut ? "Signing out…" : "Sign out"}</span>
+          <SignOut size={17}/><span>{signingOut ? "Signing out…" : "Sign out"}</span>
         </button>
       </header>
 
@@ -147,10 +147,10 @@ export function ConsoleShell({
     </div>
 
     <nav className="launch-mobile-nav" aria-label="Console navigation">
-      <Link href="/console" aria-current={service === "home" ? "page" : undefined}><Home size={21}/>Home</Link>
-      <button type="button" onClick={() => setPanel(true)}><Grid2X2 size={21}/>Services</button>
-      <Link href="/console/change-password" aria-current={pathname === "/console/change-password" ? "page" : undefined}><LockKeyhole size={21}/>Security</Link>
-      <button type="button" onClick={signOut} disabled={signingOut}><LogOut size={21}/>{signingOut ? "Signing out…" : "Sign out"}</button>
+      <Link href="/console" aria-current={service === "home" ? "page" : undefined}><House size={21}/>Home</Link>
+      <button type="button" onClick={() => setPanel(true)}><SquaresFour size={21}/>Services</button>
+      <Link href="/console/change-password" aria-current={pathname === "/console/change-password" ? "page" : undefined}><LockKey size={21}/>Security</Link>
+      <button type="button" onClick={signOut} disabled={signingOut}><SignOut size={21}/>{signingOut ? "Signing out…" : "Sign out"}</button>
     </nav>
 
     <dialog ref={dialog} className="launch-dialog" aria-labelledby="console-switcher-title" onCancel={() => setPanel(false)} onClick={(event) => { if (event.target === event.currentTarget) setPanel(false); }}>
@@ -160,7 +160,7 @@ export function ConsoleShell({
           <button className="launch-icon-button" aria-label="Close" onClick={() => setPanel(false)}><X size={21}/></button>
         </div>
         <label className="launch-search">
-          <Search size={18}/>
+          <MagnifyingGlass size={18}/>
           <input autoFocus aria-label="Filter services" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search rides, trips, payouts…"/>
         </label>
         <div className="launch-directory">

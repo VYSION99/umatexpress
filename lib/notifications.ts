@@ -2,6 +2,7 @@ import type { SqlExecutor } from "@/lib/campus-engine/queue";
 import { ticketLinkForTemplate, ticketUrl } from "@/lib/campus-engine/notify-templates";
 import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
+import { looksLikePhone, sailupReady, sendSms, type SailupConfig } from "@/lib/sailup";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { envValue } from "@/lib/runtime-env";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
@@ -14,14 +15,30 @@ const PENDING_RETENTION_MS = 7 * 86_400_000;
 const SETTLED_RETENTION_MS = 30 * 86_400_000;
 /** How many messages the in-app feed returns for one student. */
 const FEED_LIMIT = 30;
-/** Every queued passenger message leaves by email, so the column is a constant. */
-const NOTIFICATION_CHANNEL = "email";
+/**
+ * The channels a row may leave by. Email is the default and carries the ticket
+ * link; SMS is chosen per message, because a text costs money by the segment
+ * and reaches a handset that may not be the passenger's own.
+ */
+export const NOTIFICATION_CHANNELS = ["email", "sms"] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+const DEFAULT_CHANNEL: NotificationChannel = "email";
+/** Three segments is the ceiling: past that, a message is cheaper as a call. */
+const SMS_MAX_CHARACTERS = 480;
 
 async function mailerConfig(): Promise<ResendConfig> {
   return {
     apiKey: await envValue("RESEND_API_KEY"),
     from: await envValue("RESEND_FROM"),
     replyTo: await envValue("RESEND_REPLY_TO"),
+  };
+}
+
+async function textConfig(): Promise<SailupConfig> {
+  return {
+    apiKey: await envValue("SAILUP_API_KEY"),
+    senderId: await envValue("SAILUP_SENDER_ID"),
+    baseUrl: await envValue("SAILUP_BASE_URL"),
   };
 }
 
@@ -34,6 +51,18 @@ function humanizedTemplate(template: string) {
 /** The email body: the same text the feed shows, plus the ticket link. */
 export function emailBody(message: string, url: string, cta = "Track your ride") {
   return url ? `${message}\n\n${cta}: ${url}` : message;
+}
+
+/**
+ * The SMS body: the message and the bare link, without the spoken
+ * call-to-action. A text is billed per 160 characters, so "Track your ride: "
+ * would be charged on every message to say what the URL already says. Anything
+ * past the ceiling is cut with an ellipsis rather than sent as a fourth and
+ * fifth segment.
+ */
+export function smsBody(message: string, url: string, max = SMS_MAX_CHARACTERS) {
+  const text = url ? `${message}\n${url}` : message;
+  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
 }
 
 /** Exponential-ish retry spacing: 30s, 2m, then capped at an hour. */
@@ -72,10 +101,11 @@ async function wakeNotificationQueue(message: NotificationQueueMessage) {
 /**
  * Enqueues one passenger message.
  *
- * The row is both the email queue and the in-app notification the student sees,
- * so a missing mail provider still leaves the passenger with a readable record
- * of what happened. The unique `(reference, template)` index makes this
- * idempotent: a repeated driver action cannot send the same message twice.
+ * The row is both the delivery queue (mail or text) and the in-app notification
+ * the student sees, so a missing provider still leaves the passenger with a
+ * readable record of what happened. The unique `(reference, template)` index
+ * makes this idempotent: a repeated driver action cannot send the same message
+ * twice.
  */
 export async function queueNotification(exec: SqlExecutor, input: {
   recipient: string;
@@ -84,6 +114,8 @@ export async function queueNotification(exec: SqlExecutor, input: {
   message: string;
   reference: string;
   nowIso: string;
+  /** Defaults to email; pass "sms" to reach a handset instead of an inbox. */
+  channel?: NotificationChannel;
 }) {
   const recipient = String(input.recipient || "").trim();
   if (!recipient) return false;
@@ -92,7 +124,7 @@ export async function queueNotification(exec: SqlExecutor, input: {
     `INSERT INTO notification_outbox (id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at)
      VALUES (?,?,?,?,?,?,?,'PENDING',0,'',?,?)
      ON CONFLICT(reference, template) DO NOTHING`,
-    [id, NOTIFICATION_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso],
+    [id, input.channel === "sms" ? "sms" : DEFAULT_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso],
   );
   const inserted = Number(result?.affected_row_count ?? 0) > 0;
   if (inserted) {
@@ -179,7 +211,15 @@ export async function markNotificationsRead(recipient: string, input: { id?: unk
 /** Delivery counts for admin reporting, including messages stuck in FAILED. */
 export async function notificationQueueHealth() {
   const config = await mailerConfig();
-  const empty = { configured: false, provider: "resend", providerReady: resendReady(config), pending: 0, sending: 0, sent: 0, failed: 0 };
+  const text = await textConfig();
+  const empty = {
+    configured: false,
+    provider: "resend",
+    providerReady: resendReady(config),
+    smsProvider: "sailup",
+    smsProviderReady: sailupReady(text),
+    pending: 0, sending: 0, sent: 0, failed: 0,
+  };
   if (!(await isTursoConfiguredRuntime())) return empty;
   await ensureNotificationsTable();
   const counts = { pending: 0, sending: 0, sent: 0, failed: 0 } as Record<string, number>;
@@ -191,13 +231,14 @@ export async function notificationQueueHealth() {
 }
 
 /**
- * Delivers due messages through Resend.
+ * Delivers due messages on the channel each row was queued for: mail through
+ * Resend, texts through Sailup.
  *
  * Each message is claimed with an atomic UPDATE before sending, so overlapping
  * cron runs cannot deliver the same email twice. Retention pruning runs even
- * when the provider is unconfigured, so a dormant outbox stays bounded, and
- * rows left over from the retired SMS providers (no `@` in the recipient) are
- * simply never attempted.
+ * when both providers are unconfigured, so a dormant outbox stays bounded — and
+ * because it runs before delivery in the same sweep, rows left over from the
+ * retired SMS providers are deleted before any of them could be sent again.
  */
 export async function dispatchPendingNotifications(input: { limit?: number; ids?: string[] } = {}) {
   if (!(await isTursoConfiguredRuntime())) return { configured: false, sent: 0, failed: 0, considered: 0, pruned: 0 };
@@ -213,15 +254,21 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
   }
 
   const config = await mailerConfig();
-  if (!resendReady(config)) return { configured: false, sent: 0, failed: 0, considered: 0, pruned };
+  const text = await textConfig();
+  // Either channel alone is enough to sweep. A deployment that has not bought
+  // texts must still send its mail, and one that has bought texts must still
+  // send them when Resend is unset — so this is the one place the two providers
+  // are allowed to stand in for each other.
+  if (!resendReady(config) && !sailupReady(text)) return { configured: false, sent: 0, failed: 0, considered: 0, pruned };
 
   const limit = Math.max(1, Math.min(100, Math.round(input.limit || ids.length || DEFAULT_BATCH)));
   const idFilter = ids.length ? ` AND id IN (${ids.map(() => "?").join(",")})` : "";
   const due = rowsToObjects(await turso(
-    `SELECT id,recipient,subject,template,message,reference FROM notification_outbox WHERE status = 'PENDING' AND available_at <= ? AND recipient LIKE '%@%'${idFilter} ORDER BY created_at ASC LIMIT ?`,
+    `SELECT id,channel,recipient,subject,template,message,reference FROM notification_outbox WHERE status = 'PENDING' AND available_at <= ?${idFilter} ORDER BY created_at ASC LIMIT ?`,
     [new Date().toISOString(), ...ids, limit],
   ));
-  // Only the email carries the ticket link: the feed shows the message alone.
+  // The feed shows the message alone; the link is added for the channel that
+  // leaves the platform, as a CTA in mail and as a bare URL in a text.
   const appUrl = await envValue("CAMPUS_APP_URL");
   const leaseUntil = new Date(Date.now() + LEASE_MS).toISOString();
   let sent = 0;
@@ -230,19 +277,29 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
   for (const row of due) {
     const id = String(row.id);
     const to = String(row.recipient || "").trim();
-    if (!looksLikeEmail(to)) continue;
+    const byText = String(row.channel || "") === "sms";
+    // A channel that is not switched on, or a recipient that does not match the
+    // channel it was queued for, is skipped rather than failed: the row stays
+    // pending and ages out through retention instead of burning three attempts.
+    if (byText ? !sailupReady(text) || !looksLikePhone(to) : !resendReady(config) || !looksLikeEmail(to)) continue;
     // Another worker already owns this message; leave it to them.
     if (!(await claimNotification(turso, { id, leaseUntil }))) continue;
     const attempts = Number(row.attempts || 0) + 1;
     try {
       const template = String(row.template || "");
       const link = ticketLinkForTemplate(template);
-      const result = await sendEmail({
-        config,
-        to,
-        subject: String(row.subject || "") || humanizedTemplate(template),
-        text: emailBody(String(row.message || ""), ticketUrl(String(row.reference || ""), appUrl, link.path), link.cta),
-      });
+      const message = String(row.message || "");
+      const hostelPath = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? message.match(/\/hostel\/[A-Za-z0-9_-]+(?:\?periodId=[A-Za-z0-9_-]+)?/)?.[0] : undefined;
+      const url = hostelPath && appUrl ? `${appUrl.replace(/\/$/, "")}${hostelPath}` : (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "" : ticketUrl(String(row.reference || ""), appUrl, link.path);
+      const cta = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "View this hostel" : link.cta;
+      const result = byText
+        ? await sendSms({ config: text, to, text: smsBody(message, url) })
+        : await sendEmail({
+          config,
+          to,
+          subject: String(row.subject || "") || humanizedTemplate(template),
+          text: emailBody(message, url, cta),
+        });
       if (!result.ok) throw new Error(result.error || "delivery failed");
       await turso("UPDATE notification_outbox SET status = 'SENT', sent_at = ?, last_error = '' WHERE id = ? AND status = 'SENDING'", [new Date().toISOString(), id]);
       sent += 1;

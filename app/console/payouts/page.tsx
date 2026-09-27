@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeCheck, Banknote, Eye, RefreshCw, Send, Settings, ShieldCheck, Undo2, UserX, Wrench, Zap } from "lucide-react";
+import { ArrowsClockwise, ArrowUUpLeft, Eye, Gear, Lightning, Money, PaperPlaneTilt, SealCheck, ShieldCheck, UserMinus, Warning, Wrench } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -420,14 +420,14 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     label="ORGANIZER PAYOUTS"
     title="Organizer payouts"
     blurb="Paystack sends what is due once the release window has passed and KYC is verified. You can also transfer by hand and record the reference."
-    actions={<Link className="console-panel-close" href="/console/settings"><Settings size={14}/>Payout settings</Link>}
+    actions={<Link className="console-panel-close" href="/console/settings"><Gear size={14}/>Payout settings</Link>}
   >
 
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
 
     <section className="console-panel">
-      <h2><Zap size={18}/>Payment rails</h2>
+      <h2><Lightning size={18}/>Payment rails</h2>
       <div className="console-stat-grid">
         <article>
           <span>Settled balance</span>
@@ -473,16 +473,16 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     </section>
 
     <section className="console-panel">
-      <h2><Settings size={18}/>Payout actions</h2>
+      <h2><Gear size={18}/>Payout actions</h2>
 
       <h3 className="console-subhead">Send</h3>
       <div className="console-actions">
         <button className="console-action is-primary" disabled={busy === "RELEASE" || !automationReady} onClick={() => void runAutomation("RELEASE")}>
-          <strong><Send size={15}/>{busy === "RELEASE" ? "Sending…" : "Run payouts now"}</strong>
+          <strong><PaperPlaneTilt size={15}/>{busy === "RELEASE" ? "Sending…" : "Run payouts now"}</strong>
           <small>Pays every due balance through Paystack, oldest earnings first, until the settled balance runs out.</small>
         </button>
         <button className="console-action" disabled={busy === "RECONCILE" || !automationReady} onClick={() => void runAutomation("RECONCILE")}>
-          <strong><RefreshCw size={15}/>{busy === "RECONCILE" ? "Checking…" : "Check in-flight transfers"}</strong>
+          <strong><ArrowsClockwise size={15}/>{busy === "RECONCILE" ? "Checking…" : "Check in-flight transfers"}</strong>
           <small>Asks Paystack about transfers already sent that have not settled. The webhook is the fast path.</small>
         </button>
       </div>
@@ -494,7 +494,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <small>Rebuilds ledger rows for confirmed bookings whose accrual failed. Safe: it never duplicates a row.</small>
         </button>
         <button className="console-action" disabled={busy === "RETRY" || !detail || failedEntries === 0} onClick={() => detail && void runAutomation("RETRY", detail.organizer.id)}>
-          <strong><Undo2 size={15}/>{busy === "RETRY" ? "Reopening…" : "Retry parked entries"}</strong>
+          <strong><ArrowUUpLeft size={15}/>{busy === "RETRY" ? "Reopening…" : "Retry parked entries"}</strong>
           <small>{detail ? `${failedEntries} stopped after repeated failures for ${detail.organizer.name}.` : "Open an organizer's statement, then reopen entries that stopped after failures."}</small>
         </button>
       </div>
@@ -502,15 +502,15 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       <h3 className="console-subhead">Control</h3>
       <div className="console-actions">
         <button className="console-action" disabled={busy === "auto"} onClick={() => void setAuto(!automation?.enabled)}>
-          <strong><Zap size={15}/>{busy === "auto" ? "Saving…" : automation?.enabled ? "Turn unattended payouts off" : "Turn unattended payouts on"}</strong>
+          <strong><Lightning size={15}/>{busy === "auto" ? "Saving…" : automation?.enabled ? "Turn unattended payouts off" : "Turn unattended payouts on"}</strong>
           <small>{automation?.enabled ? "The scheduled job stops sending; the ledger and the statements keep working." : "Lets the scheduled job send what is due without anyone pressing a button."}</small>
         </button>
         <button className="console-action" disabled={busy === "refresh"} onClick={() => { setBusy("refresh"); void loadOverview().finally(() => setBusy("")); }}>
-          <strong><RefreshCw size={15}/>{busy === "refresh" ? "Refreshing…" : "Refresh balances"}</strong>
+          <strong><ArrowsClockwise size={15}/>{busy === "refresh" ? "Refreshing…" : "Refresh balances"}</strong>
           <small>Reads the ledger and the Paystack balance again. Sends nothing.</small>
         </button>
         <Link className="console-action" href="/console/settings">
-          <strong><Settings size={15}/>Payout settings</strong>
+          <strong><Gear size={15}/>Payout settings</strong>
           <small>Release window, minimum payout and transfer fees, with an audit of every change.</small>
         </Link>
       </div>
@@ -521,7 +521,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
       <p className="console-note">Built by reading the ledger and the payment rails. It sends nothing: no recipient, no batch, no transfer is created by looking.</p>
 
       {plan && <div className={`console-strip ${plan.tone}`} role="status">
-        <Zap size={16}/>
+        <Lightning size={16}/>
         <span>{plan.text}</span>
       </div>}
 
@@ -613,7 +613,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
     </section>
 
     <section className="console-panel">
-      <h2><Banknote size={18}/>Balances by organizer</h2>
+      <h2><Money size={18}/>Balances by organizer</h2>
       {organizers.length === 0
         ? <p className="console-empty">No organizer has earned anything yet.</p>
         : <table className="console-table">
@@ -632,10 +632,10 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
                 <td className="console-row-actions">
                   <button onClick={() => { setSelected(row.organizerId); setError(""); setNotice(""); setRevealed(""); }}>Open statement</button>
                   {row.kycStatus !== "VERIFIED" && <button disabled={busy === `kyc-${row.organizerId}`} onClick={() => void decideKyc(row.organizerId, "VERIFY_KYC")}>
-                    <BadgeCheck size={15}/>Verify KYC
+                    <SealCheck size={15}/>Verify KYC
                   </button>}
                   {row.kycStatus === "PENDING" && <button disabled={busy === `kyc-${row.organizerId}`} onClick={() => void decideKyc(row.organizerId, "REJECT_KYC")}>
-                    <UserX size={15}/>Reject KYC
+                    <UserMinus size={15}/>Reject KYC
                   </button>}
                 </td>
               </tr>
@@ -666,26 +666,26 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <button disabled={busy === "reveal"} onClick={() => void reveal()}>
           <Eye size={15}/>{busy === "reveal" ? "Opening…" : "Reveal account number"}
         </button>
-        {revealed && <button onClick={() => void copy(revealed, "Account number")}><Banknote size={15}/>Copy account</button>}
+        {revealed && <button onClick={() => void copy(revealed, "Account number")}><Money size={15}/>Copy account</button>}
         {!kycVerified && <button disabled={busy === `kyc-${detail.organizer.id}`} onClick={() => void decideKyc(detail.organizer.id, "VERIFY_KYC")}>
-          <BadgeCheck size={15}/>{busy === `kyc-${detail.organizer.id}` ? "Saving…" : "Verify KYC"}
+          <SealCheck size={15}/>{busy === `kyc-${detail.organizer.id}` ? "Saving…" : "Verify KYC"}
         </button>}
         {detail.organizer.kycStatus === "PENDING" && <button disabled={busy === `kyc-${detail.organizer.id}`} onClick={() => void decideKyc(detail.organizer.id, "REJECT_KYC")}>
-          <UserX size={15}/>Reject KYC
+          <UserMinus size={15}/>Reject KYC
         </button>}
       </div>
 
       {detail.organizer.payoutMethod && !detail.organizer.payoutBankName && <div className="console-alert" role="alert">
-        <AlertTriangle size={15}/> This account was saved before networks were recorded, so no transfer can be addressed to it. Ask the organizer to save their payout details again.
+        <Warning size={15}/> This account was saved before networks were recorded, so no transfer can be addressed to it. Ask the organizer to save their payout details again.
       </div>}
       {failedEntries > 0 && <div className="console-alert" role="alert">
-        <AlertTriangle size={15}/> {failedEntries} {failedEntries === 1 ? "entry has" : "entries have"} stopped retrying after repeated failures.
+        <Warning size={15}/> {failedEntries} {failedEntries === 1 ? "entry has" : "entries have"} stopped retrying after repeated failures.
         <button className="console-panel-close" disabled={busy === "RETRY"} onClick={() => void runAutomation("RETRY", detail.organizer.id)}>
-          <Undo2 size={14}/>{busy === "RETRY" ? "Reopening…" : "Retry these entries"}
+          <ArrowUUpLeft size={14}/>{busy === "RETRY" ? "Reopening…" : "Retry these entries"}
         </button>
       </div>}
       {totals && totals.debt > 0 && <div className="console-alert" role="alert">
-        <AlertTriangle size={15}/> {cedis(totals.debt)} was refunded after it was paid out. The debt is carried forward and blocks the next batch until it is settled.
+        <Warning size={15}/> {cedis(totals.debt)} was refunded after it was paid out. The debt is carried forward and blocks the next batch until it is settled.
       </div>}
 
       <h3 className="console-subhead">Record a payout you made yourself</h3>
@@ -697,7 +697,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <input type="text" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="August batch" />
         </label>
         <button disabled={busy === "record" || !ready || !kycVerified}>
-          <Banknote size={16}/>{busy === "record" ? "Recording…" : `Record ${cedis(totals?.ready || 0)} payout`}
+          <Money size={16}/>{busy === "record" ? "Recording…" : `Record ${cedis(totals?.ready || 0)} payout`}
         </button>
       </form>
       {!kycVerified && <p className="console-note">KYC is {detail.organizer.kycStatus}. Verify it with the action above before recording a payout.</p>}
@@ -771,7 +771,7 @@ function PayoutsWorkspace({ session }: { session: ConsoleSessionInfo }) {
             ))}
           </tbody>
         </table>}
-      <p className="console-note"><Undo2 size={13}/> A cancelled booking reverses its entry. If it had already been paid out, the reversal becomes a debt that blocks the next batch.</p>
+      <p className="console-note"><ArrowUUpLeft size={13}/> A cancelled booking reverses its entry. If it had already been paid out, the reversal becomes a debt that blocks the next batch.</p>
     </section>}
   </ConsoleShell>;
 }

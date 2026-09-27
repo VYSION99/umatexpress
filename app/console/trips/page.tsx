@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BusFront, DoorOpen, Megaphone, PencilLine, Plus, Send, Trash2 } from "lucide-react";
+import { Bus, DoorOpen, Megaphone, NotePencil, PaperPlaneTilt, Plus, Trash, Warning } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -227,14 +227,14 @@ function OrganizerWorkspace({ session }: { session: ConsoleSessionInfo }) {
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
     {overlaps.length > 0 && <div className="console-alert" role="status">
-      <AlertTriangle size={15}/> {overlaps.length === 1 ? "Another departure is" : `${overlaps.length} other departures are`} already scheduled on this route around the same time:
+      <Warning size={15}/> {overlaps.length === 1 ? "Another departure is" : `${overlaps.length} other departures are`} already scheduled on this route around the same time:
       {" "}{overlaps.slice(0, 3).map((overlap) => `${overlap.own ? "your" : overlap.organizerName || "another organizer's"} ${overlap.departureTime}${overlap.title ? ` (${overlap.title})` : ""}`).join(", ")}
       {overlaps.length > 3 ? `, and ${overlaps.length - 3} more` : ""}.
       {" "}That is allowed — two coaches on one route is a real service — but it splits the same passengers.
     </div>}
 
     <section className="console-panel">
-      <h2><BusFront size={18}/>Trips
+      <h2><Bus size={18}/>Trips
         <button className="console-panel-close" onClick={startCreate}><Plus size={14}/>Publish a trip</button>
       </h2>
       {trips.length === 0
@@ -253,9 +253,9 @@ function OrganizerWorkspace({ session }: { session: ConsoleSessionInfo }) {
                   {trip.reviewReason && <small className="console-reason">{trip.reviewReason}</small>}
                 </td>
                 <td className="console-row-actions">
-                  {EDITABLE.has(trip.reviewStatus) && <button disabled={busy === trip.id} onClick={() => startEdit(trip)}><PencilLine size={15}/>Edit</button>}
-                  {SUBMITTABLE.has(trip.reviewStatus) && <button disabled={busy === trip.id} onClick={() => decide(trip, "SUBMIT")}><Send size={15}/>Submit</button>}
-                  {trip.reviewStatus !== "APPROVED" && <button disabled={busy === trip.id} onClick={() => decide(trip, "REMOVE")}><Trash2 size={15}/>Remove</button>}
+                  {EDITABLE.has(trip.reviewStatus) && <button disabled={busy === trip.id} onClick={() => startEdit(trip)}><NotePencil size={15}/>Edit</button>}
+                  {SUBMITTABLE.has(trip.reviewStatus) && <button disabled={busy === trip.id} onClick={() => decide(trip, "SUBMIT")}><PaperPlaneTilt size={15}/>Submit</button>}
+                  {trip.reviewStatus !== "APPROVED" && <button disabled={busy === trip.id} onClick={() => decide(trip, "REMOVE")}><Trash size={15}/>Remove</button>}
                   <button onClick={() => openManifest(trip)}><DoorOpen size={15}/>Manifest</button>
                 </td>
               </tr>
@@ -265,7 +265,7 @@ function OrganizerWorkspace({ session }: { session: ConsoleSessionInfo }) {
     </section>
 
     {draft && <section className="console-panel">
-      <h2><PencilLine size={18}/>{editingId ? "Edit trip" : "New trip"}</h2>
+      <h2><NotePencil size={18}/>{editingId ? "Edit trip" : "New trip"}</h2>
       <form className="console-form" onSubmit={saveTrip}>
         <label className="console-field-wide">Title
           <input type="text" required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="UMaT → Accra" />
@@ -281,7 +281,7 @@ function OrganizerWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <label>Tag<input type="text" value={draft.tag} onChange={(event) => setDraft({ ...draft, tag: event.target.value })} placeholder="Morning Express" /></label>
         <label className="console-field-wide">Amenities (comma separated)<input type="text" value={draft.amenities} onChange={(event) => setDraft({ ...draft, amenities: event.target.value })} /></label>
         <label className="console-field-wide">Notes<textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
-        <button disabled={busy === "save"}><Send size={16}/>{busy === "save" ? "Saving…" : editingId ? "Save trip" : "Create draft"}</button>
+        <button disabled={busy === "save"}><PaperPlaneTilt size={16}/>{busy === "save" ? "Saving…" : editingId ? "Save trip" : "Create draft"}</button>
         <button type="button" className="console-secondary" onClick={() => { setDraft(null); setEditingId(null); }}>Cancel</button>
       </form>
     </section>}

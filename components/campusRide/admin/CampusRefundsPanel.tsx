@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BadgeCheck, Banknote, RefreshCw, RotateCcw, Undo2, Wallet } from "lucide-react";
+import { ArrowCounterClockwise, ArrowsClockwise, ArrowUUpLeft, Money, SealCheck, Wallet } from "@phosphor-icons/react";
 
 type Refund = {
   id: string; reference: string; paymentReference: string; passengerEmail: string;
@@ -92,7 +92,7 @@ export function CampusRefundsPanel() {
         <h2>Fares owed back to students</h2>
       </div>
       <button type="button" onClick={() => void load(filter)} disabled={busy === "refresh"}>
-        <RefreshCw size={15} />Refresh
+        <ArrowsClockwise size={15} />Refresh
       </button>
     </div>
     {saved && <small className="campus-admin-message">{saved}</small>}
@@ -107,7 +107,7 @@ export function CampusRefundsPanel() {
     </div>}
 
     <section className="console-panel">
-      <h2><Undo2 size={18}/>Refund queue
+      <h2><ArrowUUpLeft size={18}/>Refund queue
         {refunds && <span className="console-badge">{rows.length}</span>}
       </h2>
       <div className="console-row-actions">
@@ -121,7 +121,7 @@ export function CampusRefundsPanel() {
           <Wallet size={15}/>Sweep unmatched seats
         </button>
         <button type="button" disabled={busy === "RECONCILE"} onClick={() => void act("RECONCILE")}>
-          <RotateCcw size={15}/>Ask Paystack
+          <ArrowCounterClockwise size={15}/>Ask Paystack
         </button>
       </div>
       {!refunds
@@ -160,10 +160,10 @@ export function CampusRefundsPanel() {
                       onChange={(event) => setNotes({ ...notes, [refund.id]: event.target.value })}
                     />
                     <button type="button" disabled={busy === `${refund.id}-APPROVE`} onClick={() => void act("APPROVE", refund)}>
-                      <BadgeCheck size={15}/>Approve &amp; send
+                      <SealCheck size={15}/>Approve &amp; send
                     </button>
                     <button type="button" disabled={busy === `${refund.id}-DECLINE`} onClick={() => void act("DECLINE", refund)}>
-                      <Undo2 size={15}/>Decline
+                      <ArrowUUpLeft size={15}/>Decline
                     </button>
                   </> : refund.status === "APPROVED" || refund.status === "FAILED" ? <>
                     <input
@@ -175,7 +175,7 @@ export function CampusRefundsPanel() {
                       onChange={(event) => setNotes({ ...notes, [refund.id]: event.target.value })}
                     />
                     <button type="button" disabled={busy === `${refund.id}-APPROVE`} onClick={() => void act("APPROVE", refund)}>
-                      <Banknote size={15}/>Retry Paystack
+                      <Money size={15}/>Retry Paystack
                     </button>
                     <button type="button" disabled={busy === `${refund.id}-RECORD`} onClick={() => void act("RECORD", refund)}>
                       <Wallet size={15}/>Record as paid

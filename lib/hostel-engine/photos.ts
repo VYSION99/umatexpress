@@ -51,6 +51,7 @@ export function ensureHostelPhotoTables() {
   photoTablesReady ??= (async () => {
     await ensureHostelTables();
     await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelPhotos", version: "018_hostel_photos", statements: PHOTO_SCHEMA_STATEMENTS });
+    await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelRoomMedia", version: "027_hostel_room_media", statements: ["ALTER TABLE hostel_property_photos ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'PHOTO'"] });
   })().catch((error: unknown) => {
     photoTablesReady = null;
     throw error;
@@ -63,6 +64,7 @@ export type HostelPhoto = {
   propertyId: string;
   landlordId: string;
   roomId: string;
+  mediaKind: "PHOTO" | "FLOOR_PLAN";
   caption: string;
   sortOrder: number;
   status: HostelPhotoStatus;
@@ -77,6 +79,9 @@ export type HostelPhoto = {
 /** The shape a public page needs: an id it can point an <img> at, and a caption. */
 export type PublicHostelPhoto = {
   id: string;
+  roomId: string;
+  mediaKind: "PHOTO" | "FLOOR_PLAN";
+  reviewedAt: string;
   caption: string;
   sortOrder: number;
 };
@@ -95,7 +100,7 @@ export type StoredPhotoObject = {
 };
 
 const PHOTO_COLUMNS = `id,property_id,COALESCE(landlord_id,'') AS landlord_id,COALESCE(room_id,'') AS room_id,
-  COALESCE(caption,'') AS caption,COALESCE(sort_order,0) AS sort_order,COALESCE(status,'PENDING') AS status,
+  COALESCE(media_kind,'PHOTO') AS media_kind,COALESCE(caption,'') AS caption,COALESCE(sort_order,0) AS sort_order,COALESCE(status,'PENDING') AS status,
   COALESCE(content_type,'') AS content_type,COALESCE(bytes,0) AS bytes,COALESCE(review_reason,'') AS review_reason,
   COALESCE(reviewed_by,'') AS reviewed_by,COALESCE(reviewed_at,'') AS reviewed_at,created_at,COALESCE(updated_at,'') AS updated_at`;
 
@@ -105,6 +110,7 @@ function photoView(row: Record<string, unknown>): HostelPhoto {
     propertyId: String(row.property_id || ""),
     landlordId: String(row.landlord_id || ""),
     roomId: String(row.room_id || ""),
+    mediaKind: String(row.media_kind || "PHOTO") as "PHOTO" | "FLOOR_PLAN",
     caption: String(row.caption || ""),
     sortOrder: Number(row.sort_order || 0),
     status: String(row.status || "PENDING") as HostelPhotoStatus,
@@ -120,6 +126,9 @@ function photoView(row: Record<string, unknown>): HostelPhoto {
 function publicPhotoView(row: Record<string, unknown>): PublicHostelPhoto {
   return {
     id: String(row.id || ""),
+    roomId: String(row.room_id || ""),
+    mediaKind: String(row.media_kind || "PHOTO") as "PHOTO" | "FLOOR_PLAN",
+    reviewedAt: String(row.reviewed_at || ""),
     caption: String(row.caption || ""),
     sortOrder: Number(row.sort_order || 0),
   };
@@ -159,6 +168,7 @@ export async function storeHostelPhoto(input: {
   landlordId: string;
   propertyId: string;
   roomId?: string;
+  mediaKind?: "PHOTO" | "FLOOR_PLAN";
   caption?: string;
   contentType: string;
   body: ArrayBuffer;
@@ -177,6 +187,8 @@ export async function storeHostelPhoto(input: {
   if (!property) throw new CampusEngineError("NOT_FOUND", "That property was not found.", 404);
 
   const roomId = String(input.roomId || "").trim();
+  const mediaKind = input.mediaKind || "PHOTO";
+  if (!["PHOTO", "FLOOR_PLAN"].includes(mediaKind) || (mediaKind === "FLOOR_PLAN" && !roomId)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a room for its floor plan.", 400);
   if (roomId) {
     const room = rowsToObjects(await turso("SELECT id FROM hostel_rooms WHERE id = ? AND property_id = ? LIMIT 1", [roomId, propertyId]))[0];
     if (!room) throw new CampusEngineError("NOT_FOUND", "That room was not found in this property.", 404);
@@ -195,10 +207,10 @@ export async function storeHostelPhoto(input: {
   const stamp = new Date().toISOString();
   const next = rowsToObjects(await turso("SELECT COALESCE(MAX(sort_order),0) + 1 AS next FROM hostel_property_photos WHERE property_id = ?", [propertyId]))[0];
   await turso(
-    `INSERT INTO hostel_property_photos (id,property_id,landlord_id,room_id,r2_key,caption,sort_order,status,content_type,bytes,review_reason,reviewed_by,reviewed_at,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,'PENDING',?,?,'','','',?,?)`,
+    `INSERT INTO hostel_property_photos (id,property_id,landlord_id,room_id,media_kind,r2_key,caption,sort_order,status,content_type,bytes,review_reason,reviewed_by,reviewed_at,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,'PENDING',?,?,'','','',?,?)`,
     [
-      photoId, propertyId, String(input.landlordId), roomId, key,
+      photoId, propertyId, String(input.landlordId), roomId, mediaKind, key,
       String(input.caption || "").trim().slice(0, 160), Number(next?.next || 1),
       input.contentType, input.body.byteLength, stamp, stamp,
     ],
@@ -231,7 +243,7 @@ export async function listHostelPhotosForLandlord(landlordId: string, propertyId
 export async function listApprovedHostelPhotos(propertyId: string): Promise<PublicHostelPhoto[]> {
   await ensureHostelPhotoTables();
   const rows = rowsToObjects(await turso(
-    `SELECT id,caption,sort_order FROM hostel_property_photos WHERE property_id = ? AND status = 'APPROVED' ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE property_id = ? AND status = 'APPROVED' ORDER BY sort_order ASC, created_at ASC`,
     [String(propertyId || "")],
   ));
   return rows.map(publicPhotoView);
@@ -243,7 +255,7 @@ export async function listApprovedPhotoCovers(propertyIds: string[]) {
   if (!ids.length) return new Map<string, PublicHostelPhoto>();
   await ensureHostelPhotoTables();
   const rows = rowsToObjects(await turso(
-    `SELECT id,property_id,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND property_id IN (${ids.map(() => "?").join(",")}) ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT id,property_id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN (${ids.map(() => "?").join(",")}) ORDER BY sort_order ASC, created_at ASC`,
     ids,
   ));
   const covers = new Map<string, PublicHostelPhoto>();

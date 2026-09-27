@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LockKeyhole } from "lucide-react";
+import { LockKey } from "@phosphor-icons/react";
 import { AuthRecoveryCard } from "@/components/account/AuthRecoveryCard";
 
 export default function ConsoleLoginPage() {
@@ -43,7 +43,7 @@ export default function ConsoleLoginPage() {
       <label>Email or phone<input type="text" autoComplete="username" required value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></label>
       <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       {error && <div className="console-auth-error" role="alert">{error}</div>}
-      <button disabled={submitting}><LockKeyhole size={17} />{submitting ? "Signing in…" : "Sign in"}</button>
+      <button disabled={submitting}><LockKey size={17} />{submitting ? "Signing in…" : "Sign in"}</button>
       <small>Every service starts here. Apply for the service you want to run, or sign in with the account your team set up.</small>
       <Link href="/console/register">Apply or request access</Link>
       <Link href="/console/reset-password">Forgot your password?</Link>

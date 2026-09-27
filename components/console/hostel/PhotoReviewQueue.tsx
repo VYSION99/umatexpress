@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Camera, Check, Loader2, X } from "lucide-react";
+import { Camera, Check, CircleNotch, SealCheck, X } from "@phosphor-icons/react";
 
 type Photo = {
-  id: string; propertyId: string; landlordId: string; caption: string;
+  id: string; propertyId: string; landlordId: string; mediaKind: string; roomId: string; caption: string;
   status: string; contentType: string; bytes: number; createdAt: string;
 };
 
@@ -65,7 +65,7 @@ export function PhotoReviewQueue({ onNotice }: { onNotice: (message: string) => 
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {!photos
-      ? <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading photos…</p>
+      ? <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading photos…</p>
       : photos.length === 0
         ? <p className="console-empty">No photo is waiting. A listing without a photo has nothing for a student to trust.</p>
         : <ul className="console-gallery">
@@ -73,7 +73,7 @@ export function PhotoReviewQueue({ onNotice }: { onNotice: (message: string) => 
             <img src={`/api/console/hostel/photos/${photo.id}`} alt={photo.caption || "Property photo awaiting review"} loading="lazy" />
             <div className="console-photo-body">
               <span className="console-badge console-badge-pending">WAITING</span>
-              <span className="console-photo-caption">{photo.caption || "No caption"}</span>
+              <span className="console-photo-caption">{photo.mediaKind === "FLOOR_PLAN" ? "Room floor plan" : "Photo"} · {photo.caption || "No caption"}</span>
               <small>{when(photo.createdAt)} · {(Number(photo.bytes || 0) / 1024 / 1024).toFixed(1)} MB</small>
               <div className="console-photo-edit">
                 <input
@@ -93,7 +93,7 @@ export function PhotoReviewQueue({ onNotice }: { onNotice: (message: string) => 
           </li>)}
         </ul>}
     <p className="console-note">
-      <BadgeCheck size={13} aria-hidden /> Approving a photo publishes it on the property&apos;s map card and listing page. Rejecting keeps it private and shows the landlord why.
+      <SealCheck size={13} aria-hidden /> Approving a photo publishes it on the property&apos;s map card and listing page. Rejecting keeps it private and shows the landlord why.
     </p>
   </section>;
 }

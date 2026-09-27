@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { BedDouble, BusFront, CarFront, Clapperboard, Store, UserRoundCheck, Utensils } from "lucide-react";
+import { Bed, Bus, Car, FilmSlate, ForkKnife, Storefront, UserCheck } from "@phosphor-icons/react/ssr";
 import { consoleApplications, consoleInvitedAccess } from "@/lib/console-applications";
 import { consoleServiceById } from "@/components/admin/console-services";
 
 const APPLICATION_ICONS = {
-  organizer: Store,
-  landlord: BedDouble,
-  driver: CarFront,
-  vendor: Utensils,
-  cinema: Clapperboard,
+  organizer: Storefront,
+  landlord: Bed,
+  driver: Car,
+  vendor: ForkKnife,
+  cinema: FilmSlate,
 } as const;
 
 /**
@@ -33,7 +33,7 @@ export default function ConsoleAccessPage() {
 
       <section className="console-apply-grid" aria-label="Applications">
         {consoleApplications.map((application) => {
-          const Icon = APPLICATION_ICONS[application.id as keyof typeof APPLICATION_ICONS] || BusFront;
+          const Icon = APPLICATION_ICONS[application.id as keyof typeof APPLICATION_ICONS] || Bus;
           const service = consoleServiceById(application.reviewService);
           return <article className="console-card" key={application.id}>
             <span className="console-card-icon"><Icon size={21} /></span>
@@ -51,7 +51,7 @@ export default function ConsoleAccessPage() {
         <h2>Set up by the team</h2>
         <p>These roles are never self-service: someone already responsible for the work adds you.</p>
         {consoleInvitedAccess.map((entry) => <article key={entry.id}>
-          <span className="console-card-icon"><UserRoundCheck size={19} /></span>
+          <span className="console-card-icon"><UserCheck size={19} /></span>
           <div>
             <strong>{entry.title}</strong>
             <span>{entry.detail}</span>

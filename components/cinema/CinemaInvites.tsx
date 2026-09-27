@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Mail, UserMinus, UserPlus } from "lucide-react";
+import { Envelope, UserMinus, UserPlus } from "@phosphor-icons/react";
 import type { CinemaRoomInvite } from "@/lib/cinema-engine/rooms";
 
 export type CinemaGuest = { studentId: string; displayName: string };
@@ -105,7 +105,7 @@ export function CinemaInvites({ roomId, members, onChanged }: {
   };
 
   return <div className="cinema-invites">
-    <h3><Mail size={15} aria-hidden /> Guest list</h3>
+    <h3><Envelope size={15} aria-hidden /> Guest list</h3>
     <p className="cinema-note">
       Only the students on this list can read or join this private room. Invite by their <strong>@st.umat.edu.gh</strong> address;
       removing someone takes back the invitation and the seat, and closes the room on their screen.

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Circle, Clock, ImageDown, Loader2, MapPin, Share2, ShieldCheck, Trash2, WifiOff, XCircle } from "lucide-react";
+import { CheckCircle, Circle, CircleNotch, Clock, ImageSquare, MapPin, ShareNetwork, ShieldCheck, Trash, WifiSlash, XCircle } from "@phosphor-icons/react";
 import { TripFeedback } from "@/components/campusRide/student/TripFeedback";
 import { queueProgress } from "@/lib/campus-engine/progress";
 import { forgetTicket, rememberTicket } from "@/lib/passenger-profile";
@@ -256,9 +256,9 @@ export default function CampusTicketPage() {
   };
 
   return <main className="payment-status-page campus-ticket-interface">
-    {state === "loading" ? <><Loader2 className="status-icon spin"/><h1>Verifying campusRide payment…</h1></> :
+    {state === "loading" ? <><CircleNotch className="status-icon spin"/><h1>Verifying campusRide payment…</h1></> :
     state === "paid" && ticket ? <>
-      {offline && <p className="campus-offline-banner"><WifiOff size={16}/> Offline — showing the ticket saved on this device{cachedAt ? ` at ${new Date(cachedAt).toLocaleTimeString()}` : ""}.</p>}
+      {offline && <p className="campus-offline-banner"><WifiSlash size={16}/> Offline — showing the ticket saved on this device{cachedAt ? ` at ${new Date(cachedAt).toLocaleTimeString()}` : ""}.</p>}
       <section className="campus-live-progress" aria-live="polite">
         <div className="campus-live-head">
           <div><small>Live status</small><strong>{progress.label}</strong><span>{progress.hint}</span></div>
@@ -270,7 +270,7 @@ export default function CampusTicketPage() {
         </div>
         <ol className="campus-live-steps">
           {progress.steps.map((step) => <li key={step.key} className={`is-${step.state}`}>
-            <span className="campus-live-dot">{step.state === "done" ? <CheckCircle2 size={16}/> : <Circle size={16}/>}</span>
+            <span className="campus-live-dot">{step.state === "done" ? <CheckCircle size={16}/> : <Circle size={16}/>}</span>
             <div><strong>{step.label}</strong><small>{step.hint}</small></div>
           </li>)}
         </ol>
@@ -315,7 +315,7 @@ export default function CampusTicketPage() {
             : "Give up this seat? The fare is kept because a driver has already taken it."}</p>
           <div>
             <button className="is-danger" onClick={cancelSeat} disabled={cancelStep === "working"}>
-              {cancelStep === "working" ? <><Loader2 size={15} className="spin"/> Cancelling…</> : "Yes, cancel"}
+              {cancelStep === "working" ? <><CircleNotch size={15} className="spin"/> Cancelling…</> : "Yes, cancel"}
             </button>
             <button onClick={() => setCancelStep("idle")} disabled={cancelStep === "working"}>Keep my seat</button>
           </div>
@@ -326,14 +326,14 @@ export default function CampusTicketPage() {
       {status?.status === "COMPLETED" ? <TripFeedback reference={String(ticket.reference || "")} /> : null}
       {notice && <p className="campus-ticket-notice">{notice}</p>}
       <div className="ticket-actions">
-        <button onClick={saveImage}><ImageDown size={17}/> Save/print image</button>
-        <button onClick={share}><Share2 size={17}/> Share trip</button>
-        <button onClick={forget}><Trash2 size={17}/> Forget ticket</button>
+        <button onClick={saveImage}><ImageSquare size={17}/> Save/print image</button>
+        <button onClick={share}><ShareNetwork size={17}/> Share trip</button>
+        <button onClick={forget}><Trash size={17}/> Forget ticket</button>
         <Link href="/campus">Find another ride</Link>
         <Link href="/">Client home</Link>
       </div>
     </> :
-    state === "pending" ? <><Loader2 className="status-icon spin"/><h1>Payment pending</h1><p>Your campusRide payment is not confirmed yet. Refresh this page after approval.</p><Link href="/campus">Return to campusRide</Link></> :
+    state === "pending" ? <><CircleNotch className="status-icon spin"/><h1>Payment pending</h1><p>Your campusRide payment is not confirmed yet. Refresh this page after approval.</p><Link href="/campus">Return to campusRide</Link></> :
     state === "signin" ? <><ShieldCheck className="status-icon"/><h1>Sign in to open this ticket</h1><p>This ticket belongs to the UMaT account its queue entry was made under, not to this browser. Sign in with that account and the ticket opens right here.</p><Link href={signInHref}>Sign in to view ticket</Link></> :
     <><XCircle className="status-icon fail"/><h1>Payment not completed</h1><p>{error || "No confirmed campusRide payment was found."}</p><Link href="/campus">Try again</Link></>}
   </main>;

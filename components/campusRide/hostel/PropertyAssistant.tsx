@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, MessageCircleQuestion, Sparkles } from "lucide-react";
+import { CircleNotch, Question, Sparkle } from "@phosphor-icons/react";
 
 const SUGGESTIONS = [
   "How much is the cheapest bed this year?",
@@ -45,7 +45,7 @@ export function PropertyAssistant({ propertyId, propertyName }: { propertyId: st
   }
 
   return <section className="hostel-assistant">
-    <p><Sparkles size={13} aria-hidden /> ASK ABOUT THIS HOSTEL</p>
+    <p><Sparkle size={13} aria-hidden /> ASK ABOUT THIS HOSTEL</p>
     <form onSubmit={(event) => { event.preventDefault(); void ask(question); }}>
       <textarea
         value={question}
@@ -55,7 +55,7 @@ export function PropertyAssistant({ propertyId, propertyName }: { propertyId: st
         rows={2}
       />
       <button type="submit" disabled={asking || question.trim().length < 3}>
-        {asking ? <Loader2 size={14} className="console-spin" aria-hidden /> : <MessageCircleQuestion size={14} aria-hidden />} Ask
+        {asking ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Question size={14} aria-hidden />} Ask
       </button>
     </form>
     {!answer && !asking && <div className="hostel-assistant-chips">

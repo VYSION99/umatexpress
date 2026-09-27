@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Eye, EyeOff, Loader2, MessageSquareQuote, RefreshCw, Star } from "lucide-react";
+import { ArrowsClockwise, CircleNotch, Eye, EyeSlash, Quotes, Star } from "@phosphor-icons/react";
 import { Stars } from "@/components/campusRide/hostel/PropertyReviews";
 
 type Review = {
@@ -85,12 +85,12 @@ export function HostelReviewsPanel({ role }: { role: string }) {
     });
   }
 
-  if (!reviews) return <p className="console-empty"><Loader2 size={15} className="console-spin" aria-hidden /> Loading reviews…</p>;
+  if (!reviews) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading reviews…</p>;
 
   return <section className="console-panel">
     <h2><Star size={18} aria-hidden />Reviews
       {summary && <span className="console-badge">{summary.count}</span>}
-      <button type="button" className="console-panel-close" onClick={() => void run(load)}><RefreshCw size={14} aria-hidden />Refresh</button>
+      <button type="button" className="console-panel-close" onClick={() => void run(load)}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
     </h2>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
@@ -120,7 +120,7 @@ export function HostelReviewsPanel({ role }: { role: string }) {
           <p>{review.body}</p>
           {review.status === "HIDDEN" && <p className="console-reason">Hidden by {review.moderatedBy || "staff"}{review.hiddenReason ? `: ${review.hiddenReason}` : ""}</p>}
           {review.reply
-            ? <div className="console-review-reply"><MessageSquareQuote size={14} aria-hidden /><div>
+            ? <div className="console-review-reply"><Quotes size={14} aria-hidden /><div>
               <strong>Answered{review.replyBy ? ` by ${review.replyBy}` : ""}</strong>
               <span>{review.reply}</span>
             </div></div>
@@ -129,7 +129,7 @@ export function HostelReviewsPanel({ role }: { role: string }) {
                 <textarea value={replies[review.id] || ""} onChange={(event) => setReplies((current) => ({ ...current, [review.id]: event.target.value }))} maxLength={1500} rows={2} placeholder="Thank them, or explain what changed." />
               </label>
               <button type="submit" disabled={busy === review.id || !(replies[review.id] || "").trim()}>
-                {busy === review.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <MessageSquareQuote size={14} aria-hidden />} Send reply
+                {busy === review.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Quotes size={14} aria-hidden />} Send reply
               </button>
             </form>}
           {isStaff && <div className="console-row-actions">
@@ -137,11 +137,11 @@ export function HostelReviewsPanel({ role }: { role: string }) {
               ? <>
                 <input type="text" value={hideReasons[review.id] || ""} onChange={(event) => setHideReasons((current) => ({ ...current, [review.id]: event.target.value }))} placeholder="Why hide it?" maxLength={300} />
                 <button type="button" className="console-secondary" disabled={busy === review.id || !(hideReasons[review.id] || "").trim()} onClick={() => void act(review, "HIDE")}>
-                  {busy === review.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <EyeOff size={14} aria-hidden />} Hide
+                  {busy === review.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <EyeSlash size={14} aria-hidden />} Hide
                 </button>
               </>
               : <button type="button" className="console-secondary" disabled={busy === review.id} onClick={() => void act(review, "PUBLISH")}>
-                {busy === review.id ? <Loader2 size={14} className="console-spin" aria-hidden /> : <Eye size={14} aria-hidden />} Publish again
+                {busy === review.id ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <Eye size={14} aria-hidden />} Publish again
               </button>}
           </div>}
         </li>)}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Upload } from "lucide-react";
+import { UploadSimple } from "@phosphor-icons/react";
 
 type UploadLimits = { maxBytes: number; partBytes: number; maxParts: number; types: string[] };
 type UploadState = { id: string; status: string; filename: string; sizeBytes: number; mimeType: string; durationSeconds: number } | null;
@@ -156,7 +156,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
     </div>}
     <div className="cinema-controls cinema-sub">
       <button type="button" disabled={busy || !file || !owned} onClick={() => void start()}>
-        <Upload size={14} aria-hidden /> {busy ? "Uploading…" : "Upload the video"}
+        <UploadSimple size={14} aria-hidden /> {busy ? "Uploading…" : "Upload the video"}
       </button>
       {busy && <button type="button" className="secondary" onClick={() => abortRef.current?.abort()}>Cancel</button>}
     </div>

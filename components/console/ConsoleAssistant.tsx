@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Send, Sparkles, X } from "lucide-react";
+import { PaperPlaneTilt, Sparkle, X } from "@phosphor-icons/react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import type { ConsoleBrief } from "@/lib/console-assistant";
 
@@ -125,7 +125,7 @@ export function ConsoleAssistant({ session, service }: { session: ConsoleSession
   return <div className="console-assistant">
     {open && <section className="console-assistant-panel" aria-label="Console assistant">
       <header>
-        <span><Sparkles size={16}/> Console assistant</span>
+        <span><Sparkle size={16}/> Console assistant</span>
         <button type="button" aria-label="Close assistant" onClick={() => setOpen(false)}><X size={17}/></button>
       </header>
       <div className="console-assistant-log" aria-live="polite">
@@ -176,11 +176,11 @@ export function ConsoleAssistant({ session, service }: { session: ConsoleSession
           placeholder="Ask about this console…"
           onChange={(event) => setMessage(event.target.value)}
         />
-        <button type="submit" disabled={busy || !message.trim()}><Send size={16}/>{busy ? "Thinking…" : "Ask"}</button>
+        <button type="submit" disabled={busy || !message.trim()}><PaperPlaneTilt size={16}/>{busy ? "Thinking…" : "Ask"}</button>
       </form>
     </section>}
     <button type="button" className="console-assistant-toggle" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-      <Sparkles size={18}/> Assistant
+      <Sparkle size={18}/> Assistant
       {!open && actionsWaiting > 0 && <span className="console-assistant-badge" aria-label={`${actionsWaiting} things need attention`}>{actionsWaiting}</span>}
     </button>
   </div>;

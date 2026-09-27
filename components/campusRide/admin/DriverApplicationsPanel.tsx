@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, RefreshCw, ShieldAlert, UserRoundCheck, X } from "lucide-react";
+import { ArrowsClockwise, Check, ShieldWarning, UserCheck, X } from "@phosphor-icons/react";
 
 type DriverApplication = {
   id: string; name: string; phone: string; email: string;
@@ -75,14 +75,14 @@ export function DriverApplicationsPanel() {
         <h2>Who may sign in and drive</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={busy === "refresh"}>
-        <RefreshCw size={15} />Refresh
+        <ArrowsClockwise size={15} />Refresh
       </button>
     </div>
     {saved && <small className="campus-admin-message">{saved}</small>}
     {error && <small className="campus-admin-error">{error}</small>}
 
     <section className="console-panel">
-      <h2><UserRoundCheck size={18}/>Waiting on a decision
+      <h2><UserCheck size={18}/>Waiting on a decision
         {drivers && <span className="console-badge">{applicants.length}</span>}
       </h2>
       {!drivers
@@ -130,7 +130,7 @@ export function DriverApplicationsPanel() {
     </section>
 
     <section className="console-panel">
-      <h2><ShieldAlert size={18}/>Drivers
+      <h2><ShieldWarning size={18}/>Drivers
         {drivers && <span className="console-badge">{operating.length}</span>}
       </h2>
       {!drivers
@@ -162,7 +162,7 @@ export function DriverApplicationsPanel() {
                         onChange={(event) => setReasons({ ...reasons, [driver.id]: event.target.value })}
                       />
                       <button type="button" disabled={busy === `${driver.id}-SUSPEND`} onClick={() => void decide(driver, "SUSPEND")}>
-                        <ShieldAlert size={15} />Suspend
+                        <ShieldWarning size={15} />Suspend
                       </button>
                     </>
                     : <span className="console-note">Suspended. Approve to reinstate them.</span>}

@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Send } from "lucide-react";
+import { PaperPlaneTilt } from "@phosphor-icons/react";
 import { consoleApplicationById, type ConsoleApplication } from "@/lib/console-applications";
 
 function ApplicationNotice({ title, message }: { title: string; message: string }) {
@@ -84,7 +84,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
         </label>
       ))}
       {error && <div className="console-auth-error" role="alert">{error}</div>}
-      <button disabled={submitting}><Send size={17} />{submitting ? "Submitting…" : application.applyLabel}</button>
+      <button disabled={submitting}><PaperPlaneTilt size={17} />{submitting ? "Submitting…" : application.applyLabel}</button>
       <Link href="/console/register">Apply for a different service</Link>
       <Link href="/console/login">Already approved? Sign in</Link>
     </form>

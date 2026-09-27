@@ -14,6 +14,6 @@ export function bedsLabel(count: number) {
 
 export function distanceLabel(distanceM: number | null) {
   if (distanceM === null || !Number.isFinite(distanceM)) return "Distance not set";
-  if (distanceM < 1000) return `${Math.round(distanceM)} m from campus`;
-  return `${(distanceM / 1000).toFixed(distanceM < 10_000 ? 1 : 0)} km from campus`;
+  if (distanceM < 1000) return `${Math.round(distanceM)} m from campus (approx.)`;
+  return `${(distanceM / 1000).toFixed(distanceM < 10_000 ? 1 : 0)} km from campus (approx.)`;
 }

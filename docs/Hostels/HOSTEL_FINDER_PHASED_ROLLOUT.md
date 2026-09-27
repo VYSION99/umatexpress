@@ -121,7 +121,8 @@ automatic payout.
 - Cancellation / refund policy engine (30-day / 7-day tiers, admin override)
 - Analytics dashboard for admin (`/console/hostels/analytics`)
 - Push notifications for new messages, bookings, refunds, reviews and payouts
-  (Resend email plus the in-app outbox; no SMS provider)
+  (Resend email plus the in-app outbox; the Sailup SMS channel exists and is
+  chosen per message, so nothing is sent by text until a caller asks for it)
 
 ### Acceptance Criteria
 - Students and landlords can communicate in real-time via chat. ✅ The stream

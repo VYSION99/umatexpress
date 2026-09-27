@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { formatTime } from "@/lib/trips";
-import { ArrowRight, Bot, BusFront, CalendarDays, Check, Clock3, MapPin, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { ArrowRight, Bus, CalendarDots, Check, Clock, MapPin, Robot, ShieldCheck, Sparkle, Users } from "@phosphor-icons/react";
 import type { PublicNotice } from "@/lib/trip-notice";
 import FlyerCarousel from "@/components/vacation/FlyerCarousel";
 import { readProfile, writeProfile } from "@/lib/passenger-profile";
@@ -200,7 +200,7 @@ export default function Home() {
       <div className="trip-top"><span className="pill">{item.tag}</span><span className="radio">{activeTripId === item.id && <Check size={14} />}</span></div>
       <div className="times"><div><strong>{formatTime(item.time)}</strong><span>{item.from}</span></div><div className="duration"><span>Direct trip</span><i /><small>{item.coachType}</small></div><div><strong>{formatTime(item.arrival)}</strong><span>{item.to}</span></div></div>
       <div className="amenities">{item.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div>
-      <div className="fare"><span><Clock3 size={15} /> {activeTripId === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
+      <div className="fare"><span><Clock size={15} /> {activeTripId === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
     </button>
   );
 
@@ -215,10 +215,10 @@ export default function Home() {
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <div className="eyebrow"><Sparkles size={14} /></div>
+          <div className="eyebrow"><Sparkle size={14} /></div>
           <h1>Go home in comfort.<br /><em>Arrive with ease.</em></h1>
           <p>{routeFrom && routeTo ? `Direct VIP vacation transport from ${routeFrom} to ${routeTo}. Reserve your preferred seat and pay securely.` : "Direct VIP vacation transport for UMaT students. Reserve your preferred seat and pay securely."}</p>
-          <div className="trust-row"><span><ShieldCheck size={18} /> Verified drivers</span><span><Users size={18} /> {trip?.capacity || 50}-seat coach</span><span><BusFront size={18} /> Premium VIP bus</span></div>
+          <div className="trust-row"><span><ShieldCheck size={18} /> Verified drivers</span><span><Users size={18} /> {trip?.capacity || 50}-seat coach</span><span><Bus size={18} /> Premium VIP bus</span></div>
         </div>
         <div className="route-art" aria-label="UmateXPRESS 50-seat VIP coach">
           <div className="route-visual">
@@ -239,7 +239,7 @@ export default function Home() {
           <option value="">{routeChoices.to.length ? "Any destination" : "No trips yet"}</option>
           {routeChoices.to.map((place) => <option key={place} value={place}>{place}</option>)}
         </select></div></label>
-        <label><span>Travel date</span><div><CalendarDays size={18} /><select aria-label="Travel date" value={dateFilter} disabled={!routeChoices.dates.length} onChange={(event) => setDateFilter(event.target.value)}>
+        <label><span>Travel date</span><div><CalendarDots size={18} /><select aria-label="Travel date" value={dateFilter} disabled={!routeChoices.dates.length} onChange={(event) => setDateFilter(event.target.value)}>
           <option value="">Any date</option>
           {routeChoices.dates.map((day) => <option key={day} value={day}>{new Date(`${day}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</option>)}
         </select></div></label>
@@ -248,7 +248,7 @@ export default function Home() {
 
       <section className="search-ai" aria-label="Ask AI to find your trip">
         <form onSubmit={searchWithAi}>
-          <Sparkles size={17} aria-hidden />
+          <Sparkle size={17} aria-hidden />
           <input
             aria-label="Describe the trip you want"
             placeholder={'Ask in your own words — “Accra next Friday”, “the early bus”'}
@@ -309,7 +309,7 @@ export default function Home() {
             {paymentMessage && <p className="payment-pending">{paymentMessage}</p>}
             <div className="passenger-help-box">
               <button className="secondary-ai-button" disabled={passengerHelpLoading} onClick={fetchPassengerHelp}>
-                <Bot size={16} /> {passengerHelpLoading ? "Checking travel help..." : "Get travel help"}
+                <Robot size={16} /> {passengerHelpLoading ? "Checking travel help..." : "Get travel help"}
               </button>
               {passengerHelp && <p>{passengerHelp}</p>}
             </div>

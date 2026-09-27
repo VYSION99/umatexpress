@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Bell, Check } from "lucide-react";
+import { ArrowRight, Bell, Check } from "@phosphor-icons/react";
 import { ticketKindForTemplate } from "@/lib/campus-engine/notify-templates";
 import { ticketHref } from "@/lib/passenger-profile";
 import { useNotifications } from "@/components/account/useNotifications";

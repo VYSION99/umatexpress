@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LngLatBoundsLike, LngLatLike, Map as MapLibreMap, Marker } from "maplibre-gl";
-import { BedDouble, LocateFixed, MapPin } from "lucide-react";
+import { Bed, Crosshair, MapPin } from "@phosphor-icons/react";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
 
@@ -54,7 +54,7 @@ function markerLabel(element: HTMLElement, text: string) {
   element.append(span);
 }
 
-function popupContent(property: HostelMapProperty) {
+function popupContent(property: HostelMapProperty, periodId: string) {
   const container = document.createElement("div");
   const heading = document.createElement("strong");
   heading.textContent = property.name;
@@ -63,7 +63,7 @@ function popupContent(property: HostelMapProperty) {
   const price = document.createElement("p");
   price.textContent = `From ${cedis(property.minTotal)} a year`;
   const link = document.createElement("a");
-  link.href = `/hostel/${encodeURIComponent(property.id)}`;
+  link.href = `/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`;
   link.textContent = "See the beds";
   container.append(heading, place, price, link);
   return container;
@@ -74,7 +74,7 @@ function popupContent(property: HostelMapProperty) {
  * come from data the server already gated, a building without a pin is simply
  * not drawn, and the list below the map is the full answer either way.
  */
-export function HostelMap({ properties, title = "Approved hostels near campus" }: { properties: HostelMapProperty[]; title?: string }) {
+export function HostelMap({ properties, periodId = "", title = "Approved hostels near campus" }: { properties: HostelMapProperty[]; periodId?: string; title?: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -124,6 +124,7 @@ export function HostelMap({ properties, title = "Approved hostels near campus" }
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const maplibregl = await import("maplibre-gl");
+    if (mapRef.current !== map) return;
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
     const coordinates: Array<[number, number]> = [];
@@ -135,34 +136,34 @@ export function HostelMap({ properties, title = "Approved hostels near campus" }
       markerLabel(element, String(property.availableSpaces));
       const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat(coordinate as LngLatLike)
-        .setPopup(new maplibregl.Popup({ offset: 20 }).setDOMContent(popupContent(property)))
+        .setPopup(new maplibregl.Popup({ offset: 20 }).setDOMContent(popupContent(property, periodId)))
         .addTo(map);
       markersRef.current.push(marker);
     });
     if (coordinates.length === 1) {
-      map.easeTo({ center: coordinates[0], zoom: Math.max(map.getZoom(), 15.6), duration: 550 });
+      map.easeTo({ center: coordinates[0], zoom: Math.max(map.getZoom(), 15.6), duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 550 });
     } else if (coordinates.length > 1) {
       const bounds = coordinates.reduce((box, point) => box.extend(point), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
-      map.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: 550 });
+      map.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 550 });
     }
-  }, [mapReady, pinned]);
+  }, [mapReady, pinned, periodId]);
 
   useEffect(() => { syncMarkers(); }, [syncMarkers]);
 
   return <section className="campus-map-widget real-map-widget hostel-map-widget">
     <div className="campus-map-top">
-      <div><p>LIVE MAP</p><h2>{title}</h2></div>
+      <div><p>HOSTEL MAP</p><h2>{title}</h2></div>
       <span>{pinned.length} {pinned.length === 1 ? "pin" : "pins"}</span>
     </div>
     <div className="campus-map-frame">
       <div ref={containerRef} className="campus-map-canvas real-map-canvas hostel-map-canvas" aria-label="Interactive Hostel Finder map" />
       {!mapReady && !mapError && <div className="real-map-loading"><MapPin size={22} /><span>Loading real map...</span></div>}
-      {mapError && <div className="real-map-error"><LocateFixed size={22} /><span>{mapError}</span></div>}
+      {mapError && <div className="real-map-error"><Crosshair size={22} /><span>{mapError}</span></div>}
     </div>
     <div className="real-map-legend">
-      <span><BedDouble size={14} /> Pin shows beds free</span>
+      <span><Bed size={14} /> Pin shows beds free</span>
       <span><MapPin size={14} /> Approved hostel</span>
-      {properties.length > pinned.length && <span>{properties.length - pinned.length} without a pin, listed below</span>}
+      {properties.length > pinned.length && <span>{properties.length - pinned.length} without a pin, available in the list</span>}
       <span>OpenStreetMap</span>
     </div>
   </section>;

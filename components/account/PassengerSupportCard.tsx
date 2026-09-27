@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { LifeBuoy, MessageSquareWarning } from "lucide-react";
+import { ChatText, Lifebuoy } from "@phosphor-icons/react";
 import { useStudentAccount } from "./useStudentAccount";
 
 type Dispute = {
@@ -74,7 +74,7 @@ export function PassengerSupportCard() {
   };
 
   return <section className="campus-auth-card passenger-support">
-    <strong><LifeBuoy size={15} aria-hidden /> Something went wrong with a trip?</strong>
+    <strong><Lifebuoy size={15} aria-hidden /> Something went wrong with a trip?</strong>
     <small>Raise it here and the platform decides. The reply goes to {account.email}.</small>
     <form onSubmit={submit}>
       <label>Booking reference<input required value={form.bookingReference} onChange={(event) => setForm({ ...form, bookingReference: event.target.value })} placeholder="UMX-XXXXXX" /></label>
@@ -89,7 +89,7 @@ export function PassengerSupportCard() {
       </label>
       {error && <p className="campus-ai-error" role="alert">{error}</p>}
       {notice && !error && <p className="student-auth-hint" role="status">{notice}</p>}
-      <button disabled={busy}><MessageSquareWarning size={15} aria-hidden /> {busy ? "Sending…" : "Send to the platform"}</button>
+      <button disabled={busy}><ChatText size={15} aria-hidden /> {busy ? "Sending…" : "Send to the platform"}</button>
     </form>
     {disputes.length > 0 && <table className="console-table passenger-support-list">
       <thead><tr><th>Raised</th><th>About</th><th>Status</th></tr></thead>

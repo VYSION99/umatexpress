@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Star } from "lucide-react";
+import { ArrowsClockwise, Star } from "@phosphor-icons/react";
 
 type Rating = {
   id: string; reference: string; driverId: string; driverName: string;
@@ -55,7 +55,7 @@ export function CampusFeedbackPanel() {
         <h2>What students said about the rides</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={busy === "refresh"}>
-        <RefreshCw size={15} />Refresh
+        <ArrowsClockwise size={15} />Refresh
       </button>
     </div>
     {error && <small className="campus-admin-error">{error}</small>}

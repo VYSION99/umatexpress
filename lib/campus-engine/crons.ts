@@ -23,6 +23,9 @@ export const CAMPUS_RECONCILE_CRON = "*/5 * * * *";
  */
 export const NOTIFICATION_SWEEP_CRON = "2,17,32,47 * * * *";
 
+/** Saved hostel transitions get a separate budget every fifteen minutes. */
+export const HOSTEL_AVAILABILITY_CRON = "12,27,42,57 * * * *";
+
 /**
  * Transfer settlement. A webhook is the fast path; this is what notices a
  * transfer whose webhook never arrived. It waits two minutes after sending
@@ -68,9 +71,10 @@ export const PAYOUT_RELEASE_CRON = `${
     .filter((minute) => !new Set([
       ...minutesOf(CAMPUS_RECONCILE_CRON),
       ...minutesOf(NOTIFICATION_SWEEP_CRON),
+      ...minutesOf(HOSTEL_AVAILABILITY_CRON),
       ...minutesOf(PAYOUT_RECONCILE_CRON),
     ]).has(minute))
     .join(",")
 } * * * *`;
 
-export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON];
+export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON];

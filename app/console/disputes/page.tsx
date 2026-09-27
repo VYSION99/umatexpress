@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Gavel, MessageSquareWarning, Scale } from "lucide-react";
+import { ChatText, Gavel, Scales, Warning } from "@phosphor-icons/react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 
@@ -109,7 +109,7 @@ function TriageWorkspace({ session, readOnly }: { session: ConsoleSessionInfo; r
     </section>
 
     <section className="console-panel">
-      <h2><MessageSquareWarning size={18}/>Queue
+      <h2><ChatText size={18}/>Queue
         <span className="console-row-actions">
           {["", "OPEN", "REVIEWING", "RESOLVED"].map((status) => (
             <button key={status || "ALL"} className="console-panel-close" aria-pressed={filter === status} onClick={() => { setFilter(status); setSelected(null); }}>
@@ -181,7 +181,7 @@ function TriageWorkspace({ session, readOnly }: { session: ConsoleSessionInfo; r
           </button>
         </form>}
       <p className="console-note">
-        <AlertTriangle size={13}/> A refund decision is a judgement, not a payment. Cancel the booking in the vacation console to reverse its ledger entry, and repay the passenger where refunds are processed.
+        <Warning size={13}/> A refund decision is a judgement, not a payment. Cancel the booking in the vacation console to reverse its ledger entry, and repay the passenger where refunds are processed.
       </p>
     </section>}
   </ConsoleShell>;
@@ -241,7 +241,7 @@ function OrganizerDisputes({ session }: { session: ConsoleSessionInfo }) {
     {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
 
     <section className="console-panel">
-      <h2><MessageSquareWarning size={18}/>Raise a dispute</h2>
+      <h2><ChatText size={18}/>Raise a dispute</h2>
       <form className="console-form" onSubmit={(event) => { event.preventDefault(); void raise(); }}>
         <label>Booking reference
           <input type="text" required value={form.bookingReference} onChange={(event) => setForm({ ...form, bookingReference: event.target.value })} placeholder="UMX-XXXXXX" />
@@ -257,12 +257,12 @@ function OrganizerDisputes({ session }: { session: ConsoleSessionInfo }) {
         <label>What happened
           <input type="text" required value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder="Include dates, times and anything you can evidence" />
         </label>
-        <button disabled={busy === "raise"}><MessageSquareWarning size={16}/>{busy === "raise" ? "Raising…" : "Raise dispute"}</button>
+        <button disabled={busy === "raise"}><ChatText size={16}/>{busy === "raise" ? "Raising…" : "Raise dispute"}</button>
       </form>
     </section>
 
     <section className="console-panel">
-      <h2><Scale size={18}/>Your disputes</h2>
+      <h2><Scales size={18}/>Your disputes</h2>
       {disputes.length === 0
         ? <p className="console-empty">Nothing raised. Disputes about your trips appear here with the decision.</p>
         : <table className="console-table">

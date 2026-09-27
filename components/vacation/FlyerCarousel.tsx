@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Megaphone, Phone } from "lucide-react";
+import { CaretLeft, CaretRight, Megaphone, Phone } from "@phosphor-icons/react";
 import { composeRouteLine, noticeDestinations, type PublicNotice } from "@/lib/trip-notice";
 
 /**
@@ -109,7 +109,7 @@ export default function FlyerCarousel({ notices }: { notices: PublicNotice[] }) 
         </div>
       </div>
       <div className="flyer-carousel-controls">
-        <button type="button" className="flyer-carousel-arrow" onClick={() => go(safeIndex - 1)} aria-label="Previous trip notice"><ChevronLeft size={17} /></button>
+        <button type="button" className="flyer-carousel-arrow" onClick={() => go(safeIndex - 1)} aria-label="Previous trip notice"><CaretLeft size={17} /></button>
         <div className="flyer-carousel-dots">
           {notices.map((notice, dot) => (
             <button
@@ -122,7 +122,7 @@ export default function FlyerCarousel({ notices }: { notices: PublicNotice[] }) 
             />
           ))}
         </div>
-        <button type="button" className="flyer-carousel-arrow" onClick={() => go(safeIndex + 1)} aria-label="Next trip notice"><ChevronRight size={17} /></button>
+        <button type="button" className="flyer-carousel-arrow" onClick={() => go(safeIndex + 1)} aria-label="Next trip notice"><CaretRight size={17} /></button>
       </div>
       <span className="flyer-carousel-status" role="status">{safeIndex + 1} of {count} notices</span>
     </section>

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { formatTime } from "@/lib/trips";
 import { rememberTicket } from "@/lib/passenger-profile";
-import { BusFront, CheckCircle2, Download, ImageDown, LoaderCircle, ShieldCheck, XCircle } from "lucide-react";
+import { Bus, CheckCircle, CircleNotch, DownloadSimple, ImageSquare, ShieldCheck, XCircle } from "@phosphor-icons/react";
 
  type Ticket = { reference:string; passenger_name:string; seat:string; trip_id:string; travel_date:string; departure_time:string; arrival_time?:string; amount:string; route_from?:string; route_to?:string; coach_type?:string; trip_title?:string };
 
@@ -92,17 +92,17 @@ export default function PaymentCallback() {
   };
 
   return <main className="status-page"><div className={`status-card ${state==="success"?"ticket-status":""}`}><img className="status-logo" src="/logo-web.png" alt="UMaTeXPRESS" />
-    {state==="checking"?<><LoaderCircle className="spin"/><h1>Generating your ticket</h1><p>Confirming your payment and preparing your ticket.</p></>:
-    state==="success"&&ticket?<><CheckCircle2 className="status-icon success"/><h1>Trip confirmed!</h1><p>Your official UmateXPRESS ticket is ready.</p>
+    {state==="checking"?<><CircleNotch className="spin"/><h1>Generating your ticket</h1><p>Confirming your payment and preparing your ticket.</p></>:
+    state==="success"&&ticket?<><CheckCircle className="status-icon success"/><h1>Trip confirmed!</h1><p>Your official UmateXPRESS ticket is ready.</p>
       <article className="travel-ticket image-ticket" ref={ticketRef}>
         <div className="ticket-watermark">UMaTeXPRESS</div>
         <div className="ticket-head"><div className="ticket-brand"><img src="/logo-mark.png" alt="" /><div><strong>vacationRide</strong><small>{ticket.trip_title || "vacationRide ticket"}</small></div></div><span><ShieldCheck size={14}/> PAID</span></div>
         <div className="ticket-hero"><div><small>BOARDING PASS</small><h2>{hasRoute ? <>{routeFrom} <em>to</em> {routeTo}</> : "Route details unavailable"}</h2><p>Present this image before boarding. Arrive 30 minutes early.</p></div><div className="ticket-seat-card"><small>SEAT</small><strong>{filled(ticket.seat)}</strong></div></div>
-        <div className="ticket-route"><div><small>FROM</small><strong>{routeFrom}</strong><span>Departure point</span></div><BusFront/><div><small>TO</small><strong>{routeTo}</strong><span>Destination</span></div></div>
+        <div className="ticket-route"><div><small>FROM</small><strong>{routeFrom}</strong><span>Departure point</span></div><Bus/><div><small>TO</small><strong>{routeTo}</strong><span>Destination</span></div></div>
         <div className="ticket-details"><div><small>PASSENGER</small><strong>{filled(ticket.passenger_name)}</strong></div><div><small>TRAVEL DATE</small><strong>{date||"—"}</strong></div><div><small>DEPARTURE</small><strong>{departureLabel}</strong></div>{arrival&&<div><small>ARRIVAL</small><strong>{arrival}</strong></div>}<div><small>COACH</small><strong>{filled(ticket.coach_type)}</strong></div><div><small>TICKET PRICE</small><strong>GH₵{(Number(ticket.amount)/100).toFixed(2)}</strong></div></div>
         <div className="ticket-code"><div><small>REFERENCE</small><span>{ticket.reference}</span></div><strong>{shortReference}</strong></div>
       </article>
-      <div className="ticket-actions"><button onClick={downloadTicketImage} disabled={imageSaving}><ImageDown size={17}/>{imageSaving ? "Saving image…" : "Save ticket image"}</button><button onClick={()=>window.print()}><Download size={17}/> Print</button><Link href="/">Return home</Link></div>
+      <div className="ticket-actions"><button onClick={downloadTicketImage} disabled={imageSaving}><ImageSquare size={17}/>{imageSaving ? "Saving image…" : "Save ticket image"}</button><button onClick={()=>window.print()}><DownloadSimple size={17}/> Print</button><Link href="/">Return home</Link></div>
     </>:state==="signin"?<><ShieldCheck className="status-icon success"/><h1>Sign in to open this ticket</h1><p>This ticket belongs to the UMaT account it was booked under, not to this browser. Sign in with that account and the ticket opens right here.</p><Link href={signInHref}>Sign in to view ticket</Link></>:
     state==="review"?<><XCircle className="status-icon fail"/><h1>Payment received—seat review needed</h1><p>Your payment arrived after the seat hold expired. Support will confirm another seat or arrange a refund.</p><Link href="/">Return home</Link></>:
     <><XCircle className="status-icon fail"/><h1>Payment not completed</h1><p>No confirmed payment was found. You can safely try again.</p><Link href="/vacation#booking">Return to booking</Link></>}
