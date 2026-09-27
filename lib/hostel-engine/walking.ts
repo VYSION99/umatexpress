@@ -36,7 +36,7 @@ export async function getHostelWalkingRoute(propertyId: string, destinationId: s
   const key = await envValue("OPENROUTESERVICE_API_KEY");
   if (!key) return { available: false, reason: "Pedestrian routing is not configured yet. The distance above is straight-line only." };
   try {
-    const response = await fetch("https://api.openrouteservice.org/v2/directions/foot-walking/geojson", {
+    const response = await fetch("https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson", {
       method: "POST", headers: { "Authorization": key, "Content-Type": "application/json", "Accept": "application/geo+json" },
       body: JSON.stringify({ coordinates: [[longitude, latitude], [place.longitude, place.latitude]] }),
       signal: AbortSignal.timeout(8000),

@@ -35,7 +35,7 @@ for q in p['requests']:
 print(json.dumps({'results':r}))`;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (_url, init) => {
-  if (String(_url).startsWith("https://api.openrouteservice.org/")) {
+  if (String(_url).startsWith("https://api.heigit.org/openrouteservice/")) {
     assert.equal(init.headers.Authorization, "route-test-key");
     return { ok: true, json: async () => ({ features: [{ properties: { summary: { distance: 1450, duration: 1080 } }, geometry: { coordinates: [[-2.00, 5.30], [-2.005, 5.305]] } }] }) };
   }
