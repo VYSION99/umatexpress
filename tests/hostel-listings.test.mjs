@@ -95,6 +95,23 @@ function handle(sql, args) {
     return ok(empty);
   }
 
+  // --- independent onboarding approvals -----------------------------------
+  if (/FROM hostel_landlords h LEFT JOIN hostel_owner_onboarding o ON o.landlord_id=h.id WHERE h.id=\? LIMIT 1/.test(sql)) {
+    const landlord = landlords.find(item => item.id === args[0]);
+    if (!landlord) return ok(empty);
+    const updated = "2026-09-28T00:00:00.000Z";
+    const method = landlord.kyc_status === "VERIFIED" ? "MOMO" : "";
+    const last4 = method ? "0111" : "";
+    const code = method ? "MTN" : "";
+    const row = {
+      id: landlord.id, name: landlord.name, phone: landlord.phone, email: landlord.email,
+      organization: landlord.organization, account_status: landlord.status, kyc_status: landlord.kyc_status,
+      review_reason: "", owner_role: "OWNER", profile_status: landlord.profile_status || "APPROVED", profile_reason: "",
+      payout_status: method ? "APPROVED" : "PENDING", payout_reason: "", payout_snapshot: method ? JSON.stringify([method,last4,code,updated]) : "",
+      payout_method: method, payout_last4: last4, payout_bank_code: code, payout_updated_at: method ? updated : "",
+    };
+    return ok(table(Object.keys(row), [row]));
+  }
   // --- periods -------------------------------------------------------------
   if (/FROM hostel_periods WHERE id = \? AND COALESCE\(active,1\) = 1 LIMIT 1/.test(sql)) {
     return ok(table(PERIOD_ROW_COLUMNS, periods.filter((item) => item.id === args[0] && item.active === 1)));
@@ -309,8 +326,8 @@ async function buildProperty(landlordId, beds = 2, options = {}) {
     address: "Near UMaT main gate, Tarkwa",
     utilitiesEnabled: options.utilitiesEnabled !== false,
   });
-  if (options.status) properties.find((item) => item.id === property.id).status = options.status;
   const room = await createHostelRoom(landlordId, property.id, { label: "Room 1", capacity: beds, utilitiesFee: 2000 });
+  properties.find((item) => item.id === property.id).status = options.status || "APPROVED";
   return { property, room, beds: room.spaces };
 }
 
@@ -390,6 +407,41 @@ test("a landlord prices one of their own beds for one year", async () => {
   assert.equal(own.length, 1);
 });
 
+test("identity unlocks listing work, while profile and property approvals gate submission", async () => {
+  const { property, beds } = await buildProperty("landlord-a", 1, { status: "DRAFT" });
+  const period = await buildPeriod();
+  const owner = landlords.find(item => item.id === "landlord-a");
+  owner.kyc_status = "PENDING";
+  try {
+    await assert.rejects(
+      () => createHostelListing("landlord-a", { spaceId: beds[0].id, periodId: period.id, price: 180000 }),
+      error => error?.code === "INVALID_STATE" && /identity/.test(error.message),
+    );
+    owner.kyc_status = "VERIFIED";
+    const listing = await createHostelListing("landlord-a", { spaceId: beds[0].id, periodId: period.id, price: 180000 });
+    await assert.rejects(
+      () => submitHostelListing("landlord-a", listing.id),
+      error => error?.code === "INVALID_STATE" && /property/.test(error.message),
+    );
+    properties.find(item => item.id === property.id).status = "APPROVED";
+    owner.profile_status = "PENDING";
+    await assert.rejects(
+      () => submitHostelListing("landlord-a", listing.id),
+      error => error?.code === "INVALID_STATE" && /account details/.test(error.message),
+    );
+    owner.profile_status = "APPROVED";
+    assert.equal((await submitHostelListing("landlord-a", listing.id)).status, "PENDING_REVIEW");
+    properties.find(item => item.id === property.id).status = "DRAFT";
+    await assert.rejects(
+      () => reviewHostelListing({ listingId: listing.id, action: "APPROVE", actor: "mod@umat.edu.gh" }),
+      error => error?.code === "INVALID_STATE" && /property/.test(error.message),
+    );
+  } finally {
+    owner.kyc_status = "VERIFIED";
+    owner.profile_status = "APPROVED";
+  }
+});
+
 test("a bed cannot be listed twice for the same year", async () => {
   const { beds } = await buildProperty("landlord-a", 1);
   const period = await buildPeriod();
@@ -456,7 +508,7 @@ test("submitting sends a draft to the queue exactly once", async () => {
   assert.equal(audit.args[2], "HOSTEL_LISTING_SUBMITTED");
 });
 
-test("approving publishes the bed, accepts the building and records who decided", async () => {
+test("approving publishes a bed only after its building is approved", async () => {
   const { property, beds } = await buildProperty("landlord-a", 1);
   const period = await buildPeriod();
   const listing = await createHostelListing("landlord-a", { spaceId: beds[0].id, periodId: period.id, price: 220000 });
@@ -467,11 +519,11 @@ test("approving publishes the bed, accepts the building and records who decided"
   assert.equal(approved.reviewReason, "");
   assert.equal(approved.reviewedBy, "mod@umat.edu.gh");
   assert.ok(approved.reviewedAt);
-  assert.equal(properties.find((item) => item.id === property.id).status, "APPROVED", "a reviewer who approves a bed has seen the building");
+  assert.equal(properties.find((item) => item.id === property.id).status, "APPROVED", "property approval is an independent prerequisite");
 
   const actions = statements.filter((entry) => /INSERT INTO admin_audit_logs/.test(entry.sql)).map((entry) => entry.args[2]);
   assert.ok(actions.includes("HOSTEL_LISTING_APPROVE"));
-  assert.ok(actions.includes("HOSTEL_PROPERTY_APPROVED"));
+  assert.ok(!actions.includes("HOSTEL_PROPERTY_APPROVED"), "listing review must not approve a property");
 });
 
 test("a rejected listing comes back to the landlord as a draft with the reason", async () => {
@@ -614,6 +666,21 @@ test("only approved beds in live rooms are visible to students", async () => {
   properties.find((item) => item.id === property.id).status = "SUSPENDED";
   listings.find((item) => item.id === approved.id).status = "APPROVED";
   assert.equal((await listPublicSpaces({ propertyId: property.id })).spaces.length, 0, "a suspended building takes its beds with it");
+});
+
+test("payout review leaves approved beds visible while booking remains gated", async () => {
+  const { property, beds } = await buildProperty("landlord-a", 1);
+  const period = await buildPeriod();
+  const listing = await createHostelListing("landlord-a", { spaceId: beds[0].id, periodId: period.id, price: 200000 });
+  await submitHostelListing("landlord-a", listing.id);
+  await reviewHostelListing({ listingId: listing.id, action: "APPROVE", actor: "mod@umat.edu.gh" });
+  const owner = landlords.find(item => item.id === "landlord-a");
+  owner.payout_review_status = "PENDING";
+  try {
+    assert.equal((await listPublicSpaces({ propertyId: property.id, periodId: period.id })).spaces.length, 1);
+    const publicRead = statements.filter(entry => /SELECT l\.id AS listing_id/.test(entry.sql)).at(-1);
+    assert.doesNotMatch(publicRead.sql, /o\.payout_status = 'APPROVED'/, "payout review must not hide an otherwise approved bed");
+  } finally { delete owner.payout_review_status; }
 });
 
 test("a closed year closes the public catalogue too", async () => {

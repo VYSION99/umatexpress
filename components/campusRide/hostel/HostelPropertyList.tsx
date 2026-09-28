@@ -35,6 +35,7 @@ export function HostelPropertyList({ properties, periodId = "", total = properti
           <span className="hostel-card-beds">{bedsLabel(property.availableSpaces)}</span>
         </div>
         <p className="hostel-card-address"><MapPin size={14} aria-hidden />{property.address || "Address on the property page"}</p>
+        {!property.bookingReady && <span className="hostel-booking-paused">Booking paused while payout details are reviewed</span>}
         {property.ratingCount > 0 && <p className="hostel-card-rating"><Stars rating={property.ratingAverage} size={13} /><span>{property.ratingAverage.toFixed(1)} ({property.ratingCount})</span></p>}
         <ul className="hostel-card-facts">
           <li>{distanceLabel(property.distanceM)}</li>

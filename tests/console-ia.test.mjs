@@ -49,7 +49,7 @@ test("each role gets the services it may use, without repeats", () => {
   }
   assert.deepEqual(
     consoleServicesForRole("ADMIN").map((service) => service.id),
-    ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "food", "cinema", "settings", "security"],
+    ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "food", "cinema", "settings", "delegates", "security"],
     "an administrator gets the platform's services and the platform switchboard, never another role's personal workspace, and still sees what is coming",
   );
   assert.deepEqual(consoleServicesForRole("SOMETHING").map((service) => service.id), ["security"], "an unknown role only ever reaches account security");
@@ -93,4 +93,18 @@ test("a role is only offered the services its work belongs to", () => {
 test("the shell can resolve the service a page names", () => {
   for (const service of consoleServices) assert.equal(consoleServiceById(service.id)?.id, service.id);
   assert.equal(consoleServiceById("nope"), null);
+});
+
+test("admin services are grouped by operational similarity", () => {
+  const groups = consoleGroupsForRole("ADMIN");
+  const byGroup = Object.fromEntries(groups.map(({ group, services }) => [group, services.map((service) => service.id)]));
+  assert.deepEqual(byGroup.Transport, ["campus", "vacation", "organizers"]);
+  assert.deepEqual(byGroup.Accommodation, ["hostels"]);
+  assert.deepEqual(byGroup.Finance, ["payouts"]);
+  assert.deepEqual(byGroup.Administration, ["settings", "delegates"]);
+});
+
+test("a delegate sees only granted services plus account security", () => {
+  assert.deepEqual(consoleServicesForRole("ADMIN", ["hostels", "cinema"]).map((service) => service.id), ["hostels", "cinema", "security"]);
+  assert.deepEqual(consoleServicesForRole("ADMIN", []).map((service) => service.id), ["security"]);
 });

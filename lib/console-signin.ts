@@ -6,6 +6,7 @@ import {
   assertConsolePassword,
   consoleAccountRowByIdentifier,
   consoleAccountView,
+  consoleDelegateRecord,
   hasStoredPassword,
   provisionConsoleAccount,
   setConsolePassword,
@@ -71,7 +72,9 @@ export async function resolveConsoleSignIn(identifierInput: unknown, passwordInp
     if (account.status !== "ACTIVE") return null;
     if (hasStoredPassword(row)) {
       if (!await verifyStoredConsolePassword(row, password)) return null;
-      return { account, mustChangePassword: false, bridged: false };
+      const delegate = String(row.role) === "ADMIN_DELEGATE" ? await consoleDelegateRecord(account.id) : null;
+      if (String(row.role) === "ADMIN_DELEGATE" && !delegate) return null;
+      return { account: delegate ? { ...account, delegateServices: delegate.services } : account, mustChangePassword: delegate?.mustChangePassword === true, bridged: false };
     }
     return verifyBridged(account, identifier, password);
   }

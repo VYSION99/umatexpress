@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { ArrowCounterClockwise, Bed, Buildings, Check, DoorOpen, MapPin, NotePencil, PaperPlaneTilt, Plus, SealCheck, ShieldCheck, Trash } from "@phosphor-icons/react";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
@@ -8,6 +9,8 @@ import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 import { HostelReviewQueue } from "@/components/console/hostel/HostelReviewQueue";
 import { HostelViewingDesk } from "@/components/console/hostel/HostelViewingDesk";
 import { PropertyPhotos } from "@/components/console/hostel/PropertyPhotos";
+import { HostelAiDesk } from "@/components/console/hostel/HostelAiDesk";
+import "@/components/console/hostel/workspace.css";
 
 type Landlord = {
   id: string; name: string; phone: string; email: string; organization: string;
@@ -24,7 +27,7 @@ type Space = { id: string; roomId: string; label: string; status: string };
 
 type Room = {
   id: string; propertyId: string; label: string; capacity: number;
-  utilitiesFee: number; amenities: string; status: string; spaces: Space[];
+  utilitiesFee: number; amenities: string; bedLayout: "SEPARATE" | "BUNK"; status: string; spaces: Space[];
 };
 
 type PropertyDetail = { property: Property; rooms: Room[] };
@@ -35,10 +38,10 @@ type Listing = {
   propertyId: string; propertyName: string; roomLabel: string; spaceLabel: string;
   periodName: string; periodActive: boolean;
 };
-type RoomDraft = { label: string; capacity: string; utilitiesFee: string; amenities: string };
+type RoomDraft = { label: string; capacity: string; utilitiesFee: string; amenities: string; bedLayout: "SEPARATE" | "BUNK" };
 type OpenPanel = { kind: "edit" | "beds"; roomId: string } | null;
 
-const EMPTY_ROOM: RoomDraft = { label: "", capacity: "2", utilitiesFee: "0", amenities: "" };
+const EMPTY_ROOM: RoomDraft = { label: "", capacity: "2", utilitiesFee: "0", amenities: "", bedLayout: "SEPARATE" };
 /** The engine holds a room to six beds; the form can only offer what it allows. */
 const BED_COUNTS = ["1", "2", "3", "4", "5", "6"];
 
@@ -91,7 +94,7 @@ function HostelWorkspace() {
   const [bedNames, setBedNames] = useState<Record<string, string>>({});
   const [periods, setPeriods] = useState<Period[] | null>(null);
   const [listings, setListings] = useState<Listing[] | null>(null);
-  const [listingDraft, setListingDraft] = useState({ spaceId: "", periodId: "", price: "" });
+  const [listingDraft, setListingDraft] = useState({ roomId: "", periodId: "", price: "" });
   const [listingEdit, setListingEdit] = useState<{ id: string; price: string } | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -215,6 +218,7 @@ function HostelWorkspace() {
           capacity: Number(roomDraft.capacity),
           utilitiesFee: toPesewas(roomDraft.utilitiesFee),
           amenities: roomDraft.amenities,
+          bedLayout: roomDraft.bedLayout,
         }),
       });
       const room = data.room as Room;
@@ -241,6 +245,7 @@ function HostelWorkspace() {
           capacity: Number(roomEdit.capacity),
           utilitiesFee: toPesewas(roomEdit.utilitiesFee),
           amenities: roomEdit.amenities,
+          bedLayout: roomEdit.bedLayout,
           status: roomEdit.status,
         }),
       });
@@ -296,18 +301,14 @@ function HostelWorkspace() {
     if (!detail) return;
     setBusy("listing"); setError(""); setSaved("");
     try {
-      const data = await request("/api/console/hostel/listings", {
+      const data = await request("/api/console/hostel/room-rates", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          spaceId: listingDraft.spaceId,
-          periodId: listingDraft.periodId,
-          price: toPesewas(listingDraft.price),
-        }),
+        body: JSON.stringify({ roomId: listingDraft.roomId, periodId: listingDraft.periodId, price: toPesewas(listingDraft.price) }),
       });
-      const listing = data.listing as Listing;
-      setListingDraft({ spaceId: "", periodId: listing.periodId, price: "" });
-      setSaved(`${listing.roomLabel} · ${listing.spaceLabel} is priced for ${listing.periodName}. Submit it when it is right.`);
+      const rate = data.rate as { roomLabel: string; bedCount: number; periodId: string; periodName: string };
+      setListingDraft({ roomId: "", periodId: rate.periodId, price: "" });
+      setSaved(`${rate.roomLabel}: all ${rate.bedCount} beds now share the same annual rent for ${rate.periodName}. Submit new drafts for review.`);
       await refreshListings(detail.property.id);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "That bed could not be priced.");
@@ -336,17 +337,17 @@ function HostelWorkspace() {
 
   async function saveListingPrice(listing: Listing) {
     if (!detail || listingEdit?.id !== listing.id) return;
+    const room = detail.rooms.find(item => item.label === listing.roomLabel);
+    if (!room) { setError("Open the room again before changing its rate."); return; }
     setBusy(listing.id); setError(""); setSaved("");
     try {
-      const data = await request(`/api/console/hostel/listings/${encodeURIComponent(listing.id)}`, {
-        method: "PATCH",
+      await request("/api/console/hostel/room-rates", {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ price: toPesewas(listingEdit.price) }),
+        body: JSON.stringify({ roomId: room.id, periodId: listing.periodId, price: toPesewas(listingEdit.price) }),
       });
       setListingEdit(null);
-      setSaved(data.listing.status === "DRAFT" && listing.status !== "DRAFT"
-        ? "Rent saved. The bed is back in draft, so submit it again for review."
-        : "Rent saved.");
+      setSaved("Room rate saved for every bed. Changed offers are back in draft for review.");
       await refreshListings(detail.property.id);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "That rent could not be saved.");
@@ -371,11 +372,23 @@ function HostelWorkspace() {
 
   const openRoom = detail?.rooms.find((room) => room.id === (panels?.roomId || roomEdit?.id)) || null;
 
-  return <>
+  return <div className="hostel-workspace">
+    <div className="hostel-workspace-intro">
+      <div><span className="hostel-workspace-eyebrow">HOSTEL OPERATIONS</span><h2>Manage your properties</h2><p>Keep your rooms, availability and student enquiries in one place. Each review decision stays visible as you work.</p></div>
+      <Link href="/console/hostels/onboarding" className="hostel-workspace-primary">Continue setup →</Link>
+    </div>
+    <div className="hostel-workspace-metrics" aria-label="Workspace overview">
+      <div><strong>{properties?.length ?? "—"}</strong><span>{properties?.length === 1 ? "Property" : "Properties"}</span></div>
+      <div><strong>{properties?.filter(property => property.status === "APPROVED").length ?? "—"}</strong><span>Approved</span></div>
+      <div><strong>{detail?.rooms.length ?? "—"}</strong><span>Rooms in focus</span></div>
+      <div><strong>{detail?.rooms.reduce((count, room) => count + room.spaces.filter(space => space.status === "AVAILABLE").length, 0) ?? "—"}</strong><span>Available bed spaces</span></div>
+    </div>
+    {detail && <nav className="hostel-workspace-jumps" aria-label="Property workspace sections"><a href="#hostel-property">Property</a><a href="#hostel-rooms">Rooms</a><a href="#hostel-rates">Rates</a><a href="#hostel-assistant">Assistant</a></nav>}
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
-    <section className="console-panel">
+    <div className="hostel-workspace-overview" id="hostel-overview">
+    <section className="console-panel hostel-workspace-account">
       <h2><ShieldCheck size={18}/>Landlord account
         {landlord && <span className={badge(landlord.kycStatus === "VERIFIED" ? "APPROVED" : landlord.kycStatus)}>KYC {landlord.kycStatus}</span>}
       </h2>
@@ -383,11 +396,12 @@ function HostelWorkspace() {
         <strong>{landlord.organization || landlord.name}</strong> · {landlord.phone} · {landlord.email}
       </p>}
       <p className="console-note">
-        Your account is active and you can build straight away. Verification and payout details arrive before any money moves.
+        Your account is active. Complete the three-step setup so staff can review owner identity, property details and payout destination separately.
       </p>
+      <Link href="/console/hostels/onboarding" className="console-onboarding-link">Open setup &amp; verification →</Link>
     </section>
 
-    <section className="console-panel">
+    <section className="console-panel hostel-workspace-add">
       <h2><Buildings size={18}/>Add a property</h2>
       <form className="console-form" onSubmit={addProperty}>
         <label>Property name
@@ -412,7 +426,7 @@ function HostelWorkspace() {
       </p>
     </section>
 
-    <section className="console-panel">
+    <section className="console-panel hostel-workspace-properties">
       <h2><Bed size={18}/>Your properties</h2>
       {!properties
         ? <p className="console-empty">Loading your properties…</p>
@@ -423,12 +437,12 @@ function HostelWorkspace() {
             <tbody>
               {properties.map((property) => (
                 <tr key={property.id}>
-                  <td><span>{property.name}</span><small>{property.address || "No address yet"}</small></td>
-                  <td>{property.latitude !== null && property.longitude !== null ? `${property.latitude.toFixed(4)}, ${property.longitude.toFixed(4)}` : "Not pinned"}</td>
-                  <td>{property.utilitiesEnabled ? "Fee per bed" : "Rent only"}</td>
-                  <td><span className={badge(property.status)}>{property.status.replace("_", " ")}</span></td>
-                  <td>{when(property.createdAt)}</td>
-                  <td className="console-row-actions">
+                  <td data-label="Property"><span>{property.name}</span><small>{property.address || "No address yet"}</small></td>
+                  <td data-label="Location">{property.latitude !== null && property.longitude !== null ? `${property.latitude.toFixed(4)}, ${property.longitude.toFixed(4)}` : "Not pinned"}</td>
+                  <td data-label="Utilities">{property.utilitiesEnabled ? "Fee per bed" : "Rent only"}</td>
+                  <td data-label="Status"><span className={badge(property.status)}>{property.status.replace("_", " ")}</span></td>
+                  <td data-label="Added">{when(property.createdAt)}</td>
+                  <td className="console-row-actions" data-label="Actions">
                     <button disabled={busy === `open:${property.id}`} onClick={() => void openProperty(property)}>
                       <DoorOpen size={15}/>{detail?.property.id === property.id ? "Rooms & beds" : "Open"}
                     </button>
@@ -442,7 +456,9 @@ function HostelWorkspace() {
       </p>
     </section>
 
-    {detail && <section className="console-panel">
+    </div>
+
+    {detail && <section className="console-panel" id="hostel-property">
       <h2><Buildings size={18}/>{detail.property.name}
         <span className={badge(detail.property.status)}>{detail.property.status.replace("_", " ")}</span>
         <button className="console-panel-close" onClick={() => setPropertyEdit(propertyEdit
@@ -496,11 +512,13 @@ function HostelWorkspace() {
         <label>Room name
           <input type="text" required minLength={1} maxLength={24} value={roomDraft.label} onChange={(event) => setRoomDraft({ ...roomDraft, label: event.target.value })} placeholder="Room 3" />
         </label>
-        <label>Beds in the room
+        <label>Student bed spaces in the room
           <select value={roomDraft.capacity} onChange={(event) => setRoomDraft({ ...roomDraft, capacity: event.target.value })}>
-            {BED_COUNTS.map((count) => <option key={count} value={count}>{count}</option>)}
+            {BED_COUNTS.filter(count => roomDraft.bedLayout !== "BUNK" || Number(count) % 2 === 0).map((count) => <option key={count} value={count}>{count}</option>)}
           </select>
         </label>
+        <label>Bed arrangement<select value={roomDraft.bedLayout} onChange={event => setRoomDraft({ ...roomDraft, bedLayout: event.target.value as "SEPARATE" | "BUNK", capacity: event.target.value === "BUNK" && Number(roomDraft.capacity) % 2 ? String(Number(roomDraft.capacity) + 1) : roomDraft.capacity })}><option value="SEPARATE">Separate beds</option><option value="BUNK">Bunk beds</option></select></label>
+        <p className="console-note">One bunk unit has two student spaces: a lower and an upper bed.</p>
         <label>Utilities fee per bed (GH₵)
           <input type="text" inputMode="decimal" value={roomDraft.utilitiesFee} onChange={(event) => setRoomDraft({ ...roomDraft, utilitiesFee: event.target.value })} placeholder="0.00" />
         </label>
@@ -510,11 +528,11 @@ function HostelWorkspace() {
         <button disabled={busy === "room"}><Plus size={16}/>{busy === "room" ? "Saving…" : "Add room & beds"}</button>
       </form>
       <p className="console-note">
-        Each bed is created for you and named <strong>Bed A</strong> upwards, so a student books a bed, never just a room.
+        Each student bed space is created separately. Bunk layouts name lower and upper places, so students choose their own bed rather than booking the entire room.
       </p>
     </section>}
 
-    {detail && <section className="console-panel">
+    {detail && <section className="console-panel" id="hostel-rooms">
       <h2><Bed size={18}/>Rooms and beds</h2>
       {detail.rooms.length === 0
         ? <p className="console-empty">No rooms yet. Add the first one above.</p>
@@ -524,17 +542,17 @@ function HostelWorkspace() {
             {detail.rooms.map((room) => {
               const live = room.spaces.filter((space) => space.status !== "RETIRED");
               return <tr key={room.id}>
-                <td>
+                <td data-label="Room">
                   <strong>{room.label}</strong>
-                  <small>Sleeps {room.capacity} · {room.utilitiesFee > 0 ? `${cedis(room.utilitiesFee)} per bed` : "Utilities included"}</small>
+                  <small>Sleeps {room.capacity} · {room.bedLayout === "BUNK" ? `${room.capacity / 2} bunk unit${room.capacity === 2 ? "" : "s"} (upper and lower)` : "Separate beds"} · {room.utilitiesFee > 0 ? `${cedis(room.utilitiesFee)} per bed` : "Utilities included"}</small>
                   {room.amenities && <small>{room.amenities}</small>}
                 </td>
-                <td>
+                <td data-label="Beds">
                   <span>{live.length} live {live.length === 1 ? "bed" : "beds"}</span>
                   <small>{room.spaces.map((space) => space.label).join(", ") || "No beds yet"}</small>
                 </td>
-                <td><span className={badge(room.status)}>{room.status}</span></td>
-                <td className="console-row-actions">
+                <td data-label="Status"><span className={badge(room.status)}>{room.status}</span></td>
+                <td className="console-row-actions" data-label="Actions">
                   <button disabled={busy === "room-edit"} onClick={() => {
                     setPanels(null);
                     setRoomEdit({
@@ -543,6 +561,7 @@ function HostelWorkspace() {
                       capacity: String(room.capacity),
                       utilitiesFee: cedisInput(room.utilitiesFee),
                       amenities: room.amenities,
+                      bedLayout: room.bedLayout,
                       status: room.status,
                     });
                     setError(""); setSaved("");
@@ -570,11 +589,13 @@ function HostelWorkspace() {
         <label>Room name
           <input type="text" required minLength={1} maxLength={24} value={roomEdit.label} onChange={(event) => setRoomEdit({ ...roomEdit, label: event.target.value })} />
         </label>
-        <label>Beds in the room
+        <label>Student bed spaces in the room
           <select value={roomEdit.capacity} onChange={(event) => setRoomEdit({ ...roomEdit, capacity: event.target.value })}>
-            {BED_COUNTS.map((count) => <option key={count} value={count}>{count}</option>)}
+            {BED_COUNTS.filter(count => roomEdit.bedLayout !== "BUNK" || Number(count) % 2 === 0).map((count) => <option key={count} value={count}>{count}</option>)}
           </select>
         </label>
+        <label>Bed arrangement<select value={roomEdit.bedLayout} onChange={event => setRoomEdit({ ...roomEdit, bedLayout: event.target.value as "SEPARATE" | "BUNK", capacity: event.target.value === "BUNK" && Number(roomEdit.capacity) % 2 ? String(Number(roomEdit.capacity) + 1) : roomEdit.capacity })}><option value="SEPARATE">Separate beds</option><option value="BUNK">Bunk beds</option></select></label>
+        <p className="console-note">One bunk unit has two student spaces: a lower and an upper bed. If you change an existing room to bunks, rename its bed spaces below to show which are lower and upper.</p>
         <label>Utilities fee per bed (GH₵)
           <input type="text" inputMode="decimal" value={roomEdit.utilitiesFee} onChange={(event) => setRoomEdit({ ...roomEdit, utilitiesFee: event.target.value })} />
         </label>
@@ -607,7 +628,7 @@ function HostelWorkspace() {
             {openRoom.spaces.map((space) => {
               const typed = bedNames[space.id] ?? space.label;
               return <tr key={space.id}>
-                <td>
+                <td data-label="Bed name">
                   <input
                     type="text"
                     aria-label={`Name for ${space.label}`}
@@ -616,8 +637,8 @@ function HostelWorkspace() {
                     onChange={(event) => setBedNames({ ...bedNames, [space.id]: event.target.value })}
                   />
                 </td>
-                <td><span className={badge(space.status)}>{space.status}</span></td>
-                <td className="console-row-actions">
+                <td data-label="Status"><span className={badge(space.status)}>{space.status}</span></td>
+                <td className="console-row-actions" data-label="Actions">
                   <button disabled={busy === space.id || typed.trim() === space.label || typed.trim().length === 0} onClick={() => void saveBedName(space)}>
                     <Check size={15}/>Save name
                   </button>
@@ -634,22 +655,17 @@ function HostelWorkspace() {
       </p>
     </section>}
 
-    {detail && <section className="console-panel">
+    {detail && landlord?.kycStatus !== "VERIFIED" && <section className="console-panel" id="hostel-rates"><h2><ShieldCheck size={18}/>Listings unlock after identity review</h2><p className="console-note">You can prepare your property, rooms and photos now. Once staff approve your identity and authority evidence, yearly bed listings open here.</p><Link href="/console/hostels/onboarding" className="console-onboarding-link">Continue identity review →</Link></section>}
+
+    {detail && landlord?.kycStatus === "VERIFIED" && <section className="console-panel" id="hostel-rates">
       <h2><SealCheck size={18}/>Beds for sale</h2>
       {periods !== null && periods.length === 0
         ? <p className="console-empty">The platform has not opened an academic year yet. You can price beds as soon as it does.</p>
         : <form className="console-form" onSubmit={addListing}>
-          <label>Bed
-            <select required value={listingDraft.spaceId} onChange={(event) => setListingDraft({ ...listingDraft, spaceId: event.target.value })}>
-              <option value="">Choose a bed…</option>
-              {detail.rooms.flatMap((room) => room.spaces
-                .filter((space) => space.status !== "RETIRED")
-                .map((space) => {
-                  const taken = (listings || []).some((listing) => listing.spaceId === space.id && listing.periodId === listingDraft.periodId);
-                  return <option key={space.id} value={space.id} disabled={taken}>
-                    {room.label} · {space.label}{taken ? " (already listed)" : ""}
-                  </option>;
-                }))}
+          <label>Room
+            <select required value={listingDraft.roomId} onChange={(event) => setListingDraft({ ...listingDraft, roomId: event.target.value })}>
+              <option value="">Choose a room…</option>
+              {detail.rooms.filter(room => room.status === "ACTIVE" && room.spaces.some(space => space.status !== "RETIRED")).map(room => <option key={room.id} value={room.id}>{room.label} · {room.spaces.filter(space => space.status !== "RETIRED").length} beds · {room.bedLayout === "BUNK" ? `${room.capacity / 2} bunk unit${room.capacity === 2 ? "" : "s"}` : "separate beds"}</option>)}
             </select>
           </label>
           <label>Academic year
@@ -658,39 +674,39 @@ function HostelWorkspace() {
               {(periods || []).map((period) => <option key={period.id} value={period.id}>{period.name}</option>)}
             </select>
           </label>
-          <label>Rent for the year (GH₵)
+          <label>Annual rent per student bed (GH₵)
             <input type="text" inputMode="decimal" required value={listingDraft.price} onChange={(event) => setListingDraft({ ...listingDraft, price: event.target.value })} placeholder="1800.00" />
           </label>
-          <button disabled={busy === "listing"}><Plus size={16}/>{busy === "listing" ? "Saving…" : "Price the bed"}</button>
+          <button disabled={busy === "listing"}><Plus size={16}/>{busy === "listing" ? "Saving…" : "Set one rate for every bed"}</button>
         </form>}
       {!listings
         ? <p className="console-empty">Loading the listings for this property…</p>
         : listings.length === 0
-          ? <p className="console-empty">No beds priced yet. A listing is one bed for one academic year.</p>
+          ? <p className="console-empty">No rooms priced yet. Set one annual rate per student bed for each room.</p>
           : <table className="console-table">
-            <thead><tr><th>Bed</th><th>Year</th><th>Rent</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Bed</th><th>Year</th><th>Rent per bed</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {listings.map((listing) => (
                 <tr key={listing.id}>
-                  <td><strong>{listing.roomLabel} · {listing.spaceLabel}</strong><small>Added {when(listing.createdAt)}</small></td>
-                  <td>{listing.periodName || "—"}</td>
-                  <td>{cedis(listing.price)}</td>
-                  <td>
+                  <td data-label="Bed"><strong>{listing.roomLabel} · {listing.spaceLabel}</strong><small>Added {when(listing.createdAt)}</small></td>
+                  <td data-label="Academic year">{listing.periodName || "—"}</td>
+                  <td data-label="Rent per bed">{cedis(listing.price)}</td>
+                  <td data-label="Status">
                     <span className={badge(listing.status)}>{listing.status.replace("_", " ")}</span>
                     {listing.reviewReason && <small className="console-reason">{listing.reviewReason}</small>}
                   </td>
-                  <td className="console-row-actions">
+                  <td className="console-row-actions" data-label="Actions">
                     {listing.status === "DRAFT" && <button disabled={busy === listing.id} onClick={() => void submitListing(listing)}><PaperPlaneTilt size={15}/>Submit for review</button>}
-                    {listing.status !== "SUSPENDED" && listingEdit?.id !== listing.id && <button disabled={busy === listing.id} onClick={() => setListingEdit({ id: listing.id, price: cedisInput(listing.price) })}><NotePencil size={15}/>Change rent</button>}
+                    {listing.status !== "SUSPENDED" && listingEdit?.id !== listing.id && <button disabled={busy === listing.id} onClick={() => setListingEdit({ id: listing.id, price: cedisInput(listing.price) })}><NotePencil size={15}/>Change room rate</button>}
                     {listingEdit?.id === listing.id && <>
                       <input
                         type="text"
                         inputMode="decimal"
-                        aria-label={`New rent for ${listing.spaceLabel}`}
+                        aria-label={`New annual rent per bed in ${listing.roomLabel}`}
                         value={listingEdit.price}
                         onChange={(event) => setListingEdit({ id: listing.id, price: event.target.value })}
                       />
-                      <button disabled={busy === listing.id} onClick={() => void saveListingPrice(listing)}><Check size={15}/>Save rent</button>
+                      <button disabled={busy === listing.id} onClick={() => void saveListingPrice(listing)}><Check size={15}/>Save room rate</button>
                       <button disabled={busy === listing.id} onClick={() => setListingEdit(null)}>Cancel</button>
                     </>}
                     {(listing.status === "DRAFT" || listing.status === "PENDING_REVIEW") && <button disabled={busy === listing.id} onClick={() => void removeListing(listing)}><Trash size={15}/>Withdraw</button>}
@@ -700,8 +716,10 @@ function HostelWorkspace() {
             </tbody>
           </table>}
       <p className="console-note">
-        Students only see a bed after review approves it. Changing a price sends an approved bed back to review — a cheaper price is still a different offer.
+        Each bed is booked separately, but every bed in the same room has one annual rent per student for that academic year. Changing the room rate sends changed offers back to review.
       </p>
     </section>}
-  </>;
+
+    {detail && <div id="hostel-assistant"><HostelAiDesk key={detail.property.id} propertyId={detail.property.id} rooms={detail.rooms.map(room => ({ id: room.id, label: room.label }))} /></div>}
+  </div>;
 }

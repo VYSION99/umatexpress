@@ -21,7 +21,7 @@ export default function ConsoleHome() {
 
 function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const copy = ROLE_COPY[session.account.role] || ROLE_COPY.ADMIN;
-  const groups = consoleGroupsForRole(session.account.role);
+  const groups = consoleGroupsForRole(session.account.role, session.account.delegateServices);
   return <ConsoleShell
     session={session}
     service="home"
@@ -29,7 +29,7 @@ function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
     title={copy.title}
     blurb={copy.blurb}
   >
-    <ConsoleBriefStrip />
+    {session.account.delegateServices === undefined && <ConsoleBriefStrip />}
     {groups.map((group) => <section className="console-group" key={group.group} aria-label={group.group}>
       <h2 className="console-group-heading">{group.group}</h2>
       <div className="console-group-grid">
@@ -51,7 +51,7 @@ function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
 
     <footer className="console-footer">
       <span>UMaTeXPRESS Console</span>
-      <span>Signed in as {session.account.role.toLowerCase()}</span>
+      <span>Signed in as {session.account.delegateServices !== undefined ? "admin delegate" : session.account.role.toLowerCase()}</span>
     </footer>
   </ConsoleShell>;
 }

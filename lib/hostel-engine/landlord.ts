@@ -109,6 +109,7 @@ const HOSTEL_SCHEMA_STATEMENTS = [
     capacity INTEGER NOT NULL CHECK (capacity BETWEEN 1 AND 6),
     utilities_fee INTEGER NOT NULL DEFAULT 0,
     amenities TEXT NOT NULL DEFAULT '',
+    bed_layout TEXT NOT NULL DEFAULT 'SEPARATE',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -183,6 +184,7 @@ export function ensureHostelTables() {
       version: HOSTEL_SCHEMA_VERSION,
       statements: HOSTEL_SCHEMA_STATEMENTS,
     });
+    await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelRoomBedLayout", version: "041_hostel_room_bed_layout", statements: ["ALTER TABLE hostel_rooms ADD COLUMN bed_layout TEXT NOT NULL DEFAULT 'SEPARATE'"] });
     await runSchemaPass({
       metaTable: "campus_schema_meta",
       id: "hostelCommission3pct",
@@ -289,10 +291,13 @@ export async function registerLandlord(input: {
   );
   let accountId = "";
   try {
+    const { createOwnerOnboarding } = await import("@/lib/hostel-engine/onboarding");
+    await createOwnerOnboarding(landlordId);
     accountId = await createConsoleAccount({
       email, password, name, phone, role: "LANDLORD", profileId: landlordId, status: "ACTIVE",
     });
   } catch (error) {
+    await turso("DELETE FROM hostel_owner_onboarding WHERE landlord_id = ?", [landlordId]).catch(() => undefined);
     await turso("DELETE FROM hostel_landlords WHERE id = ?", [landlordId]).catch(() => undefined);
     throw error;
   }
@@ -357,6 +362,11 @@ export async function reviewHostelLandlordKyc(input: {
   const reason = String(input.reason || "").trim();
   if (input.action === "REJECT" && !reason) {
     throw new CampusEngineError("VALIDATION_ERROR", "Give a reason so the landlord knows what to fix.", 400);
+  }
+  if (input.action === "VERIFY") {
+    const { identityDocuments } = await import("@/lib/hostel-engine/onboarding");
+    const kinds = new Set((await identityDocuments(landlord.id)).map(document => document.kind));
+    if (!kinds.has("IDENTITY") || !kinds.has("AUTHORITY")) throw new CampusEngineError("INVALID_STATE", "Review both identity and ownership or authority evidence first.", 409);
   }
   const next: HostelKycStatus = input.action === "VERIFY" ? "VERIFIED" : "REJECTED";
   if (landlord.kycStatus === next && !reason) {
@@ -477,6 +487,7 @@ export type HostelRoom = {
   capacity: number;
   utilitiesFee: number;
   amenities: string;
+  bedLayout: "SEPARATE" | "BUNK";
   status: HostelRoomStatus;
   createdAt: string;
   updatedAt: string;
@@ -496,8 +507,9 @@ export type HostelPropertyDetail = { property: HostelProperty; rooms: HostelRoom
 
 /** Every bed a room may hold, in the order landlords name them. */
 const BED_NAMES = ["Bed A", "Bed B", "Bed C", "Bed D", "Bed E", "Bed F"];
+const BUNK_SPACE_NAMES = ["Bunk 1 lower", "Bunk 1 upper", "Bunk 2 lower", "Bunk 2 upper", "Bunk 3 lower", "Bunk 3 upper"];
 
-const ROOM_COLUMNS = "id,property_id,label,capacity,COALESCE(utilities_fee,0) AS utilities_fee,COALESCE(amenities,'') AS amenities,COALESCE(status,'ACTIVE') AS status,created_at,updated_at";
+const ROOM_COLUMNS = "id,property_id,label,capacity,COALESCE(utilities_fee,0) AS utilities_fee,COALESCE(amenities,'') AS amenities,COALESCE(bed_layout,'SEPARATE') AS bed_layout,COALESCE(status,'ACTIVE') AS status,created_at,updated_at";
 const SPACE_COLUMNS = "s.id,s.room_id,s.label,COALESCE(s.status,'AVAILABLE') AS status,s.created_at,s.updated_at";
 /** Ten thousand cedis per bed is far past any real utilities fee. */
 const MAX_UTILITIES_FEE = 1_000_000;
@@ -510,6 +522,7 @@ function roomView(row: Record<string, unknown>): HostelRoom {
     capacity: Number(row.capacity ?? 0),
     utilitiesFee: Number(row.utilities_fee ?? 0),
     amenities: String(row.amenities || ""),
+    bedLayout: String(row.bed_layout || "SEPARATE") as "SEPARATE" | "BUNK",
     status: String(row.status || "ACTIVE") as HostelRoomStatus,
     createdAt: String(row.created_at || ""),
     updatedAt: String(row.updated_at || ""),
@@ -575,7 +588,7 @@ export async function updateHostelProperty(landlordId: string, propertyId: strin
   }
   const utilitiesEnabled = input.utilitiesEnabled === true || input.utilitiesEnabled === "true" || input.utilitiesEnabled === 1 ? 1 : 0;
   await turso(
-    "UPDATE hostel_properties SET name=?,address=?,latitude=?,longitude=?,utilities_enabled=?,updated_at=? WHERE id=? AND landlord_id=?",
+    "UPDATE hostel_properties SET name=?,address=?,latitude=?,longitude=?,utilities_enabled=?,status=CASE WHEN status='SUSPENDED' THEN status ELSE 'DRAFT' END,updated_at=? WHERE id=? AND landlord_id=?",
     [name, address, latitude, longitude, utilitiesEnabled, new Date().toISOString(), propertyId, landlordId],
   );
   await consoleAudit({
@@ -604,7 +617,7 @@ export async function getHostelPropertyDetail(landlordId: string, propertyId: st
 export async function getHostelRoom(landlordId: string, roomId: string): Promise<HostelRoom> {
   await ensureHostelTables();
   const row = rowsToObjects(await turso(
-    `SELECT r.id,r.property_id,r.label,r.capacity,COALESCE(r.utilities_fee,0) AS utilities_fee,COALESCE(r.amenities,'') AS amenities,COALESCE(r.status,'ACTIVE') AS status,r.created_at,r.updated_at
+    `SELECT r.id,r.property_id,r.label,r.capacity,COALESCE(r.utilities_fee,0) AS utilities_fee,COALESCE(r.amenities,'') AS amenities,COALESCE(r.bed_layout,'SEPARATE') AS bed_layout,COALESCE(r.status,'ACTIVE') AS status,r.created_at,r.updated_at
      FROM hostel_rooms r JOIN hostel_properties p ON p.id = r.property_id WHERE r.id = ? AND p.landlord_id = ? LIMIT 1`,
     [roomId, landlordId],
   ))[0];
@@ -629,10 +642,11 @@ async function createBeds(roomId: string, labels: string[], stamp: string) {
   }
 }
 
-function unusedBedNames(used: string[], count: number) {
+function unusedBedNames(used: string[], count: number, layout: "SEPARATE" | "BUNK" = "SEPARATE") {
   const taken = new Set(used);
   const labels: string[] = [];
-  for (const name of BED_NAMES) {
+  const candidates = layout === "BUNK" ? [...BUNK_SPACE_NAMES.slice(used.length), ...BUNK_SPACE_NAMES.slice(0, used.length)] : BED_NAMES;
+  for (const name of candidates) {
     if (labels.length >= count) break;
     if (!taken.has(name)) { labels.push(name); taken.add(name); }
   }
@@ -640,7 +654,7 @@ function unusedBedNames(used: string[], count: number) {
 }
 
 export async function createHostelRoom(landlordId: string, propertyId: string, input: {
-  label?: unknown; capacity?: unknown; utilitiesFee?: unknown; amenities?: unknown;
+  label?: unknown; capacity?: unknown; utilitiesFee?: unknown; amenities?: unknown; bedLayout?: unknown;
 }): Promise<HostelRoomWithSpaces> {
   await ensureHostelTables();
   // Ownership first: the property must belong to the caller.
@@ -651,6 +665,9 @@ export async function createHostelRoom(landlordId: string, propertyId: string, i
     ? 0
     : integerInRange(input.utilitiesFee, 0, MAX_UTILITIES_FEE, "Enter the utilities fee per bed in pesewas, or leave it at 0.");
   const amenities = optedText(input.amenities, 200, "Keep the amenities line under 200 characters.");
+  const bedLayout = input.bedLayout === undefined ? "SEPARATE" : String(input.bedLayout).toUpperCase();
+  if (!["SEPARATE", "BUNK"].includes(bedLayout)) throw new CampusEngineError("VALIDATION_ERROR", "Choose separate beds or bunk beds.", 400);
+  if (bedLayout === "BUNK" && capacity % 2 !== 0) throw new CampusEngineError("VALIDATION_ERROR", "Each bunk has one lower and one upper bed, so choose 2, 4 or 6 bed spaces.", 400);
 
   const duplicate = rowsToObjects(await turso(
     "SELECT id FROM hostel_rooms WHERE property_id = ? AND label = ? AND status = 'ACTIVE' LIMIT 1",
@@ -661,10 +678,11 @@ export async function createHostelRoom(landlordId: string, propertyId: string, i
   const stamp = new Date().toISOString();
   const roomId = crypto.randomUUID();
   await turso(
-    "INSERT INTO hostel_rooms (id,property_id,label,capacity,utilities_fee,amenities,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'ACTIVE',?,?)",
-    [roomId, propertyId, label, capacity, utilitiesFee, amenities, stamp, stamp],
+    "INSERT INTO hostel_rooms (id,property_id,label,capacity,utilities_fee,amenities,bed_layout,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)",
+    [roomId, propertyId, label, capacity, utilitiesFee, amenities, bedLayout, stamp, stamp],
   );
-  await createBeds(roomId, unusedBedNames([], capacity), stamp);
+  await createBeds(roomId, unusedBedNames([], capacity, bedLayout as "SEPARATE" | "BUNK"), stamp);
+  await turso("UPDATE hostel_properties SET status='DRAFT',updated_at=? WHERE id=? AND status='APPROVED'", [stamp, propertyId]);
   await consoleAudit({
     actor: landlordId, action: "HOSTEL_ROOM_CREATED", targetType: "hostel_room", targetReference: roomId, details: { propertyId, label, capacity },
   }).catch(() => undefined);
@@ -677,13 +695,16 @@ export async function createHostelRoom(landlordId: string, propertyId: string, i
  * at is never retired silently.
  */
 export async function updateHostelRoom(landlordId: string, roomId: string, input: {
-  label?: unknown; capacity?: unknown; utilitiesFee?: unknown; amenities?: unknown; status?: unknown;
+  label?: unknown; capacity?: unknown; utilitiesFee?: unknown; amenities?: unknown; bedLayout?: unknown; status?: unknown;
 }): Promise<HostelRoomWithSpaces> {
   const room = await getHostelRoom(landlordId, roomId);
   const label = input.label === undefined ? room.label : requiredText(input.label, 1, 24, "Give the room a name like \"Room 3\" (1 to 24 characters).");
   const capacity = input.capacity === undefined ? room.capacity : integerInRange(input.capacity, 1, 6, "A room holds between 1 and 6 beds.");
   const utilitiesFee = input.utilitiesFee === undefined ? room.utilitiesFee : integerInRange(input.utilitiesFee, 0, MAX_UTILITIES_FEE, "Enter the utilities fee per bed in pesewas, or leave it at 0.");
   const amenities = input.amenities === undefined ? room.amenities : optedText(input.amenities, 200, "Keep the amenities line under 200 characters.");
+  const bedLayout = input.bedLayout === undefined ? room.bedLayout : String(input.bedLayout).toUpperCase();
+  if (!["SEPARATE", "BUNK"].includes(bedLayout)) throw new CampusEngineError("VALIDATION_ERROR", "Choose separate beds or bunk beds.", 400);
+  if (bedLayout === "BUNK" && capacity % 2 !== 0) throw new CampusEngineError("VALIDATION_ERROR", "Each bunk has one lower and one upper bed, so choose 2, 4 or 6 bed spaces.", 400);
   let status: HostelRoomStatus = room.status;
   if (input.status !== undefined) {
     if (!(HOSTEL_ROOM_STATUSES as readonly string[]).includes(String(input.status))) {
@@ -732,7 +753,7 @@ export async function updateHostelRoom(landlordId: string, roomId: string, input
       await turso("UPDATE hostel_spaces SET status='AVAILABLE',updated_at=? WHERE id=?", [stamp, space.id]);
     }
     const added = capacity - active.length - retired.length;
-    if (added > 0) await createBeds(roomId, unusedBedNames([...active, ...retired].map((space) => space.label), added), stamp);
+    if (added > 0) await createBeds(roomId, unusedBedNames([...active, ...retired].map((space) => space.label), added, bedLayout as "SEPARATE" | "BUNK"), stamp);
   }
 
   if (status === "RETIRED" && room.status !== "RETIRED") {
@@ -747,9 +768,12 @@ export async function updateHostelRoom(landlordId: string, roomId: string, input
   }
 
   await turso(
-    "UPDATE hostel_rooms SET label=?,capacity=?,utilities_fee=?,amenities=?,status=?,updated_at=? WHERE id=? AND property_id=?",
-    [label, capacity, utilitiesFee, amenities, status, stamp, roomId, room.propertyId],
+    "UPDATE hostel_rooms SET label=?,capacity=?,utilities_fee=?,amenities=?,bed_layout=?,status=?,updated_at=? WHERE id=? AND property_id=?",
+    [label, capacity, utilitiesFee, amenities, bedLayout, status, stamp, roomId, room.propertyId],
   );
+  if (label !== room.label || capacity !== room.capacity || utilitiesFee !== room.utilitiesFee || amenities !== room.amenities || bedLayout !== room.bedLayout || status !== room.status) {
+    await turso("UPDATE hostel_properties SET status='DRAFT',updated_at=? WHERE id=? AND status='APPROVED'", [stamp, room.propertyId]);
+  }
   await consoleAudit({
     actor: landlordId, action: "HOSTEL_ROOM_UPDATED", targetType: "hostel_room", targetReference: roomId, details: { label, capacity, status },
   }).catch(() => undefined);

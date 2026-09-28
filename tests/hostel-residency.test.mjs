@@ -93,6 +93,7 @@ function bookableRow(listingId) {
   if (!listing || !space || !room || !property || !landlord) return null;
   return {
     listing_id: listing.id,
+    listing_status: listing.status,
     space_id: space.id,
     period_id: listing.period_id,
     price: listing.price,
@@ -233,6 +234,22 @@ function handle(sql, args) {
     return ok(row ? table(["id"], [row]) : empty);
   }
 
+  if (matched(/FROM hostel_landlords h LEFT JOIN hostel_owner_onboarding o ON o.landlord_id=h.id WHERE h.id=\? LIMIT 1/, sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    return ok(row ? table(["id", "name", "phone", "email", "organization", "account_status", "kyc_status", "review_reason", "owner_role", "profile_status", "profile_reason", "payout_status", "payout_reason", "payout_snapshot", "payout_method", "payout_last4", "payout_bank_code", "payout_bank_name", "payout_account_name", "payout_updated_at"], [{
+      ...row, account_status: row.status, owner_role: "OWNER", profile_status: row.profile_status || "PENDING", profile_reason: "",
+      payout_status: row.payout_review_status || "PENDING", payout_reason: "", payout_snapshot: row.payout_snapshot || "",
+      payout_last4: row.payout_account_last4 || "",
+    }]) : empty);
+  }
+  if (matched(/SELECT id FROM hostel_property_photos WHERE property_id=\? AND status='APPROVED' LIMIT 1/, sql)) {
+    return ok(args[0] === "property-a" ? table(["id"], [{ id: "approved-photo-a" }]) : empty);
+  }
+  if (matched(/UPDATE hostel_owner_onboarding SET payout_status='PENDING'/, sql)) {
+    const row = landlords.find((item) => item.id === args[1]);
+    if (row) { row.payout_review_status = "PENDING"; row.payout_snapshot = ""; }
+    return affected(row ? 1 : 0);
+  }
   // --- booking lifecycle ----------------------------------------------------
   if (matched(/FROM hostel_listings l\s+JOIN hostel_spaces s/, sql)) {
     const row = bookableRow(args[0]);
@@ -530,7 +547,8 @@ function handle(sql, args) {
   if (matched(/SELECT COALESCE\(payout_method,''\) AS payout_method/, sql)) {
     const row = landlords.find((item) => item.id === args[0]);
     if (!row) return ok(empty);
-    return ok(table(["payout_method", "payout_account_name", "payout_account_last4", "payout_bank_code", "payout_bank_name", "payout_updated_at"], [{
+    return ok(table(["payout_method", "payout_account_name", "payout_account_last4", "payout_bank_code", "payout_bank_name", "payout_updated_at", "payout_review_status", "payout_snapshot"], [{
+      payout_review_status: row.payout_review_status || "PENDING", payout_snapshot: row.payout_snapshot || "",
       payout_method: row.payout_method || "", payout_account_name: row.payout_account_name || "",
       payout_account_last4: row.payout_account_last4 || "", payout_bank_code: row.payout_bank_code || "",
       payout_bank_name: row.payout_bank_name || "", payout_updated_at: row.payout_updated_at || "",
@@ -721,7 +739,9 @@ const { CampusEngineError } = await vite.ssrLoadModule("/lib/campus-engine/error
 
 landlords.push({
   id: "landlord-a", name: "Mr. Owusu", organization: "Owusu Hostels", phone: "0551234567",
-  email: "owusu@example.com", status: "ACTIVE", commission_bps: 300,
+  email: "owusu@example.com", status: "ACTIVE", kyc_status: "VERIFIED", profile_status: "APPROVED", commission_bps: 300,
+  payout_method: "MOMO", payout_account_name: "Mr. Owusu", payout_account_last4: "0111", payout_bank_code: "MTN", payout_bank_name: "MTN", payout_updated_at: "seed-time",
+  payout_review_status: "APPROVED", payout_snapshot: JSON.stringify(["MOMO", "0111", "MTN", "seed-time"]),
 });
 consoleAccounts.push({
   id: "acc-owner", email: "owusu@example.com", name: "Mr. Owusu", phone: "0551234567",
@@ -768,6 +788,40 @@ async function expectError(promise, code, status) {
     return true;
   });
 }
+
+test("booking stays closed until listing, property, owner and payout approvals are current", async () => {
+  const owner = landlords[0];
+  const property = properties[0];
+  const listing = listings[0];
+  const original = { listing: listing.status, property: property.status, identity: owner.kyc_status, profile: owner.profile_status, payout: owner.payout_review_status, snapshot: owner.payout_snapshot };
+  try {
+    listing.status = "DRAFT";
+    await expectError(holdBed("listing-a"), "INVALID_STATE", 409);
+    listing.status = "APPROVED";
+    property.status = "DRAFT";
+    await expectError(holdBed("listing-a"), "INVALID_STATE", 409);
+    property.status = "APPROVED";
+    owner.kyc_status = "PENDING";
+    await expectError(holdBed("listing-a"), "INVALID_STATE", 409);
+    owner.kyc_status = "VERIFIED";
+    owner.profile_status = "PENDING";
+    await expectError(holdBed("listing-a"), "INVALID_STATE", 409);
+    owner.profile_status = "APPROVED";
+    owner.payout_review_status = "PENDING";
+    await expectError(holdBed("listing-a"), "INVALID_STATE", 409);
+    owner.payout_review_status = "APPROVED";
+    owner.payout_snapshot = "stale account";
+    await expectError(holdBed("listing-a"), "INVALID_STATE", 409);
+    assert.equal(bookings.length, 0);
+  } finally {
+    listing.status = original.listing;
+    property.status = original.property;
+    owner.kyc_status = original.identity;
+    owner.profile_status = original.profile;
+    owner.payout_review_status = original.payout;
+    owner.payout_snapshot = original.snapshot;
+  }
+});
 
 test("a failed booking insert rolls back the reserved bed", async () => {
   failBookingInsert = true;
@@ -1124,6 +1178,12 @@ test("a payout needs a verified landlord, a saved account and a released entry",
   mine.release_after = "2999-01-01";
   other.release_after = "2999-01-01";
 
+  // Simulate the independent reviews being revoked after the students booked.
+  landlords[0].kyc_status = "PENDING";
+  landlords[0].payout_method = "";
+  landlords[0].payout_account_last4 = "";
+  landlords[0].payout_review_status = "PENDING";
+  landlords[0].payout_snapshot = "";
   // KYC first: an unverified landlord is exactly who the money gate stops.
   await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
   landlords[0].kyc_status = "VERIFIED";
@@ -1135,6 +1195,10 @@ test("a payout needs a verified landlord, a saved account and a released entry",
     accountNumber: "0244000111", bankCode: "MTN", actor: "owusu@example.com",
   });
 
+  // Saving a destination does not approve it. A staff decision is required.
+  await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
+  landlords[0].payout_review_status = "APPROVED";
+  landlords[0].payout_snapshot = JSON.stringify([landlords[0].payout_method, landlords[0].payout_account_last4, landlords[0].payout_bank_code, landlords[0].payout_updated_at]);
   // Then the release window: an entry held until the year is close stays held.
   await expectError(recordHostelPayoutBatch({ landlordId: "landlord-a", reference: "TRF-001", actor: "admin@umat.edu.gh" }), "INVALID_STATE", 409);
   mine.release_after = "2000-01-01";

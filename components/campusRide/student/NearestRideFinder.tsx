@@ -4,14 +4,19 @@ import { useMemo, useState } from "react";
 import { Crosshair } from "@phosphor-icons/react";
 import type { CampusCorridor, CampusZone } from "@/lib/campus-ride";
 
-export function NearestRideFinder({ zones, corridors }: { zones: CampusZone[]; corridors: CampusCorridor[] }) {
-  const [pickupZoneId, setPickupZoneId] = useState(zones[0]?.id || "");
-  const [destinationZoneId, setDestinationZoneId] = useState(corridors.find((item)=>item.originZoneId===pickupZoneId)?.destinationZoneId || zones[1]?.id || "");
+export function NearestRideFinder({ zones, corridors, initialPickupZoneId, initialDestinationZoneId }: { zones: CampusZone[]; corridors: CampusCorridor[]; initialPickupZoneId: string; initialDestinationZoneId: string }) {
+  const [pickupZoneId, setPickupZoneId] = useState(initialPickupZoneId);
+  const [destinationZoneId, setDestinationZoneId] = useState(initialDestinationZoneId);
   const [locationStatus, setLocationStatus] = useState("");
   const destinations = useMemo(() => {
     const allowed = corridors.filter((corridor) => corridor.originZoneId === pickupZoneId).map((corridor) => corridor.destinationZoneId);
     return zones.filter((zone) => zone.id !== pickupZoneId && (!allowed.length || allowed.includes(zone.id)));
   }, [corridors, pickupZoneId, zones]);
+
+  const changePickup = (id: string) => {
+    setPickupZoneId(id);
+    setDestinationZoneId(corridors.find((item) => item.originZoneId === id)?.destinationZoneId || "");
+  };
 
   const useCurrentLocation = () => {
     setLocationStatus("");
@@ -31,7 +36,7 @@ export function NearestRideFinder({ zones, corridors }: { zones: CampusZone[]; c
 
   return <form className="nearest-ride-finder" action="/campus">
     <div className="nearest-ride-fields">
-      <label>Pickup zone<select name="pickupZoneId" value={pickupZoneId} onChange={(event)=>{ setPickupZoneId(event.target.value); setDestinationZoneId(""); }}>{zones.map((zone)=><option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label>
+      <label>Pickup zone<select name="pickupZoneId" value={pickupZoneId} onChange={(event)=>changePickup(event.target.value)}>{zones.map((zone)=><option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label>
       <label>Destination<select name="destinationZoneId" value={destinationZoneId} onChange={(event)=>setDestinationZoneId(event.target.value)}>{destinations.map((zone)=><option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label>
     </div>
     <div className="nearest-ride-actions">

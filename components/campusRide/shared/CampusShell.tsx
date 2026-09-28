@@ -4,7 +4,7 @@ import { CampusNav } from "./CampusNav";
 
 export function CampusShell({ area, title, subtitle, children }: { area: string; title: string; subtitle: string; children: ReactNode }) {
   const interfaceClass = area === "CAMPUSRIDE" || area.includes("HOSTEL") ? "campus-student-shell" : area.includes("DRIVER") ? "campus-driver-shell" : area.includes("ADMIN") ? "campus-admin-shell" : "";
-  return <main className={`campus-shell ${interfaceClass}`}>
+  return <main className={`campus-shell ${interfaceClass}${area === "CAMPUSRIDE" ? " campus-ride-page" : ""}`}>
     <header className="campus-hero">
       <Link href="/" className="campus-logo" aria-label="UMaTeXPRESS home"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></Link>
       <div className="campus-hero-copy">

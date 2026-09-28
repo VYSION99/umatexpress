@@ -1,4 +1,4 @@
-import { Bed, Bus, Car, FilmSlate, ForkKnife, IdentificationCard, LockKey, MapPinLine, Money, Scales, SlidersHorizontal, Storefront, Wallet } from "@phosphor-icons/react/ssr";
+import { Bed, Bus, Car, FilmSlate, ForkKnife, IdentificationCard, LockKey, MapPinLine, Money, Scales, SlidersHorizontal, Storefront, UsersThree, Wallet } from "@phosphor-icons/react/ssr";
 // The SSR entry ships the icons but not the shared prop/component types, so the
 // component type comes from the main entry. `import type` is erased at build
 // time, so the server bundle still only sees the SSR icons.
@@ -9,7 +9,7 @@ import type { Icon } from "@phosphor-icons/react";
  * console is one console for every product. A service is a product area with
  * its own navigation; a role decides which of them are on the shelf.
  */
-export type ConsoleServiceGroup = "Mobility" | "Self-service trips" | "Money" | "Trust & safety" | "Accommodation" | "Commerce" | "Platform" | "Account";
+export type ConsoleServiceGroup = "Transport" | "Accommodation" | "Finance" | "Trust & safety" | "Entertainment" | "Campus services" | "Administration" | "Account";
 
 /** One page inside a service. `roles` restricts it to some of the roles that see the service. */
 export type ConsoleServiceNavItem = { label: string; href: string; roles?: readonly string[] };
@@ -31,30 +31,25 @@ export type ConsoleService = {
 
 /** Display order of the groups in the service directory and the sidebar. */
 export const CONSOLE_GROUP_ORDER: ConsoleServiceGroup[] = [
-  "Mobility",
-  "Self-service trips",
-  "Money",
-  "Trust & safety",
-  "Accommodation",
-  "Commerce",
-  "Platform",
-  "Account",
+  "Transport", "Accommodation", "Finance", "Trust & safety",
+  "Entertainment", "Campus services", "Administration", "Account",
 ];
 
 export const consoleServices: readonly ConsoleService[] = [
-  { id: "campus", title: "CampusRide", icon: Car, accent: "blue", group: "Mobility", href: "/console/campus", label: "CAMPUS OPERATIONS", description: "Keep campus moving.", detail: "Zones, routes, drivers, vehicles and ride queues.", action: "Open CampusRide", tags: ["Drivers & vehicles", "Zones & fares"], nav: [{ label: "Zones, drivers & queues", href: "/console/campus" }] },
-  { id: "vacation", title: "VacationRide", icon: Bus, accent: "orange", group: "Mobility", href: "/console/vacation", label: "TRIPS & PASSENGERS", description: "Every journey, organised.", detail: "Schedules, fares, passenger records and bookings.", action: "Manage trips", tags: ["Trip scheduler", "Passenger records"], nav: [{ label: "Schedules & bookings", href: "/console/vacation" }] },
-  { id: "driver", title: "Driver portal", icon: MapPinLine, accent: "green", group: "Mobility", href: "/console/driver", label: "BOARDING & QUEUES", description: "From pickup to arrival.", detail: "The driver workspace for today's queue and boarding.", action: "Open driver portal", tags: ["Driver access"], nav: [{ label: "Today's queue", href: "/console/driver" }] },
-  { id: "organizers", title: "Organizer applications", icon: Storefront, accent: "orange", group: "Self-service trips", href: "/console/organizers", label: "SELF-SERVICE TRIPS", description: "Approve who publishes coaches.", detail: "Review applications, activate or suspend organizers, and assign trips to them.", action: "Review applications", tags: ["Applications", "Trip ownership"], nav: [{ label: "Applications", href: "/console/organizers" }] },
-  { id: "organizer", title: "Organizer workspace", icon: Bus, accent: "orange", group: "Self-service trips", href: "/console/trips", label: "MY TRIPS", description: "Your coaches and passengers.", detail: "The trips you own, their passenger manifests and your trip notice.", action: "Open workspace", tags: ["Trips", "Manifests"], nav: [{ label: "My trips", href: "/console/trips" }, { label: "Business profile", href: "/console/profile" }, { label: "Earnings", href: "/console/earnings" }] },
-  { id: "profile", title: "Business profile", icon: IdentificationCard, accent: "cyan", group: "Money", href: "/console/profile", label: "VERIFICATION & PAYOUTS", description: "Get verified, get paid.", detail: "Submit identity verification and the account your payouts should reach.", action: "Open profile", tags: ["KYC", "Payout account"], nav: [{ label: "Verification & payout account", href: "/console/profile" }] },
-  { id: "earnings", title: "Earnings", icon: Wallet, accent: "cyan", group: "Money", href: "/console/earnings", label: "MY STATEMENT", description: "Every fare you earned.", detail: "See what each booking earned, what is ready to pay, and the payouts already recorded.", action: "Open statement", tags: ["Statement", "Payouts"], nav: [{ label: "Statement", href: "/console/earnings" }] },
-  { id: "payouts", title: "Organizer payouts", icon: Money, accent: "green", group: "Money", href: "/console/payouts", label: "MONEY OUT", description: "Pay what the platform owes.", detail: "Balances per organizer, the accrual ledger, unattended transfers, one-time-password authorisation and recording a payout by reference.", action: "Open payouts", tags: ["Ledger", "Batch payouts", "Transfer authorisation"], nav: [{ label: "Balances & batches", href: "/console/payouts" }] },
+  { id: "campus", title: "CampusRide", icon: Car, accent: "blue", group: "Transport", href: "/console/campus", label: "CAMPUS OPERATIONS", description: "Keep campus moving.", detail: "Zones, routes, drivers, vehicles and ride queues.", action: "Open CampusRide", tags: ["Drivers & vehicles", "Zones & fares"], nav: [{ label: "Zones, drivers & queues", href: "/console/campus" }] },
+  { id: "vacation", title: "VacationRide", icon: Bus, accent: "orange", group: "Transport", href: "/console/vacation", label: "TRIPS & PASSENGERS", description: "Every journey, organised.", detail: "Schedules, fares, passenger records and bookings.", action: "Manage trips", tags: ["Trip scheduler", "Passenger records"], nav: [{ label: "Schedules & bookings", href: "/console/vacation" }] },
+  { id: "driver", title: "Driver portal", icon: MapPinLine, accent: "green", group: "Transport", href: "/console/driver", label: "BOARDING & QUEUES", description: "From pickup to arrival.", detail: "The driver workspace for today's queue and boarding.", action: "Open driver portal", tags: ["Driver access"], nav: [{ label: "Today's queue", href: "/console/driver" }] },
+  { id: "organizers", title: "Organizer applications", icon: Storefront, accent: "orange", group: "Transport", href: "/console/organizers", label: "SELF-SERVICE TRIPS", description: "Approve who publishes coaches.", detail: "Review applications, activate or suspend organizers, and assign trips to them.", action: "Review applications", tags: ["Applications", "Trip ownership"], nav: [{ label: "Applications", href: "/console/organizers" }] },
+  { id: "organizer", title: "Organizer workspace", icon: Bus, accent: "orange", group: "Transport", href: "/console/trips", label: "MY TRIPS", description: "Your coaches and passengers.", detail: "The trips you own, their passenger manifests and your trip notice.", action: "Open workspace", tags: ["Trips", "Manifests"], nav: [{ label: "My trips", href: "/console/trips" }, { label: "Business profile", href: "/console/profile" }, { label: "Earnings", href: "/console/earnings" }] },
+  { id: "profile", title: "Business profile", icon: IdentificationCard, accent: "cyan", group: "Finance", href: "/console/profile", label: "VERIFICATION & PAYOUTS", description: "Get verified, get paid.", detail: "Submit identity verification and the account your payouts should reach.", action: "Open profile", tags: ["KYC", "Payout account"], nav: [{ label: "Verification & payout account", href: "/console/profile" }] },
+  { id: "earnings", title: "Earnings", icon: Wallet, accent: "cyan", group: "Finance", href: "/console/earnings", label: "MY STATEMENT", description: "Every fare you earned.", detail: "See what each booking earned, what is ready to pay, and the payouts already recorded.", action: "Open statement", tags: ["Statement", "Payouts"], nav: [{ label: "Statement", href: "/console/earnings" }] },
+  { id: "payouts", title: "Organizer payouts", icon: Money, accent: "green", group: "Finance", href: "/console/payouts", label: "MONEY OUT", description: "Pay what the platform owes.", detail: "Balances per organizer, the accrual ledger, unattended transfers, one-time-password authorisation and recording a payout by reference.", action: "Open payouts", tags: ["Ledger", "Batch payouts", "Transfer authorisation"], nav: [{ label: "Balances & batches", href: "/console/payouts" }] },
   { id: "disputes", title: "Disputes", icon: Scales, accent: "purple", group: "Trust & safety", href: "/console/disputes", label: "TRUST & RESOLUTION", description: "Decide what went wrong.", detail: "What passengers and organizers raised, and the record of what was decided and why.", action: "Open disputes", tags: ["Complaints", "Decisions"], nav: [{ label: "Cases", href: "/console/disputes" }] },
-  { id: "hostels", title: "Hostel Finder", icon: Bed, accent: "green", group: "Accommodation", href: "/console/hostels", label: "ACCOMMODATION", description: "A home for every student.", detail: "Your properties, rooms, bed-spaces, residents, services and payouts.", action: "Open workspace", tags: ["Properties", "Residents & services"], nav: [{ label: "My properties", href: "/console/hostels" }, { label: "Residents & services", href: "/console/hostels/residents", roles: ["LANDLORD"] }, { label: "Reviews", href: "/console/hostels/reviews", roles: ["LANDLORD", "ADMIN", "MODERATOR"] }, { label: "Payouts", href: "/console/hostels/payouts", roles: ["ADMIN"] }, { label: "Refunds", href: "/console/hostels/refunds", roles: ["ADMIN"] }, { label: "Service catalogue", href: "/console/hostels/plugins", roles: ["ADMIN"] }, { label: "Analytics", href: "/console/hostels/analytics", roles: ["ADMIN"] }, { label: "Supply signals", href: "/console/hostels/signals", roles: ["ADMIN", "MODERATOR"] }] },
-  { id: "food", title: "Food", icon: ForkKnife, accent: "peach", group: "Commerce", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [], nav: [] },
-  { id: "cinema", title: "OnlineCinema", icon: FilmSlate, accent: "purple", group: "Commerce", href: "/console/cinema", label: "ENTERTAINMENT · WATCH", description: "Study and watch together.", detail: "Every collaborative room, the people in it, and the reports students raise.", action: "Open rooms", tags: ["Study rooms", "Watch reports"], nav: [{ label: "Rooms", href: "/console/cinema" }, { label: "Reports", href: "/console/cinema/signals" }] },
-  { id: "settings", title: "Platform settings", icon: SlidersHorizontal, accent: "cyan", group: "Platform", href: "/console/settings", label: "PLATFORM · CONTROLS", description: "One switchboard for the deployment.", detail: "Whether the scheduled jobs may pay out unattended, the transfer fee and minimum a payout must clear, and the cinema limits.", action: "Open settings", tags: ["Payout automation", "Fees & minimums"], nav: [{ label: "Payout automation", href: "/console/settings" }] },
+  { id: "hostels", title: "Hostel Finder", icon: Bed, accent: "green", group: "Accommodation", href: "/console/hostels", label: "ACCOMMODATION", description: "A home for every student.", detail: "Your properties, rooms, bed-spaces, residents, services and payouts.", action: "Open workspace", tags: ["Properties", "Residents & services"], nav: [{ label: "Setup & verification", href: "/console/hostels/onboarding", roles: ["LANDLORD"] }, { label: "My properties", href: "/console/hostels" }, { label: "Residents & services", href: "/console/hostels/residents", roles: ["LANDLORD"] }, { label: "Reviews", href: "/console/hostels/reviews", roles: ["LANDLORD", "ADMIN", "MODERATOR"] }, { label: "Payouts", href: "/console/hostels/payouts", roles: ["ADMIN"] }, { label: "Refunds", href: "/console/hostels/refunds", roles: ["ADMIN"] }, { label: "Service catalogue", href: "/console/hostels/plugins", roles: ["ADMIN"] }, { label: "Analytics", href: "/console/hostels/analytics", roles: ["ADMIN"] }, { label: "Supply signals", href: "/console/hostels/signals", roles: ["ADMIN", "MODERATOR"] }] },
+  { id: "food", title: "Food", icon: ForkKnife, accent: "peach", group: "Campus services", href: null, label: "CAMPUS DINING", description: "Something good is coming.", detail: "Vendor and order management is not available yet.", action: "Coming soon", tags: [], nav: [] },
+  { id: "cinema", title: "OnlineCinema", icon: FilmSlate, accent: "purple", group: "Entertainment", href: "/console/cinema", label: "ENTERTAINMENT · WATCH", description: "Study and watch together.", detail: "Every collaborative room, the people in it, and the reports students raise.", action: "Open rooms", tags: ["Study rooms", "Watch reports"], nav: [{ label: "Rooms", href: "/console/cinema" }, { label: "Reports", href: "/console/cinema/signals" }] },
+  { id: "settings", title: "Platform settings", icon: SlidersHorizontal, accent: "cyan", group: "Administration", href: "/console/settings", label: "PLATFORM · CONTROLS", description: "One switchboard for the deployment.", detail: "Whether the scheduled jobs may pay out unattended, the transfer fee and minimum a payout must clear, and the cinema limits.", action: "Open settings", tags: ["Payout automation", "Fees & minimums"], nav: [{ label: "Payout automation", href: "/console/settings" }] },
+  { id: "delegates", title: "Admin delegates", icon: UsersThree, accent: "blue", group: "Administration", href: "/console/delegates", label: "TEAM ACCESS", description: "Give each teammate only the console services they manage.", detail: "Create, scope and suspend administrator delegates. Access changes end existing sessions.", action: "Manage delegates", tags: ["Service permissions", "Access control"], nav: [{ label: "Delegate accounts", href: "/console/delegates" }] },
   { id: "security", title: "Account security", icon: LockKey, accent: "purple", group: "Account", href: "/console/change-password", label: "YOUR ACCESS", description: "Look after your access.", detail: "Change the password that opens this console.", action: "Change password", tags: ["Password settings"], nav: [{ label: "Password", href: "/console/change-password" }] },
 ];
 
@@ -76,8 +71,8 @@ const PERSONAL_SERVICE_IDS = ["driver", "organizer", "profile", "earnings"] as c
  * it, and this list is presentation only: the matching API re-checks the role
  * from the signed session on every request.
  */
-export function consoleServicesForRole(role: string) {
-  if (role === "ADMIN") return consoleServices.filter((service) => !(PERSONAL_SERVICE_IDS as readonly string[]).includes(service.id));
+export function consoleServicesForRole(role: string, delegateServices?: readonly string[]) {
+  if (role === "ADMIN") return consoleServices.filter((service) => !(PERSONAL_SERVICE_IDS as readonly string[]).includes(service.id) && (delegateServices === undefined || service.id === "security" || delegateServices.includes(service.id)));
   // Role order matters: the role's own workspace leads and account security is
   // always last, so the first card is the one the person signed in to use.
   const order: Record<string, string[]> = {
@@ -90,8 +85,8 @@ export function consoleServicesForRole(role: string) {
 }
 
 /** The role's services, grouped the way a product directory is grouped. */
-export function consoleGroupsForRole(role: string) {
-  const services = consoleServicesForRole(role);
+export function consoleGroupsForRole(role: string, delegateServices?: readonly string[]) {
+  const services = consoleServicesForRole(role, delegateServices);
   return CONSOLE_GROUP_ORDER
     .map((group) => ({ group, services: services.filter((service) => service.group === group) }))
     .filter((entry) => entry.services.length);

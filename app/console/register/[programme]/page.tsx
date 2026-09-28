@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { PaperPlaneTilt } from "@phosphor-icons/react";
 import { consoleApplicationById, type ConsoleApplication } from "@/lib/console-applications";
 
@@ -25,6 +25,7 @@ function ApplicationNotice({ title, message }: { title: string; message: string 
  * a registry entry plus the server handler — never a new page.
  */
 function ApplicationForm({ application }: { application: ConsoleApplication }) {
+  const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>(() => Object.fromEntries(application.fields.map((field) => [field.key, ""])));
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -44,6 +45,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The application could not be submitted.");
+      if (application.id === "landlord") { router.replace("/console/hostels/onboarding"); return; }
       setSubmitted(data.message || "Application received.");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "The application could not be submitted.");
@@ -70,6 +72,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{application.title}</h1>
       <span>{application.detail}</span>
+      {application.id === "landlord" && <p className="console-field-hint">Step 1 of 3 · Account and owner details. Property and identity follow in your private workspace.</p>}
       {application.fields.map((field) => (
         <label key={field.key}>
           {field.label}

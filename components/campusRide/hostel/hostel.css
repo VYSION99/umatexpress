@@ -128,3 +128,5 @@
 .hostel-walking label { display: block; margin-top: 16px; margin-bottom: 7px; font-size: 12px; font-weight: 750; }
 .hostel-walking select { width: 100%; min-height: 44px; margin-bottom: 12px; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: 10px; background: white; font: inherit; font-size: 13px; }
 .hostel-walk-map { width: 100%; height: 250px; margin-top: 12px; border-radius: 12px; overflow: hidden; }
+
+.hostel-booking-paused{display:inline-flex;align-items:center;padding:7px 10px;border-radius:9px;background:#fff3dc;color:#7d4b08;font-size:12px;font-weight:800;line-height:1.4}.hostel-booking-pause-notice{display:grid;gap:4px;margin:0 0 16px;padding:14px 16px;border:1px solid #f1d9ac;border-radius:14px;background:#fff8ea;color:#6e490e;font-size:13px}.hostel-booking-pause-notice strong{font-size:14px}

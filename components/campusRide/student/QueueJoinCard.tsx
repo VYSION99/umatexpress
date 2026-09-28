@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { ArrowRight, X } from "@phosphor-icons/react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import { clearProfile, readProfile, writeProfile } from "@/lib/passenger-profile";
 
 export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLatitude, pickupLongitude }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string; pickupLatitude?: number; pickupLongitude?: number }) {
   const router = useRouter();
+  const reviewRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [passengerName, setPassengerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -18,9 +20,6 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
   const [remembered, setRemembered] = useState(false);
   const { ready: accountReady, account } = useStudentAccount();
 
-  // Comfort: repeat riders should never retype their details. This reads the
-  // same device-local profile the homepage and vacationRide use, after mount so
-  // the server-rendered form never ships someone else's saved details.
   useEffect(() => {
     queueMicrotask(() => {
       const saved = readProfile();
@@ -32,18 +31,23 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
     });
   }, []);
 
-  const submit = async (event: FormEvent) => {
+  const review = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // Joining a queue starts a payment. The server enforces this too; this hop
-    // just keeps the student from filling the form before being told.
     if (!account) { router.push(`/account?next=${encodeURIComponent("/campus")}`); return; }
+    setError("");
+    reviewRef.current?.showModal();
+  };
+
+  const beginPayment = async () => {
+    if (loading || !account) return;
+    reviewRef.current?.close();
     setLoading(true); setError("");
     try {
       const response = await fetch("/api/campus/queue/initialize", {
-        method:"POST",
-        credentials:"same-origin",
-        headers:{"content-type":"application/json"},
-        body:JSON.stringify({ passengerName, phone, email, pickupZoneId, destinationZoneId, rideId: match.id, pickupLatitude, pickupLongitude }),
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ passengerName, phone, email, pickupZoneId, destinationZoneId, rideId: match.id, pickupLatitude, pickupLongitude }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not join ride queue.");
@@ -65,15 +69,28 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
   };
 
   if (!open) return accountReady && !account
-    ? <Link href={`/account?next=${encodeURIComponent("/campus")}`}>Sign in to join queue</Link>
-    : <button onClick={()=>setOpen(true)}>Join queue & pay</button>;
-  return <form className="queue-join-form" onSubmit={submit}>
-    <strong>Join {match.corridor?.name || "campus ride"}</strong>
-    <input required value={passengerName} onChange={(event)=>setPassengerName(event.target.value)} placeholder="Passenger name" />
-    <input required value={phone} onChange={(event)=>setPhone(event.target.value)} placeholder="Phone number" />
-    <input type="email" value={email} onChange={(event)=>setEmail(event.target.value)} placeholder="Email optional" />
-    {remembered && <small className="queue-join-remembered">These details are saved on this device. <button type="button" className="queue-join-forget" onClick={forgetDetails}>Forget</button></small>}
-    {error && <small>{error}</small>}
-    <div><button disabled={loading}>{loading ? "Starting payment..." : "Continue to Paystack"}</button><button type="button" onClick={()=>setOpen(false)}>Cancel</button></div>
-  </form>;
+    ? <Link className="campus-ride-signin" href={`/account?next=${encodeURIComponent("/campus")}`}>Sign in to join queue</Link>
+    : <button type="button" onClick={() => setOpen(true)}>Join queue &amp; pay</button>;
+  return <>
+    <form className="queue-join-form" onSubmit={review}>
+      <strong>Passenger details</strong>
+      <p>Your ticket will use these details after payment is confirmed.</p>
+      <label>Full name<input required autoComplete="name" value={passengerName} onChange={(event) => setPassengerName(event.target.value)} placeholder="Name on your ticket" /></label>
+      <label>Mobile Money phone<input required type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Phone number" /></label>
+      <label>Email <span>(optional)</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
+      {remembered && <small className="queue-join-remembered">Details saved on this device. <button type="button" className="queue-join-forget" onClick={forgetDetails}>Forget</button></small>}
+      {error && <small role="alert" className="campus-ride-payment-error">{error}</small>}
+      <div className="queue-join-actions"><button type="submit" disabled={loading}>{loading ? "Starting payment..." : "Review and pay"}</button><button type="button" onClick={() => setOpen(false)}>Cancel</button></div>
+    </form>
+    <dialog ref={reviewRef} className="campus-ride-dialog" aria-labelledby="campus-payment-review-title" onClick={(event) => { if (event.target === event.currentTarget) reviewRef.current?.close(); }}>
+      <div className="campus-ride-dialog-content">
+        <div className="campus-ride-dialog-head"><span>FINAL CHECK</span><button type="button" aria-label="Close payment review" onClick={() => reviewRef.current?.close()}><X size={19} aria-hidden /></button></div>
+        <h2 id="campus-payment-review-title">Review your ride</h2>
+        <p className="campus-ride-dialog-subtitle">Confirm these details before opening secure checkout.</p>
+        <dl className="campus-ride-detail-list"><div><dt>Route</dt><dd>{match.corridor?.name || "Campus ride"}</dd></div><div><dt>Passenger</dt><dd>{passengerName}</dd></div><div><dt>Mobile Money phone</dt><dd>{phone}</dd></div>{email && <div><dt>Email</dt><dd>{email}</dd></div>}<div><dt>Flat fare</dt><dd>{match.fare > 0 ? `GH₵ ${(match.fare / 100).toFixed(2)}` : "Fare shown at checkout"}</dd></div></dl>
+        <p className="campus-ride-dialog-note">Payment activates a place in the ride queue. The payment provider shows the final amount before you approve it.</p>
+        <div className="campus-ride-dialog-actions"><button type="button" className="campus-ride-dialog-primary" disabled={loading} onClick={() => void beginPayment()}>Continue to secure payment <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => reviewRef.current?.close()}>Edit details</button></div>
+      </div>
+    </dialog>
+  </>;
 }

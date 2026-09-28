@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { formatTime } from "@/lib/trips";
-import { ArrowRight, Bus, CalendarDots, Check, Clock, MapPin, Robot, ShieldCheck, Sparkle, Users } from "@phosphor-icons/react";
+import { ArrowRight, Bus, CalendarDots, Check, Clock, MapPin, Robot, ShieldCheck, Sparkle, Users, X } from "@phosphor-icons/react";
 import type { PublicNotice } from "@/lib/trip-notice";
 import FlyerCarousel from "@/components/vacation/FlyerCarousel";
+import "@/components/vacation/vacation.css";
 import { readProfile, writeProfile } from "@/lib/passenger-profile";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 
@@ -38,7 +39,7 @@ export default function Home() {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
-  const [selectedSeat, setSelectedSeat] = useState(6);
+  const [seatChoice, setSeatChoice] = useState<{ tripId: string; seat: number } | null>(null);
   const [passenger, setPassenger] = useState({ name: "", email: "", phone: "" });
   const { ready: accountReady, account } = useStudentAccount();
   // The account owns the receipt address, so a signed-in booking never uses a
@@ -49,12 +50,18 @@ export default function Home() {
   const [paying, setPaying] = useState(false);
   const [unavailable, setUnavailable] = useState<number[]>([]);
   const [availabilityError, setAvailabilityError] = useState("");
+  const [availabilityTripId, setAvailabilityTripId] = useState("");
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const availabilityRequest = useRef(0);
   const [passengerHelp, setPassengerHelp] = useState("");
   const [passengerHelpLoading, setPassengerHelpLoading] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState("");
   const [aiError, setAiError] = useState("");
+  const [dialogMode, setDialogMode] = useState<"" | "details" | "seat" | "review" | "how">("");
+  const [detailsTrip, setDetailsTrip] = useState<PublicTrip | null>(null);
+  const actionDialog = useRef<HTMLDialogElement>(null);
 
   const routeChoices = useMemo(() => ({
     from: [...new Set(visibleTrips.map((item) => item.from.trim()).filter(Boolean))].sort(),
@@ -68,6 +75,8 @@ export default function Home() {
   )), [visibleTrips, fromFilter, toFilter, dateFilter]);
   const trip = useMemo(() => matchingTrips.find((item) => item.id === selectedTrip) ?? matchingTrips[0], [matchingTrips, selectedTrip]);
   const activeTripId = trip?.id || "";
+  const selectedSeat = seatChoice?.tripId === activeTripId ? seatChoice.seat : null;
+  const seatsReady = Boolean(trip && availabilityTripId === trip.id && !availabilityLoading);
   const hasFilters = Boolean(fromFilter || toFilter || dateFilter);
   /**
    * Coaches are grouped by who runs them. The platform's own trips share one
@@ -108,22 +117,28 @@ export default function Home() {
       setAvailabilityError(error instanceof Error ? error.message : "Trips could not be loaded.");
     }
   }, []);
-  const loadAvailability = useCallback(async () => {
+  const loadAvailability = useCallback(async (targetTrip: PublicTrip | undefined = trip) => {
+    if (!targetTrip) return;
+    const requestId = ++availabilityRequest.current;
+    setAvailabilityLoading(true);
+    setAvailabilityError("");
     try {
-      if (!trip) return;
-      const response = await fetch(`/api/trips/availability?tripId=${encodeURIComponent(trip.id)}&travelDate=${trip.travelDate}`, { cache: "no-store" });
+      const response = await fetch(`/api/trips/availability?tripId=${encodeURIComponent(targetTrip.id)}&travelDate=${targetTrip.travelDate}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Availability could not be loaded.");
-      setUnavailable(data.unavailableSeats || []);
-      setAvailabilityError("");
-      setSelectedSeat((current) => {
-        if (!(data.unavailableSeats || []).includes(current)) return current;
-        return seatNumbers.find((seat) => !(data.unavailableSeats || []).includes(seat)) ?? current;
-      });
+      if (requestId !== availabilityRequest.current) return;
+      const taken: number[] = Array.isArray(data.unavailableSeats) ? data.unavailableSeats : [];
+      setUnavailable(taken);
+      setAvailabilityTripId(targetTrip.id);
+      setSeatChoice((current) => current?.tripId === targetTrip.id && (taken.includes(current.seat) || current.seat > targetTrip.capacity) ? null : current);
     } catch (error) {
+      if (requestId !== availabilityRequest.current) return;
+      setAvailabilityTripId("");
       setAvailabilityError(error instanceof Error ? error.message : "Live availability could not be loaded.");
+    } finally {
+      if (requestId === availabilityRequest.current) setAvailabilityLoading(false);
     }
-  }, [trip, seatNumbers]);
+  }, [trip]);
   useEffect(() => { queueMicrotask(loadTripDisplay); }, [loadTripDisplay]);
   // Repeat passengers should not retype the same three fields. Read after mount so
   // the server-rendered form never ships someone else's saved details.
@@ -195,13 +210,98 @@ export default function Home() {
     }
   };
 
+  useEffect(() => {
+    const dialog = actionDialog.current;
+    if (!dialog) return;
+    if (dialogMode) {
+      if (!dialog.open) dialog.showModal();
+      dialog.querySelector<HTMLElement>(".vacation-dialog-inner")?.scrollTo(0, 0);
+      dialog.querySelector<HTMLElement>("#vacation-dialog-title")?.focus({ preventScroll: true });
+    } else if (dialog.open) dialog.close();
+  }, [dialogMode]);
+
+  const travelDay = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const selectTrip = (item: PublicTrip) => {
+    setSelectedTrip(item.id);
+    if (item.id !== activeTripId) setSeatChoice(null);
+    setPaymentError("");
+    setPaymentMessage("");
+    setDialogMode("seat");
+    if (item.id === activeTripId) void loadAvailability(item);
+  };
+  const chooseSeat = (number: number) => {
+    if (!trip || !seatsReady || unavailable.includes(number)) return;
+    setSeatChoice({ tripId: trip.id, seat: number });
+    setPaymentError("");
+    setDialogMode("review");
+  };
+  const openReview = () => {
+    if (selectedSeat === null || !seatsReady) { setDialogMode("seat"); return; }
+    setPaymentError("");
+    setDialogMode("review");
+  };
+  const confirmPayment = () => {
+    setPaymentError("");
+    if (!trip || selectedSeat === null || !seatsReady || unavailable.includes(selectedSeat)) {
+      setPaymentError("This seat is no longer available. Choose another seat.");
+      setDialogMode("seat");
+      void loadAvailability();
+      return;
+    }
+    if (!account) { router.push(`/account?next=${encodeURIComponent("/vacation#booking")}`); return; }
+    if (!passenger.name.trim() || !passenger.phone.trim()) {
+      setPaymentError("Enter your full name and Mobile Money number before continuing.");
+      return;
+    }
+    void beginPayment();
+  };
+  const beginPayment = async () => {
+    if (!trip || selectedSeat === null || paying || !account) return;
+    setDialogMode("");
+    setPaymentError("");
+    setPaymentMessage("");
+    setPaying(true);
+    try {
+      const response = await fetch("/api/payments/initialize", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...passenger, email: bookingEmail, seat: selectedSeat, tripId: trip.id, travelDate: trip.travelDate }) });
+      const data = await response.json();
+      if (!response.ok) { if (response.status === 409) { setSeatChoice(null); void loadAvailability(); } throw new Error(data.error || "Payment could not start."); }
+      const paymentReference = String(data.reference || "");
+      if (!paymentReference) throw new Error("Payment reference was not returned.");
+      writeProfile({ name: passenger.name, email: bookingEmail, phone: passenger.phone });
+      if (data.authorizationUrl) {
+        setPaymentMessage("Redirecting to Paystack Checkout. Paystack will show the final amount including processing charge.");
+        window.location.href = String(data.authorizationUrl);
+        return;
+      }
+      setPaymentMessage("Payment request sent. Approve the MTN MoMo prompt on your phone. Waiting for confirmation…");
+      for (let attempt = 0; attempt < 24; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 3000 : 5000));
+        const check = await fetch(`/api/payments/verify?reference=${encodeURIComponent(paymentReference)}`, { cache: "no-store" });
+        const status = await check.json();
+        if (!check.ok) throw new Error(status.error || "Payment verification failed.");
+        if (status.status === "SUCCESSFUL") { router.push(`/payment/callback?reference=${encodeURIComponent(paymentReference)}`); return; }
+        if (status.status === "FAILED") throw new Error("Payment failed or was declined. Please try again.");
+        if (status.status === "PAID_REVIEW") throw new Error("Payment was received after the seat hold expired. Support will confirm a seat or arrange a refund.");
+      }
+      throw new Error("Payment is still pending. Please check your MoMo prompt and try verification again shortly.");
+    } catch (error) {
+      setPaymentMessage("");
+      setPaymentError(error instanceof Error ? error.message : "Payment could not start.");
+      setPaying(false);
+    }
+  };
+
   const tripCard = (item: PublicTrip) => (
-    <button className={`trip-card ${activeTripId === item.id ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedTrip(item.id); setPaymentError(""); setPaymentMessage(""); }}>
-      <div className="trip-top"><span className="pill">{item.tag}</span><span className="radio">{activeTripId === item.id && <Check size={14} />}</span></div>
-      <div className="times"><div><strong>{formatTime(item.time)}</strong><span>{item.from}</span></div><div className="duration"><span>Direct trip</span><i /><small>{item.coachType}</small></div><div><strong>{formatTime(item.arrival)}</strong><span>{item.to}</span></div></div>
-      <div className="amenities">{item.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div>
-      <div className="fare"><span><Clock size={15} /> {activeTripId === item.id ? item.capacity - unavailable.length : item.capacity} seats left</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
-    </button>
+    <article className={`trip-card ${activeTripId === item.id ? "selected" : ""}`} key={item.id}>
+      <button type="button" className="trip-card-select" aria-pressed={activeTripId === item.id} aria-label={`Select ${item.from} to ${item.to} on ${travelDay(item.travelDate)}`} onClick={() => selectTrip(item)}>
+        <div className="trip-top"><span className="pill">{item.tag || "Scheduled coach"}</span><span className="radio">{activeTripId === item.id && <Check size={14} />}</span></div>
+        <div className="trip-date"><CalendarDots size={15} aria-hidden /> {travelDay(item.travelDate)}</div>
+        <div className="times"><div><strong>{formatTime(item.time)}</strong><span>{item.from}</span></div><div className="duration"><span>Direct trip</span><i /><small>{item.coachType}</small></div><div><strong>{formatTime(item.arrival)}</strong><span>{item.to}</span></div></div>
+        <div className="amenities">{item.amenities.slice(0, 3).map((amenity) => <span key={amenity}>{amenity}</span>)}</div>
+        <div className="fare"><span><Clock size={15} aria-hidden /> {activeTripId === item.id && seatsReady ? `${Math.max(0, item.capacity - unavailable.length)} seats free` : `${item.capacity} seats total`}</span><div><small>per student</small><strong>GH₵ {item.price}</strong></div></div>
+      </button>
+      <div className="trip-card-actions"><button type="button" onClick={() => { setDetailsTrip(item); setDialogMode("details"); }}>View details</button><button type="button" onClick={() => selectTrip(item)}>{activeTripId === item.id ? "Choose a seat" : "Select trip"} <ArrowRight size={15} aria-hidden /></button></div>
+    </article>
   );
 
   return (
@@ -215,10 +315,11 @@ export default function Home() {
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <div className="eyebrow"><Sparkle size={14} /></div>
+          <div className="eyebrow"><Sparkle size={14} aria-hidden /> VACATIONRIDE · STUDENT TRAVEL</div>
           <h1>Go home in comfort.<br /><em>Arrive with ease.</em></h1>
           <p>{routeFrom && routeTo ? `Direct VIP vacation transport from ${routeFrom} to ${routeTo}. Reserve your preferred seat and pay securely.` : "Direct VIP vacation transport for UMaT students. Reserve your preferred seat and pay securely."}</p>
-          <div className="trust-row"><span><ShieldCheck size={18} /> Verified drivers</span><span><Users size={18} /> {trip?.capacity || 50}-seat coach</span><span><Bus size={18} /> Premium VIP bus</span></div>
+          <div className="trust-row"><span><CalendarDots size={18} /> Published departures</span><span><Users size={18} /> Pick your seat</span><span><ShieldCheck size={18} /> Secure checkout</span></div>
+          <div className="vacation-hero-actions"><a href="#trips">Explore trips <ArrowRight size={17} aria-hidden /></a><button type="button" onClick={() => setDialogMode("how")}>How booking works</button></div>
         </div>
         <div className="route-art" aria-label="UmateXPRESS 50-seat VIP coach">
           <div className="route-visual">
@@ -289,74 +390,54 @@ export default function Home() {
       </section>
 
       {trip && <section className="booking-section" id="booking">
-        <div className="section-heading light"><div><span className="step">02</span><h2>Select your seat</h2><p>{trip.capacity}-seat coach · two seats left, central aisle, two seats right.</p></div></div>
-        <div className="booking-grid">
-          <div className="bus-shell">
-            <div className="driver"><span>Front of coach</span><span>◯</span></div>
-            <div className="seats" aria-label="Coach seats">{seatNumbers.map((number) => <button key={number} disabled={unavailable.includes(number)} onClick={() => { setSelectedSeat(number); setPaymentError(""); setPaymentMessage(""); }} className={selectedSeat === number ? "chosen" : ""} aria-label={`Seat ${number}`}>{number}</button>)}</div>
-            <div className="legend"><span><i className="available" /> Available</span><span><i className="chosen" /> Your seat</span><span><i className="taken" /> Taken</span></div>
-          </div>
-          <aside className="summary">
-            <span className="summary-label">Booking summary</span><h3>{routeFrom} <ArrowRight size={20} /> {routeTo}</h3>
-            <div className="summary-row"><span>Travel date</span><strong>{new Date(`${trip.travelDate}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong></div>
-            <div className="summary-row"><span>Departure</span><strong>{formatTime(trip.time)}</strong></div>
-            <div className="summary-row"><span>Seat</span><strong className="seat-badge">{selectedSeat}</strong></div>
-            <div className="divider" /><div className="summary-row"><span>Ticket price</span><strong>GH₵ {trip.price}.00</strong></div>
-            <div className="total"><span>Total</span><strong>GH₵ {trip.price}.00</strong></div>
-                        <div className="passenger-fields"><input aria-label="Passenger full name" placeholder="Full name" value={passenger.name} onChange={(e)=>setPassenger({...passenger,name:e.target.value})}/><input aria-label="Passenger email" type="email" placeholder="Student email" value={bookingEmail} readOnly={Boolean(account)} onChange={(e)=>setPassenger({...passenger,email:e.target.value})}/><input aria-label="Passenger phone" placeholder="Mobile Money number" value={passenger.phone} onChange={(e)=>setPassenger({...passenger,phone:e.target.value})}/></div>
-            {availabilityError && <p className="payment-error">{availabilityError}</p>}
-            {paymentError && <p className="payment-error">{paymentError}</p>}
-            {paymentMessage && <p className="payment-pending">{paymentMessage}</p>}
-            <div className="passenger-help-box">
-              <button className="secondary-ai-button" disabled={passengerHelpLoading} onClick={fetchPassengerHelp}>
-                <Robot size={16} /> {passengerHelpLoading ? "Checking travel help..." : "Get travel help"}
-              </button>
-              {passengerHelp && <p>{passengerHelp}</p>}
-            </div>
-            {accountReady && !account
-              ? <Link className="confirm-button" href={`/account?next=${encodeURIComponent("/vacation#booking")}`}>Sign in to book this seat <ArrowRight size={18} /></Link>
-              : <button className="confirm-button" disabled={paying} onClick={async () => {
-              setPaymentError("");
-              setPaymentMessage("");
-              if(!account){router.push(`/account?next=${encodeURIComponent("/vacation#booking")}`);return;}
-              if(!passenger.name || !passenger.phone){setPaymentError("Enter your name and MTN MoMo number.");return;}
-              setPaying(true);
-              try {
-                const response=await fetch("/api/payments/initialize",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({ ...passenger,email:bookingEmail,seat:selectedSeat,tripId:trip.id,travelDate:trip.travelDate })});
-                const data=await response.json();
-                if(!response.ok){ if(response.status===409) void loadAvailability(); throw new Error(data.error || "Payment could not start."); }
-                const paymentReference=String(data.reference || "");
-                if(!paymentReference) throw new Error("Payment reference was not returned.");
-                writeProfile({ name: passenger.name, email: bookingEmail, phone: passenger.phone });
-                if(data.authorizationUrl){
-                  setPaymentMessage("Redirecting to Paystack Checkout. Paystack will show the final amount including processing charge.");
-                  window.location.href=String(data.authorizationUrl);
-                  return;
-                }
-                setPaymentMessage("Payment request sent. Approve the MTN MoMo prompt on your phone. Waiting for confirmation…");
-                for(let attempt=0; attempt<24; attempt++){
-                  await new Promise((resolve)=>setTimeout(resolve, attempt===0 ? 3000 : 5000));
-                  const check=await fetch(`/api/payments/verify?reference=${encodeURIComponent(paymentReference)}`,{cache:"no-store"});
-                  const status=await check.json();
-                  if(!check.ok) throw new Error(status.error || "Payment verification failed.");
-                  if(status.status==="SUCCESSFUL"){
-                    router.push(`/payment/callback?reference=${encodeURIComponent(paymentReference)}`);
-                    return;
-                  }
-                  if(status.status==="FAILED") throw new Error("Payment failed or was declined. Please try again.");
-                  if(status.status==="PAID_REVIEW") throw new Error("Payment was received after the seat hold expired. Support will confirm a seat or arrange a refund.");
-                }
-                throw new Error("Payment is still pending. Please check your MoMo prompt and try verification again shortly.");
-              } catch(error){
-                setPaymentMessage("");
-                setPaymentError(error instanceof Error?error.message:"Payment could not start.");
-                setPaying(false);
-              }
-            }}>{paying ? "Starting secure payment..." : <>Pay GH₵{trip.price} securely <ArrowRight size={18} /></>}</button>}
-            <p><ShieldCheck size={15} /> Secure UMaT student booking · Paystack or MTN MoMo</p>
-          </aside>
+        <div className="section-heading light"><div><span className="step">02</span><h2>Your booking</h2><p>Select a trip to open the seat map, then review the journey before payment.</p></div></div>
+        <div className="vacation-booking-overview">
+          <div><span className="summary-label">SELECTED TRIP</span><h3>{trip.from} <ArrowRight size={23} aria-hidden /> {trip.to}</h3><p>{travelDay(trip.travelDate)} · {formatTime(trip.time)} · {trip.coachType}</p></div>
+          <div className="vacation-overview-facts"><span><small>YOUR SEAT</small><strong>{selectedSeat === null ? "Choose a seat" : `Seat ${selectedSeat}`}</strong></span><span><small>TICKET PRICE</small><strong>GH₵ {trip.price}</strong></span></div>
+          <div className="vacation-overview-actions"><button type="button" onClick={() => selectTrip(trip)}>{selectedSeat === null ? "Choose your seat" : "Change seat"} <ArrowRight size={17} aria-hidden /></button>{selectedSeat !== null && <button type="button" onClick={openReview}>Review booking <ArrowRight size={17} aria-hidden /></button>}</div>
+          {availabilityError && <p className="payment-error" role="alert">{availabilityError}</p>}
+          {paymentError && <p className="payment-error" role="alert">{paymentError}</p>}
+          {paymentMessage && <p className="payment-pending" role="status">{paymentMessage}</p>}
+          <div className="passenger-help-box"><button type="button" className="secondary-ai-button" disabled={passengerHelpLoading} onClick={fetchPassengerHelp}><Robot size={16} /> {passengerHelpLoading ? "Checking travel help..." : "Get travel help"}</button>{passengerHelp && <p>{passengerHelp}</p>}</div>
+          <p className="vacation-overview-assurance"><ShieldCheck size={15} aria-hidden /> Secure UMaT student booking · Paystack or MTN MoMo</p>
         </div>
       </section>}
+      <dialog ref={actionDialog} className="vacation-dialog" aria-labelledby="vacation-dialog-title" onClose={() => setDialogMode("")} onCancel={() => setDialogMode("")} onClick={(event) => { if (event.target === event.currentTarget) setDialogMode(""); }}>
+        <div className="vacation-dialog-inner">
+          <div className="vacation-dialog-head"><span>{dialogMode === "details" ? "TRIP DETAILS" : dialogMode === "seat" ? "SELECT YOUR SEAT" : dialogMode === "review" ? "BOOKING SUMMARY" : "BOOKING GUIDE"}</span><button type="button" aria-label="Close pop-up" onClick={() => setDialogMode("")}><X size={20} aria-hidden /></button></div>
+          {dialogMode === "details" && detailsTrip && <>
+            <h2 tabIndex={-1} id="vacation-dialog-title">{detailsTrip.from} to {detailsTrip.to}</h2>
+            <p className="vacation-dialog-intro">{travelDay(detailsTrip.travelDate)} · {detailsTrip.organizerName || "UMaTeXPRESS"}</p>
+            <div className="vacation-dialog-route"><div><small>DEPARTS</small><strong>{formatTime(detailsTrip.time)}</strong><span>{detailsTrip.from}</span></div><ArrowRight size={22} aria-hidden /><div><small>ARRIVES</small><strong>{formatTime(detailsTrip.arrival)}</strong><span>{detailsTrip.to}</span></div></div>
+            <div className="vacation-dialog-facts"><span><Bus size={18} aria-hidden />{detailsTrip.coachType}</span><span><Users size={18} aria-hidden />{detailsTrip.capacity} seats</span><span><ShieldCheck size={18} aria-hidden />GH₵ {detailsTrip.price} per student</span></div>
+            {detailsTrip.amenities.length > 0 && <div className="vacation-dialog-amenities">{detailsTrip.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div>}
+            {detailsTrip.notes && <p className="vacation-dialog-note">{detailsTrip.notes}</p>}
+            <div className="vacation-dialog-actions"><button type="button" className="vacation-dialog-primary" onClick={() => selectTrip(detailsTrip)}>Choose a seat <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => setDialogMode("")}>Keep browsing</button></div>
+          </>}
+          {dialogMode === "seat" && trip && <>
+            <h2 tabIndex={-1} id="vacation-dialog-title">Choose your seat</h2>
+            <p className="vacation-dialog-intro">{trip.from} → {trip.to} · {travelDay(trip.travelDate)}. Tap an available seat to review your booking.</p>
+            <div className="bus-shell vacation-seat-coach">
+              <div className="driver"><span>Front of coach</span><span>◯</span></div>
+              {availabilityLoading || availabilityTripId !== trip.id ? <p className="vacation-seat-status" role="status">Checking live availability…</p> : null}
+              {availabilityError && <p className="vacation-seat-error" role="alert">{availabilityError}</p>}
+              {seatsReady && unavailable.length >= trip.capacity && <p className="vacation-seat-error" role="status">This coach is full. Please choose another trip.</p>}
+              <div className="seats" aria-label="Coach seats">{seatNumbers.map((number) => <button type="button" key={number} disabled={!seatsReady || unavailable.includes(number)} onClick={() => chooseSeat(number)} className={selectedSeat === number ? "chosen" : ""} aria-pressed={selectedSeat === number} aria-label={`Seat ${number}${!seatsReady ? ", checking availability" : unavailable.includes(number) ? ", taken" : selectedSeat === number ? ", selected" : ", available"}`}>{number}</button>)}</div>
+              <div className="legend"><span><i className="available" /> Available</span><span><i className="chosen" /> Your seat</span><span><i className="taken" /> Taken</span></div>
+            </div>
+            <div className="vacation-dialog-actions">{selectedSeat !== null && seatsReady && <button type="button" className="vacation-dialog-primary" onClick={() => setDialogMode("review")}>Continue with seat {selectedSeat} <ArrowRight size={17} aria-hidden /></button>}<button type="button" onClick={() => setDialogMode("")}>Back to trips</button></div>
+          </>}
+          {dialogMode === "review" && trip && <>
+            <h2 tabIndex={-1} id="vacation-dialog-title">Confirm your journey</h2><p className="vacation-dialog-intro">Review your route, seat and fare before opening secure checkout.</p>
+            <dl className="vacation-review-list"><div><dt>Journey</dt><dd>{trip.from} → {trip.to}</dd></div><div><dt>Travel</dt><dd>{travelDay(trip.travelDate)} at {formatTime(trip.time)}</dd></div><div><dt>Coach and seat</dt><dd>{trip.coachType} · {selectedSeat === null ? "Seat not chosen" : `seat ${selectedSeat}`}</dd></div><div><dt>Receipt email</dt><dd>{account?.email || "Sign in to continue"}</dd></div><div className="vacation-review-total"><dt>Ticket price</dt><dd>GH₵ {trip.price}</dd></div></dl>
+            {accountReady && account && <div className="passenger-fields vacation-review-passenger"><label>Full name<input autoComplete="name" placeholder="Name on your ticket" value={passenger.name} onChange={(event) => setPassenger({ ...passenger, name: event.target.value })} /></label><label>Mobile Money number<input autoComplete="tel" type="tel" inputMode="tel" placeholder="e.g. 024 000 0000" value={passenger.phone} onChange={(event) => setPassenger({ ...passenger, phone: event.target.value })} /></label></div>}
+            {paymentError && <p className="vacation-dialog-error" role="alert">{paymentError}</p>}
+            <p className="vacation-dialog-note">Your seat is confirmed only after successful payment. The checkout provider may show a processing charge before you approve payment.</p>
+            <div className="vacation-dialog-actions"><button type="button" className="vacation-dialog-primary" disabled={paying || !accountReady} onClick={confirmPayment}>{!account ? "Sign in to continue" : paying ? "Starting secure payment…" : "Continue to secure payment"} <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => { setPaymentError(""); setDialogMode("seat"); }}>Change seat</button></div>
+          </>}
+          {dialogMode === "how" && <><h2 tabIndex={-1} id="vacation-dialog-title">A clear path home</h2><ol className="vacation-how-list"><li><strong>Choose a published trip.</strong><span>Open the details to check its route, date, coach and fare.</span></li><li><strong>Pick an available seat.</strong><span>Enter the name and phone number to use for your ticket and payment.</span></li><li><strong>Review and pay securely.</strong><span>Check your details before the payment provider opens. Your ticket follows confirmation.</span></li></ol><div className="vacation-dialog-actions"><button type="button" className="vacation-dialog-primary" onClick={() => { setDialogMode(""); window.setTimeout(() => document.getElementById("trips")?.scrollIntoView({ behavior: "smooth" }), 0); }}>Explore trips <ArrowRight size={17} aria-hidden /></button></div></>}
+        </div>
+      </dialog>
       <footer id="support"><div className="brand logo-brand"><img src="/logo-mark.png" alt="UMaTeXPRESS" /></div>{routeFrom && routeTo && <p>{routeFrom} → {routeTo}</p>}<span>Student vacation transport</span></footer>
     </main>
   );

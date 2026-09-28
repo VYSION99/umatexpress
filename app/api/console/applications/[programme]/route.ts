@@ -1,6 +1,7 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { registerDriverApplication } from "@/lib/campus-engine/driver-onboarding";
 import { consoleApplicationById } from "@/lib/console-applications";
+import { consoleSessionCookie } from "@/lib/console-auth";
 import { registerLandlord } from "@/lib/hostel-engine/landlord";
 import { registerOrganizer } from "@/lib/organizers";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
@@ -41,15 +42,16 @@ export async function POST(request: Request, context: { params: Promise<{ progra
 
     const body = await request.json() as Record<string, unknown>;
     const result = await submitApplication(application.id, body);
+    const landlordAccountId = application.id === "landlord" ? String((result as { accountId?: string }).accountId || "") : "";
     return Response.json(
       {
         ok: true,
         ...result,
         message: application.activation === "REVIEW"
           ? "Application received. An administrator will review it before you can sign in."
-          : "Application received. Sign in to get started; publishing goes live after a review.",
+          : application.id === "landlord" ? "Account created. Continue with your property and identity details." : "Application received. Sign in to get started; publishing goes live after a review.",
       },
-      { status: 202, headers: NO_STORE },
+      { status: 202, headers: { ...NO_STORE, ...(landlordAccountId ? { "Set-Cookie": await consoleSessionCookie({ id: landlordAccountId, role: "LANDLORD" }, request) } : {}) } },
     );
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

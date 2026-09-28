@@ -1,0 +1,87 @@
+/* CampusRide student page refinements. Keep console and hostel surfaces untouched. */
+.campus-ride-page { background: radial-gradient(circle at 88% 2%, #e7f2e8 0, transparent 26rem), #f5f8f3; }
+.campus-ride-page .campus-hero { position: relative; overflow: hidden; border-radius: 26px; background: linear-gradient(115deg, #fffefa 55%, #e6f4e9); box-shadow: 0 18px 45px #173d2b12; }
+.campus-ride-page .campus-hero::after { content: ""; position: absolute; width: 240px; height: 240px; right: -95px; bottom: -170px; border: 36px solid #0d694d14; border-radius: 50%; pointer-events: none; }
+.campus-ride-page .campus-hero-copy { position: relative; z-index: 1; }
+.campus-ride-page .campus-hero h1 { max-width: 16ch; letter-spacing: -.045em; line-height: 1.08; }
+.campus-ride-page .campus-hero-copy > span { display: block; max-width: 64ch; line-height: 1.55; }
+.campus-ride-page .campus-status-banner { border-radius: 15px; }
+.campus-ride-page .departure-board { width: min(1220px, 100%); margin: 0 auto 20px; }
+.campus-ride-page .departure-head h2 { font-size: clamp(21px, 3vw, 27px); }
+.campus-ride-page .departure-head > div > span { display: block; line-height: 1.5; }
+.campus-ride-page .departure-row { transition: border-color .18s ease, box-shadow .18s ease; }
+.campus-ride-page .departure-row:hover { border-color: #a5cdb6; box-shadow: 0 8px 24px #173d2b0d; }
+.campus-ride-page .departure-join { text-decoration: none; }
+.campus-ride-page .nearest-ride-finder { padding: 20px; }
+.campus-ride-page .nearest-ride-finder label { color: #355444; font-size: 11px; text-transform: uppercase; letter-spacing: .09em; }
+.campus-ride-page .nearest-ride-finder select { min-height: 49px; font-size: 14px; font-weight: 700; letter-spacing: normal; text-transform: none; }
+.campus-ride-page .ride-match-list > h2 { margin-bottom: 2px; }
+.campus-ride-page .ride-match-card { overflow: visible; }
+.campus-ride-page .ride-match-card > p { font-size: 13px; }
+.campus-ride-page .ride-match-card .campus-ride-card-actions { display: flex; align-items: stretch; gap: 9px; margin: 0 0 10px; }
+.campus-ride-page .campus-ride-card-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: 1; min-height: 46px; }
+.campus-ride-page .campus-ride-card-actions .campus-ride-secondary { border: 1px solid #bfd5c6; background: #fff; color: #14573e; box-shadow: none; }
+.campus-ride-page .campus-ride-card-actions .campus-ride-secondary:hover { background: #eff8f1; box-shadow: none; }
+.campus-ride-page .ride-selected-actions { border-top: 1px solid #dbe9df; padding-top: 12px; }
+.campus-ride-page .campus-ride-signin { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 14px; border-radius: 11px; background: #0d694d; color: #fff; font-size: 12px; font-weight: 850; text-decoration: none; }
+.campus-ride-page .queue-join-form { display: grid; gap: 12px; width: 100%; padding: 17px; }
+.campus-ride-page .queue-join-form > strong { font-size: 16px; }
+.campus-ride-page .queue-join-form > p { margin: -6px 0 1px; color: #62766a; font-size: 12px; font-weight: 500; }
+.campus-ride-page .queue-join-form label { display: grid; gap: 6px; color: #345343; font-size: 11px; font-weight: 850; }
+.campus-ride-page .queue-join-form label span { color: #76877c; font-weight: 600; }
+.campus-ride-page .queue-join-form input { font-size: 14px; }
+.campus-ride-page .queue-join-form .queue-join-actions { display: flex; gap: 8px; }
+.campus-ride-page .queue-join-actions button { min-height: 45px; }
+.campus-ride-page .queue-join-actions button:first-child { flex: 1; }
+.campus-ride-page .queue-join-form .campus-ride-payment-error { color: #a33131; }
+.campus-ride-page :is(a, button, select, input):focus-visible { outline: 3px solid #d3a23b; outline-offset: 3px; }
+.campus-ride-dialog { width: min(530px, calc(100% - 28px)); max-height: min(85vh, 740px); padding: 0; border: 1px solid #d9e6dc; border-radius: 23px; background: #fffefa; color: #18372a; box-shadow: 0 30px 90px #061b1266; }
+.campus-ride-dialog::backdrop { background: #061d15ac; backdrop-filter: blur(5px); }
+.campus-ride-dialog-content { padding: clamp(20px, 4vw, 30px); overflow-y: auto; max-height: min(85vh, 740px); }
+.campus-ride-dialog .campus-ride-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: #377457; font-size: 10px; font-weight: 900; letter-spacing: .14em; }
+.campus-ride-dialog-head button { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid #dce7dc; border-radius: 11px; background: #fff; color: #17533c; cursor: pointer; }
+.campus-ride-dialog h2 { margin: 12px 0 6px; font: 500 clamp(26px, 5vw, 34px)/1.1 Georgia, serif; letter-spacing: -.035em; }
+.campus-ride-dialog-subtitle { margin: 0 0 20px; color: #627569; font-size: 13px; line-height: 1.5; }
+.campus-ride-dialog .campus-ride-route { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px; border: 1px solid #dce9de; border-radius: 15px; background: #f0f7ef; }
+.campus-ride-route > div { display: grid; gap: 5px; min-width: 0; }
+.campus-ride-route > div:last-child { text-align: right; }
+.campus-ride-route small { color: #62816e; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.campus-ride-route strong { overflow-wrap: anywhere; font-size: 15px; }
+.campus-ride-route > svg { flex: none; color: #0d694d; }
+.campus-ride-detail-list { display: grid; gap: 0; margin: 18px 0; }
+.campus-ride-detail-list > div { display: flex; justify-content: space-between; align-items: start; gap: 15px; padding: 11px 0; border-bottom: 1px solid #e9eee9; }
+.campus-ride-detail-list dt { display: inline-flex; align-items: center; gap: 7px; color: #66786c; font-size: 12px; }
+.campus-ride-detail-list dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-size: 12px; font-weight: 850; }
+.campus-ride-dialog-note { margin: 0; padding: 12px 14px; border-left: 3px solid #d5a543; border-radius: 7px; background: #fbf6e9; color: #5f634f; font-size: 12px; line-height: 1.55; }
+.campus-ride-dialog .campus-ride-dialog-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 22px; }
+.campus-ride-dialog-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 46px; padding: 10px 15px; border: 1px solid #cdded1; border-radius: 11px; background: #fff; color: #14563e; font-size: 12px; font-weight: 850; cursor: pointer; }
+.campus-ride-dialog-actions .campus-ride-dialog-primary { flex: 1; border-color: #0d694d; background: #0d694d; color: #fff; }
+.campus-ride-dialog :is(button, a):focus-visible { outline: 3px solid #d5a543; outline-offset: 3px; }
+.campus-ride-page .ride-match-card .campus-ride-dialog button { box-shadow: none; }
+@media (max-width: 700px) {
+  .campus-ride-page .campus-hero { border-radius: 19px; }
+  .campus-ride-page .campus-hero h1 { max-width: 19ch; }
+  .campus-ride-page .departure-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .campus-ride-page .departure-route { grid-column: 1 / -1; }
+  .campus-ride-page .departure-facts { gap: 12px; }
+  .campus-ride-page .departure-seats { align-self: center; }
+  .campus-ride-page .departure-actions { grid-column: 1 / -1; }
+  .campus-ride-page .departure-actions .departure-join { flex: 1; justify-content: center; }
+  .campus-ride-page .nearest-ride-finder { padding: 15px; }
+  .campus-ride-page .campus-ride-card-actions { flex-direction: column; }
+  .campus-ride-page .queue-join-actions { flex-direction: column; }
+  .campus-ride-dialog .campus-ride-dialog-actions { flex-direction: column; }
+  .campus-ride-dialog-actions button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .campus-ride-page .departure-row, .campus-ride-page .ride-match-card { transition: none; } }
+/* The review dialog is rendered inside a ride card; reset broad legacy card rules. */
+.campus-ride-page .campus-ride-dialog-content { display: block; justify-content: initial; }
+.campus-ride-page .campus-ride-dialog-subtitle { margin: 0 0 20px; color: #627569; font-weight: 400; }
+.campus-ride-page .campus-ride-dialog-note { margin: 0; color: #5f634f; font-weight: 400; }
+.campus-ride-page .campus-ride-dialog-head button,
+.campus-ride-page .campus-ride-dialog-actions button { box-shadow: none; }
+.campus-ride-page .campus-ride-dialog-head button { background: #fff; color: #17533c; }
+.campus-ride-page .campus-ride-dialog-actions button { background: #fff; color: #14563e; }
+.campus-ride-page .campus-ride-dialog-actions .campus-ride-dialog-primary { background: #0d694d; color: #fff; }
+.campus-ride-page .campus-ride-dialog-actions button:hover,
+.campus-ride-page .campus-ride-dialog-head button:hover { box-shadow: none; }

@@ -30,28 +30,27 @@ function isExternal(service: Service): service is PartnerService {
 function ServiceCard({ service, pinned }: { service: Service; pinned: boolean }) {
   const Icon = service.icon;
   const external = isExternal(service);
-  // A card with artwork shows the picture where the icon chip would sit: the
-  // poster already carries the service emblem, so keeping both would print the
-  // same badge twice. The empty alt is deliberate — the heading beside it is
-  // what names the service, so the picture is decoration.
+  // The artwork is decorative because the heading names the service.
   const art = "art" in service ? service.art : null;
-  return <article className={`home-card is-${service.accent}`}>
+  const cardClass = `home-card is-${service.accent}`;
+  const content = <>
     {art
       ? <div className="home-card-art"><img src={art} alt="" width={840} height={394} loading="lazy" decoding="async" /></div>
       : <span className="home-card-icon"><Icon size={22} aria-hidden /></span>}
     <h3>{service.title}{pinned && <PushPin size={13} aria-label="Pinned" />}</h3>
     <p>{service.description}</p>
     {service.destination
-      ? <Link
-          className="home-card-link"
-          href={service.destination}
-          aria-label={external ? `${service.action}: ${service.title} (opens in a new tab)` : undefined}
-          {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
-        >
-          {service.action}{external ? <ArrowSquareOut size={15} aria-hidden /> : <ArrowRight size={15} aria-hidden />}
-        </Link>
+      ? <span className="home-card-link">{service.action}{external ? <ArrowSquareOut size={15} aria-hidden /> : <ArrowRight size={15} aria-hidden />}</span>
       : <span className="home-card-soon">Coming soon</span>}
-  </article>;
+  </>;
+  return service.destination
+    ? <Link
+        className={cardClass}
+        href={service.destination}
+        aria-label={`${service.title}: ${service.action}${external ? " (opens in a new tab)" : ""}`}
+        {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
+      >{content}</Link>
+    : <article className={cardClass}>{content}</article>;
 }
 
 /** The full-width homepage card for one partner, built from its registry entry. */
@@ -59,14 +58,14 @@ function PartnerFeature({ service }: { service: PartnerService }) {
   const Icon = service.icon;
   const banner = service.banner;
   const titleId = `home-${service.id}-title`;
-  return <section className={`home-feature is-${service.accent}`} aria-labelledby={titleId}>
+  return <Link className={`home-feature is-${service.accent}`} href={service.destination} target="_blank" rel="noreferrer noopener" aria-label={`${service.title}: ${service.action} (opens in a new tab)`}>
     <div className="home-feature-head"><span className="home-card-icon"><Icon size={22} aria-hidden /></span><div><h2 id={titleId}>{service.title}</h2><p>{service.detail}</p></div></div>
     {banner.kind === "image"
       ? <div className="home-brand-plate"><img src={banner.src} alt={banner.alt} width="908" height="362" loading="lazy" /></div>
       : <div className="home-brand-lockup"><img src={banner.src} alt="" width="54" height="54" /><span>{banner.word}</span></div>}
     <p className="home-feature-copy">{service.feature}</p>
-    <Link className="home-cta" href={service.destination} target="_blank" rel="noreferrer noopener" aria-label={`${service.action}: ${service.title} (opens in a new tab)`}>{service.action}<ArrowSquareOut size={17} aria-hidden /></Link>
-  </section>;
+    <span className="home-cta">{service.action}<ArrowSquareOut size={17} aria-hidden /></span>
+  </Link>;
 }
 
 export default function CampusLauncher() {
@@ -138,21 +137,21 @@ export default function CampusLauncher() {
           : <div className="launch-empty"><Compass size={28} aria-hidden /><h2>A little space for your favourites.</h2><p>Restore a service from Open services.</p><button onClick={() => setPanel("services")}>Discover services</button></div>}
       </section>
       <div className="home-feature-grid">
-      {!isServiceHidden(preferences, "campus") && <section className="home-feature" aria-labelledby="home-ride-title">
+      {!isServiceHidden(preferences, "campus") && <Link className="home-feature" href="/campus" aria-labelledby="home-ride-title">
         <div className="home-feature-head"><span className="home-card-icon"><Car size={22} aria-hidden /></span><div><h2 id="home-ride-title">CampusRide</h2><p>Trips inside campus, on demand</p></div></div>
         <ol className="home-steps">
           <li><i><MapPin size={12} aria-hidden /></i><div><small>Pickup</small><strong>Choose the pickup zone that suits you.</strong></div></li>
           <li><i><Ticket size={12} aria-hidden /></i><div><small>Seat</small><strong>Hold a seat, then pay to confirm it.</strong></div></li>
           <li><i><Check size={12} aria-hidden /></i><div><small>Ticket</small><strong>Keep your ticket link. It is the only proof of booking.</strong></div></li>
         </ol>
-        <Link className="home-cta" href="/campus">Find a ride<ArrowRight size={17} aria-hidden /></Link>
-      </section>}
-      {!isServiceHidden(preferences, "vacation") && <section className="home-feature is-green" aria-labelledby="home-trip-title">
+        <span className="home-cta">Find a ride<ArrowRight size={17} aria-hidden /></span>
+      </Link>}
+      {!isServiceHidden(preferences, "vacation") && <Link className="home-feature is-green" href="/vacation" aria-labelledby="home-trip-title">
         <div className="home-feature-head"><span className="home-card-icon"><Bus size={22} aria-hidden /></span><div><h2 id="home-trip-title">VacationRide</h2><p>Long-distance coach trips</p></div></div>
         <div className="home-photo"><img src="/vip-coach.png" alt="A VacationRide coach" width="560" height="300" loading="lazy" /></div>
         <p className="home-feature-copy">Pick a route and a travel date, choose your seat, and book before the coach fills up.</p>
-        <Link className="home-cta" href="/vacation">Book a seat<ArrowRight size={17} aria-hidden /></Link>
-      </section>}
+        <span className="home-cta">Book a seat<ArrowRight size={17} aria-hidden /></span>
+      </Link>}
       {services.filter(isExternal).filter(service => !isServiceHidden(preferences, service.id)).map(service => <PartnerFeature key={service.id} service={service} />)}
       </div>
       <section className="home-section" aria-labelledby="home-soon-title">

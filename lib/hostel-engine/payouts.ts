@@ -507,6 +507,9 @@ export async function saveHostelPayoutAccount(input: {
        payout_bank_code=?,payout_bank_name=?,payout_updated_at=?,updated_at=?,paystack_recipient_code='' WHERE id=?`,
     [method, accountName, await sealSecret(accountNumber), lastFour(accountNumber), destination.code, destination.name, stamp, stamp, landlordId],
   );
+  const { ensureHostelOnboardingTables } = await import("@/lib/hostel-engine/onboarding");
+  await ensureHostelOnboardingTables();
+  await turso("UPDATE hostel_owner_onboarding SET payout_status='PENDING',payout_reason='',payout_snapshot='',updated_at=? WHERE landlord_id=?", [stamp, landlordId]);
   await consoleAudit({
     actor: input.actor,
     action: "HOSTEL_PAYOUT_ACCOUNT_SAVED",
@@ -521,10 +524,14 @@ export async function saveHostelPayoutAccount(input: {
 /** The masked read: enough to recognise the account, never enough to move money. */
 export async function getHostelPayoutAccount(landlordId: string): Promise<HostelPayoutAccount> {
   await ensureHostelPayoutTables();
+  const { ensureHostelOnboardingTables } = await import("@/lib/hostel-engine/onboarding");
+  await ensureHostelOnboardingTables();
   const row = rowsToObjects(await turso(
     `SELECT COALESCE(payout_method,'') AS payout_method,COALESCE(payout_account_name,'') AS payout_account_name,
        COALESCE(payout_account_last4,'') AS payout_account_last4,COALESCE(payout_bank_code,'') AS payout_bank_code,
-       COALESCE(payout_bank_name,'') AS payout_bank_name,COALESCE(payout_updated_at,'') AS payout_updated_at
+       COALESCE(payout_bank_name,'') AS payout_bank_name,COALESCE(payout_updated_at,'') AS payout_updated_at,
+       COALESCE((SELECT payout_status FROM hostel_owner_onboarding WHERE landlord_id=hostel_landlords.id),'PENDING') AS payout_review_status,
+       COALESCE((SELECT payout_snapshot FROM hostel_owner_onboarding WHERE landlord_id=hostel_landlords.id),'') AS payout_snapshot
      FROM hostel_landlords WHERE id = ? LIMIT 1`,
     [String(landlordId || "")],
   ))[0];
@@ -539,7 +546,7 @@ export async function getHostelPayoutAccount(landlordId: string): Promise<Hostel
     bankCode: String(row.payout_bank_code || ""),
     bankName: String(row.payout_bank_name || ""),
     updatedAt: String(row.payout_updated_at || ""),
-    ready: Boolean(method && last4),
+    ready: Boolean(method && last4 && String(row.payout_review_status) === "APPROVED" && String(row.payout_snapshot) === JSON.stringify([method, last4, String(row.payout_bank_code || ""), String(row.payout_updated_at || "")])),
   };
 }
 

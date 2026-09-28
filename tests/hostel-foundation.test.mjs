@@ -23,7 +23,7 @@ const spaces = [];
 const listings = [];
 const statements = [];
 
-const ROOM_COLUMNS = ["id", "property_id", "label", "capacity", "utilities_fee", "amenities", "status", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "property_id", "label", "capacity", "utilities_fee", "amenities", "bed_layout", "status", "created_at", "updated_at"];
 const SPACE_COLUMNS = ["id", "room_id", "label", "status", "created_at", "updated_at"];
 
 function cell(value) {
@@ -88,14 +88,14 @@ function handle(sql, args) {
     return ok(row ? table(["id"], [row]) : empty);
   }
   if (/INSERT INTO hostel_rooms/.test(sql)) {
-    const [id, propertyId, label, capacity, utilitiesFee, amenities, createdAt, updatedAt] = args;
-    rooms.push({ id, property_id: propertyId, label, capacity: Number(capacity), utilities_fee: Number(utilitiesFee), amenities, status: "ACTIVE", created_at: createdAt, updated_at: updatedAt });
+    const [id, propertyId, label, capacity, utilitiesFee, amenities, bedLayout, createdAt, updatedAt] = args;
+    rooms.push({ id, property_id: propertyId, label, capacity: Number(capacity), utilities_fee: Number(utilitiesFee), amenities, bed_layout: bedLayout, status: "ACTIVE", created_at: createdAt, updated_at: updatedAt });
     return ok();
   }
-  if (/^UPDATE hostel_rooms SET label=\?,capacity=\?,utilities_fee=\?,amenities=\?,status=\?,updated_at=\? WHERE id=\? AND property_id=\?/.test(sql)) {
-    const [label, capacity, utilitiesFee, amenities, status, updatedAt, id, propertyId] = args;
+  if (/^UPDATE hostel_rooms SET label=\?,capacity=\?,utilities_fee=\?,amenities=\?,bed_layout=\?,status=\?,updated_at=\? WHERE id=\? AND property_id=\?/.test(sql)) {
+    const [label, capacity, utilitiesFee, amenities, bedLayout, status, updatedAt, id, propertyId] = args;
     const row = rooms.find((item) => item.id === id && item.property_id === propertyId);
-    if (row) Object.assign(row, { label, capacity: Number(capacity), utilities_fee: Number(utilitiesFee), amenities, status, updated_at: updatedAt });
+    if (row) Object.assign(row, { label, capacity: Number(capacity), utilities_fee: Number(utilitiesFee), amenities, bed_layout: bedLayout, status, updated_at: updatedAt });
     return ok();
   }
   if (/^SELECT id FROM hostel_spaces WHERE room_id = \? AND label = \? AND status <> 'RETIRED' AND id <> \? LIMIT 1/.test(sql)) {
@@ -299,6 +299,16 @@ test("a room of N beds lands with N bookable bed-spaces", async () => {
   assert.equal(written.filter((entry) => /INSERT INTO hostel_spaces/.test(entry.sql)).length, 3, "each bed is its own row a student can book");
   const audit = written.filter((entry) => /INSERT INTO admin_audit_logs/.test(entry.sql)).at(-1);
   assert.equal(audit.args[2], "HOSTEL_ROOM_CREATED");
+});
+
+test("one bunk unit creates a lower and an upper bookable bed", async () => {
+  const property = await createHostelProperty("landlord-a", { name: "Bunk House", address: "Tarkwa" });
+  const room = await createHostelRoom("landlord-a", property.id, { label: "Bunk Room", capacity: 4, bedLayout: "BUNK" });
+  assert.equal(room.capacity, 4);
+  assert.equal(room.bedLayout, "BUNK");
+  assert.deepEqual(room.spaces.map(space => space.label), ["Bunk 1 lower", "Bunk 1 upper", "Bunk 2 lower", "Bunk 2 upper"]);
+  await assert.rejects(() => createHostelRoom("landlord-a", property.id, { label: "Odd Bunk Room", capacity: 3, bedLayout: "BUNK" }), error => error?.code === "VALIDATION_ERROR");
+  await assert.rejects(() => updateHostelRoom("landlord-a", room.id, { capacity: 3 }), error => error?.code === "VALIDATION_ERROR");
 });
 
 test("two live rooms on one property cannot share a name", async () => {

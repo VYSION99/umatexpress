@@ -213,7 +213,7 @@ test("the public list counts only beds a student could actually book", async () 
   assert.equal(green.utilitiesEnabled, true);
   const aggregate = statements.find((statement) => /^SELECT p\.id AS property_id/.test(statement.sql));
   assert.ok(aggregate, "the property list must run its own aggregate query");
-  for (const gate of ["l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "COALESCE(p.status,'DRAFT') <> 'SUSPENDED'"]) {
+  for (const gate of ["l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "p.status = 'APPROVED'"]) {
     assert.ok(aggregate.sql.includes(gate), `the aggregate must keep the gate: ${gate}`);
   }
   assert.deepEqual(aggregate.args, [PERIOD.id]);
@@ -307,7 +307,7 @@ test("the properties route needs no session and says nothing about the landlord"
   assert.equal(body.period.name, "2026/27 Academic Year");
   assert.equal(body.properties.length, 1);
   const property = body.properties[0];
-  assert.deepEqual(Object.keys(property).sort(), ["address", "availableSpaces", "coverPhotoId", "distanceM", "id", "latitude", "longitude", "minPrice", "minTotal", "name", "ratingAverage", "ratingCount", "roomCount", "utilitiesEnabled"].sort());
+  assert.deepEqual(Object.keys(property).sort(), ["address", "availableSpaces", "bookingReady", "coverPhotoId", "distanceM", "id", "latitude", "longitude", "minPrice", "minTotal", "name", "ratingAverage", "ratingCount", "roomCount", "utilitiesEnabled"].sort());
   assert.equal(property.availableSpaces, 2);
   assert.equal(property.distanceM, 0);
   assert.equal(property.coverPhotoId, "photo-a1", "the card cover is the first approved photo");

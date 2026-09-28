@@ -53,11 +53,16 @@ function handle(sql, args) {
   }
   if (/^SELECT COALESCE\(payout_method,''\) AS payout_method/.test(sql)) {
     const row = landlords.find((item) => item.id === args[0]);
-    return ok(row ? table(["payout_method", "payout_account_name", "payout_account_last4", "payout_bank_code", "payout_bank_name", "payout_updated_at"], [row]) : empty);
+    return ok(row ? table(["payout_method", "payout_account_name", "payout_account_last4", "payout_bank_code", "payout_bank_name", "payout_updated_at", "payout_review_status", "payout_snapshot"], [row]) : empty);
   }
   if (/^SELECT COALESCE\(paystack_recipient_code,''\) AS paystack_recipient_code/.test(sql)) {
     const row = landlords.find((item) => item.id === args[0]);
     return ok(row ? table(["paystack_recipient_code", "payout_account_number"], [row]) : empty);
+  }
+  if (/^UPDATE hostel_owner_onboarding SET payout_status='PENDING'/.test(sql)) {
+    const row = landlords.find((item) => item.id === args[1]);
+    if (row) { row.payout_review_status = "PENDING"; row.payout_snapshot = ""; }
+    return affected(row ? 1 : 0);
   }
   if (/^UPDATE hostel_landlords SET payout_method=\?/.test(sql)) {
     const [method, accountName, sealed, last4, bankCode, bankName, payoutUpdatedAt, updatedAt, landlordId] = args;
@@ -276,6 +281,7 @@ function seed() {
     email: "owusu@example.com", status: "ACTIVE", kyc_status: "VERIFIED", review_reason: "", commission_bps: 300,
     payout_method: "", payout_account_name: "", payout_account_number: "", payout_account_last4: "",
     payout_bank_code: "", payout_bank_name: "", payout_updated_at: "", paystack_recipient_code: "",
+    payout_review_status: "PENDING", payout_snapshot: "",
     created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
   });
   payouts.push(
@@ -284,10 +290,18 @@ function seed() {
   );
 }
 
-const account = () => saveHostelPayoutAccount({
-  landlordId: "landlord-a", method: "MOMO", accountName: "Mr. Owusu", accountNumber: "0244000111",
-  bankCode: "MTN", actor: "owusu@example.com",
-});
+function approvePayoutDestination() {
+  const row = landlords[0];
+  row.payout_review_status = "APPROVED";
+  row.payout_snapshot = JSON.stringify([row.payout_method, row.payout_account_last4, row.payout_bank_code, row.payout_updated_at]);
+}
+const account = async () => {
+  await saveHostelPayoutAccount({
+    landlordId: "landlord-a", method: "MOMO", accountName: "Mr. Owusu", accountNumber: "0244000111",
+    bankCode: "MTN", actor: "owusu@example.com",
+  });
+  approvePayoutDestination();
+};
 
 test("a sent transfer claims the entries, then releases them when Paystack settles", async () => {
   seed();
@@ -342,6 +356,7 @@ test("a bank destination is priced at the bank rate", async () => {
     landlordId: "landlord-a", method: "BANK", accountName: "Owusu Hostels Ltd", accountNumber: "0401001234567",
     bankCode: "040100", actor: "owusu@example.com",
   });
+  approvePayoutDestination();
   const result = await sendHostelPayoutBatch({ landlordId: "landlord-a", actor: "admin@umat.edu.gh" });
   assert.equal(result.batch.transferFee, 800, "the bank rail costs eight times the mobile money one");
   assert.equal(paystack.transfers[0].amount, 164_100);
@@ -512,6 +527,7 @@ test("a recipient is created once and rebuilt when the account changes", async (
     landlordId: "landlord-a", method: "BANK", accountName: "Owusu Hostels Ltd", accountNumber: "0401001234567",
     bankCode: "040100", actor: "owusu@example.com",
   });
+  approvePayoutDestination();
   const rebuilt = await ensureHostelRecipient("landlord-a");
   assert.equal(rebuilt.created, true, "new details must not be sent to the old recipient");
   assert.equal(paystack.recipients.length, 2);

@@ -54,6 +54,13 @@ function handle(sql, args) {
     if (row) Object.assign(row, { kyc_status: status, kyc_reason: reason, kyc_reviewed_at: reviewedAt, updated_at: updatedAt });
     return ok();
   }
+  if (/^SELECT id,kind,content_type,bytes,uploaded_at FROM hostel_identity_documents WHERE landlord_id=\?/.test(sql)) {
+    const documents = args[0] === "landlord-pending" ? [
+      { id: "identity-evidence", kind: "IDENTITY", content_type: "application/pdf", bytes: 1024, uploaded_at: "2026-09-10T00:00:00.000Z" },
+      { id: "authority-evidence", kind: "AUTHORITY", content_type: "application/pdf", bytes: 1024, uploaded_at: "2026-09-10T00:00:00.000Z" },
+    ] : [];
+    return ok(table(["id", "kind", "content_type", "bytes", "uploaded_at"], documents));
+  }
   if (/FROM hostel_landlords WHERE id = \? LIMIT 1/.test(sql)) {
     const row = landlords.find((item) => item.id === args[0]);
     return ok(row ? table(LANDLORD_COLUMNS, [row]) : empty);

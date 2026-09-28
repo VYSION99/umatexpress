@@ -3,6 +3,7 @@ import { CampusRideResults } from "@/components/campusRide/student/CampusRideRes
 import { DepartureBoard } from "@/components/campusRide/student/DepartureBoard";
 import { getCampusData } from "@/lib/campus-ride";
 import { findNearestCampusRides } from "@/lib/campus-matching";
+import "@/components/campusRide/student/campus-ride.css";
 
 function numericParam(value?: string) {
   const number = Number(value);

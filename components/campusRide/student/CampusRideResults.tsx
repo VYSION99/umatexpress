@@ -10,9 +10,9 @@ import { RideMatchList } from "./RideMatchList";
 
 export function CampusRideResults({ zones, corridors, matches, pickupZoneId, destinationZoneId, pickupLatitude, pickupLongitude, selectedPickup, selectedDestination }: { zones: CampusZone[]; corridors: CampusCorridor[]; matches: CampusRideMatch[]; pickupZoneId: string; destinationZoneId: string; pickupLatitude?: number; pickupLongitude?: number; selectedPickup: string; selectedDestination: string }) {
   const [selectedRideId, setSelectedRideId] = useState(matches[0]?.id || "");
-  return <section className="campus-two-column">
+  return <section id="campus-find" className="campus-two-column">
     <div>
-      <NearestRideFinder zones={zones} corridors={corridors} />
+      <NearestRideFinder key={`${pickupZoneId}:${destinationZoneId}`} zones={zones} corridors={corridors} initialPickupZoneId={pickupZoneId} initialDestinationZoneId={destinationZoneId} />
       <div className="ride-match-list">
         <h2>Nearest rides</h2>
         <RideMatchList matches={matches} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} pickupLatitude={pickupLatitude} pickupLongitude={pickupLongitude} selectedRideId={selectedRideId} onSelect={setSelectedRideId}/>

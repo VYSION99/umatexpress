@@ -124,7 +124,7 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
               : <><b className="is-quiet">0</b><small>no seats yet</small></>}
           </div>
           <div className="departure-actions">
-            <Link className="departure-join" href={`/campus?pickupZoneId=${encodeURIComponent(corridor.originZoneId)}&destinationZoneId=${encodeURIComponent(corridor.destinationZoneId)}`}>
+            <Link className="departure-join" href={`/campus?pickupZoneId=${encodeURIComponent(corridor.originZoneId)}&destinationZoneId=${encodeURIComponent(corridor.destinationZoneId)}#campus-find`}>
               {seats > 0 ? "Join this queue" : "See this route"}
             </Link>
             {seats === 0 && (state === "done"

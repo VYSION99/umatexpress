@@ -47,10 +47,10 @@ export function ConsoleShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const roleLabel = ROLE_LABEL[session.account.role] || session.account.role;
-  const groups = consoleGroupsForRole(session.account.role);
+  const roleLabel = session.account.delegateServices !== undefined ? "Admin delegate" : ROLE_LABEL[session.account.role] || session.account.role;
+  const groups = consoleGroupsForRole(session.account.role, session.account.delegateServices);
   const current = consoleServiceById(service);
-  const available = consoleServicesForRole(session.account.role);
+  const available = consoleServicesForRole(session.account.role, session.account.delegateServices);
   const [panel, setPanel] = useState(false);
   const [query, setQuery] = useState("");
   const [signingOut, setSigningOut] = useState(false);
@@ -142,7 +142,9 @@ export function ConsoleShell({
           {blurb && <span>{blurb}</span>}
         </section>
         {signOutError && <p className="console-alert" role="alert">{signOutError}</p>}
-        {children}
+        {service === "home" || service === "security" || session.account.delegateServices === undefined || session.account.delegateServices.includes(service)
+          ? children
+          : <p className="console-alert" role="alert">This service is not assigned to your delegate account. Ask an administrator to update your access.</p>}
       </main>
     </div>
 
@@ -179,6 +181,6 @@ export function ConsoleShell({
         </div>
       </div>
     </dialog>
-    <ConsoleAssistant session={session} service={service} />
+    {session.account.delegateServices === undefined && <ConsoleAssistant session={session} service={service} />}
   </div>;
 }

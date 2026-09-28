@@ -1581,7 +1581,7 @@ a.profile-forget {
     border-color: #fff;
     box-shadow: inset 0 0 0 1px #12261f0a, 0 6px 0 var(--card-edge), 0 12px 18px -8px #12261f30;
   }
-  .home-card:has(.home-card-link:active) {
+  a.home-card:active {
     transform: translateY(4px);
     box-shadow: inset 0 0 0 1px #12261f0a, 0 2px 0 var(--card-edge), 0 5px 10px -6px #12261f30;
   }
@@ -1642,5 +1642,17 @@ a.profile-forget {
 }
 @media (prefers-reduced-motion: reduce) {
   .home-card { transition: none; }
-  .home-card:has(.home-card-link:active) { transform: none; }
+  a.home-card:active { transform: none; }
 }
+
+/* The card itself is the link; the text at its foot is only the visual action. */
+.home a.home-card,
+.home a.home-feature { color: inherit; text-decoration: none; cursor: pointer; }
+.home a.home-card:focus-visible,
+.home a.home-feature:focus-visible { outline: 3px solid var(--home-green); outline-offset: 4px; }
+.home a.home-card:hover .home-card-link { text-decoration: underline; text-underline-offset: 3px; }
+.home a.home-feature { transition: border-color .18s ease, box-shadow .18s ease; }
+.home a.home-feature:hover { border-color: var(--home-green); box-shadow: 0 14px 34px #12261f16; }
+.home a.home-feature:hover .home-cta { background: var(--ui-green-deep); }
+.home a.home-feature.is-gold:hover .home-cta { background: var(--home-gold-deep); }
+@media (prefers-reduced-motion: reduce) { .home a.home-feature { transition: none; } }

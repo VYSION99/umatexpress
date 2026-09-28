@@ -409,3 +409,5 @@
 .console-disclosure { margin-top: 14px; }
 .console-disclosure summary { cursor: pointer; color: var(--ui-cyan, #0e7490); font-size: 12px; font-weight: 800; }
 .console-disclosure p { margin: 10px 0 0; color: var(--ui-muted, #57675f); font-size: 12px; line-height: 1.7; }
+
+.console-onboarding-link{display:inline-flex;align-items:center;min-height:44px;margin-top:10px;padding:0 15px;border-radius:12px;background:#0d694d;color:#fff!important;font-size:13px;font-weight:800;text-decoration:none}.console-onboarding-link:hover{background:#0b5740}

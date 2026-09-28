@@ -77,9 +77,10 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
           </ul>
           <p className="hostel-detail-note">Prices are for the whole {period.name}, from {new Date(`${period.startsOn}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} to {new Date(`${period.endsOn}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.</p>
         </section>
+        {!property.bookingReady && <div className="hostel-booking-pause-notice" role="status"><strong>Booking temporarily paused</strong><span>You can browse rooms and request a viewing while this hostel’s payout details are reviewed.</span></div>}
         <HostelRoomMedia photos={photos} spaces={spaces} />
         <HostelViewingRequest propertyId={property.id} />
-        <HostelBedPicker spaces={spaces} periodName={period.name} />
+        <HostelBedPicker spaces={spaces} periodName={period.name} bookingReady={property.bookingReady} />
         <PropertyReviews key={property.id} propertyId={property.id} initial={{ reviews: reviews.map(({ id, rating, title, body, studentName, createdAt, reply, repliedAt }) => ({ id, rating, title, body, studentName, createdAt, reply, repliedAt })), summary: { average: property.ratingAverage, count: property.ratingCount } }} />
       </div>
       <aside className="hostel-side">

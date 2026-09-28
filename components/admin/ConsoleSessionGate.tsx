@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 export type ConsoleSessionInfo = {
   authenticated: true;
-  account: { id: string; email: string; name: string; role: string; status: string; profileId: string };
+  account: { id: string; email: string; name: string; role: string; status: string; profileId: string; delegateServices?: string[] };
   mustChangePassword: boolean;
 };
 

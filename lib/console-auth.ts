@@ -1,7 +1,7 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { hashPassword, verifyPassword } from "@/lib/campus-engine/crypto";
 import { envValue } from "@/lib/runtime-env";
-import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
+import { isTursoConfiguredRuntime, rowsToObjects, turso, tursoTransaction } from "@/lib/turso";
 
 /**
  * One identity for every console service. Roles decide what an account may do,
@@ -9,6 +9,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
  * body or query parameter, which a caller can choose freely.
  */
 export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER"] as const;
+export const DELEGATABLE_SERVICES = ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "cinema", "settings"] as const;
 export type ConsoleRole = (typeof CONSOLE_ROLES)[number];
 
 export const CONSOLE_SESSION_COOKIE = "umx_console_session";
@@ -30,6 +31,8 @@ export type ConsoleAccount = {
   profileId: string;
   /** True when the account must set a new password before it can work. */
   mustChangePassword?: boolean;
+  /** Present only for an admin-managed delegate; absent for the primary admin. */
+  delegateServices?: string[];
 };
 
 type ConsoleSessionPayload = { aid: string; role: ConsoleRole; exp: number; ver: number; mcp?: boolean };
@@ -46,13 +49,55 @@ export function consoleAccountView(row: Record<string, unknown>): ConsoleAccount
     email: String(row.email),
     name: String(row.name),
     phone: String(row.phone || ""),
-    role: String(row.role) as ConsoleRole,
+    role: (String(row.role) === "ADMIN_DELEGATE" ? "ADMIN" : String(row.role)) as ConsoleRole,
     status: String(row.status || "PENDING"),
     profileId: String(row.profile_id || ""),
   };
 }
 
 let tableReady: Promise<void> | null = null;
+let delegatesReady: Promise<void> | null = null;
+
+export function ensureConsoleDelegatesTable() {
+  delegatesReady ??= (async () => {
+    await ensureConsoleAccountsTable();
+    await turso(`CREATE TABLE IF NOT EXISTS console_admin_delegates (
+      account_id TEXT PRIMARY KEY, services TEXT NOT NULL DEFAULT '[]',
+      must_change_password INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
+  })().catch((error: unknown) => { delegatesReady = null; throw error; });
+  return delegatesReady;
+}
+
+export async function consoleDelegateRecord(accountId: string) {
+  await ensureConsoleDelegatesTable();
+  const row = rowsToObjects(await turso("SELECT services,must_change_password FROM console_admin_delegates WHERE account_id=? LIMIT 1", [accountId]))[0];
+  if (!row) return null;
+  let services: string[] = [];
+  try { const parsed: unknown = JSON.parse(String(row.services || "[]")); if (Array.isArray(parsed)) services = parsed.filter((value): value is string => typeof value === "string" && (DELEGATABLE_SERVICES as readonly string[]).includes(value)); } catch { /* Invalid grants fail closed. */ }
+  return { services, mustChangePassword: Number(row.must_change_password) === 1 };
+}
+
+/** A delegate may access only explicit console service areas; unknown routes fail closed. */
+export function delegateServiceForPath(pathname: string): string | null {
+  if (pathname === "/api/console/session" || pathname === "/console" || pathname === "/console/change-password") return null;
+  if (pathname.startsWith("/api/console/delegates") || pathname.startsWith("/console/delegates") || pathname.startsWith("/api/console/assistant")) return "__owner_only__";
+  const paths: Array<[string, string]> = [
+    ["/api/console/campus", "campus"], ["/api/admin/campus", "campus"], ["/api/v1/campus/admin", "campus"],
+    ["/api/console/cinema", "cinema"],
+    ["/api/console/hostel", "hostels"], ["/api/admin/hostel", "hostels"],
+    ["/api/console/payouts", "payouts"],
+    ["/api/console/settings", "settings"], ["/api/console/bindings", "settings"],
+    ["/api/console/organizers", "organizers"],
+    ["/api/console/trips", "vacation"], ["/api/admin/bookings", "vacation"],
+    ["/api/console/disputes", "disputes"],
+    ["/api/trips/schedule", "vacation"], ["/api/trips/display", "vacation"],
+    ["/api/admin/ai", "vacation"],
+  ];
+  return paths.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1] ?? "__owner_only__";
+}
+
 
 /** Memoised per isolate: the console sign-in path must not re-run schema DDL per request. */
 export function ensureConsoleAccountsTable() {
@@ -251,6 +296,15 @@ export async function consoleAccountFromRequest(request: Request): Promise<Conso
     // The stored role wins, so a session minted before a role change cannot
     // keep privileges it no longer has.
     if (account.role !== session.role) return null;
+    if (String(row.role) === "ADMIN_DELEGATE") {
+      const delegate = await consoleDelegateRecord(account.id);
+      if (!delegate) return null;
+      const pathname = new URL(request.url).pathname;
+      const service = delegateServiceForPath(pathname);
+      if (service && !delegate.services.includes(service) && !(service === "vacation" && request.method === "GET" && pathname === "/api/trips/schedule" && delegate.services.includes("organizers"))) return null;
+      if (session.mcp || delegate.mustChangePassword) return { ...account, delegateServices: delegate.services, mustChangePassword: true };
+      return { ...account, delegateServices: delegate.services, mustChangePassword: false };
+    }
     return { ...account, mustChangePassword: session.mcp === true };
   } catch {
     return null;
@@ -296,10 +350,20 @@ export async function setConsolePassword(accountId: string, password: string) {
   if (password.length < 8) throw new CampusEngineError("VALIDATION_ERROR", "Choose a password of at least 8 characters.", 400);
   await ensureConsoleAccountsTable();
   const { hash, salt, iterations } = await hashPassword(password);
-  await turso(
-    "UPDATE console_accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, token_version = COALESCE(token_version,0) + 1, updated_at = ? WHERE id = ?",
-    [hash, salt, iterations, new Date().toISOString(), accountId],
-  );
+  const row = rowsToObjects(await turso("SELECT role FROM console_accounts WHERE id=? LIMIT 1", [accountId]))[0];
+  const now = new Date().toISOString();
+  if (String(row?.role) !== "ADMIN_DELEGATE") {
+    await turso(
+      "UPDATE console_accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, token_version = COALESCE(token_version,0) + 1, updated_at = ? WHERE id = ?",
+      [hash, salt, iterations, now, accountId],
+    );
+    return;
+  }
+  await ensureConsoleDelegatesTable();
+  await tursoTransaction([
+    { sql: "UPDATE console_accounts SET password_hash=?,password_salt=?,password_iterations=?,token_version=COALESCE(token_version,0)+1,updated_at=? WHERE id=?", args: [hash,salt,iterations,now,accountId] },
+    { sql: "UPDATE console_admin_delegates SET must_change_password=0,updated_at=? WHERE account_id=?", args: [now,accountId] },
+  ]);
 }
 
 /**

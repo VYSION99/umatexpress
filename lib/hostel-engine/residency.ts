@@ -1,4 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { ownerReadiness } from "@/lib/hostel-engine/onboarding";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables, HOSTEL_DEFAULT_COMMISSION_BPS } from "@/lib/hostel-engine/landlord";
 import { ensureHostelMessageTables } from "@/lib/hostel-engine/message-schema";
@@ -262,7 +263,7 @@ export async function releaseExpiredHostelHolds(options: { graceMinutes?: number
 
 async function bookableListing(listingId: string) {
   const row = rowsToObjects(await turso(
-    `SELECT l.id AS listing_id,l.space_id,l.period_id,l.price,
+    `SELECT l.id AS listing_id,l.status AS listing_status,l.space_id,l.period_id,l.price,
        COALESCE(s.status,'AVAILABLE') AS space_status,COALESCE(s.label,'') AS space_label,
        r.id AS room_id,COALESCE(r.label,'') AS room_label,COALESCE(r.status,'ACTIVE') AS room_status,COALESCE(r.utilities_fee,0) AS utilities_fee,
        p.id AS property_id,COALESCE(p.name,'') AS property_name,COALESCE(p.status,'DRAFT') AS property_status,COALESCE(p.utilities_enabled,0) AS utilities_enabled,
@@ -306,12 +307,18 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
   if (!listingId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a bed to book.", 400);
   const listing = await bookableListing(listingId);
   if (String(listing.listing_id) !== listingId) throw new CampusEngineError("NOT_FOUND", "That bed is no longer listed.", 404);
+  if (String(listing.listing_status) !== "APPROVED") throw new CampusEngineError("INVALID_STATE", "That bed is not approved for booking.", 409);
   if (String(listing.period_active) !== "1") throw new CampusEngineError("INVALID_STATE", "That academic year is closed.", 409);
   if (String(listing.space_status) !== "AVAILABLE") throw new CampusEngineError("INVALID_STATE", "That bed has just been taken. Pick another one.", 409);
   if (String(listing.room_status) !== "ACTIVE" || String(listing.property_status) === "SUSPENDED") {
     throw new CampusEngineError("INVALID_STATE", "That bed is not open for booking.", 409);
   }
   if (String(listing.landlord_status) !== "ACTIVE") throw new CampusEngineError("INVALID_STATE", "That landlord is not accepting bookings.", 409);
+  if (String(listing.property_status) !== "APPROVED") throw new CampusEngineError("INVALID_STATE", "That property is not approved for booking.", 409);
+  const owner = await ownerReadiness(String(listing.landlord_id));
+  if (owner.identityStatus !== "VERIFIED" || owner.profileStatus !== "APPROVED" || owner.payoutStatus !== "APPROVED") throw new CampusEngineError("INVALID_STATE", "Booking is paused while owner verification or payout details are under review.", 409);
+  const approvedPhoto = rowsToObjects(await turso("SELECT id FROM hostel_property_photos WHERE property_id=? AND status='APPROVED' LIMIT 1", [String(listing.property_id)]));
+  if (!approvedPhoto.length) throw new CampusEngineError("INVALID_STATE", "Booking is paused while property photos are under review.", 409);
 
   const studentEmail = String(input.student.email || "").trim().toLowerCase();
   const alreadyResident = rowsToObjects(await turso(

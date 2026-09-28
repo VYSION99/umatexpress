@@ -21,6 +21,7 @@ function accountPayload(account: ConsoleAccount) {
     role: account.role,
     status: account.status,
     profileId: account.profileId,
+    ...(account.delegateServices ? { delegateServices: account.delegateServices } : {}),
   };
 }
 
