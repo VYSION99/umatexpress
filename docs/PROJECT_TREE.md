@@ -2,6 +2,8 @@
 
 This is the recommended map for working in the codebase. Route folders stay under `app/` because the framework uses the filesystem route tree.
 
+For current Hostel Finder workflows, see the [role-based user guide](Hostels/HOSTEL_FINDER_USER_GUIDE.md) and [public information copy](Hostels/HOSTEL_FINDER_PUBLIC_INFORMATION.md). Technical reference docs are in `docs/Hostels/`.
+
 ```txt
 uMATeXPRESS/
 ├── app/

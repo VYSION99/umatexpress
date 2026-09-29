@@ -60,6 +60,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
 
   return <CampusShell area="HOSTELFINDER" title={property.name} subtitle={`${period.name} · ${bedsLabel(property.availableSpaces)}`}>
     <nav className="hostel-breadcrumb">
+      <Link href="/hostel/help">Hostel Finder help</Link>
       <Link href={`/hostel?periodId=${encodeURIComponent(period.id)}`}><ArrowLeft size={14} aria-hidden /> All hostels</Link>
     </nav>
     <HostelChoicesProvider periodId={period.id}><HostelChoicesPanel /><HostelChoiceActions propertyId={property.id} propertyName={property.name} /></HostelChoicesProvider>

@@ -84,7 +84,7 @@ export default async function HostelPage({ searchParams }: { searchParams?: Prom
         </div>
         <aside className="hostel-side">
           <section className="hostel-how">
-            <p>HOW IT WORKS</p>
+            <p>HOW IT WORKS</p><Link href="/hostel/help" className="hostel-card-link">Student guide and help assistant →</Link>
             <ul>
               <li><MapPinLine size={16} aria-hidden /><span><strong>Find a home.</strong> Browse every approved hostel and open the one that fits.</span></li>
               <li><Bed size={16} aria-hidden /><span><strong>Pick a bed.</strong> Rooms hold up to six beds, each priced for the academic year.</span></li>

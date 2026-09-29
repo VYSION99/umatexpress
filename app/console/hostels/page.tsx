@@ -10,6 +10,9 @@ import { HostelReviewQueue } from "@/components/console/hostel/HostelReviewQueue
 import { HostelViewingDesk } from "@/components/console/hostel/HostelViewingDesk";
 import { PropertyPhotos } from "@/components/console/hostel/PropertyPhotos";
 import { HostelAiDesk } from "@/components/console/hostel/HostelAiDesk";
+import { HostelRoomBatch } from "@/components/console/hostel/HostelRoomBatch";
+import { HostelRateBatch } from "@/components/console/hostel/HostelRateBatch";
+import { HostelSubmitBatch } from "@/components/console/hostel/HostelSubmitBatch";
 import "@/components/console/hostel/workspace.css";
 
 type Landlord = {
@@ -44,6 +47,7 @@ type OpenPanel = { kind: "edit" | "beds"; roomId: string } | null;
 const EMPTY_ROOM: RoomDraft = { label: "", capacity: "2", utilitiesFee: "0", amenities: "", bedLayout: "SEPARATE" };
 /** The engine holds a room to six beds; the form can only offer what it allows. */
 const BED_COUNTS = ["1", "2", "3", "4", "5", "6"];
+const PAGE_SIZE = 12;
 
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
@@ -99,6 +103,11 @@ function HostelWorkspace() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
+  const [mobileSection, setMobileSection] = useState<"overview" | "rooms" | "rates" | "media" | "assistant">("overview");
+  const [roomPage, setRoomPage] = useState(0);
+  const [listingPage, setListingPage] = useState(0);
+  const [singleRoomOpen, setSingleRoomOpen] = useState(false);
+  const [mediaSection, setMediaSection] = useState<"photos" | "viewings">("photos");
 
   const load = useCallback(async () => {
     try {
@@ -145,12 +154,12 @@ function HostelWorkspace() {
   /** One read, one place: the listings table always shows what the database holds. */
   const refreshListings = useCallback(async (propertyId: string) => {
     const data = await request(`/api/console/hostel/listings?propertyId=${encodeURIComponent(propertyId)}`, { cache: "no-store" });
-    setListings(data.listings || []);
+    setListings(data.listings || []); setListingPage(0);
   }, []);
 
   async function openProperty(property: Property) {
     setBusy(`open:${property.id}`); setError(""); setSaved("");
-    setPanels(null); setRoomEdit(null); setListings(null); setListingEdit(null);
+    setPanels(null); setRoomEdit(null); setListings(null); setListingEdit(null); setRoomPage(0); setListingPage(0); setMobileSection("rooms");
     try {
       await refreshDetail(property.id);
       await refreshListings(property.id);
@@ -222,7 +231,7 @@ function HostelWorkspace() {
         }),
       });
       const room = data.room as Room;
-      setRoomDraft({ ...EMPTY_ROOM });
+      setRoomDraft({ ...EMPTY_ROOM }); setSingleRoomOpen(false);
       setSaved(`${room.label} added with ${room.spaces.length} ${room.spaces.length === 1 ? "bed" : "beds"}.`);
       await refreshDetail(detail.property.id);
     } catch (saveError) {
@@ -371,23 +380,26 @@ function HostelWorkspace() {
   }
 
   const openRoom = detail?.rooms.find((room) => room.id === (panels?.roomId || roomEdit?.id)) || null;
+  const shownRooms = detail?.rooms.slice(roomPage * PAGE_SIZE, (roomPage + 1) * PAGE_SIZE) || [];
+  const shownListings = listings?.slice(listingPage * PAGE_SIZE, (listingPage + 1) * PAGE_SIZE) || [];
 
   return <div className="hostel-workspace">
     <div className="hostel-workspace-intro">
       <div><span className="hostel-workspace-eyebrow">HOSTEL OPERATIONS</span><h2>Manage your properties</h2><p>Keep your rooms, availability and student enquiries in one place. Each review decision stays visible as you work.</p></div>
-      <Link href="/console/hostels/onboarding" className="hostel-workspace-primary">Continue setup →</Link>
+      <div className="hostel-workspace-quicklinks"><Link href="/console/hostels/guide" className="hostel-workspace-primary">Staff guide & assistant →</Link><Link href="/console/hostels/onboarding" className="hostel-workspace-primary">Continue setup →</Link></div>
     </div>
-    <div className="hostel-workspace-metrics" aria-label="Workspace overview">
+    <div className="hostel-workspace-metrics" aria-label="Workspace overview" data-mobile-section="overview" data-active={mobileSection === "overview"}>
       <div><strong>{properties?.length ?? "—"}</strong><span>{properties?.length === 1 ? "Property" : "Properties"}</span></div>
       <div><strong>{properties?.filter(property => property.status === "APPROVED").length ?? "—"}</strong><span>Approved</span></div>
       <div><strong>{detail?.rooms.length ?? "—"}</strong><span>Rooms in focus</span></div>
       <div><strong>{detail?.rooms.reduce((count, room) => count + room.spaces.filter(space => space.status === "AVAILABLE").length, 0) ?? "—"}</strong><span>Available bed spaces</span></div>
     </div>
+    {detail && <nav className="hostel-workspace-mobile-nav" aria-label="Hostel workspace tasks">{(["overview", "rooms", "rates", "media", "assistant"] as const).map(section => <button type="button" key={section} aria-current={mobileSection === section ? "page" : undefined} onClick={() => { setMobileSection(section); setError(""); setSaved(""); }}>{section === "overview" ? "Overview" : section === "media" ? "Photos & visits" : section === "assistant" ? "AI info" : section === "rates" ? "Rates" : "Rooms"}</button>)}</nav>}
     {detail && <nav className="hostel-workspace-jumps" aria-label="Property workspace sections"><a href="#hostel-property">Property</a><a href="#hostel-rooms">Rooms</a><a href="#hostel-rates">Rates</a><a href="#hostel-assistant">Assistant</a></nav>}
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
-    <div className="hostel-workspace-overview" id="hostel-overview">
+    <div className="hostel-workspace-overview" id="hostel-overview" data-mobile-section="overview" data-active={mobileSection === "overview"}>
     <section className="console-panel hostel-workspace-account">
       <h2><ShieldCheck size={18}/>Landlord account
         {landlord && <span className={badge(landlord.kycStatus === "VERIFIED" ? "APPROVED" : landlord.kycStatus)}>KYC {landlord.kycStatus}</span>}
@@ -458,7 +470,7 @@ function HostelWorkspace() {
 
     </div>
 
-    {detail && <section className="console-panel" id="hostel-property">
+    {detail && <div data-mobile-section="overview" data-active={mobileSection === "overview"}><section className="console-panel" id="hostel-property">
       <h2><Buildings size={18}/>{detail.property.name}
         <span className={badge(detail.property.status)}>{detail.property.status.replace("_", " ")}</span>
         <button className="console-panel-close" onClick={() => setPropertyEdit(propertyEdit
@@ -495,19 +507,24 @@ function HostelWorkspace() {
         </label>
         <button disabled={busy === "property-edit"}><Check size={16}/>{busy === "property-edit" ? "Saving…" : "Save details"}</button>
       </form>}
-    </section>}
+    </section></div>}
 
-    {detail && <HostelViewingDesk propertyId={detail.property.id} />}
+    {detail && <div data-mobile-section="media" data-active={mobileSection === "media"}><div className="hostel-media-switch"><button type="button" aria-current={mediaSection === "photos" ? "page" : undefined} onClick={() => setMediaSection("photos")}>Photos & floor plans</button><button type="button" aria-current={mediaSection === "viewings" ? "page" : undefined} onClick={() => setMediaSection("viewings")}>Viewing requests</button></div>
+    {mediaSection === "viewings" && <HostelViewingDesk propertyId={detail.property.id} />}
 
-    {detail && <PropertyPhotos
+    {mediaSection === "photos" && <PropertyPhotos
       propertyId={detail.property.id}
       propertyName={detail.property.name}
       rooms={detail.rooms.map((room) => ({ id: room.id, label: room.label }))}
       onNotice={setSaved}
-    />}
+    />}</div>}
 
-    {detail && <section className="console-panel">
-      <h2><Plus size={18}/>Add a room to {detail.property.name}</h2>
+    {detail && <div data-mobile-section="rooms" data-active={mobileSection === "rooms"}><section className="console-panel">
+      <h2><Plus size={18}/>Add rooms to {detail.property.name}</h2>
+      <p className="console-note">Create a numbered range with matching beds and features in batches, or add one room manually.</p>
+      <HostelRoomBatch key={detail.property.id} propertyId={detail.property.id} propertyName={detail.property.name} canPrice={landlord?.kycStatus === "VERIFIED"} roomTemplates={detail.rooms} onComplete={async message => { setSaved(message); await Promise.all([refreshDetail(detail.property.id), refreshListings(detail.property.id)]); }} />
+      <button type="button" className="hostel-single-room-toggle" onClick={() => setSingleRoomOpen(value => !value)}>{singleRoomOpen ? "Hide single-room form" : "Add one room manually"}</button>
+      {singleRoomOpen && <>
       <form className="console-form" onSubmit={addRoom}>
         <label>Room name
           <input type="text" required minLength={1} maxLength={24} value={roomDraft.label} onChange={(event) => setRoomDraft({ ...roomDraft, label: event.target.value })} placeholder="Room 3" />
@@ -529,8 +546,8 @@ function HostelWorkspace() {
       </form>
       <p className="console-note">
         Each student bed space is created separately. Bunk layouts name lower and upper places, so students choose their own bed rather than booking the entire room.
-      </p>
-    </section>}
+      </p></>}
+    </section>
 
     {detail && <section className="console-panel" id="hostel-rooms">
       <h2><Bed size={18}/>Rooms and beds</h2>
@@ -539,7 +556,7 @@ function HostelWorkspace() {
         : <table className="console-table">
           <thead><tr><th>Room</th><th>Beds</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {detail.rooms.map((room) => {
+            {shownRooms.map((room) => {
               const live = room.spaces.filter((space) => space.status !== "RETIRED");
               return <tr key={room.id}>
                 <td data-label="Room">
@@ -576,6 +593,7 @@ function HostelWorkspace() {
             })}
           </tbody>
         </table>}
+      {detail.rooms.length > PAGE_SIZE && <div className="hostel-page-controls"><span>Rooms {roomPage * PAGE_SIZE + 1}–{Math.min((roomPage + 1) * PAGE_SIZE, detail.rooms.length)} of {detail.rooms.length}</span><button type="button" disabled={roomPage === 0} onClick={() => setRoomPage(page => page - 1)}>Previous</button><button type="button" disabled={(roomPage + 1) * PAGE_SIZE >= detail.rooms.length} onClick={() => setRoomPage(page => page + 1)}>Next</button></div>}
       <p className="console-note">
         Shrinking a room retires its highest beds for you; growing it adds more. A bed with a live listing is never retired behind your back.
       </p>
@@ -655,10 +673,13 @@ function HostelWorkspace() {
       </p>
     </section>}
 
-    {detail && landlord?.kycStatus !== "VERIFIED" && <section className="console-panel" id="hostel-rates"><h2><ShieldCheck size={18}/>Listings unlock after identity review</h2><p className="console-note">You can prepare your property, rooms and photos now. Once staff approve your identity and authority evidence, yearly bed listings open here.</p><Link href="/console/hostels/onboarding" className="console-onboarding-link">Continue identity review →</Link></section>}
+    </div>}
 
-    {detail && landlord?.kycStatus === "VERIFIED" && <section className="console-panel" id="hostel-rates">
+    {detail && landlord?.kycStatus !== "VERIFIED" && <div data-mobile-section="rates" data-active={mobileSection === "rates"}><section className="console-panel" id="hostel-rates"><h2><ShieldCheck size={18}/>Listings unlock after identity review</h2><p className="console-note">You can prepare your property, rooms and photos now. Once staff approve your identity and authority evidence, yearly bed listings open here.</p><Link href="/console/hostels/onboarding" className="console-onboarding-link">Continue identity review →</Link></section></div>}
+
+    {detail && landlord?.kycStatus === "VERIFIED" && <div data-mobile-section="rates" data-active={mobileSection === "rates"}><section className="console-panel" id="hostel-rates">
       <h2><SealCheck size={18}/>Beds for sale</h2>
+      {periods && periods.length > 0 && <div className="hostel-rate-batch"><HostelRateBatch key={detail.property.id} propertyId={detail.property.id} periods={periods} onComplete={async message => { setSaved(message); await refreshListings(detail.property.id); }}/><HostelSubmitBatch key={detail.property.id} propertyId={detail.property.id} periods={periods} onComplete={async message => { setSaved(message); await refreshListings(detail.property.id); }}/><span>Price or submit 1–100 numbered rooms at a time.</span></div>}
       {periods !== null && periods.length === 0
         ? <p className="console-empty">The platform has not opened an academic year yet. You can price beds as soon as it does.</p>
         : <form className="console-form" onSubmit={addListing}>
@@ -686,7 +707,7 @@ function HostelWorkspace() {
           : <table className="console-table">
             <thead><tr><th>Bed</th><th>Year</th><th>Rent per bed</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {listings.map((listing) => (
+              {shownListings.map((listing) => (
                 <tr key={listing.id}>
                   <td data-label="Bed"><strong>{listing.roomLabel} · {listing.spaceLabel}</strong><small>Added {when(listing.createdAt)}</small></td>
                   <td data-label="Academic year">{listing.periodName || "—"}</td>
@@ -715,11 +736,12 @@ function HostelWorkspace() {
               ))}
             </tbody>
           </table>}
+      {listings && listings.length > PAGE_SIZE && <div className="hostel-page-controls"><span>Beds {listingPage * PAGE_SIZE + 1}–{Math.min((listingPage + 1) * PAGE_SIZE, listings.length)} of {listings.length}</span><button type="button" disabled={listingPage === 0} onClick={() => setListingPage(page => page - 1)}>Previous</button><button type="button" disabled={(listingPage + 1) * PAGE_SIZE >= listings.length} onClick={() => setListingPage(page => page + 1)}>Next</button></div>}
       <p className="console-note">
         Each bed is booked separately, but every bed in the same room has one annual rent per student for that academic year. Changing the room rate sends changed offers back to review.
       </p>
-    </section>}
+    </section></div>}
 
-    {detail && <div id="hostel-assistant"><HostelAiDesk key={detail.property.id} propertyId={detail.property.id} rooms={detail.rooms.map(room => ({ id: room.id, label: room.label }))} /></div>}
+    {detail && <div id="hostel-assistant" data-mobile-section="assistant" data-active={mobileSection === "assistant"}><HostelAiDesk key={detail.property.id} propertyId={detail.property.id} rooms={detail.rooms.map(room => ({ id: room.id, label: room.label }))} /></div>}
   </div>;
 }

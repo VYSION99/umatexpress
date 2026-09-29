@@ -11,6 +11,7 @@ import {
   consoleAssistantToolsForRole,
   type ConsoleAssistantTool,
 } from "@/lib/console-assistant-catalog";
+import { hostelGuideForRole } from "@/lib/hostel-engine/help-assistant";
 import { listDisputes, listOrganizerDisputes, resolveDispute } from "@/lib/disputes";
 import { organizerStatement, listPayoutOrganizers } from "@/lib/organizer-payouts";
 import { listTripsAwaitingReview, reviewOrganizerTrip } from "@/lib/organizer-trips";
@@ -764,7 +765,8 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message.slice(0, 300) : "The action could not be completed.";
 }
 
-export function consoleAssistantSystemPrompt(account: ConsoleAccount, toolNames: readonly string[]) {
+export function consoleAssistantSystemPrompt(account: ConsoleAccount, toolNames: readonly string[], page = "") {
+  const hostelGuide = page.startsWith("/console/hostels") ? hostelGuideForRole(account.role) : "";
   return [
     "You are the UMaTeXPRESS console assistant. You help the signed-in person use the console: answer questions from data, and propose actions they confirm.",
     `The person is signed in as ${account.role}${account.name ? ` (${account.name})` : ""}.`,
@@ -777,7 +779,8 @@ export function consoleAssistantSystemPrompt(account: ConsoleAccount, toolNames:
     "4. Never ask for or repeat a password, PIN or bank number. The console never shows them.",
     "5. Answer in plain text, at most 90 words, no markdown, no bullet symbols. Be concrete and use the console's own words for pages.",
     "6. If the person asks for something outside the console, say so briefly and point to the right place.",
-  ].join("\n");
+    hostelGuide ? "Hostel Finder procedure reference for this role (general workflow only, not live account data):\n" + hostelGuide : "",
+  ].filter(Boolean).join("\n");
 }
 
 export type ConsoleAssistantReply = {
@@ -812,7 +815,7 @@ export async function consoleAssistantReply(input: {
   if (!tools.length) throw new CampusEngineError("FORBIDDEN", "This role has no console assistant tools.", 403);
 
   const messages: Record<string, unknown>[] = [
-    { role: "system", content: consoleAssistantSystemPrompt(input.account, tools.map((tool) => tool.name)) },
+    { role: "system", content: consoleAssistantSystemPrompt(input.account, tools.map((tool) => tool.name), input.page || "") },
     ...(input.history || []).slice(-6).map((turn) => ({ role: turn.role, content: turn.content })),
     { role: "user", content: input.page ? `(Console page: ${input.page.slice(0, 120)})\n${input.message}` : input.message },
   ];
