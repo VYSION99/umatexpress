@@ -33,6 +33,7 @@ const PLATFORM_SETTINGS_STATEMENTS = [
 
 export type PlatformSettingKey =
   | "hostel_payout_auto"
+  | "hostel_identity_documents_visible"
   | "organizer_payout_auto"
   | "organizer_payout_release_minutes"
   | "payout_min_amount"
@@ -93,6 +94,15 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     detail: "On, the release job sends each landlord's payable balance through Paystack on its own. Off, the ledger still accrues and a statement still reconciles, but money waits for an administrator to press Send with Paystack in the hostel payout desk.",
     env: "HOSTEL_PAYOUT_AUTO_ENABLED",
     fallback: false,
+  },
+  {
+    key: "hostel_identity_documents_visible",
+    kind: "toggle",
+    label: "Hostel identity documents",
+    summary: "Show or hide identity and ownership documents in Hostel Finder setup.",
+    detail: "Off hides only the owner identity and ownership or authorization document section. The payout account form stays visible, and existing review and booking requirements remain in effect.",
+    env: "HOSTEL_IDENTITY_DOCUMENTS_VISIBLE",
+    fallback: true,
   },
   {
     key: "organizer_payout_auto",

@@ -21,11 +21,11 @@ const properties = [
   { id: "property-d", landlord_id: "landlord-a", name: "Owusu Garden", status: "APPROVED" },
   { id: "property-e", landlord_id: "landlord-b", name: "Mensah Villas", status: "APPROVED" },
 ];
-const rooms = [{ id: "room-a", property_id: "property-a", label: "A1" }];
+const rooms = [{ id: "room-a", property_id: "property-a", label: "A1" }, { id: "room-b", property_id: "property-a", label: "A2" }];
 const photos = [];
 
 const PHOTO_COLUMNS = [
-  "id", "property_id", "landlord_id", "room_id", "media_kind", "caption", "sort_order", "status", "content_type",
+  "id", "property_id", "landlord_id", "room_id", "scope_type", "scope_label", "room_start_id", "room_end_id", "media_kind", "caption", "sort_order", "status", "content_type",
   "bytes", "review_reason", "reviewed_by", "reviewed_at", "created_at", "updated_at",
 ];
 
@@ -56,9 +56,17 @@ function handle(sql, args) {
     const row = properties.find((item) => item.id === args[0] && item.landlord_id === args[1]);
     return ok(row ? table(["id"], [row]) : empty);
   }
-  if (/^SELECT id FROM hostel_rooms WHERE id = \? AND property_id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id,label FROM hostel_rooms WHERE property_id = \? ORDER BY label COLLATE NOCASE ASC/.test(sql)) {
+    const rows = rooms.filter((item) => item.property_id === args[0]).sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" }));
+    return ok(rows.length ? table(["id", "label"], rows) : empty);
+  }
+  if (/^SELECT id,label FROM hostel_rooms WHERE property_id = \? AND id IN/.test(sql)) {
+    const rows = rooms.filter((item) => item.property_id === args[0] && args.slice(1).includes(item.id));
+    return ok(rows.length ? table(["id", "label"], rows) : empty);
+  }
+  if (/^SELECT id,label FROM hostel_rooms WHERE id = \? AND property_id = \? LIMIT 1/.test(sql)) {
     const row = rooms.find((item) => item.id === args[0] && item.property_id === args[1]);
-    return ok(row ? table(["id"], [row]) : empty);
+    return ok(row ? table(["id", "label"], [row]) : empty);
   }
   if (/^SELECT COUNT\(\*\) AS c FROM hostel_property_photos WHERE property_id = \?/.test(sql)) {
     return ok(table(["c"], [{ c: photos.filter((photo) => photo.property_id === args[0]).length }]));
@@ -72,9 +80,10 @@ function handle(sql, args) {
     return ok(table(["lowest"], [{ lowest: list.length ? Math.min(...list.map((photo) => photo.sort_order)) : 0 }]));
   }
   if (/^INSERT INTO hostel_property_photos/.test(sql)) {
-    const [id, propertyId, landlordId, roomId, mediaKind, r2Key, caption, sortOrder, contentType, bytes, createdAt, updatedAt] = args;
+    const [id, propertyId, landlordId, roomId, scopeType, scopeLabel, roomStartId, roomEndId, mediaKind, r2Key, caption, sortOrder, contentType, bytes, createdAt, updatedAt] = args;
     photos.push({
-      id, property_id: propertyId, landlord_id: landlordId, room_id: roomId, media_kind: mediaKind, r2_key: r2Key, caption,
+      id, property_id: propertyId, landlord_id: landlordId, room_id: roomId, scope_type: scopeType, scope_label: scopeLabel,
+      room_start_id: roomStartId, room_end_id: roomEndId, media_kind: mediaKind, r2_key: r2Key, caption,
       sort_order: Number(sortOrder), status: "PENDING", content_type: contentType, bytes: Number(bytes),
       review_reason: "", reviewed_by: "", reviewed_at: "", created_at: createdAt, updated_at: updatedAt,
     });
@@ -94,14 +103,14 @@ function handle(sql, args) {
     const rows = photos.filter((photo) => photo.status === "PENDING").sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     return ok(rows.length ? table(PHOTO_COLUMNS, rows) : empty);
   }
-  if (/^SELECT id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE property_id = \? AND status = 'APPROVED'/.test(sql)) {
+  if (/^SELECT id,room_id,scope_type,scope_label,room_start_id,room_end_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE property_id = \? AND status = 'APPROVED'/.test(sql)) {
     const rows = forProperty(args[0]).filter((photo) => photo.status === "APPROVED");
-    return ok(rows.length ? table(["id", "room_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
+    return ok(rows.length ? table(["id", "room_id", "scope_type", "scope_label", "room_start_id", "room_end_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
   }
-  if (/^SELECT id,property_id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN/.test(sql)) {
+  if (/^SELECT id,property_id,room_id,scope_type,scope_label,room_start_id,room_end_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN/.test(sql)) {
     const wanted = new Set(args);
-    const rows = photos.filter((photo) => photo.status === "APPROVED" && photo.media_kind === "PHOTO" && !photo.room_id && wanted.has(photo.property_id)).sort(bySort);
-    return ok(rows.length ? table(["id", "property_id", "room_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
+    const rows = photos.filter((photo) => photo.status === "APPROVED" && photo.media_kind === "PHOTO" && ["PROPERTY", "BUILDING_AREA"].includes(photo.scope_type) && !photo.room_id && wanted.has(photo.property_id)).sort(bySort);
+    return ok(rows.length ? table(["id", "property_id", "room_id", "scope_type", "scope_label", "room_start_id", "room_end_id", "media_kind", "reviewed_at", "caption", "sort_order"], rows) : empty);
   }
   if (/^UPDATE hostel_property_photos SET status = \?/.test(sql)) {
     const [status, reason, by, at, updatedAt, id] = args;
@@ -216,6 +225,35 @@ test("an uploaded photo is private until a reviewer approves it", async () => {
   const covers = await listApprovedPhotoCovers(["property-a", "property-b"]);
   assert.equal(covers.get("property-a")?.id, photo.id);
   assert.equal(covers.has("property-b"), false, "a property with no approved photo has no cover");
+});
+
+
+test("building-area and room-range photos keep their scope through student publication", async () => {
+  const buildingArea = await upload({ scopeType: "BUILDING_AREA", scopeLabel: "Building back", caption: "Rear entrance" });
+  assert.equal(buildingArea.scopeType, "BUILDING_AREA");
+  assert.equal(buildingArea.scopeLabel, "Building back");
+
+  const roomRange = await upload({ scopeType: "ROOM_RANGE", roomStartId: "room-a", roomEndId: "room-b", caption: "Shared corridor" });
+  assert.equal(roomRange.scopeType, "ROOM_RANGE");
+  assert.equal(roomRange.scopeLabel, "Rooms A1 – A2");
+  assert.equal(roomRange.roomId, "");
+
+  await reviewHostelPhoto({ photoId: buildingArea.id, action: "APPROVE", actor: "admin@umat.edu.gh" });
+  await reviewHostelPhoto({ photoId: roomRange.id, action: "APPROVE", actor: "admin@umat.edu.gh" });
+  const publicPhotos = await listApprovedHostelPhotos("property-a");
+  assert.equal(publicPhotos.find((photo) => photo.id === buildingArea.id)?.scopeLabel, "Building back");
+  assert.equal(publicPhotos.find((photo) => photo.id === roomRange.id)?.scopeLabel, "Rooms A1 – A2");
+});
+
+test("room ranges must use rooms in this property in displayed order", async () => {
+  await assert.rejects(
+    () => upload({ scopeType: "ROOM_RANGE", roomStartId: "room-b", roomEndId: "room-a" }),
+    (error) => error?.code === "VALIDATION_ERROR",
+  );
+  await assert.rejects(
+    () => upload({ scopeType: "ROOM_RANGE", roomStartId: "room-a", roomEndId: "room-outside" }),
+    (error) => error?.code === "NOT_FOUND",
+  );
 });
 
 test("a rejection needs a reason and never goes public", async () => {

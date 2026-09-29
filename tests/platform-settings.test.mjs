@@ -102,6 +102,7 @@ beforeEach(() => {
   audits.length = 0;
   delete process.env.PAYOUT_AUTO_ENABLED;
   delete process.env.HOSTEL_PAYOUT_AUTO_ENABLED;
+  delete process.env.HOSTEL_IDENTITY_DOCUMENTS_VISIBLE;
   resetPlatformSettingsCache();
 });
 
@@ -123,6 +124,21 @@ test("a switch is off until someone sets it", async () => {
   assert.equal(state.source, "DEFAULT");
   assert.equal(await hostelPayoutAutoEnabled(), false);
   assert.equal(await payoutAutoEnabled(), false);
+});
+
+test("admins can hide or show Hostel Finder identity documents", async () => {
+  const initial = await platformSettingState("hostel_identity_documents_visible");
+  assert.equal(initial.enabled, true, "identity documents stay visible by default");
+  assert.equal(initial.source, "DEFAULT");
+
+  const hidden = await setPlatformSetting({ key: "hostel_identity_documents_visible", enabled: false, actor: "admin@umat.edu.gh" });
+  assert.equal(hidden.enabled, false);
+  assert.equal(hidden.source, "SETTING");
+  assert.equal(hidden.updatedBy, "admin@umat.edu.gh");
+  assert.equal(settings.get("hostel_identity_documents_visible").value, "0");
+
+  const shown = await setPlatformSetting({ key: "hostel_identity_documents_visible", enabled: true, actor: "admin@umat.edu.gh" });
+  assert.equal(shown.enabled, true);
 });
 
 test("the environment variable decides while no override is stored", async () => {

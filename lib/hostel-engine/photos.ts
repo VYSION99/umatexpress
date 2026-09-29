@@ -52,6 +52,15 @@ export function ensureHostelPhotoTables() {
     await ensureHostelTables();
     await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelPhotos", version: "018_hostel_photos", statements: PHOTO_SCHEMA_STATEMENTS });
     await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelRoomMedia", version: "027_hostel_room_media", statements: ["ALTER TABLE hostel_property_photos ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'PHOTO'"] });
+    await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelPhotoScopes", version: "028_hostel_photo_scopes", statements: [
+      "ALTER TABLE hostel_property_photos ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'PROPERTY'",
+      "ALTER TABLE hostel_property_photos ADD COLUMN scope_label TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE hostel_property_photos ADD COLUMN room_start_id TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE hostel_property_photos ADD COLUMN room_end_id TEXT NOT NULL DEFAULT ''",
+      `UPDATE hostel_property_photos SET scope_type = CASE WHEN COALESCE(room_id,'') <> '' THEN 'ROOM' ELSE 'PROPERTY' END,
+       scope_label = CASE WHEN COALESCE(room_id,'') <> '' THEN COALESCE((SELECT label FROM hostel_rooms WHERE id=hostel_property_photos.room_id),'Specific room') ELSE 'Whole property' END
+       WHERE scope_label = ''`,
+    ] });
   })().catch((error: unknown) => {
     photoTablesReady = null;
     throw error;
@@ -64,6 +73,10 @@ export type HostelPhoto = {
   propertyId: string;
   landlordId: string;
   roomId: string;
+  scopeType: "PROPERTY" | "BUILDING_AREA" | "ROOM_RANGE" | "ROOM";
+  scopeLabel: string;
+  roomStartId: string;
+  roomEndId: string;
   mediaKind: "PHOTO" | "FLOOR_PLAN";
   caption: string;
   sortOrder: number;
@@ -80,6 +93,10 @@ export type HostelPhoto = {
 export type PublicHostelPhoto = {
   id: string;
   roomId: string;
+  scopeType: "PROPERTY" | "BUILDING_AREA" | "ROOM_RANGE" | "ROOM";
+  scopeLabel: string;
+  roomStartId: string;
+  roomEndId: string;
   mediaKind: "PHOTO" | "FLOOR_PLAN";
   reviewedAt: string;
   caption: string;
@@ -100,6 +117,8 @@ export type StoredPhotoObject = {
 };
 
 const PHOTO_COLUMNS = `id,property_id,COALESCE(landlord_id,'') AS landlord_id,COALESCE(room_id,'') AS room_id,
+  COALESCE(scope_type,CASE WHEN COALESCE(room_id,'') <> '' THEN 'ROOM' ELSE 'PROPERTY' END) AS scope_type,COALESCE(scope_label,'') AS scope_label,
+  COALESCE(room_start_id,'') AS room_start_id,COALESCE(room_end_id,'') AS room_end_id,
   COALESCE(media_kind,'PHOTO') AS media_kind,COALESCE(caption,'') AS caption,COALESCE(sort_order,0) AS sort_order,COALESCE(status,'PENDING') AS status,
   COALESCE(content_type,'') AS content_type,COALESCE(bytes,0) AS bytes,COALESCE(review_reason,'') AS review_reason,
   COALESCE(reviewed_by,'') AS reviewed_by,COALESCE(reviewed_at,'') AS reviewed_at,created_at,COALESCE(updated_at,'') AS updated_at`;
@@ -110,6 +129,10 @@ function photoView(row: Record<string, unknown>): HostelPhoto {
     propertyId: String(row.property_id || ""),
     landlordId: String(row.landlord_id || ""),
     roomId: String(row.room_id || ""),
+    scopeType: String(row.scope_type || (row.room_id ? "ROOM" : "PROPERTY")) as HostelPhoto["scopeType"],
+    scopeLabel: String(row.scope_label || (row.room_id ? "Specific room" : "Whole property")),
+    roomStartId: String(row.room_start_id || ""),
+    roomEndId: String(row.room_end_id || ""),
     mediaKind: String(row.media_kind || "PHOTO") as "PHOTO" | "FLOOR_PLAN",
     caption: String(row.caption || ""),
     sortOrder: Number(row.sort_order || 0),
@@ -127,6 +150,10 @@ function publicPhotoView(row: Record<string, unknown>): PublicHostelPhoto {
   return {
     id: String(row.id || ""),
     roomId: String(row.room_id || ""),
+    scopeType: String(row.scope_type || (row.room_id ? "ROOM" : "PROPERTY")) as PublicHostelPhoto["scopeType"],
+    scopeLabel: String(row.scope_label || (row.room_id ? "Specific room" : "Whole property")),
+    roomStartId: String(row.room_start_id || ""),
+    roomEndId: String(row.room_end_id || ""),
     mediaKind: String(row.media_kind || "PHOTO") as "PHOTO" | "FLOOR_PLAN",
     reviewedAt: String(row.reviewed_at || ""),
     caption: String(row.caption || ""),
@@ -168,6 +195,10 @@ export async function storeHostelPhoto(input: {
   landlordId: string;
   propertyId: string;
   roomId?: string;
+  scopeType?: "PROPERTY" | "BUILDING_AREA" | "ROOM_RANGE" | "ROOM";
+  scopeLabel?: string;
+  roomStartId?: string;
+  roomEndId?: string;
   mediaKind?: "PHOTO" | "FLOOR_PLAN";
   caption?: string;
   contentType: string;
@@ -188,11 +219,35 @@ export async function storeHostelPhoto(input: {
 
   const roomId = String(input.roomId || "").trim();
   const mediaKind = input.mediaKind || "PHOTO";
-  if (!["PHOTO", "FLOOR_PLAN"].includes(mediaKind) || (mediaKind === "FLOOR_PLAN" && !roomId)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a room for its floor plan.", 400);
-  if (roomId) {
-    const room = rowsToObjects(await turso("SELECT id FROM hostel_rooms WHERE id = ? AND property_id = ? LIMIT 1", [roomId, propertyId]))[0];
-    if (!room) throw new CampusEngineError("NOT_FOUND", "That room was not found in this property.", 404);
+  const scopeType = input.scopeType || (roomId ? "ROOM" : "PROPERTY");
+  let scopeLabel = String(input.scopeLabel || "").trim().slice(0, 80);
+  const roomStartId = String(input.roomStartId || "").trim();
+  const roomEndId = String(input.roomEndId || "").trim();
+  if (!["PHOTO", "FLOOR_PLAN"].includes(mediaKind) || !["PROPERTY", "BUILDING_AREA", "ROOM_RANGE", "ROOM"].includes(scopeType)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a valid photo type and photo area.", 400);
+  if (mediaKind === "FLOOR_PLAN" && (scopeType !== "ROOM" || !roomId)) throw new CampusEngineError("VALIDATION_ERROR", "A floor plan must be linked to one room.", 400);
+  if (scopeType === "PROPERTY") {
+    if (roomId) throw new CampusEngineError("VALIDATION_ERROR", "Whole-property photos cannot be assigned to a single room.", 400);
+    scopeLabel = "Whole property";
   }
+  if (scopeType === "BUILDING_AREA" && (roomId || !scopeLabel)) throw new CampusEngineError("VALIDATION_ERROR", "Choose which building area the photo shows.", 400);
+  if (scopeType === "ROOM_RANGE") {
+    if (roomId || !roomStartId || !roomEndId) throw new CampusEngineError("VALIDATION_ERROR", "Choose the first and last room shown.", 400);
+    const roomRows = rowsToObjects(await turso("SELECT id,label FROM hostel_rooms WHERE property_id = ? ORDER BY label COLLATE NOCASE ASC", [propertyId]));
+    const startIndex = roomRows.findIndex((row) => String(row.id) === roomStartId);
+    const endIndex = roomRows.findIndex((row) => String(row.id) === roomEndId);
+    if (startIndex < 0 || endIndex < 0) throw new CampusEngineError("NOT_FOUND", "Both rooms must belong to this property.", 404);
+    if (startIndex >= endIndex) throw new CampusEngineError("VALIDATION_ERROR", "Choose a first room that comes before the last room.", 400);
+    const firstLabel = String(roomRows[startIndex].label || "Room");
+    const lastLabel = String(roomRows[endIndex].label || "Room");
+    scopeLabel = `Rooms ${firstLabel} – ${lastLabel}`.slice(0, 80);
+  }
+  if (scopeType === "ROOM") {
+    if (!roomId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a room for this photo.", 400);
+    const room = rowsToObjects(await turso("SELECT id,label FROM hostel_rooms WHERE id = ? AND property_id = ? LIMIT 1", [roomId, propertyId]))[0];
+    if (!room) throw new CampusEngineError("NOT_FOUND", "That room was not found in this property.", 404);
+    scopeLabel = String(room.label || "Specific room");
+  }
+  if (scopeType !== "ROOM_RANGE" && (roomStartId || roomEndId)) throw new CampusEngineError("VALIDATION_ERROR", "Room range endpoints are only valid for a room-range photo.", 400);
 
   const count = rowsToObjects(await turso("SELECT COUNT(*) AS c FROM hostel_property_photos WHERE property_id = ?", [propertyId]))[0];
   if (Number(count?.c || 0) >= MAX_HOSTEL_PHOTOS_PER_PROPERTY) {
@@ -207,10 +262,10 @@ export async function storeHostelPhoto(input: {
   const stamp = new Date().toISOString();
   const next = rowsToObjects(await turso("SELECT COALESCE(MAX(sort_order),0) + 1 AS next FROM hostel_property_photos WHERE property_id = ?", [propertyId]))[0];
   await turso(
-    `INSERT INTO hostel_property_photos (id,property_id,landlord_id,room_id,media_kind,r2_key,caption,sort_order,status,content_type,bytes,review_reason,reviewed_by,reviewed_at,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,'PENDING',?,?,'','','',?,?)`,
+    `INSERT INTO hostel_property_photos (id,property_id,landlord_id,room_id,scope_type,scope_label,room_start_id,room_end_id,media_kind,r2_key,caption,sort_order,status,content_type,bytes,review_reason,reviewed_by,reviewed_at,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,?,'','','',?,?)`,
     [
-      photoId, propertyId, String(input.landlordId), roomId, mediaKind, key,
+      photoId, propertyId, String(input.landlordId), scopeType === "ROOM" ? roomId : "", scopeType, scopeLabel, roomStartId, roomEndId, mediaKind, key,
       String(input.caption || "").trim().slice(0, 160), Number(next?.next || 1),
       input.contentType, input.body.byteLength, stamp, stamp,
     ],
@@ -243,7 +298,7 @@ export async function listHostelPhotosForLandlord(landlordId: string, propertyId
 export async function listApprovedHostelPhotos(propertyId: string): Promise<PublicHostelPhoto[]> {
   await ensureHostelPhotoTables();
   const rows = rowsToObjects(await turso(
-    `SELECT id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE property_id = ? AND status = 'APPROVED' ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT id,room_id,scope_type,scope_label,room_start_id,room_end_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE property_id = ? AND status = 'APPROVED' ORDER BY sort_order ASC, created_at ASC`,
     [String(propertyId || "")],
   ));
   return rows.map(publicPhotoView);
@@ -255,7 +310,7 @@ export async function listApprovedPhotoCovers(propertyIds: string[]) {
   if (!ids.length) return new Map<string, PublicHostelPhoto>();
   await ensureHostelPhotoTables();
   const rows = rowsToObjects(await turso(
-    `SELECT id,property_id,room_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN (${ids.map(() => "?").join(",")}) ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT id,property_id,room_id,scope_type,scope_label,room_start_id,room_end_id,media_kind,reviewed_at,caption,sort_order FROM hostel_property_photos WHERE status = 'APPROVED' AND media_kind = 'PHOTO' AND room_id = '' AND property_id IN (${ids.map(() => "?").join(",")}) AND scope_type IN ('PROPERTY','BUILDING_AREA') ORDER BY sort_order ASC, created_at ASC`,
     ids,
   ));
   const covers = new Map<string, PublicHostelPhoto>();

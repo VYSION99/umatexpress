@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Camera, Check, CircleNotch, SealCheck, X } from "@phosphor-icons/react";
 
 type Photo = {
-  id: string; propertyId: string; landlordId: string; mediaKind: string; roomId: string; caption: string;
+  id: string; propertyId: string; landlordId: string; mediaKind: string; roomId: string; scopeType: string; scopeLabel: string; caption: string;
   status: string; contentType: string; bytes: number; createdAt: string;
 };
 
@@ -73,7 +73,7 @@ export function PhotoReviewQueue({ onNotice }: { onNotice: (message: string) => 
             <img src={`/api/console/hostel/photos/${photo.id}`} alt={photo.caption || "Property photo awaiting review"} loading="lazy" />
             <div className="console-photo-body">
               <span className="console-badge console-badge-pending">WAITING</span>
-              <span className="console-photo-caption">{photo.mediaKind === "FLOOR_PLAN" ? "Room floor plan" : "Photo"} · {photo.caption || "No caption"}</span>
+              <span className="console-photo-caption">{photo.mediaKind === "FLOOR_PLAN" ? `${photo.scopeLabel || "Room"} · Floor plan` : photo.scopeLabel || "Whole property"} · {photo.caption || "No caption"}</span>
               <small>{when(photo.createdAt)} · {(Number(photo.bytes || 0) / 1024 / 1024).toFixed(1)} MB</small>
               <div className="console-photo-edit">
                 <input

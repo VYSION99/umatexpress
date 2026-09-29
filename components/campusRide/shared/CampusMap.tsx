@@ -23,7 +23,7 @@ type RouteFeature = {
   geometry: { type: "LineString"; coordinates: Array<[number, number]> };
 };
 
-const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 const UMAT_CENTER: [number, number] = [-1.9931, 5.3018];
 const UMAT_BOUNDS: LngLatBoundsLike = [
   [-2.012, 5.284],

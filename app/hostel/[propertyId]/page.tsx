@@ -66,7 +66,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
     <HostelChoicesProvider periodId={period.id}><HostelChoicesPanel /><HostelChoiceActions propertyId={property.id} propertyName={property.name} /></HostelChoicesProvider>
     <div className="hostel-layout">
       <div className="hostel-main">
-        <HostelGallery photos={photos.filter(photo => !photo.roomId && photo.mediaKind === "PHOTO")} name={property.name} />
+        <HostelGallery photos={photos.filter(photo => (photo.scopeType === "PROPERTY" || photo.scopeType === "BUILDING_AREA") && photo.mediaKind === "PHOTO")} name={property.name} />
         <section className="hostel-detail-card">
           <p>ABOUT THIS HOSTEL</p>
           <h2>{property.address || "Address shared on request"}</h2>

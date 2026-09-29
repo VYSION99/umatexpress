@@ -17,7 +17,7 @@ export type HostelMapProperty = {
   distanceM: number | null;
 };
 
-const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 // The campus and the streets students actually walk to reach these buildings.
 const HOSTEL_BOUNDS: LngLatBoundsLike = [
   [-2.08, 5.24],

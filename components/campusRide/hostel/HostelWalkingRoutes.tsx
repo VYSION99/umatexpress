@@ -5,7 +5,7 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import type { WalkingDestination, WalkingRoute } from "@/lib/hostel-engine/walking";
 import { distanceLabel } from "./format";
 
-const DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const envStyle = (process.env.NEXT_PUBLIC_MAP_STYLE_URL || "").trim();
 const STYLE = !envStyle || envStyle === "undefined" || envStyle === "null" ? DEFAULT_STYLE : envStyle;
 
