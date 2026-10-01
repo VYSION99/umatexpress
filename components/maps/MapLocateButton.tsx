@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Crosshair } from "@phosphor-icons/react";
-import type { GoogleMapInstance } from "./useGoogleMap";
+import type { HereMapInstance } from "@/lib/here-maps";
 
-export function MapLocateButton({ instance }: { instance: GoogleMapInstance | null }) {
-  const pin = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
+export function MapLocateButton({ instance }: { instance: HereMapInstance | null }) {
+  const pin = useRef<import("@/lib/here-maps").HereMarker | null>(null);
   const request = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -13,7 +13,7 @@ export function MapLocateButton({ instance }: { instance: GoogleMapInstance | nu
     queueMicrotask(() => setBusy(false));
     return () => {
       request.current += 1;
-      if (pin.current) pin.current.map = null;
+      if (pin.current && instance) instance.map.removeObject(pin.current);
       pin.current = null;
     };
   }, [instance]);
@@ -28,8 +28,8 @@ export function MapLocateButton({ instance }: { instance: GoogleMapInstance | nu
       if (request.current !== id) return;
       setBusy(false);
       const point = { lat: position.coords.latitude, lng: position.coords.longitude };
-      if (!pin.current) pin.current = new instance.marker.AdvancedMarkerElement({ map: instance.map, title: "Your location" });
-      pin.current.position = point;
+      if (!pin.current) { pin.current = new instance.api.map.Marker(point); instance.map.addObject(pin.current); }
+      else pin.current.setGeometry(point);
       instance.map.setCenter(point);
       instance.map.setZoom(16);
     }, () => {
@@ -39,7 +39,7 @@ export function MapLocateButton({ instance }: { instance: GoogleMapInstance | nu
     }, { enableHighAccuracy: true, timeout: 15_000, maximumAge: 30_000 });
   }
 
-  return <div className="google-map-location-action">
+  return <div className="here-map-location-action">
     <button type="button" disabled={!instance || busy} onClick={locate}><Crosshair size={16} aria-hidden />{busy ? "Finding you…" : "My location"}</button>
     {error && <span role="status">{error}</span>}
   </div>;

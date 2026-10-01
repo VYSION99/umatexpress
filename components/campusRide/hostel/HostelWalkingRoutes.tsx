@@ -1,26 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useGoogleMap } from "@/components/maps/useGoogleMap";
+import { useHereMap } from "@/components/maps/useHereMap";
 import { MapStatus } from "@/components/maps/MapStatus";
-import { fitGoogleMap, googlePoint } from "@/lib/google-maps";
+import { fitHereMap, herePoint, herePolyline } from "@/lib/here-maps";
 import type { WalkingDestination, WalkingRoute } from "@/lib/hostel-engine/walking";
 import { distanceLabel } from "./format";
 
 function RouteMap({ route }: { route: Extract<WalkingRoute, { available: true }> }) {
   const element = useRef<HTMLDivElement>(null);
-  const options = useMemo(() => ({ center: googlePoint(...route.coordinates[0]), zoom: 15 }), [route]);
-  const { instance, loading, error, disabled, retry } = useGoogleMap(element, options);
+  const options = useMemo(() => ({ center: herePoint(...route.coordinates[0]), zoom: 15 }), [route]);
+  const { instance, loading, error, disabled, retry } = useHereMap(element, options);
   useEffect(() => {
     if (!instance) return;
-    const points = route.coordinates.map(point => googlePoint(...point));
-    const path = new instance.maps.Polyline({ map: instance.map, path: points, strokeColor: "#106a48", strokeWeight: 6, strokeOpacity: 0.9, clickable: false });
-    const origin = new instance.marker.AdvancedMarkerElement({ map: instance.map, position: points[0], title: "Hostel entrance" });
-    const destination = new instance.marker.AdvancedMarkerElement({ map: instance.map, position: points[points.length - 1], title: route.destination.name });
-    fitGoogleMap(instance.map, instance.core, points, 17);
-    return () => { path.setMap(null); origin.map = null; destination.map = null; };
+    const points = route.coordinates.map(point => herePoint(...point));
+    const path = herePolyline(instance, points, "#106a48", 6);
+    const origin = new instance.api.map.Marker(points[0]);
+    const destination = new instance.api.map.Marker(points[points.length - 1]);
+    instance.map.addObject(origin); instance.map.addObject(destination);
+    fitHereMap(instance, points, 17);
+    return () => { instance.map.removeObject(path); instance.map.removeObject(origin); instance.map.removeObject(destination); };
   }, [instance, route]);
-  return <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}><div className="hostel-walk-map google-map-canvas" ref={element} role="region" aria-label={"Walking route to " + route.destination.name} /><MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} /></div>;
+  return <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}><div className="hostel-walk-map here-map-canvas" ref={element} role="region" aria-label={"Walking route to " + route.destination.name} /><MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} /></div>;
 }
 
 export function HostelWalkingRoutes({ propertyId, directDistanceM, destinations }: { propertyId: string; directDistanceM: number | null; destinations: WalkingDestination[] }) {
@@ -47,6 +48,6 @@ export function HostelWalkingRoutes({ propertyId, directDistanceM, destinations 
     {busy && <p role="status">Finding the pedestrian route…</p>}
     {error && <p role="alert">{error}</p>}
     {route?.available === false && <p role="status">{route.reason}</p>}
-    {route?.available && <><div className="hostel-walking-result"><strong>{route.durationMinutes} min walk</strong><span>{(route.distanceM / 1000).toFixed(1)} km along the pedestrian route to {route.destination.name}</span></div><RouteMap route={route} /><p className="hostel-route-source">Walking route: openrouteservice · Map: Google Maps</p></>}
+    {route?.available && <><div className="hostel-walking-result"><strong>{route.durationMinutes} min walk</strong><span>{(route.distanceM / 1000).toFixed(1)} km along the pedestrian route to {route.destination.name}</span></div><RouteMap route={route} /><p className="hostel-route-source">Walking route: GraphHopper · Map: HERE</p></>}
   </section>;
 }

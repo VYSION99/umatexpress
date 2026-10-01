@@ -11,22 +11,21 @@ export async function GET(request: Request) {
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const query = String(new URL(request.url).searchParams.get("q") || "").trim().slice(0, 100);
     if (query.length < 3) return Response.json({ ok: true, suggestions: [] }, { headers: NO_STORE });
-    const key = await envValue("OPENROUTESERVICE_API_KEY");
+    const key = await envValue("HERE_API_KEY");
     if (!key) return Response.json({ ok: true, suggestions: [], unavailable: true }, { headers: NO_STORE });
-    const url = new URL("https://api.heigit.org/pelias/v1/search");
-    url.searchParams.set("text", query);
-    url.searchParams.set("size", "8");
-    url.searchParams.set("focus.point.lat", "5.3");
-    url.searchParams.set("focus.point.lon", "-2.0");
+    const url = new URL("https://autosuggest.search.hereapi.com/v1/autosuggest");
+    url.searchParams.set("q", query);
+    url.searchParams.set("at", "5.3,-2.0");
+    url.searchParams.set("limit", "8");
+    url.searchParams.set("apiKey", key);
     try {
-      const response = await fetch(url, { headers: { Authorization: key, Accept: "application/json" }, signal: AbortSignal.timeout(6000) });
+      const response = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6000) });
       if (!response.ok) throw new Error("Geocoding unavailable");
-      const data = await response.json() as { features?: Array<{ geometry?: { coordinates?: unknown }; properties?: { label?: string } }> };
-      const suggestions = (data.features || []).flatMap((feature) => {
-        const point = feature.geometry?.coordinates;
-        const longitude = Array.isArray(point) ? Number(point[0]) : NaN;
-        const latitude = Array.isArray(point) ? Number(point[1]) : NaN;
-        const label = String(feature.properties?.label || "").slice(0, 160);
+      const data = await response.json() as { items?: Array<{ title?: string; address?: { label?: string }; position?: { lat?: number; lng?: number } }> };
+      const suggestions = (data.items || []).flatMap((item) => {
+        const latitude = Number(item.position?.lat);
+        const longitude = Number(item.position?.lng);
+        const label = String(item.address?.label || item.title || "").slice(0, 160);
         return label && Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= 5.0 && latitude <= 5.6 && longitude >= -2.4 && longitude <= -1.6 ? [{ label, latitude, longitude }] : [];
       });
       return Response.json({ ok: true, suggestions }, { headers: NO_STORE });

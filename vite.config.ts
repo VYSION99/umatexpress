@@ -21,12 +21,6 @@ export default defineConfig(async ({ mode }) => {
   process.env.WRANGLER_WRITE_LOGS ??= "false";
   process.env.WRANGLER_LOG_PATH ??= ".wrangler/logs";
   process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
-  // Assigning an undefined value to process.env stores the *string* "undefined",
-  // which is truthy and silently defeats every `|| fallback` downstream.
-  for (const key of ["NEXT_PUBLIC_GOOGLE_MAPS_API_KEY", "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID"]) {
-    if (localEnv[key]) process.env[key] = localEnv[key];
-  }
-
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
@@ -38,12 +32,20 @@ export default defineConfig(async ({ mode }) => {
   const bindings = wranglerBindingConfig(plan);
   for (const line of bindingPlanSummary(plan)) console.log(`[bindings] ${line}`);
 
+  // Local development reads these runtime keys from ignored .env. Production
+  // Workers receive them through scripts/push-secrets.sh, never build vars.
+  const devSecrets = mode === "development"
+    ? Object.fromEntries(["HERE_API_KEY", "GRAPHOPPER_API_KEY", "HERE_MAPS_ENABLED"]
+      .filter(key => localEnv[key])
+      .map(key => [key, localEnv[key]]))
+    : {};
   const localBindingConfig = {
     main: "./worker/index.ts",
     compatibility_flags: ["nodejs_compat"],
     // One trigger per job: see lib/campus-engine/crons.ts for why.
     triggers: { crons: WORKER_CRONS },
     ...bindings,
+    vars: { ...bindings.vars, ...devSecrets },
     // A bucket declared by the hosting template is additive: it never replaces
     // the application's own R2 binding.
     r2_buckets: [

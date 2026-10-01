@@ -103,7 +103,8 @@ beforeEach(() => {
   delete process.env.PAYOUT_AUTO_ENABLED;
   delete process.env.HOSTEL_PAYOUT_AUTO_ENABLED;
   delete process.env.HOSTEL_IDENTITY_DOCUMENTS_VISIBLE;
-  delete process.env.GOOGLE_MAPS_ENABLED;
+  delete process.env.HERE_MAPS_ENABLED;
+  delete process.env.HERE_API_KEY;
   resetPlatformSettingsCache();
 });
 
@@ -276,28 +277,29 @@ test("a numeric limit is written, read back and clamped through the API", async 
 });
 
 
-test("Google Maps is off by default and only admins can enable its public display policy", async () => {
+test("HERE Maps is off by default and only admins can enable its public display policy", async () => {
+  process.env.HERE_API_KEY = "test-public-key";
   const mapConfig = await vite.ssrLoadModule("/app/api/maps/config/route.ts");
   const initial = await mapConfig.GET();
-  assert.deepEqual(await initial.json(), { googleMapsEnabled: false });
+  assert.deepEqual(await initial.json(), { hereMapsEnabled: false, hereApiKey: "" });
   assert.equal(initial.headers.get("cache-control"), "no-store");
 
   for (const cookie of [undefined, await cookieFor("console-organizer")]) {
-    const denied = await settingsRoute.PATCH(apiRequest("PATCH", cookie, { key: "google_maps_enabled", enabled: true }));
+    const denied = await settingsRoute.PATCH(apiRequest("PATCH", cookie, { key: "here_maps_enabled", enabled: true }));
     assert.ok([401, 403].includes(denied.status));
     assert.equal(settings.size, 0);
   }
   const admin = await cookieFor("console-admin");
-  const enabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "google_maps_enabled", enabled: true }));
+  const enabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "here_maps_enabled", enabled: true }));
   assert.equal(enabled.status, 200);
-  assert.deepEqual(await (await mapConfig.GET()).json(), { googleMapsEnabled: true }, "public response must contain no key, account or other settings");
-  assert.equal(audits.at(-1).target_reference, "google_maps_enabled");
+  assert.deepEqual(await (await mapConfig.GET()).json(), { hereMapsEnabled: true, hereApiKey: "test-public-key" }, "enabled response provides only the public browser key");
+  assert.equal(audits.at(-1).target_reference, "here_maps_enabled");
   assert.equal(audits.at(-1).admin_email, "admin@umat.edu.gh");
 
-  process.env.GOOGLE_MAPS_ENABLED = "true";
-  const disabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "google_maps_enabled", enabled: false }));
+  process.env.HERE_MAPS_ENABLED = "true";
+  const disabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "here_maps_enabled", enabled: false }));
   assert.equal(disabled.status, 200);
-  assert.deepEqual(await (await mapConfig.GET()).json(), { googleMapsEnabled: false }, "the saved off switch overrides the runtime environment");
+  assert.deepEqual(await (await mapConfig.GET()).json(), { hereMapsEnabled: false, hereApiKey: "" }, "the saved off switch hides the key");
 });
 
 test("the map display policy is available on both app origins without exposing other map routes", async () => {

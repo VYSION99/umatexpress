@@ -35,9 +35,10 @@ for q in p['requests']:
 print(json.dumps({'results':r}))`;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (_url, init) => {
-  if (String(_url).startsWith("https://api.heigit.org/openrouteservice/")) {
-    assert.equal(init.headers.Authorization, "route-test-key");
-    return { ok: true, json: async () => ({ features: [{ properties: { summary: { distance: 1450, duration: 1080 } }, geometry: { coordinates: [[-2.00, 5.30], [-2.005, 5.305]] } }] }) };
+  if (String(_url).startsWith("https://graphhopper.com/api/1/route")) {
+    assert.equal(new URL(_url).searchParams.get("key"), "route-test-key");
+    assert.deepEqual(JSON.parse(init.body).points, [[-2, 5.3], [-2.005, 5.305]]);
+    return { ok: true, json: async () => ({ paths: [{ distance: 1450, time: 1080000, points: { coordinates: [[-2.00, 5.30], [-2.005, 5.305]] } }] }) };
   }
   const output = spawnSync("python3", ["-c", python, database], { input: init.body, encoding: "utf8" });
   assert.equal(output.status, 0, output.stderr);
@@ -91,7 +92,7 @@ test("public verification needs a staff record and is invalidated by changed det
 
 
 test("walking distance comes from the pedestrian route, separate from direct distance", async () => {
-  process.env.OPENROUTESERVICE_API_KEY = "route-test-key";
+  process.env.GRAPHOPPER_API_KEY = "route-test-key";
   await turso("CREATE TABLE campus_zones (id TEXT PRIMARY KEY,name TEXT,latitude REAL,longitude REAL,active INTEGER)");
   await turso("INSERT INTO campus_zones VALUES ('library','Campus library',5.305,-2.005,1)");
   const route = await walking.getHostelWalkingRoute("p", "library");
@@ -99,5 +100,5 @@ test("walking distance comes from the pedestrian route, separate from direct dis
   assert.equal(route.distanceM, 1450);
   assert.equal(route.durationMinutes, 18);
   assert.equal(route.coordinates.length, 2);
-  delete process.env.OPENROUTESERVICE_API_KEY;
+  delete process.env.GRAPHOPPER_API_KEY;
 });

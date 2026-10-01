@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { Bed, MapPin } from "@phosphor-icons/react";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
-import { fitGoogleMap, googlePoint, validMapPoint } from "@/lib/google-maps";
-import { useGoogleMap } from "@/components/maps/useGoogleMap";
+import { fitHereMap, herePoint, validMapPoint, hereDomMarker, openHereBubble } from "@/lib/here-maps";
+import { useHereMap } from "@/components/maps/useHereMap";
 import { MapStatus } from "@/components/maps/MapStatus";
 import { MapLocateButton } from "@/components/maps/MapLocateButton";
 
@@ -19,16 +19,14 @@ export type HostelMapProperty = {
   distanceM: number | null;
 };
 
-const OPTIONS: google.maps.MapOptions = {
-  center: googlePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
+const OPTIONS: { center: { lat: number; lng: number }; zoom: number } = {
+  center: herePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
   zoom: 14,
-  minZoom: 10,
-  maxZoom: 20,
 };
 
 function popupContent(property: HostelMapProperty, periodId: string) {
   const container = document.createElement("div");
-  container.className = "google-map-popup";
+  container.className = "here-map-popup";
   const heading = document.createElement("strong");
   heading.textContent = property.name;
   const place = document.createElement("p");
@@ -44,34 +42,29 @@ function popupContent(property: HostelMapProperty, periodId: string) {
 
 export function HostelMap({ properties, periodId = "", title = "Approved hostels near campus" }: { properties: HostelMapProperty[]; periodId?: string; title?: string }) {
   const container = useRef<HTMLDivElement | null>(null);
-  const { instance, loading, error, disabled, retry } = useGoogleMap(container, OPTIONS);
+  const { instance, loading, error, disabled, retry } = useHereMap(container, OPTIONS);
   const pinned = useMemo(() => properties.filter(property => validMapPoint(property.latitude, property.longitude)), [properties]);
 
   useEffect(() => {
     if (!instance) return;
-    const { map, maps, marker, core } = instance;
-    const popup = new maps.InfoWindow();
-    const events = new AbortController();
-    const positions = pinned.map(property => googlePoint(property.longitude!, property.latitude!));
+    const { map } = instance;
+    let bubble: ReturnType<typeof openHereBubble> | null = null;
+    const positions = pinned.map(property => herePoint(property.longitude!, property.latitude!));
     const pins = pinned.map((property, index) => {
       const element = document.createElement("div");
       element.className = "real-map-marker hostel-marker";
       const label = document.createElement("span");
       label.textContent = String(property.availableSpaces);
       element.append(label);
-      const pin = new marker.AdvancedMarkerElement({
-        map, position: positions[index], gmpClickable: true,
-        title: property.name + " — " + bedsLabel(property.availableSpaces),
+      const pin = hereDomMarker(instance, positions[index], element);
+      pin.addEventListener("tap", () => {
+        if (bubble) instance.ui.removeBubble(bubble);
+        bubble = openHereBubble(instance, positions[index], popupContent(property, periodId));
       });
-      pin.append(element);
-      pin.addEventListener("gmp-click", () => {
-        popup.setContent(popupContent(property, periodId));
-        popup.open({ map, anchor: pin });
-      }, { signal: events.signal });
       return pin;
     });
-    fitGoogleMap(map, core, positions);
-    return () => { events.abort(); popup.close(); pins.forEach(pin => { pin.map = null; }); };
+    fitHereMap(instance, positions);
+    return () => { if (bubble) instance.ui.removeBubble(bubble); pins.forEach(pin => map.removeObject(pin)); };
   }, [instance, pinned, periodId]);
 
   return <section className="campus-map-widget real-map-widget hostel-map-widget">
@@ -80,7 +73,7 @@ export function HostelMap({ properties, periodId = "", title = "Approved hostels
       <span>{pinned.length} {pinned.length === 1 ? "pin" : "pins"}</span>
     </div>
     <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
-      <div ref={container} className="campus-map-canvas real-map-canvas hostel-map-canvas google-map-canvas" aria-label="Interactive Hostel Finder map" />
+      <div ref={container} className="campus-map-canvas real-map-canvas hostel-map-canvas here-map-canvas" aria-label="Interactive Hostel Finder map" />
       <MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} />
     </div>
     {!disabled && <MapLocateButton instance={instance} />}
@@ -88,7 +81,7 @@ export function HostelMap({ properties, periodId = "", title = "Approved hostels
       <span><Bed size={14} /> Pin shows beds free</span>
       <span><MapPin size={14} /> Approved hostel</span>
       {properties.length > pinned.length && <span>{properties.length - pinned.length} without a pin, available in the list</span>}
-      <span>Google Maps</span>
+      <span>HERE Maps</span>
     </div>}
   </section>;
 }

@@ -43,7 +43,7 @@ npm run dev
 
 The checked-in `.env.example` documents all required variables. `.env` is ignored and must never be committed.
 
-Maps use Google Maps. Configure its browser key and both application domains using [Google Maps setup](docs/GOOGLE_MAPS.md).
+Maps use HERE for display and address suggestions and GraphHopper for walking routes. See [maps setup](docs/HERE_GRAPHOPPER_MAPS.md).
 
 ## Environment variables
 

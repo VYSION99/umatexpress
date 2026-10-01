@@ -3,14 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Crosshair } from "@phosphor-icons/react";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
-import { googleMapsLocationLink, googlePoint } from "@/lib/google-maps";
+import { hereLocationLink, herePoint, type HereMarker, type MapEvent } from "@/lib/here-maps";
 import { MapStatus } from "@/components/maps/MapStatus";
-import { useGoogleMap } from "@/components/maps/useGoogleMap";
+import { useHereMap } from "@/components/maps/useHereMap";
 
-const OPTIONS: google.maps.MapOptions = {
-  center: googlePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
+const OPTIONS: { center: { lat: number; lng: number }; zoom: number } = {
+  center: herePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
   zoom: 14,
-  restriction: { latLngBounds: { south: 5.0, north: 5.6, west: -2.4, east: -1.6 }, strictBounds: false },
 };
 
 function propertyPoint(latitude: string, longitude: string) {
@@ -21,10 +20,11 @@ function propertyPoint(latitude: string, longitude: string) {
 
 export function HostelLocationPicker({ latitude, longitude, onChange }: { latitude: string; longitude: string; onChange: (latitude: string, longitude: string) => void }) {
   const container = useRef<HTMLDivElement | null>(null);
-  const marker = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
+  const marker = useRef<HereMarker | null>(null);
+  const markerVisible = useRef(false);
   const latest = useRef(onChange);
   const active = useRef(true);
-  const { instance, loading, error: mapError, disabled, retry } = useGoogleMap(container, OPTIONS);
+  const { instance, loading, error: mapError, disabled, retry } = useHereMap(container, OPTIONS);
   const [error, setError] = useState("");
   const [locating, setLocating] = useState(false);
   const [locationNotice, setLocationNotice] = useState("");
@@ -62,7 +62,8 @@ export function HostelLocationPicker({ latitude, longitude, onChange }: { latitu
 
   useEffect(() => {
     if (!instance) return;
-    const pin = new instance.marker.AdvancedMarkerElement({ map: instance.map, gmpDraggable: true, title: "Property entrance. Drag to adjust." });
+    const pin = new instance.api.map.Marker({ lat: CAMPUS_REFERENCE.latitude, lng: CAMPUS_REFERENCE.longitude });
+    pin.draggable = true;
     marker.current = pin;
     const update = (latitude: number, longitude: number) => {
       const point = propertyPoint(String(latitude), String(longitude));
@@ -70,21 +71,50 @@ export function HostelLocationPicker({ latitude, longitude, onChange }: { latitu
       setError(""); setLocationNotice("");
       latest.current(point.lat.toFixed(6), point.lng.toFixed(6));
     };
-    const click = instance.map.addListener("click", (event: google.maps.MapMouseEvent) => {
-      if (event.latLng) update(event.latLng.lat(), event.latLng.lng());
-    });
-    const drag = () => {
-      const position = pin.position;
-      if (position) update(typeof position.lat === "function" ? position.lat() : position.lat, typeof position.lng === "function" ? position.lng() : position.lng);
+    const tap = (event: MapEvent) => {
+      if (event.target !== instance.map || !event.currentPointer) return;
+      const point = instance.map.screenToGeo(event.currentPointer.viewportX, event.currentPointer.viewportY);
+      update(point.lat, point.lng);
     };
-    pin.addEventListener("gmp-dragend", drag);
-    return () => { click.remove(); pin.removeEventListener("gmp-dragend", drag); pin.map = null; marker.current = null; };
+    let offset: { x: number; y: number } | null = null;
+    const dragStart = (event: MapEvent) => {
+      if (event.target !== pin || !event.currentPointer) return;
+      instance.behavior.disable(instance.api.mapevents.Behavior.Feature.PANNING);
+      const screen = instance.map.geoToScreen(pin.getGeometry());
+      offset = { x: event.currentPointer.viewportX - screen.x, y: event.currentPointer.viewportY - screen.y };
+    };
+    const drag = (event: MapEvent) => {
+      if (event.target !== pin || !event.currentPointer || !offset) return;
+      pin.setGeometry(instance.map.screenToGeo(event.currentPointer.viewportX - offset.x, event.currentPointer.viewportY - offset.y));
+    };
+    const dragEnd = (event: MapEvent) => {
+      if (event.target !== pin) return;
+      instance.behavior.enable(instance.api.mapevents.Behavior.Feature.PANNING);
+      offset = null;
+      const point = pin.getGeometry();
+      update(point.lat, point.lng);
+    };
+    instance.map.addEventListener("tap", tap);
+    instance.map.addEventListener("dragstart", dragStart);
+    instance.map.addEventListener("drag", drag);
+    instance.map.addEventListener("dragend", dragEnd);
+    return () => {
+      instance.map.removeEventListener("tap", tap);
+      instance.map.removeEventListener("dragstart", dragStart);
+      instance.map.removeEventListener("drag", drag);
+      instance.map.removeEventListener("dragend", dragEnd);
+      if (markerVisible.current) instance.map.removeObject(pin);
+      markerVisible.current = false;
+      marker.current = null;
+    };
   }, [instance]);
 
   useEffect(() => {
     if (!instance || !marker.current) return;
     const point = propertyPoint(latitude, longitude);
-    marker.current.position = point;
+    if (point) marker.current.setGeometry(point);
+    if (point && !markerVisible.current) { instance.map.addObject(marker.current); markerVisible.current = true; }
+    if (!point && markerVisible.current) { instance.map.removeObject(marker.current); markerVisible.current = false; }
     if (point) {
       instance.map.setCenter(point);
       instance.map.setZoom(Math.max(instance.map.getZoom() || 14, 16));
@@ -102,11 +132,11 @@ export function HostelLocationPicker({ latitude, longitude, onChange }: { latitu
       <span>Allow location access when your browser asks. {disabled ? "You can still adjust the coordinates below." : "You can still adjust the pin on the map."}</span>
     </div>
     <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
-      <div ref={container} className="hostel-location-map google-map-canvas" role="region" aria-label="Select hostel location on Google Maps" />
+      <div ref={container} className="hostel-location-map here-map-canvas" role="region" aria-label="Select hostel location on HERE Maps" />
       <MapStatus disabled={disabled} loading={loading} error={mapError} onRetry={retry} />
     </div>
     {mapError && <p>You can still use your device location or enter the coordinates below.</p>}
-    {selected && <p><a href={googleMapsLocationLink(selected.lat, selected.lng)} target="_blank" rel="noreferrer">View selected location in Google Maps</a></p>}
+    {selected && <p><a href={hereLocationLink(selected.lat, selected.lng)} target="_blank" rel="noreferrer">View selected location in HERE Maps</a></p>}
     {error && <p role="alert">{error}</p>}
     {locationNotice && <p role="status">{locationNotice}</p>}
   </div>;

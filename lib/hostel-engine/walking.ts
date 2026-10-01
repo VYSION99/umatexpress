@@ -5,7 +5,7 @@ import { envValue } from "@/lib/runtime-env";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 export type WalkingDestination = { id: string; name: string; latitude: number; longitude: number };
-export type WalkingRoute = { available: true; destination: WalkingDestination; distanceM: number; durationMinutes: number; coordinates: Array<[number, number]>; source: "openrouteservice" } | { available: false; reason: string };
+export type WalkingRoute = { available: true; destination: WalkingDestination; distanceM: number; durationMinutes: number; coordinates: Array<[number, number]>; source: "graphhopper" } | { available: false; reason: string };
 function validPoint(latitude: number, longitude: number) { return Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= 5.2 && latitude <= 5.4 && longitude >= -2.1 && longitude <= -1.9; }
 function destination(zone: Pick<CampusZone, "id" | "name" | "latitude" | "longitude">): WalkingDestination | null {
   const latitude = Number(zone.latitude), longitude = Number(zone.longitude);
@@ -33,24 +33,26 @@ export async function getHostelWalkingRoute(propertyId: string, destinationId: s
   if (!validPoint(latitude, longitude)) return { available: false, reason: "This hostel needs a valid location pin before a walking route can be shown." };
   const place = (await listWalkingDestinations()).find(item => item.id === destinationId);
   if (!place) throw new CampusEngineError("NOT_FOUND", "That campus destination was not found.", 404);
-  const key = await envValue("OPENROUTESERVICE_API_KEY");
+  const key = await envValue("GRAPHOPPER_API_KEY");
   if (!key) return { available: false, reason: "Pedestrian routing is not configured yet. The distance above is straight-line only." };
   try {
-    const response = await fetch("https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson", {
-      method: "POST", headers: { "Authorization": key, "Content-Type": "application/json", "Accept": "application/geo+json" },
-      body: JSON.stringify({ coordinates: [[longitude, latitude], [place.longitude, place.latitude]] }),
+    const url = new URL("https://graphhopper.com/api/1/route");
+    url.searchParams.set("key", key);
+    const response = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ points: [[longitude, latitude], [place.longitude, place.latitude]], profile: "foot", points_encoded: false, instructions: false }),
       signal: AbortSignal.timeout(8000),
     });
     if (!response.ok) throw new Error(`routing status ${response.status}`);
-    const data = await response.json() as { features?: Array<{ properties?: { summary?: { distance?: number; duration?: number } }; geometry?: { coordinates?: unknown } }> };
-    const feature = data.features?.[0];
-    const distance = Number(feature?.properties?.summary?.distance);
-    const duration = Number(feature?.properties?.summary?.duration);
-    const raw = feature?.geometry?.coordinates;
+    const data = await response.json() as { paths?: Array<{ distance?: number; time?: number; points?: { coordinates?: unknown } }> };
+    const path = data.paths?.[0];
+    const distance = Number(path?.distance);
+    const duration = Number(path?.time);
+    const raw = path?.points?.coordinates;
     if (!Number.isFinite(distance) || distance <= 0 || !Number.isFinite(duration) || duration <= 0 || !Array.isArray(raw) || raw.length < 2 || raw.length > 4000) throw new Error("Invalid pedestrian route");
     const coordinates = raw.map(point => Array.isArray(point) && point.length >= 2 ? [Number(point[0]), Number(point[1])] as [number, number] : null);
     if (coordinates.some(point => !point || !validPoint(point[1], point[0]))) throw new Error("Route left the campus area");
-    return { available: true, destination: place, distanceM: Math.round(distance), durationMinutes: Math.max(1, Math.round(duration / 60)), coordinates: coordinates as Array<[number, number]>, source: "openrouteservice" };
+    return { available: true, destination: place, distanceM: Math.round(distance), durationMinutes: Math.max(1, Math.round(duration / 60_000)), coordinates: coordinates as Array<[number, number]>, source: "graphhopper" };
   } catch {
     return { available: false, reason: "A pedestrian route is unavailable right now. The straight-line distance above is not a walking estimate." };
   }

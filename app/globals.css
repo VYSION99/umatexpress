@@ -1002,22 +1002,22 @@
 .hostel-assistant-contact label{display:grid;gap:5px;font-size:12px;font-weight:800}
 .hostel-assistant-contact input{min-height:41px;border:1px solid var(--ui-line);border-radius:10px;padding:8px 10px;font:inherit;font-size:13px}
 
-/* Google controls retain their native sizing inside console forms. */
-.google-map-canvas { display: block; }
-.google-map-canvas img { max-width: none; }
-.console-form .google-map-canvas button,
-.console-form .google-map-canvas button:hover { all: revert; box-sizing: border-box; }
-.google-map-popup { max-width: 240px; color: #12261f; font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
-.google-map-popup strong { display: block; margin-bottom: 6px; font-size: 14px; }
-.google-map-popup p { margin: 4px 0; color: #57675f; font-size: 12px; letter-spacing: 0; text-transform: none; }
-.google-map-popup a { display: inline-block; margin-top: 8px; color: #0d694d; font-weight: 800; }
+/* HERE map controls retain their native sizing inside console forms. */
+.here-map-canvas { display: block; }
+.here-map-canvas img { max-width: none; }
+.console-form .here-map-canvas button,
+.console-form .here-map-canvas button:hover { all: revert; box-sizing: border-box; }
+.here-map-popup { max-width: 240px; color: #12261f; font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+.here-map-popup strong { display: block; margin-bottom: 6px; font-size: 14px; }
+.here-map-popup p { margin: 4px 0; color: #57675f; font-size: 12px; letter-spacing: 0; text-transform: none; }
+.here-map-popup a { display: inline-block; margin-top: 8px; color: #0d694d; font-weight: 800; }
 .real-map-error .map-retry { min-width: 96px; min-height: 44px; padding: 8px 16px; border: 1px solid #dce5de; border-radius: 10px; background: white; color: #0d694d; font: inherit; cursor: pointer; }
-.google-map-location-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-.google-map-location-action button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px 12px; border: 1px solid #dce5de; border-radius: 10px; background: white; color: #0d694d; font-size: 12px; font-weight: 800; cursor: pointer; }
-.google-map-location-action button:disabled { opacity: .6; cursor: default; }
-.google-map-location-action span, .hostel-route-source { color: #57675f; font-size: 12px; }
+.here-map-location-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.here-map-location-action button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px 12px; border: 1px solid #dce5de; border-radius: 10px; background: white; color: #0d694d; font-size: 12px; font-weight: 800; cursor: pointer; }
+.here-map-location-action button:disabled { opacity: .6; cursor: default; }
+.here-map-location-action span, .hostel-route-source { color: #57675f; font-size: 12px; }
 
 /* An administrator-disabled map should not leave a large empty canvas. */
-.campus-map-frame.is-map-disabled .google-map-canvas{display:none}
+.campus-map-frame.is-map-disabled .here-map-canvas{display:none}
 .real-map-disabled{display:flex;align-items:center;gap:10px;padding:20px;color:var(--muted);background:var(--surface-soft,#f5f7f5);font-size:14px}
 .real-map-disabled svg{flex-shrink:0}
