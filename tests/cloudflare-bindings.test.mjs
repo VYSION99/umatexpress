@@ -89,9 +89,15 @@ test("turning Cinema off keeps the rate limiter's migration untouched", async ()
 });
 
 test("each cron trigger names one job", async () => {
-  const { WORKER_CRONS, HOSTEL_AVAILABILITY_CRON, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, VACATION_REMINDER_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
-  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, VACATION_REMINDER_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON]);
+  const { WORKER_CRONS, HOSTEL_AVAILABILITY_CRON, CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, VACATION_REMINDER_MINUTES, notificationCronRunsReminder, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON } = await vite.ssrLoadModule("/lib/campus-engine/crons.ts");
+  assert.deepEqual(WORKER_CRONS, [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON]);
+  assert.equal(WORKER_CRONS.length, 5, "the Cloudflare Free account permits five schedules");
   assert.equal(new Set(WORKER_CRONS).size, WORKER_CRONS.length);
+  for (const minute of VACATION_REMINDER_MINUTES) {
+    assert.ok(NOTIFICATION_SWEEP_CRON.split(" ")[0].split(",").map(Number).includes(minute));
+    assert.equal(notificationCronRunsReminder(Date.UTC(2026, 9, 1, 10, minute)), true);
+  }
+  assert.equal(notificationCronRunsReminder(Date.UTC(2026, 9, 1, 10, 7)), false);
   assert.match(CAMPUS_RECONCILE_CRON, /^\*\/\d+ /);
 
   // Cloudflare collapses triggers that fall due in the same minute into a

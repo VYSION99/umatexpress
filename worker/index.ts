@@ -1,7 +1,7 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, VACATION_REMINDER_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
+import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, notificationCronRunsReminder, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
 import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
 import { runCinemaCleanup } from "@/lib/cinema-engine/cleanup";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
@@ -90,15 +90,17 @@ const worker = {
    * outbox. The notification sweep is the queue's retry net, not its
    * replacement. See lib/campus-engine/crons.ts.
    */
-  async scheduled(controller: { cron?: string }, _env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(controller: { cron?: string; scheduledTime?: number }, _env: Env, ctx: ExecutionContext): Promise<void> {
     if (controller?.cron === NOTIFICATION_SWEEP_CRON) {
-      // Ten at a time: each row costs a claim, a send and a status write, and
-      // one invocation has fifty subrequests to spend.
-      ctx.waitUntil(runNotificationSweep({ limit: 10 }));
-      return;
-    }
-    if (controller?.cron === VACATION_REMINDER_CRON) {
-      ctx.waitUntil(scanVacationDepartures().catch(error => { logEvent("error", "vacation_reminder_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+      // The account's five-trigger limit requires one cron expression for
+      // both jobs. Its four extra minutes run reminders only, so delivery and
+      // reminder scans still have separate subrequest budgets.
+      if (notificationCronRunsReminder(controller.scheduledTime ?? Date.now())) {
+        ctx.waitUntil(scanVacationDepartures().catch(error => { logEvent("error", "vacation_reminder_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+      } else {
+        // Ten at a time: each row costs a claim, a send and a status write.
+        ctx.waitUntil(runNotificationSweep({ limit: 10 }));
+      }
       return;
     }
     if (controller?.cron === HOSTEL_AVAILABILITY_CRON) {

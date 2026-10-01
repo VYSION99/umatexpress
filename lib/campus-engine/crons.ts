@@ -21,10 +21,14 @@ export const CAMPUS_RECONCILE_CRON = "*/5 * * * *";
  * sweep must avoid the payment and hostel triggers as well. These minutes
  * keep the fallback within six minutes while giving it a separate budget.
  */
-export const NOTIFICATION_SWEEP_CRON = "2,7,13,18,23,28,33,38,43,48,53,58 * * * *";
+/** Four reminder minutes share this trigger, but run a different job. */
+export const VACATION_REMINDER_MINUTES = [4, 19, 34, 49] as const;
+export const NOTIFICATION_SWEEP_CRON = "2,4,7,13,18,19,23,28,33,34,38,43,48,49,53,58 * * * *";
 
-/** Vacation departure reminders get their own bounded Worker invocation. */
-export const VACATION_REMINDER_CRON = "4,19,34,49 * * * *";
+/** Route each scheduled invocation using Cloudflare's scheduled timestamp. */
+export function notificationCronRunsReminder(scheduledTime: number) {
+  return (VACATION_REMINDER_MINUTES as readonly number[]).includes(new Date(scheduledTime).getUTCMinutes());
+}
 
 /** Saved hostel transitions get a separate budget every fifteen minutes. */
 export const HOSTEL_AVAILABILITY_CRON = "12,27,42,57 * * * *";
@@ -75,10 +79,9 @@ export const PAYOUT_RELEASE_CRON = `${
       ...minutesOf(CAMPUS_RECONCILE_CRON),
       ...minutesOf(NOTIFICATION_SWEEP_CRON),
       ...minutesOf(HOSTEL_AVAILABILITY_CRON),
-      ...minutesOf(VACATION_REMINDER_CRON),
       ...minutesOf(PAYOUT_RECONCILE_CRON),
     ]).has(minute))
     .join(",")
 } * * * *`;
 
-export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, VACATION_REMINDER_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON];
+export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON];
