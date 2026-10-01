@@ -32,6 +32,10 @@ const PLATFORM_SETTINGS_STATEMENTS = [
 ];
 
 export type PlatformSettingKey =
+  | "google_maps_enabled"
+  | "hostel_maintenance_enabled"
+  | "hostel_conditions_enabled"
+  | "hostel_stay_requests_enabled"
   | "hostel_payout_auto"
   | "hostel_identity_documents_visible"
   | "organizer_payout_auto"
@@ -86,6 +90,31 @@ export type PlatformSettingDefinition = {
 };
 
 export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] = [
+  { key: "hostel_stay_requests_enabled", kind: "toggle", label: "Hostel stay plans",
+    summary: "Enable room-change requests and next-year renewals for opted-in properties.",
+    detail: "Owners enable each property and configure renewal windows. Off pauses new requests, offers and acceptance; existing handovers, payment verification and history remain available. Different-price room changes are disabled.",
+    env: "HOSTEL_STAY_REQUESTS_ENABLED", fallback: false },
+  {
+    key: "hostel_conditions_enabled", kind: "toggle", label: "Hostel condition records",
+    summary: "Enable move-in and checkout evidence for opted-in properties.",
+    detail: "Owners configure a checklist and enable each property. Off stops opening new records; existing records and their transfer handovers remain available. Acknowledgment records receipt, not acceptance of every claim. No automatic charges or refunds.",
+    env: "HOSTEL_CONDITIONS_ENABLED", fallback: false,
+  },
+  {
+    key: "hostel_maintenance_enabled", kind: "toggle", label: "Hostel maintenance requests",
+    summary: "Allow opted-in hostels to receive resident maintenance reports.",
+    detail: "Owners must also enable maintenance for each property and set service hours. Off stops new reports; students and authorized staff can still follow and resolve existing cases. Changes apply within 15 seconds across servers.",
+    env: "HOSTEL_MAINTENANCE_ENABLED", fallback: false,
+  },
+  {
+    key: "google_maps_enabled",
+    kind: "toggle",
+    label: "Google Maps",
+    summary: "Enable interactive maps in Hostel Finder and CampusRide.",
+    detail: "On loads Google Maps for hostel discovery, property locations, walking routes and campus rides. Off stops new embedded map loads; property staff can still use device location or enter coordinates manually. Changes apply after refreshing the page; allow up to 15 seconds across servers. Enable Maps JavaScript API and billing for the configured browser key before turning this on.",
+    env: "GOOGLE_MAPS_ENABLED",
+    fallback: false,
+  },
   {
     key: "hostel_payout_auto",
     kind: "toggle",

@@ -17,7 +17,6 @@ import { createServer } from "vite";
 process.env.TURSO_DATABASE_URL = "https://hostel-discovery-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-chars";
-process.env.NEXT_PUBLIC_MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 const periods = [];
 const properties = [];
@@ -213,7 +212,7 @@ test("the public list counts only beds a student could actually book", async () 
   assert.equal(green.utilitiesEnabled, true);
   const aggregate = statements.find((statement) => /^SELECT p\.id AS property_id/.test(statement.sql));
   assert.ok(aggregate, "the property list must run its own aggregate query");
-  for (const gate of ["l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "p.status = 'APPROVED'"]) {
+  for (const gate of ["l.status = 'APPROVED'", "claim.space_id=s.id AND claim.period_id=l.period_id", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "p.status = 'APPROVED'"]) {
     assert.ok(aggregate.sql.includes(gate), `the aggregate must keep the gate: ${gate}`);
   }
   assert.deepEqual(aggregate.args, [PERIOD.id]);

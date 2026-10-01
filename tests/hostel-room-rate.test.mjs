@@ -57,12 +57,13 @@ await turso("INSERT INTO hostel_owner_onboarding VALUES ('owner','OWNER','APPROV
 await turso("CREATE TABLE hostel_properties (id TEXT PRIMARY KEY,landlord_id TEXT,name TEXT,status TEXT)");
 await turso("CREATE TABLE hostel_rooms (id TEXT PRIMARY KEY,property_id TEXT,label TEXT,status TEXT)");
 await turso("CREATE TABLE hostel_spaces (id TEXT PRIMARY KEY,room_id TEXT,label TEXT,status TEXT)");
-await turso("CREATE TABLE hostel_periods (id TEXT PRIMARY KEY,name TEXT,active INTEGER,starts_on TEXT)");
+await turso("CREATE TABLE hostel_periods (id TEXT PRIMARY KEY,name TEXT,active INTEGER,starts_on TEXT,ends_on TEXT)");
 await turso("CREATE TABLE hostel_listings (id TEXT PRIMARY KEY,space_id TEXT,period_id TEXT,price INTEGER,status TEXT,review_reason TEXT DEFAULT '',submitted_at TEXT DEFAULT '',reviewed_at TEXT DEFAULT '',reviewed_by TEXT DEFAULT '',created_at TEXT,updated_at TEXT,UNIQUE(space_id,period_id))");
 await turso("INSERT INTO hostel_properties VALUES ('p','owner','Green Court','APPROVED')");
 await turso("INSERT INTO hostel_rooms VALUES ('r','p','A1','ACTIVE')");
-await turso("INSERT INTO hostel_periods VALUES ('year','2026/27',1,'2026-09-01')");
+await turso("INSERT INTO hostel_periods VALUES ('year','2026/27',1,'2026-09-01','2027-07-31')");
 for (const label of ['A','B','C','D']) await turso("INSERT INTO hostel_spaces VALUES (?,?,?,'AVAILABLE')", [`bed-${label}`, 'r', label]);
+await turso("ALTER TABLE hostel_landlords ADD COLUMN commission_bps INTEGER DEFAULT 300");
 const listingRows = async () => rowsToObjects(await turso("SELECT l.id,l.space_id,l.price,l.status FROM hostel_listings l ORDER BY l.space_id"));
 
 test("one room rate creates four separate equal-priced beds and reprices them together", async () => {

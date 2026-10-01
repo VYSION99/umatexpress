@@ -92,7 +92,7 @@ export function ensureHostelReviewTables() {
   return reviewTablesReady;
 }
 
-function reviewView(row: Record<string, unknown>): HostelReview {
+export function reviewView(row: Record<string, unknown>): HostelReview {
   return {
     id: String(row.id || ""),
     bookingId: String(row.booking_id || ""),
@@ -143,7 +143,7 @@ export async function getHostelReviewForBooking(bookingId: string) {
 export async function submitHostelReview(input: {
   booking: {
     id: string; reference: string; propertyId: string; landlordId: string; periodId: string;
-    studentEmail: string; studentName: string; landlordEmail: string; propertyName: string; status: string;
+    studentEmail: string; studentName: string; landlordEmail: string; propertyName: string; status: string; periodStartsOn?: string;
   };
   rating: unknown;
   title?: unknown;
@@ -153,6 +153,7 @@ export async function submitHostelReview(input: {
   if (String(input.booking.status) !== "PAID") {
     throw new CampusEngineError("INVALID_STATE", "Only a paid bed can be reviewed.", 409);
   }
+  if (input.booking.periodStartsOn && input.booking.periodStartsOn > new Date().toISOString().slice(0,10)) throw new CampusEngineError("INVALID_STATE", "Reviews open when the booked academic year starts.", 409);
   const rating = cleanRating(input.rating);
   const title = cleanText(input.title, HOSTEL_REVIEW_MAX_TITLE);
   const body = cleanText(input.body, HOSTEL_REVIEW_MAX_BODY);

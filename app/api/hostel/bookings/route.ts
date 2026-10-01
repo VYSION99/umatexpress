@@ -17,7 +17,8 @@ export async function GET(request: Request) {
     const limited = await rateLimit(request, "hostel-residency-read", { limit: 120, windowMs: 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const student = await requireStudent(request);
-    return Response.json({ ok: true, ...await residentDashboard(student.email) }, { headers: NO_STORE });
+    const url = new URL(request.url);
+    return Response.json({ ok: true, ...await residentDashboard(student.email, { view: url.searchParams.get("view") || "current", page: Number(url.searchParams.get("page") || 1) }) }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

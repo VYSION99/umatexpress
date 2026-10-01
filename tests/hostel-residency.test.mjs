@@ -263,9 +263,9 @@ function handle(sql, args) {
     const rows = bookings.filter((item) => item.student_email === args[0] && ["PAID", "PAYMENT_REVIEW", "CANCELLED", "REFUNDED"].includes(item.status));
     return ok(rows.length ? table(["reference"], rows) : empty);
   }
-  if (matched(/UPDATE hostel_spaces SET status = 'RESERVED'/, sql)) {
-    const row = spaces.find((item) => item.id === args[1] && item.status === "AVAILABLE");
-    if (row) row.status = "RESERVED";
+  if (matched(/UPDATE hostel_spaces SET status = CASE WHEN[\s\S]*THEN 'RESERVED'/, sql)) {
+    const row = spaces.find((item) => item.id === args[2] && item.status === "AVAILABLE");
+    if (row && args[0] <= new Date().toISOString().slice(0,10)) row.status = "RESERVED";
     return affected(row ? 1 : 0);
   }
   if (matched(/INSERT INTO hostel_bookings/, sql)) {
@@ -312,11 +312,11 @@ function handle(sql, args) {
   }
   if (matched(/UPDATE hostel_bookings SET status = 'EXPIRED', updated_at = \? WHERE status = 'PENDING_PAYMENT' AND hold_expires_at <> '' AND hold_expires_at < \?/, sql)) {
     const due = bookings.filter((item) => item.status === "PENDING_PAYMENT" && item.hold_expires_at && item.hold_expires_at < args[1]);
-    due.forEach((item) => { item.status = "EXPIRED"; item.hold_expires_at = ""; });
+    due.forEach((item) => { item.status = "EXPIRED"; item.hold_expires_at = ""; item.updated_at = args[0]; });
     return affected(due.length);
   }
-  if (matched(/UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = \?\s+WHERE status = 'RESERVED' AND id IN/, sql)) {
-    const due = new Set(bookings.filter((item) => item.status === "PENDING_PAYMENT" && item.hold_expires_at && item.hold_expires_at < args[1]).map((item) => item.space_id));
+  if (matched(/UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = \?\s+WHERE status\s*=\s*'RESERVED'\s+AND id IN/, sql)) {
+    const due = new Set(bookings.filter((item) => item.status === "EXPIRED" && item.updated_at === args[1]).map((item) => item.space_id));
     const freed = spaces.filter((item) => item.status === "RESERVED" && due.has(item.id));
     freed.forEach((item) => { item.status = "AVAILABLE"; });
     return affected(freed.length);
@@ -326,9 +326,9 @@ function handle(sql, args) {
     if (row) row.status = "AVAILABLE";
     return affected(row ? 1 : 0);
   }
-  if (matched(/UPDATE hostel_spaces SET status = 'OCCUPIED', updated_at = \? WHERE id = \?/, sql)) {
-    const row = spaces.find((item) => item.id === args[1]);
-    if (row) row.status = "OCCUPIED";
+  if (matched(/UPDATE hostel_spaces SET status = CASE WHEN[\s\S]*THEN 'OCCUPIED'/, sql)) {
+    const row = spaces.find((item) => item.id === args[2]);
+    if (row && args[0] <= new Date().toISOString().slice(0,10)) row.status = "OCCUPIED";
     return affected(row ? 1 : 0);
   }
   if (matched(/SELECT access_token_hash FROM hostel_bookings WHERE reference = \? LIMIT 1/, sql)) {
@@ -344,6 +344,34 @@ function handle(sql, args) {
     return ok(row ? table(BOOKING_COLUMNS, [bookingRow(row)]) : empty);
   }
 
+  if (/SELECT COUNT\(\*\) AS total,SUM/.test(sql)) {
+    const rows = bookings.filter(row => row.student_email === args[1]);
+    const current = rows.filter(row => ["PAID", "PENDING_PAYMENT", "PAYMENT_REVIEW"].includes(row.status) && bookingRow(row).period_ends_on >= args[0]);
+    return ok(table(["total", "current_count"], [{ total: rows.length, current_count: current.length }]));
+  }
+  if (/SELECT b.id AS booking_id,sub/.test(sql)) {
+    const rows = bookings.filter(row => args.includes(row.id)).flatMap(booking => subscriptions.filter(sub => sub.landlord_id === booking.landlord_id && sub.period_id === booking.period_id && sub.status === "ACTIVE" && (!sub.property_id || sub.property_id === booking.property_id)).map(sub => ({ ...subscriptionRow(sub), booking_id: booking.id })));
+    return ok(rows.length ? table([...SUBSCRIPTION_COLUMNS, "booking_id"], rows) : empty);
+  }
+  if (/WHERE req.booking_id IN/.test(sql)) {
+    const rows = serviceRequests.filter(row => args.includes(row.booking_id)).map(serviceRow);
+    return ok(rows.length ? table(SERVICE_COLUMNS, rows) : empty);
+  }
+  if (/SELECT a.\*,p.name AS property_name/.test(sql)) {
+    const eligible = bookings.filter(row => row.student_email === args[1] && row.status === "PAID" && bookingRow(row).period_ends_on >= args[2]);
+    const rows = args[0] === 0 || args[0] === "0" ? announcements.filter(row => row.status === "PUBLISHED" && eligible.some(b => b.landlord_id === row.landlord_id && (!row.property_id || row.property_id === b.property_id))) : [];
+    return ok(rows.length ? table(Object.keys(rows[0]), rows) : empty);
+  }
+  if (/FROM hostel_bookings b[\s\S]*WHERE b.student_email=\?/.test(sql)) {
+    const rows = bookings.filter(row => row.student_email === args[0] && ["PAID", "PENDING_PAYMENT", "PAYMENT_REVIEW"].includes(row.status) && bookingRow(row).period_ends_on >= args[1]).map(bookingRow);
+    return ok(rows.length ? table(BOOKING_COLUMNS, rows.slice(Number(args[3]), Number(args[3]) + Number(args[2]))) : empty);
+  }
+  if (/INSERT INTO hostel_payouts[\s\S]*FROM hostel_bookings/.test(sql)) {
+    const booking = bookings.find(row => row.id === args[4] && row.status === "PAID");
+    if (!booking || payouts.some(row => row.booking_id === booking.id)) return affected(0);
+    payouts.push({id:args[0],booking_id:booking.id,landlord_id:booking.landlord_id,gross_amount:booking.total_amount,commission_bps:booking.commission_bps,commission_amount:booking.commission_amount,net_amount:booking.net_amount,status:"ACCRUED",release_after:args[1],created_at:args[2],updated_at:args[3]});
+    return affected(1);
+  }
   // --- payouts --------------------------------------------------------------
   if (matched(/INSERT INTO hostel_payouts/, sql)) {
     const [id, bookingId, landlordId, gross, bps, commission, net, releaseAfter, createdAt, updatedAt] = args;
@@ -1153,6 +1181,7 @@ test("a manager runs the hostel, but only the owner appoints one", async () => {
 });
 
 test("the resident dashboard carries the bed, the host's number and the services", async () => {
+  periods.find(item => item.id === paidBooking.periodId).ends_on = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
   const dashboard = await residentDashboard(student.email);
   assert.equal(dashboard.residencies.length, 1);
   const residency = dashboard.residencies[0];

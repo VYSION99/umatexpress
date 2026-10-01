@@ -1,3 +1,5 @@
+import { migrateHostelInventory, bedAvailableSql } from "./inventory";
+import { migrateHostelStays } from "@/lib/hostel-engine/stay-schema";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { ownerReadiness } from "@/lib/hostel-engine/onboarding";
 import { consoleAudit } from "@/lib/console-audit";
@@ -105,7 +107,9 @@ export function ensureHostelResidencyTables() {
   residencyTablesReady ??= (async () => {
     await ensureHostelTables();
     await runSchemaPass({ id: "hostel_residency", version: "015_hostel_residency", statements: RESIDENCY_SCHEMA_STATEMENTS });
-  })();
+    await migrateHostelStays();
+    await migrateHostelInventory();
+  })().catch(error => { residencyTablesReady = null; throw error; });
   return residencyTablesReady;
 }
 
@@ -138,6 +142,11 @@ export type HostelBooking = {
   commissionAmount: number;
   netAmount: number;
   status: HostelBookingStatus;
+  stayStatus: string;
+  expectedArrivalOn: string;
+  checkedInAt: string;
+  checkedOutAt: string;
+  stayVersion: number;
   holdExpiresAt: string;
   paidAt: string;
   note: string;
@@ -145,22 +154,25 @@ export type HostelBooking = {
   updatedAt: string;
 };
 
-const BOOKING_COLUMNS = `b.id,b.reference,b.listing_id,b.space_id,b.room_id,b.property_id,b.landlord_id,b.period_id,
+export const BOOKING_COLUMNS = `b.id,b.reference,b.listing_id,b.space_id,b.room_id,b.property_id,b.landlord_id,b.period_id,
   b.student_email,b.student_name,b.student_phone,b.price,b.utilities_fee,b.total_amount,b.commission_bps,
   b.commission_amount,b.net_amount,b.status,b.hold_expires_at,b.paid_at,b.note,b.created_at,b.updated_at,
   COALESCE(p.name,'') AS property_name,COALESCE(p.address,'') AS property_address,
   COALESCE(r.label,'') AS room_label,COALESCE(s.label,'') AS space_label,
   COALESCE(pe.name,'') AS period_name,COALESCE(pe.starts_on,'') AS period_starts_on,COALESCE(pe.ends_on,'') AS period_ends_on,
+  COALESCE(st.status,'EXPECTED') AS stay_status,COALESCE(st.expected_arrival_on,pe.starts_on,'') AS expected_arrival_on,
+  COALESCE(st.checked_in_at,'') AS checked_in_at,COALESCE(st.checked_out_at,'') AS checked_out_at,COALESCE(st.version,0) AS stay_version,
   COALESCE(h.name,'') AS landlord_name,COALESCE(h.phone,'') AS landlord_phone,COALESCE(h.email,'') AS landlord_email`;
 
-const BOOKING_JOINS = `FROM hostel_bookings b
+export const BOOKING_JOINS = `FROM hostel_bookings b
   LEFT JOIN hostel_properties p ON p.id = b.property_id
   LEFT JOIN hostel_rooms r ON r.id = b.room_id
   LEFT JOIN hostel_spaces s ON s.id = b.space_id
   LEFT JOIN hostel_periods pe ON pe.id = b.period_id
-  LEFT JOIN hostel_landlords h ON h.id = b.landlord_id`;
+  LEFT JOIN hostel_landlords h ON h.id = b.landlord_id
+  LEFT JOIN hostel_stays st ON st.booking_id = b.id`;
 
-function bookingView(row: Record<string, unknown>): HostelBooking {
+export function bookingView(row: Record<string, unknown>): HostelBooking {
   return {
     id: String(row.id || ""),
     reference: String(row.reference || ""),
@@ -190,6 +202,11 @@ function bookingView(row: Record<string, unknown>): HostelBooking {
     commissionAmount: Number(row.commission_amount || 0),
     netAmount: Number(row.net_amount || 0),
     status: String(row.status || "PENDING_PAYMENT") as HostelBookingStatus,
+    stayStatus: String(row.stay_status || "EXPECTED"),
+    expectedArrivalOn: String(row.expected_arrival_on || row.period_starts_on || ""),
+    checkedInAt: String(row.checked_in_at || ""),
+    checkedOutAt: String(row.checked_out_at || ""),
+    stayVersion: Number(row.stay_version || 0),
     holdExpiresAt: String(row.hold_expires_at || ""),
     paidAt: String(row.paid_at || ""),
     note: String(row.note || ""),
@@ -242,17 +259,13 @@ export async function releaseExpiredHostelHolds(options: { graceMinutes?: number
   await ensureHostelResidencyTables();
   const graceMinutes = Math.max(0, Math.round(options.graceMinutes ?? HOSTEL_HOLD_GRACE_MINUTES));
   const now = new Date(Date.now() - graceMinutes * 60_000).toISOString();
-  const released = await turso(
-    `UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ?
-     WHERE status = 'RESERVED' AND id IN (
-       SELECT space_id FROM hostel_bookings WHERE status = 'PENDING_PAYMENT' AND hold_expires_at <> '' AND hold_expires_at < ?
-     )`,
-    [now, now],
-  );
-  const expired = await turso(
-    "UPDATE hostel_bookings SET status = 'EXPIRED', updated_at = ? WHERE status = 'PENDING_PAYMENT' AND hold_expires_at <> '' AND hold_expires_at < ?",
-    [now, now],
-  );
+  const stamp = new Date().toISOString();
+  const [expired, released] = await tursoTransaction([
+    { sql: "UPDATE hostel_bookings SET status = 'EXPIRED', updated_at = ? WHERE status = 'PENDING_PAYMENT' AND hold_expires_at <> '' AND hold_expires_at < ?", args: [stamp, now] },
+    { sql: `UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ? WHERE status='RESERVED'
+      AND id IN (SELECT space_id FROM hostel_bookings WHERE status='EXPIRED' AND updated_at=?)
+      AND NOT EXISTS (SELECT 1 FROM hostel_bookings b LEFT JOIN hostel_stays st ON st.booking_id=b.id WHERE b.space_id=hostel_spaces.id AND EXISTS(SELECT 1 FROM hostel_periods pe WHERE pe.id=b.period_id AND pe.starts_on<=date('now')) AND b.status IN ('PENDING_PAYMENT','PAID','PAYMENT_REVIEW') AND COALESCE(st.status,'EXPECTED') NOT IN ('CHECKED_OUT','NO_SHOW','CANCELLED'))`, args: [stamp, stamp] },
+  ]);
   const count = Number(expired?.affected_row_count || 0);
   if (count) {
     await incrementMetric("hostel_holds_expired");
@@ -264,11 +277,11 @@ export async function releaseExpiredHostelHolds(options: { graceMinutes?: number
 async function bookableListing(listingId: string) {
   const row = rowsToObjects(await turso(
     `SELECT l.id AS listing_id,l.status AS listing_status,l.space_id,l.period_id,l.price,
-       COALESCE(s.status,'AVAILABLE') AS space_status,COALESCE(s.label,'') AS space_label,
+       CASE WHEN ${bedAvailableSql()} THEN 'AVAILABLE' ELSE 'UNAVAILABLE' END AS space_status,COALESCE(s.label,'') AS space_label,
        r.id AS room_id,COALESCE(r.label,'') AS room_label,COALESCE(r.status,'ACTIVE') AS room_status,COALESCE(r.utilities_fee,0) AS utilities_fee,
        p.id AS property_id,COALESCE(p.name,'') AS property_name,COALESCE(p.status,'DRAFT') AS property_status,COALESCE(p.utilities_enabled,0) AS utilities_enabled,
        COALESCE(h.id,'') AS landlord_id,COALESCE(h.commission_bps,${HOSTEL_DEFAULT_COMMISSION_BPS}) AS commission_bps,COALESCE(h.status,'ACTIVE') AS landlord_status,
-       COALESCE(pe.starts_on,'') AS period_starts_on,COALESCE(pe.active,0) AS period_active
+       COALESCE(pe.starts_on,'') AS period_starts_on,COALESCE(pe.ends_on,'') AS period_ends_on,COALESCE(pe.active,0) AS period_active
      FROM hostel_listings l
      JOIN hostel_spaces s ON s.id = l.space_id
      JOIN hostel_rooms r ON r.id = s.room_id
@@ -289,6 +302,8 @@ export type StartHostelBookingInput = {
   origin: string;
   secure: boolean;
   note?: string;
+  /** Internal frozen renewal offer. Never copied directly from a public booking body. */
+  offer?: { id: string; version: number; price: number; utilitiesFee: number; guardSql: string; guardArgs: Array<string | number>; statements: (reference: string, stamp: string) => Array<{sql:string;args:Array<string|number|null>}> };
 };
 
 /**
@@ -308,6 +323,7 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
   const listing = await bookableListing(listingId);
   if (String(listing.listing_id) !== listingId) throw new CampusEngineError("NOT_FOUND", "That bed is no longer listed.", 404);
   if (String(listing.listing_status) !== "APPROVED") throw new CampusEngineError("INVALID_STATE", "That bed is not approved for booking.", 409);
+  if (String(listing.period_ends_on || "9999") < new Date().toISOString().slice(0,10)) throw new CampusEngineError("INVALID_STATE", "That academic year has ended.", 409);
   if (String(listing.period_active) !== "1") throw new CampusEngineError("INVALID_STATE", "That academic year is closed.", 409);
   if (String(listing.space_status) !== "AVAILABLE") throw new CampusEngineError("INVALID_STATE", "That bed has just been taken. Pick another one.", 409);
   if (String(listing.room_status) !== "ACTIVE" || String(listing.property_status) === "SUSPENDED") {
@@ -322,23 +338,28 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
 
   const studentEmail = String(input.student.email || "").trim().toLowerCase();
   const alreadyResident = rowsToObjects(await turso(
-    "SELECT reference FROM hostel_bookings WHERE student_email = ? AND period_id = ? AND status IN ('PAID','PAYMENT_REVIEW') LIMIT 1",
+    "SELECT reference FROM hostel_bookings WHERE student_email = ? AND period_id = ? AND status IN ('PENDING_PAYMENT','PAID','PAYMENT_REVIEW') AND id NOT IN (SELECT booking_id FROM hostel_stays WHERE status IN ('CHECKED_OUT','NO_SHOW','CANCELLED')) LIMIT 1",
     [studentEmail, String(listing.period_id)],
   ))[0];
   if (alreadyResident) {
-    throw new CampusEngineError("CONFLICT", `You already have a bed for this year (${String(alreadyResident.reference)}).`, 409);
+    throw new CampusEngineError("CONFLICT", `You already have a booking or checkout for this year (${String(alreadyResident.reference)}).`, 409);
   }
 
   const stamp = new Date().toISOString();
   const price = Math.max(0, Math.round(Number(listing.price || 0)));
   const utilitiesFee = Number(listing.utilities_enabled ?? 0) === 1 ? Math.max(0, Math.round(Number(listing.utilities_fee || 0))) : 0;
+  if (input.offer && (input.offer.price !== price || input.offer.utilitiesFee !== utilitiesFee)) throw new CampusEngineError("CONFLICT", "The renewal price changed. Ask staff for a new offer before paying.", 409);
   const split = splitHostelPayment(price + utilitiesFee, Number(listing.commission_bps || HOSTEL_DEFAULT_COMMISSION_BPS));
   const reference = bookingReference();
   const token = paymentToken();
   const holdExpiresAt = new Date(Date.now() + HOSTEL_HOLD_MINUTES * 60_000).toISOString();
 
   const [claimed, inserted] = await tursoTransaction([
-    { sql: "UPDATE hostel_spaces SET status = 'RESERVED', updated_at = ? WHERE id = ? AND status = 'AVAILABLE'", args: [stamp, String(listing.space_id)] },
+    { sql: `UPDATE hostel_spaces SET status = CASE WHEN ?<=date('now') THEN 'RESERVED' ELSE status END, updated_at = ? WHERE id = ? AND ${bedAvailableSql('hostel_spaces',"'"+String(listing.period_id).replaceAll("'","''")+"'")}
+      AND EXISTS(SELECT 1 FROM hostel_listings l JOIN hostel_rooms r ON r.id=hostel_spaces.room_id JOIN hostel_properties p ON p.id=r.property_id JOIN hostel_periods pe ON pe.id=l.period_id
+      WHERE l.id=? AND l.status='APPROVED' AND l.price=? AND CASE WHEN p.utilities_enabled=1 THEN r.utilities_fee ELSE 0 END=? AND r.status='ACTIVE' AND p.status='APPROVED' AND pe.active=1 AND pe.ends_on>=date('now'))
+      ${input.offer ? 'AND ('+input.offer.guardSql+')' : ''}`,
+      args: [String(listing.period_starts_on), stamp, String(listing.space_id),listingId,price,utilitiesFee,...(input.offer?.guardArgs||[])] },
     { sql: `INSERT INTO hostel_bookings (id,reference,listing_id,space_id,room_id,property_id,landlord_id,period_id,student_email,student_name,student_phone,
        price,utilities_fee,total_amount,commission_bps,commission_amount,net_amount,status,hold_expires_at,access_token_hash,note,created_at,updated_at)
      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING_PAYMENT',?,?,?,?,? WHERE changes() = 1`,
@@ -348,7 +369,13 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
       price, utilitiesFee, split.gross, split.commissionBps, split.commission, split.net, holdExpiresAt, await hashPaymentToken(token),
       String(input.note || "").slice(0, 300), stamp, stamp,
     ] },
-  ]);
+    ...(input.offer?.statements(reference,stamp)||[]),
+  ]).catch(error => {
+    if (error instanceof Error && (error.message.includes("HOSTEL_ACTIVE_STUDENT_BOOKING") || error.message.includes("hostel_bed_claims"))) {
+      throw new CampusEngineError("CONFLICT", "You already have a booking or checkout for this academic year. Open your residency to continue.", 409);
+    }
+    throw error;
+  });
   if (Number(claimed.affected_row_count) !== 1 || Number(inserted.affected_row_count) !== 1) {
     throw new CampusEngineError("INVALID_STATE", "That bed has just been taken. Pick another one.", 409);
   }
@@ -366,8 +393,7 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
     return { booking, authorizationUrl: paystack.authorizationUrl, token, secure: input.secure, holdMinutes: HOSTEL_HOLD_MINUTES };
   } catch (error) {
     // No checkout means no hold: give the bed straight back.
-    await turso("UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ? WHERE id = ? AND status = 'RESERVED'", [new Date().toISOString(), String(listing.space_id)]).catch(() => undefined);
-    await turso("UPDATE hostel_bookings SET status = 'CANCELLED', updated_at = ? WHERE reference = ?", [new Date().toISOString(), reference]).catch(() => undefined);
+    await failHostelBooking(reference).catch(() => undefined);
     throw error;
   }
 }
@@ -398,7 +424,7 @@ export async function listHostelBookingsForLandlord(landlordId: string, options:
  * Confirms the money and turns a held bed into a residency.
  *
  * Idempotent: verification and the Paystack webhook both call it for the same
- * reference, and whichever arrives second finds `PAID` and does nothing.
+ * reference, and retries repair any missing historical ledger or stay record.
  * A payment that does not match the quoted total is held for review — the bed
  * stays reserved and an administrator decides, because releasing it would take
  * a bed from a student whose money did arrive.
@@ -408,7 +434,20 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
   const reference = String(input.reference || "").trim();
   const booking = await getHostelBookingByReference(reference);
   if (!booking) return { handled: false, reason: "BOOKING_NOT_FOUND" as const };
-  if (booking.status === "PAID") return { handled: true, status: "ALREADY_PAID" as const, booking };
+  if (booking.status === "PAID") {
+    await tursoTransaction([
+      { sql: `INSERT INTO hostel_payouts (id,booking_id,landlord_id,gross_amount,commission_bps,commission_amount,net_amount,status,release_after,created_at,updated_at)
+        SELECT ?,id,landlord_id,total_amount,commission_bps,commission_amount,net_amount,'ACCRUED',?,?,? FROM hostel_bookings WHERE id=? AND status='PAID'
+        ON CONFLICT(booking_id) DO NOTHING`, args: [crypto.randomUUID(), releaseAfterFor(booking.periodStartsOn, booking.paidAt), booking.paidAt || new Date().toISOString(), new Date().toISOString(), booking.id] },
+      { sql: "INSERT INTO hostel_stays (booking_id,expected_arrival_on,updated_at) SELECT id,?,? FROM hostel_bookings WHERE id=? AND status='PAID' ON CONFLICT(booking_id) DO NOTHING", args: [booking.periodStartsOn, new Date().toISOString(), booking.id] },
+      { sql: `UPDATE hostel_spaces SET status='OCCUPIED',updated_at=? WHERE id=? AND status='RESERVED' AND ?<=date('now')
+        AND EXISTS (SELECT 1 FROM hostel_bookings b JOIN hostel_stays st ON st.booking_id=b.id WHERE b.id=? AND b.status='PAID' AND st.status IN ('EXPECTED','CHECKED_IN'))
+        AND NOT EXISTS (SELECT 1 FROM hostel_bookings b LEFT JOIN hostel_stays st ON st.booking_id=b.id WHERE b.space_id=hostel_spaces.id AND b.id<>?
+          AND b.status IN ('PENDING_PAYMENT','PAYMENT_REVIEW','PAID') AND COALESCE(st.status,'EXPECTED') IN ('EXPECTED','CHECKED_IN'))`,
+        args: [new Date().toISOString(), booking.spaceId, booking.periodStartsOn, booking.id, booking.id] },
+    ]);
+    return { handled: true, status: "ALREADY_PAID" as const, booking };
+  }
 
   const stamp = new Date().toISOString();
   // Money that arrives after the bed was given back is not silently dropped:
@@ -429,7 +468,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
 
   if (Math.round(Number(input.amount || 0)) !== booking.totalAmount) {
     await turso(
-      "UPDATE hostel_bookings SET status = 'PAYMENT_REVIEW', paid_at = ?, provider = ?, provider_reference = ?, updated_at = ? WHERE reference = ?",
+      "UPDATE hostel_bookings SET status = 'PAYMENT_REVIEW', paid_at = ?, provider = ?, provider_reference = ?, updated_at = ? WHERE reference = ? AND status='PENDING_PAYMENT'",
       [stamp, String(input.provider || ""), String(input.transactionId || ""), stamp, reference],
     );
     await incrementMetric("hostel_payment_review");
@@ -440,22 +479,25 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
   // Only one writer may turn a held bed into a residency: the loser of the race
   // returns the booking it read, without touching the bed, the ledger or the
   // thread a second time.
-  const confirmed = await turso(
-    "UPDATE hostel_bookings SET status = 'PAID', paid_at = ?, provider = ?, provider_reference = ?, hold_expires_at = '', updated_at = ? WHERE reference = ? AND status = 'PENDING_PAYMENT'",
-    [stamp, String(input.provider || ""), String(input.transactionId || ""), stamp, reference],
-  );
+  const [confirmed] = await tursoTransaction([
+    { sql: `UPDATE hostel_bookings SET status = 'PAID', paid_at = ?, provider = ?, provider_reference = ?, hold_expires_at = '', updated_at = ?
+      WHERE reference = ? AND status = 'PENDING_PAYMENT'
+      AND EXISTS (SELECT 1 FROM hostel_bed_claims c WHERE c.booking_id=hostel_bookings.id AND c.space_id=hostel_bookings.space_id AND c.period_id=hostel_bookings.period_id)
+      AND NOT EXISTS (SELECT 1 FROM hostel_bookings other LEFT JOIN hostel_stays st ON st.booking_id=other.id
+        WHERE other.id<>hostel_bookings.id AND other.status='PAID' AND COALESCE(st.status,'EXPECTED') NOT IN ('CHECKED_OUT','NO_SHOW','CANCELLED')
+        AND ((other.student_email=hostel_bookings.student_email AND other.period_id=hostel_bookings.period_id) OR (other.space_id=hostel_bookings.space_id AND other.period_id=hostel_bookings.period_id)))`,
+      args: [stamp, String(input.provider || ""), String(input.transactionId || ""), stamp, reference] },
+    { sql: "UPDATE hostel_spaces SET status = CASE WHEN ?<=date('now') THEN 'OCCUPIED' ELSE status END, updated_at = ? WHERE id = ? AND changes() = 1", args: [booking.periodStartsOn, stamp, booking.spaceId] },
+    { sql: `INSERT INTO hostel_payouts (id,booking_id,landlord_id,gross_amount,commission_bps,commission_amount,net_amount,status,release_after,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,?,'ACCRUED',?,?,? WHERE changes() = 1 ON CONFLICT(booking_id) DO NOTHING`,
+      args: [crypto.randomUUID(), booking.id, booking.landlordId, booking.totalAmount, booking.commissionBps, booking.commissionAmount, booking.netAmount, releaseAfterFor(booking.periodStartsOn, stamp), stamp, stamp] },
+    { sql: "INSERT INTO hostel_stays (booking_id,expected_arrival_on,updated_at) SELECT id,?,? FROM hostel_bookings WHERE id=? AND status='PAID' ON CONFLICT(booking_id) DO NOTHING", args: [booking.periodStartsOn, stamp, booking.id] },
+  ]);
   if (Number(confirmed?.affected_row_count || 0) !== 1) {
-    return { handled: true, status: "ALREADY_PAID" as const, booking: await getHostelBookingByReference(reference) };
+    await turso("UPDATE hostel_bookings SET status='PAYMENT_REVIEW',paid_at=?,updated_at=? WHERE id=? AND status='PENDING_PAYMENT'", [stamp, stamp, booking.id]);
+    const current = await getHostelBookingByReference(reference);
+    return { handled: true, status: current?.status === "PAID" ? "ALREADY_PAID" as const : "PAYMENT_REVIEW" as const, booking: current };
   }
-  await turso("UPDATE hostel_spaces SET status = 'OCCUPIED', updated_at = ? WHERE id = ?", [stamp, booking.spaceId]);
-  await turso(
-    `INSERT INTO hostel_payouts (id,booking_id,landlord_id,gross_amount,commission_bps,commission_amount,net_amount,status,release_after,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,'ACCRUED',?,?,?) ON CONFLICT(booking_id) DO NOTHING`,
-    [
-      crypto.randomUUID(), booking.id, booking.landlordId, booking.totalAmount, booking.commissionBps, booking.commissionAmount, booking.netAmount,
-      releaseAfterFor(booking.periodStartsOn, stamp), stamp, stamp,
-    ],
-  );
   await incrementMetric("hostel_booking_paid");
   await notifyHostelBookingConfirmed(booking).catch(() => undefined);
   const settled = await getHostelBookingByReference(reference);
@@ -476,30 +518,21 @@ export async function hostelBookingAuthHash(reference: string) {
 
 /** A charge that failed frees the bed immediately rather than waiting out the hold. */
 export async function failHostelBooking(reference: string) {
-  await ensureHostelResidencyTables();
-  const booking = await getHostelBookingByReference(String(reference || ""));
-  if (!booking || booking.status !== "PENDING_PAYMENT") return { handled: false };
-  const stamp = new Date().toISOString();
-  await turso("UPDATE hostel_bookings SET status = 'EXPIRED', hold_expires_at = '', updated_at = ? WHERE reference = ?", [stamp, booking.reference]);
-  await turso("UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ? WHERE id = ? AND status = 'RESERVED'", [stamp, booking.spaceId]);
-  await incrementMetric("hostel_booking_failed");
-  return { handled: true };
+  return expireHostelBooking(reference);
 }
 
-/**
- * Paystack has been asked and says the checkout was never paid, so the hold is
- * released now rather than at the end of its grace. Only the reconcile sweep may
- * call this, because it is the check that makes the release safe.
- */
+/** Releases only this still-pending checkout and its own reserved space. */
 export async function expireHostelBooking(reference: string) {
   await ensureHostelResidencyTables();
   const booking = await getHostelBookingByReference(String(reference || ""));
   if (!booking || booking.status !== "PENDING_PAYMENT") return { handled: false };
   const stamp = new Date().toISOString();
-  await turso("UPDATE hostel_bookings SET status = 'EXPIRED', hold_expires_at = '', updated_at = ? WHERE reference = ? AND status = 'PENDING_PAYMENT'", [stamp, booking.reference]);
-  await turso("UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ? WHERE id = ? AND status = 'RESERVED'", [stamp, booking.spaceId]);
-  await incrementMetric("hostel_hold_expired");
-  return { handled: true };
+  const [expired] = await tursoTransaction([
+    { sql: "UPDATE hostel_bookings SET status = 'EXPIRED', hold_expires_at = '', updated_at = ? WHERE reference = ? AND status = 'PENDING_PAYMENT'", args: [stamp, booking.reference] },
+    { sql: `UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ? WHERE id = ? AND status = 'RESERVED' AND changes() = 1
+      AND NOT EXISTS(SELECT 1 FROM hostel_bed_claims c JOIN hostel_periods pe ON pe.id=c.period_id WHERE c.space_id=hostel_spaces.id AND pe.starts_on<=date('now'))`, args: [stamp, booking.spaceId] },
+  ]);
+  return { handled: Number(expired.affected_row_count) === 1 };
 }
 
 async function notifyHostelBookingConfirmed(booking: HostelBooking) {

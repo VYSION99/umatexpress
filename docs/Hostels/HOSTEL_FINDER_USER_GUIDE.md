@@ -62,6 +62,10 @@ Save a hostel for an academic year to keep it in your list. You may enable alert
 
 ### After payment
 
+The residency page separates **Current stays** from **History**. Pending checkouts are visible; returning from checkout verifies payment. Use **Check payment** if it is delayed rather than starting another booking. One student can have one active booking or checkout for each academic year.
+
+Choose **Overview**, **Requests**, **Messages**, or **Payments**. Paid describes payment only. Occupancy is recorded separately as Expected arrival, Checked in, Checked out, or No-show. Closed or past stays appear in History and no longer receive new private announcements or new services. Checkout does not automatically refund payment.
+
 Open `/hostel/resident` using the same UMaT student account that paid for the booking. The resident view can show your confirmed bed, hostel contact, service information, messages, and announcements. It also provides eligible review and refund actions.
 
 A review is tied to a paid stay and can be submitted once for that stay. The hostel may publish one reply; staff can hide a review with a recorded reason.
@@ -120,6 +124,10 @@ Upload property or room images in the property workspace. Accepted files are JPE
 Use the **AI information** workspace to enter factual property and room notes that the public assistant may use. Keep those notes accurate, specific, and suitable for students. The assistant can also use public availability, prices, distance, and published reviews. It should route unanswered questions to staff; it cannot guarantee a bed or invent unpublished details.
 
 ### Viewings, residents, and services
+
+The resident directory has property, academic-year, status, and text filters, with 20 results per page. Totals cover the selected property and year across every page. Desktop uses a table; mobile uses cards and a filter popup.
+
+Open **View resident** for the detail panel. Set an arrival date within the booked year, check in the student, and record any issued key. Checkout and no-show release the bed while retaining the payment record; add a staff note. A no-show cannot be recorded before the arrival date. Transfers require an approved available bed in the same property and year with the same rent and utilities. Return any recorded key before checkout or transfer, and record the new key if issued. Each change records the staff member in residency activity. Refresh details if another member of staff has changed the record. Open refunds block occupancy actions until resolved.
 
 - In the viewing desk, create visit slots, set their capacity, and confirm or decline requests.
 - In Residents & Services, view resident-related activity, reply to booking messages, post announcements, and manage enabled resident services.
@@ -239,3 +247,39 @@ Route access depends on the signed-in console role and assigned service permissi
 - [Entity relationship diagram](HOSTEL_FINDER_ERD.md)
 - [Landlord onboarding review](HOSTEL_FINDER_LANDLORD_ONBOARDING.md)
 - [Moderation and trust](HOSTEL_FINDER_MODERATION_TRUST.md)
+
+### Residency interface examples
+
+These captures use fictional preview data; balances, names, and availability are illustrative.
+
+- [Student residency on a phone](captures/residency-student-mobile.png): current/history views and the stay tabs.
+- [Staff resident detail on desktop](captures/residency-staff-desktop.png): arrival details, occupancy actions, and the activity log.
+
+Existing paid bookings begin in **Expected arrival** when this update is first applied. Staff should record actual arrivals; the migration does not assume that payment means the student has moved in.
+
+### Maintenance requests (M1)
+
+Available after deployment when enabled by the platform and property owner. Students open **My Hostel Residency → Requests → Report a problem**, review the details and follow replies, private photos and repairs in the report timeline. Staff use **Residents & Services → Maintenance** for the queue, assignment, updates and resolution. Owners configure property service hours and first-response targets. Existing reports continue after checkout or disabling new submissions.
+
+See the [complete maintenance guide, operations notes and release status](HOSTEL_MAINTENANCE_M1.md). The public help page and role-specific AI guide include these procedures; the assistant cannot read or update live reports.
+
+- [Mobile report form](captures/maintenance-report-mobile.png)
+- [Mobile confirmation summary](captures/maintenance-review-mobile.png)
+- [Desktop staff maintenance desk](captures/maintenance-staff-desktop.png)
+- [Desktop report detail](captures/maintenance-detail-desktop.png)
+
+These captures use fictional preview data. Physical iOS/Android testing and the property pilot remain pending.
+
+### Room condition records (M2)
+
+After deployment and enablement, students use **My Hostel Residency → Requests → Room condition** to record move-in observations, private photos and amendments. Staff use **Residents & Services → Condition records** to acknowledge receipt, request clarification and record checkout observations. Open disagreements remain visible and block closure; acknowledgment does not mean agreement. Transfers preserve earlier evidence and open a separate handover for the new assignment. No action creates a charge or refund.
+
+See the [M2 guide, downloadable-summary instructions and screenshots](HOSTEL_CONDITIONS_M2.md). Local implementation is complete; deployment and pilot/device checks are pending.
+
+## Stay plans: renewals and room changes (M3)
+
+Students use **My Hostel Residency → Requests → Stay plans**. Request an equal-price move or a next-year renewal, review the staff offer and accept before expiry. Offers show the academic year, annual rent per student, utilities and total; they do not reserve inventory. Moves require staff key handover. Renewals use a separate verified ten-minute checkout and preserve the current stay. Changed quotes require fresh acceptance. Do not pay twice while verification is pending.
+
+Owners configure property enablement and renewal windows from **Residents & Services → Stay plans → Request settings**. Platform enablement is also required. Price and obtain approval for next-year listings before offering them; current occupancy does not prevent a separate future-year listing. Managers review and fulfill within their hostel scope. Different-price moves remain unavailable.
+
+See the [complete M3 guide, safeguards, rollout notes and page captures](HOSTEL_STAY_PLANS_M3.md). The public and staff help assistants explain these steps; they cannot view live requests, accept offers or take payments. M3.1–M3.2 use default-off platform and property switches; the property pilot and real-device verification remain pending.

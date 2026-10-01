@@ -1,7 +1,8 @@
+import { bedAvailableSql } from "./inventory";
+import { ensureHostelResidencyTables } from "./residency";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { ensureHostelOnboardingTables, ownerReadiness } from "@/lib/hostel-engine/onboarding";
 import { consoleAudit } from "@/lib/console-audit";
-import { ensureHostelTables } from "@/lib/hostel-engine/landlord";
 import { distanceToCampusMeters, isCoordinate } from "@/lib/hostel-engine/geo";
 import { listApprovedHostelPhotos, listApprovedPhotoCovers } from "@/lib/hostel-engine/photos";
 import { listPropertyReviews, reviewSummaryForProperties } from "@/lib/hostel-engine/reviews";
@@ -218,7 +219,7 @@ async function ownedListingRow(landlordId: string, listingId: string) {
 }
 
 export async function getHostelListing(landlordId: string, listingId: string): Promise<HostelListing> {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   return listingView(await ownedListingRow(landlordId, listingId));
 }
 
@@ -230,7 +231,7 @@ export async function getHostelListing(landlordId: string, listingId: string): P
 export async function createHostelListing(landlordId: string, input: {
   spaceId?: unknown; periodId?: unknown; price?: unknown;
 }): Promise<LandlordListing> {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const spaceId = requiredId(input.spaceId, "bed");
   const periodId = requiredId(input.periodId, "academic year");
   const price = priceInPesewas(input.price);
@@ -244,7 +245,7 @@ export async function createHostelListing(landlordId: string, input: {
   if (!space) throw new CampusEngineError("NOT_FOUND", "That bed does not belong to your account.", 404);
   const owner = await ownerReadiness(landlordId);
   if (owner.identityStatus !== "VERIFIED") throw new CampusEngineError("INVALID_STATE", "Owner identity must be approved before creating bed listings.", 409);
-  if (String(space.space_status) !== "AVAILABLE" || String(space.room_status) !== "ACTIVE") {
+  if (String(space.room_status) !== "ACTIVE" || !rowsToObjects(await turso(`SELECT s.id FROM hostel_spaces s WHERE s.id=? AND ${bedAvailableSql('s','?')}`, [spaceId,periodId,periodId,periodId])).length) {
     throw new CampusEngineError("INVALID_STATE", "Only a free bed can be listed. That one is retired or already belongs to a resident.", 409);
   }
 
@@ -284,7 +285,7 @@ export async function createHostelListing(landlordId: string, input: {
 
 /** One annual rent per student bed, shared by every active bed in a room. */
 export async function setHostelRoomRate(landlordId: string, input: { roomId?: unknown; periodId?: unknown; price?: unknown }) {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const roomId = requiredId(input.roomId, "room");
   const periodId = requiredId(input.periodId, "academic year");
   const price = priceInPesewas(input.price);
@@ -301,15 +302,16 @@ export async function setHostelRoomRate(landlordId: string, input: { roomId?: un
   if (!spaces.length) throw new CampusEngineError("INVALID_STATE", "Add active beds to this room first.", 409);
   const existing = rowsToObjects(await turso(`SELECT l.id,l.space_id,l.price,l.status FROM hostel_listings l
     JOIN hostel_spaces s ON s.id=l.space_id WHERE s.room_id=? AND l.period_id=?`, [roomId, periodId]));
+  const available = new Set(rowsToObjects(await turso(`SELECT s.id FROM hostel_spaces s WHERE s.room_id=? AND ${bedAvailableSql('s','?')}`, [roomId,periodId,periodId,periodId])).map(row=>String(row.id)));
   const bySpace = new Map(existing.map(row => [String(row.space_id), row]));
   if (existing.some(row => Number(row.price) !== price && String(row.status) === "SUSPENDED")) throw new CampusEngineError("INVALID_STATE", "A suspended bed needs staff review before the room rent can change.", 409);
-  if (spaces.some(space => !["AVAILABLE", "RETIRED"].includes(String(space.status)) && Number(bySpace.get(String(space.id))?.price) !== price)) throw new CampusEngineError("INVALID_STATE", "The room already has a held or occupied bed at a different rent. Set a new rate for the next academic year.", 409);
+  if (spaces.some(space => !available.has(String(space.id)) && Number(bySpace.get(String(space.id))?.price) !== price)) throw new CampusEngineError("INVALID_STATE", "The room already has a held or occupied bed at a different rent. Set a new rate for the next academic year.", 409);
   const stamp = new Date().toISOString();
   const statements: Array<{ sql: string; args: Array<string | number | null> }> = [];
   for (const space of spaces) {
     const current = bySpace.get(String(space.id));
     if (!current) {
-      if (String(space.status) !== "AVAILABLE") throw new CampusEngineError("INVALID_STATE", "A held bed cannot receive a new listing.", 409);
+      if (!available.has(String(space.id))) throw new CampusEngineError("INVALID_STATE", "A held bed cannot receive a new listing.", 409);
       statements.push({ sql: "INSERT INTO hostel_listings (id,space_id,period_id,price,status,review_reason,submitted_at,reviewed_at,reviewed_by,created_at,updated_at) VALUES (?,?,?,?,'DRAFT','','','','',?,?)", args: [crypto.randomUUID(), String(space.id), periodId, price, stamp, stamp] });
     } else if (Number(current.price) !== price) {
       statements.push({ sql: "UPDATE hostel_listings SET price=?,status='DRAFT',review_reason='',submitted_at='',reviewed_at='',reviewed_by='',updated_at=? WHERE id=? AND status<>'SUSPENDED'", args: [price, stamp, String(current.id)] });
@@ -329,7 +331,7 @@ export async function updateHostelListing(landlordId: string, listingId: string,
   price?: unknown;
 }): Promise<LandlordListing> {
   const price = priceInPesewas(input.price);
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const row = await ownedListingRow(landlordId, listingId);
   const current = String(row.status || "DRAFT");
   if (current === "SUSPENDED") {
@@ -355,7 +357,7 @@ export async function updateHostelListing(landlordId: string, listingId: string,
 
 /** The landlord's move: a draft goes to the review queue. */
 export async function submitHostelListing(landlordId: string, listingId: string): Promise<HostelListing> {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const row = await ownedListingRow(landlordId, listingId);
   const owner = await ownerReadiness(landlordId);
   if (owner.identityStatus !== "VERIFIED" || owner.profileStatus !== "APPROVED") throw new CampusEngineError("INVALID_STATE", "Owner identity and account details must be approved before submitting listings.", 409);
@@ -366,7 +368,7 @@ export async function submitHostelListing(landlordId: string, listingId: string)
   if (current === "SUSPENDED") {
     throw new CampusEngineError("INVALID_STATE", "This listing was suspended by the platform, so it cannot go back for review on its own.", 409);
   }
-  if (String(row.space_status) !== "AVAILABLE" || String(row.room_status) !== "ACTIVE") {
+  if (String(row.room_status) !== "ACTIVE" || !rowsToObjects(await turso(`SELECT s.id FROM hostel_spaces s WHERE s.id=? AND ${bedAvailableSql('s','?')}`, [String(row.space_id),String(row.period_id),String(row.period_id),String(row.period_id)])).length) {
     throw new CampusEngineError("INVALID_STATE", "That bed is retired or already belongs to a resident, so it cannot go back on the market.", 409);
   }
   if (String(row.property_status) === "SUSPENDED") {
@@ -402,7 +404,7 @@ export async function submitHostelListing(landlordId: string, listingId: string)
  * who is already looking at it.
  */
 export async function removeHostelListing(landlordId: string, listingId: string) {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const row = await ownedListingRow(landlordId, listingId);
   const current = String(row.status || "DRAFT");
   if (current === "APPROVED" || current === "SUSPENDED") {
@@ -421,7 +423,7 @@ export async function removeHostelListing(landlordId: string, listingId: string)
 
 /** The landlord's own listings, one property at a time. */
 export async function listHostelListingsForProperty(landlordId: string, propertyId: string): Promise<LandlordListing[]> {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const owned = rowsToObjects(await turso("SELECT id FROM hostel_properties WHERE id = ? AND landlord_id = ? LIMIT 1", [propertyId, landlordId]))[0];
   if (!owned) throw new CampusEngineError("NOT_FOUND", "That property does not belong to your account.", 404);
   const rows = rowsToObjects(await turso(
@@ -441,7 +443,7 @@ export async function listHostelListingsForProperty(landlordId: string, property
  * suspendable, which is what a moderator opens when a complaint comes in.
  */
 export async function listHostelListingsForStaff(status: "PENDING_REVIEW" | "APPROVED" = "PENDING_REVIEW"): Promise<ReviewListing[]> {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const rows = rowsToObjects(await turso(
     `SELECT ${LISTING_COLUMNS},
        p.id AS property_id,p.name AS property_name,p.status AS property_status,
@@ -464,7 +466,7 @@ export async function reviewHostelListing(input: {
   reason?: unknown;
   actor: string;
 }): Promise<HostelListing> {
-  await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const listingId = String(input.listingId ?? "").trim();
   if (!listingId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a listing.", 400);
   if (!["APPROVE", "REJECT", "SUSPEND"].includes(input.action)) {
@@ -536,6 +538,7 @@ export async function reviewHostelListing(input: {
  */
 export async function listPublicSpaces(input: { propertyId?: string; periodId?: string } = {}) {
   await ensureHostelOnboardingTables();
+  await ensureHostelResidencyTables();
   const propertyId = String(input.propertyId ?? "").trim();
   const periodId = String(input.periodId ?? "").trim();
   const period = periodId
@@ -546,7 +549,7 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
   // A bed a student is paying for, or already lives in, is not on offer: only
   // AVAILABLE beds reach the page, which is what keeps two students from paying
   // for the same bed.
-  const filters = ["l.period_id = ?", "l.status = 'APPROVED'", "COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'", "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "p.status = 'APPROVED'", "h.status = 'ACTIVE'", "h.kyc_status = 'VERIFIED'", "o.profile_status = 'APPROVED'", "EXISTS (SELECT 1 FROM hostel_property_photos ph WHERE ph.property_id=p.id AND ph.status='APPROVED')"];
+  const filters = ["l.period_id = ?", "l.status = 'APPROVED'", bedAvailableSql(), "COALESCE(r.status,'ACTIVE') = 'ACTIVE'", "p.status = 'APPROVED'", "h.status = 'ACTIVE'", "h.kyc_status = 'VERIFIED'", "o.profile_status = 'APPROVED'", "EXISTS (SELECT 1 FROM hostel_property_photos ph WHERE ph.property_id=p.id AND ph.status='APPROVED')"];
   const args: (string | number | null)[] = [String(period.id)];
   if (propertyId) { filters.push("p.id = ?"); args.push(propertyId); }
 
@@ -595,6 +598,7 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
  */
 export async function listPublicProperties(query: PublicPropertyQuery = {}) {
   await ensureHostelOnboardingTables();
+  await ensureHostelResidencyTables();
   const periodId = String(query.periodId ?? "").trim();
   const period = periodId
     ? rowsToObjects(await turso("SELECT id,name,starts_on,ends_on FROM hostel_periods WHERE id = ? AND COALESCE(active,1) = 1 LIMIT 1", [periodId]))[0]
@@ -630,7 +634,7 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
      JOIN hostel_landlords h ON h.id = p.landlord_id
      JOIN hostel_owner_onboarding o ON o.landlord_id = h.id
      WHERE l.period_id = ? AND l.status = 'APPROVED'
-       AND COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'
+       AND ${bedAvailableSql()}
        AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
        AND p.status = 'APPROVED' AND h.status = 'ACTIVE' AND h.kyc_status = 'VERIFIED'
        AND o.profile_status = 'APPROVED'

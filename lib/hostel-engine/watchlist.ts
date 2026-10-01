@@ -1,3 +1,5 @@
+import { bedAvailableSql } from "./inventory";
+import { ensureHostelResidencyTables } from "./residency";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { queueNotification } from "@/lib/notifications";
 import { ensureHostelTables } from "@/lib/hostel-engine/landlord";
@@ -29,6 +31,7 @@ let schemaReady: Promise<void> | null = null;
 export function ensureHostelWatchlist() {
   schemaReady ??= (async () => {
     await ensureHostelTables();
+    await ensureHostelResidencyTables();
     await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelSavedProperties", version: "026_hostel_new_period_alerts", statements: SCHEMA });
   })().catch((error: unknown) => { schemaReady = null; throw error; });
   return schemaReady;
@@ -43,7 +46,7 @@ const AVAILABLE = `EXISTS (
   JOIN hostel_periods pe ON pe.id = l.period_id
   WHERE p.id = w.property_id AND l.period_id = w.period_id
     AND COALESCE(pe.active,1) = 1 AND l.status = 'APPROVED'
-    AND COALESCE(s.status,'AVAILABLE') = 'AVAILABLE'
+    AND ${bedAvailableSql()}
     AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
     AND COALESCE(p.status,'DRAFT') <> 'SUSPENDED'
 )`;
@@ -86,7 +89,7 @@ export async function saveHostel(email: string, propertyId: string, periodId: st
      WHERE p.id=? AND COALESCE(p.status,'DRAFT') <> 'SUSPENDED'
        AND EXISTS (SELECT 1 FROM hostel_listings l JOIN hostel_spaces s ON s.id=l.space_id
          JOIN hostel_rooms r ON r.id=s.room_id WHERE r.property_id=p.id AND l.period_id=pe.id
-           AND l.status='APPROVED' AND COALESCE(s.status,'AVAILABLE')='AVAILABLE'
+           AND l.status='APPROVED' AND ${bedAvailableSql()}
            AND COALESCE(r.status,'ACTIVE')='ACTIVE') LIMIT 1`,
     [periodId, propertyId],
   ))[0];
@@ -121,7 +124,7 @@ export async function setHostelAlert(email: string, propertyId: string, periodId
        WHERE w.student_email=? AND w.property_id=? AND w.period_id=?
          AND EXISTS (SELECT 1 FROM hostel_listings l JOIN hostel_spaces s ON s.id=l.space_id
            JOIN hostel_rooms r ON r.id=s.room_id WHERE r.property_id=w.property_id AND l.period_id=pe.id
-             AND l.status='APPROVED' AND COALESCE(s.status,'AVAILABLE')='AVAILABLE'
+             AND l.status='APPROVED' AND ${bedAvailableSql()}
              AND COALESCE(r.status,'ACTIVE')='ACTIVE')`,
       [new Date().toISOString(), email.toLowerCase(), propertyId, periodId],
     );
@@ -198,7 +201,7 @@ export async function scanNewHostelPeriods(limit = 12) {
        AND NOT EXISTS (SELECT 1 FROM hostel_new_period_alerts a WHERE a.watch_id=w.id AND a.period_id=pe.id)
        AND EXISTS (SELECT 1 FROM hostel_listings l JOIN hostel_spaces s ON s.id=l.space_id
          JOIN hostel_rooms r ON r.id=s.room_id WHERE r.property_id=w.property_id AND l.period_id=pe.id
-           AND l.status='APPROVED' AND COALESCE(s.status,'AVAILABLE')='AVAILABLE'
+           AND l.status='APPROVED' AND ${bedAvailableSql()}
            AND COALESCE(r.status,'ACTIVE')='ACTIVE')
      ORDER BY pe.starts_on DESC,w.created_at ASC LIMIT ?`,
     [Math.min(Math.max(Math.floor(limit), 1), 20)],

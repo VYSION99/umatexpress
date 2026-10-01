@@ -1,12 +1,13 @@
+import { ensureHostelMessageTables } from "./message-schema";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { verifyPaymentToken, paymentTokenFromRequest } from "@/lib/payment-access";
 import { studentOwnsEmail } from "@/lib/student-auth";
-import { rowsToObjects, turso } from "@/lib/turso";
-import { listHostelAnnouncements, unreadHostelMessageCount, type HostelAnnouncement } from "@/lib/hostel-engine/messages";
-import { listResidentPlugins, listServiceRequestsForBooking, type HostelPluginSubscription, type HostelServiceRequest } from "@/lib/hostel-engine/plugins";
-import { getHostelBookingByReference, hostelBookingAuthHash, type HostelBooking } from "@/lib/hostel-engine/residency";
-import { getHostelReviewForBooking, type HostelReview } from "@/lib/hostel-engine/reviews";
-import { hostelRefundQuote, latestRefundForBooking, type HostelRefund, type HostelRefundQuote } from "@/lib/hostel-engine/refunds";
+import { rowsToObjects, turso, tursoReadBatch } from "@/lib/turso";
+import { announcementView, type HostelAnnouncement } from "@/lib/hostel-engine/messages";
+import { ensureHostelPluginTables, subscriptionView, serviceView, type HostelPluginSubscription, type HostelServiceRequest } from "@/lib/hostel-engine/plugins";
+import { getHostelBookingByReference, hostelBookingAuthHash, ensureHostelResidencyTables, BOOKING_COLUMNS, BOOKING_JOINS, bookingView, type HostelBooking } from "@/lib/hostel-engine/residency";
+import { ensureHostelReviewTables, reviewView, type HostelReview } from "@/lib/hostel-engine/reviews";
+import { hostelRefundQuote, ensureHostelRefundTables, refundView, type HostelRefund, type HostelRefundQuote } from "@/lib/hostel-engine/refunds";
 
 /**
  * The resident page's data.
@@ -33,6 +34,8 @@ export type HostelResidency = {
 export type ResidentDashboard = {
   residencies: HostelResidency[];
   announcements: HostelAnnouncement[];
+  pagination: { page: number; pages: number; total: number };
+  historyTotal: number;
 };
 
 /**
@@ -57,39 +60,51 @@ export async function authorizeHostHostelBooking(landlordId: string, reference: 
   return booking;
 }
 
-export async function residentDashboard(studentEmail: string): Promise<ResidentDashboard> {
+export async function residentDashboard(studentEmail: string, options: { view?: string; page?: number } = {}): Promise<ResidentDashboard> {
+  await ensureHostelResidencyTables();
+  await Promise.all([ensureHostelPluginTables(), ensureHostelMessageTables(), ensureHostelReviewTables(), ensureHostelRefundTables()]);
   const email = String(studentEmail || "").trim().toLowerCase();
-  // A cancelled or refunded booking stays on the page: the student needs the
-  // record of what happened to the money, and the refund row carries it.
-  const bookings = rowsToObjects(await turso(
-    `SELECT reference FROM hostel_bookings WHERE student_email = ? AND status IN ('PAID','PAYMENT_REVIEW','CANCELLED','REFUNDED') ORDER BY created_at DESC LIMIT 20`,
-    [email],
-  ));
-  const residencies: HostelResidency[] = [];
-  for (const row of bookings) {
-    const booking = await getHostelBookingByReference(String(row.reference));
-    if (!booking) continue;
-    const [plugins, services, unreadMessages, review, refund] = await Promise.all([
-      listResidentPlugins({ landlordId: booking.landlordId, periodId: booking.periodId, propertyId: booking.propertyId }),
-      listServiceRequestsForBooking(booking.id),
-      unreadHostelMessageCount(booking.id, "STUDENT"),
-      getHostelReviewForBooking(booking.id),
-      latestRefundForBooking(booking.id),
-    ]);
-    // A quote is only meaningful while the money is still with the platform:
-    // once a refund exists, the card shows that row instead.
-    const refundQuote = refund ? null : hostelRefundQuote(booking);
-    residencies.push({ booking, plugins, services, unreadMessages, review, refund, refundQuote });
-  }
-  const announcements: HostelAnnouncement[] = [];
-  const seen = new Set<string>();
-  for (const residency of residencies) {
-    const key = `${residency.booking.landlordId}:${residency.booking.propertyId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const posts = await listHostelAnnouncements({ landlordId: residency.booking.landlordId, propertyId: residency.booking.propertyId });
-    announcements.push(...posts);
-  }
-  announcements.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  return { residencies, announcements: announcements.slice(0, 20) };
+  const today = new Date().toISOString().slice(0, 10);
+  const current = `b.status IN ('PENDING_PAYMENT','PAYMENT_REVIEW','PAID') AND COALESCE(st.status,'EXPECTED') NOT IN ('CHECKED_OUT','NO_SHOW','CANCELLED') AND COALESCE(pe.ends_on,'9999-12-31')>=?`;
+  const history = options.view === "history";
+  const where = `b.student_email=? AND ${history ? `NOT (${current})` : `(${current})`}`;
+  const counts = rowsToObjects(await turso(`SELECT COUNT(*) AS total,SUM(CASE WHEN ${current} THEN 1 ELSE 0 END) AS current_count ${BOOKING_JOINS} WHERE b.student_email=?`, [today, email]))[0] || {};
+  const historyTotal = Number(counts.total || 0) - Number(counts.current_count || 0);
+  const total = history ? historyTotal : Number(counts.current_count || 0);
+  const pageSize = 5, pages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.max(1, Math.min(pages, Math.floor(Number(options.page) || 1)));
+  const bookings = rowsToObjects(await turso(`SELECT ${BOOKING_COLUMNS} ${BOOKING_JOINS} WHERE ${where}
+    ORDER BY b.created_at DESC,b.id DESC LIMIT ? OFFSET ?`, [email, today, pageSize, (page - 1) * pageSize])).map(bookingView);
+  if (!bookings.length) return { residencies: [], announcements: [], pagination: { page, pages, total }, historyTotal };
+  const ids = bookings.map(booking => booking.id), marks = ids.map(() => "?").join(",");
+  // All detail queries share one HTTP request; history never reads new private notices.
+  const results = await tursoReadBatch([
+    { sql: `SELECT b.id AS booking_id,sub.*,pl.name AS plugin_name,pl.category AS plugin_category,pl.code AS plugin_code,pe.name AS period_name
+      FROM hostel_bookings b JOIN hostel_plugin_subscriptions sub ON sub.landlord_id=b.landlord_id AND sub.period_id=b.period_id AND (sub.property_id='' OR sub.property_id=b.property_id)
+      JOIN hostel_plugins pl ON pl.id=sub.plugin_id LEFT JOIN hostel_periods pe ON pe.id=sub.period_id
+      WHERE b.id IN (${marks}) AND sub.status='ACTIVE' ORDER BY pl.name COLLATE NOCASE`, args: ids },
+    { sql: `SELECT req.*,pl.name AS plugin_name,pl.category AS plugin_category FROM hostel_service_requests req LEFT JOIN hostel_plugins pl ON pl.id=req.plugin_id
+      WHERE req.booking_id IN (${marks}) ORDER BY req.created_at DESC`, args: ids },
+    { sql: `SELECT booking_id,COUNT(*) AS c FROM hostel_messages WHERE booking_id IN (${marks}) AND sender_type IN ('HOST','ADMIN') AND read_at='' GROUP BY booking_id`, args: ids },
+    { sql: `SELECT * FROM hostel_reviews WHERE booking_id IN (${marks})`, args: ids },
+    { sql: `SELECT * FROM hostel_refunds WHERE booking_id IN (${marks}) ORDER BY created_at DESC,id DESC`, args: ids },
+    { sql: `SELECT a.*,p.name AS property_name FROM hostel_announcements a LEFT JOIN hostel_properties p ON p.id=a.property_id
+      WHERE ?=0 AND a.status='PUBLISHED' AND EXISTS (SELECT 1 ${BOOKING_JOINS} WHERE b.student_email=? AND b.status='PAID'
+        AND COALESCE(st.status,'EXPECTED') IN ('EXPECTED','CHECKED_IN') AND COALESCE(pe.ends_on,'9999-12-31')>=? AND pe.starts_on<=?
+        AND b.landlord_id=a.landlord_id AND (a.property_id='' OR a.property_id=b.property_id)) ORDER BY a.created_at DESC LIMIT 20`, args: [history ? 1 : 0, email, today, today] },
+  ]);
+  const [plugins, services, unread, reviews, refunds, posts] = results.map(rowsToObjects);
+  const residencies = bookings.map(booking => {
+    const refundRow = refunds.find(row => row.booking_id === booking.id);
+    const reviewRow = reviews.find(row => row.booking_id === booking.id);
+    return { booking,
+      plugins: history || booking.status !== "PAID" ? [] : plugins.filter(row => row.booking_id === booking.id).map(subscriptionView),
+      services: services.filter(row => row.booking_id === booking.id).map(serviceView),
+      unreadMessages: Number(unread.find(row => row.booking_id === booking.id)?.c || 0),
+      review: reviewRow ? reviewView(reviewRow) : null,
+      refund: refundRow ? refundView(refundRow) : null,
+      refundQuote: refundRow ? null : hostelRefundQuote(booking),
+    };
+  });
+  return { residencies, announcements: posts.map(announcementView), pagination: { page, pages, total }, historyTotal };
 }

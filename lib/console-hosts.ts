@@ -38,7 +38,7 @@ const CONSOLE_SURFACE_PREFIXES = [
 ];
 
 /** Shared helpers the console screens already call. */
-const CONSOLE_SURFACE_EXACT = new Set(["/api/campus/ai"]);
+const CONSOLE_SURFACE_EXACT = new Set(["/api/campus/ai", "/api/maps/config"]);
 
 /**
  * Static output and framework internals. Asset requests normally never reach

@@ -1,3 +1,5 @@
+import { bedAvailableSql } from "./inventory";
+import { ensureHostelResidencyTables } from "./residency";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables, getHostelProperty } from "@/lib/hostel-engine/landlord";
@@ -21,6 +23,7 @@ export async function createHostelRoomBatch(landlordId: string, input: {
   periodId?: unknown; price?: unknown;
 }) {
   await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const propertyId = String(input.propertyId || "").trim();
   await getHostelProperty(landlordId, propertyId);
   const prefix = String(input.prefix || "").trim();
@@ -97,6 +100,7 @@ export async function priceHostelRoomRange(landlordId: string, input: {
   periodId?: unknown; price?: unknown;
 }) {
   await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const propertyId = String(input.propertyId || "").trim();
   await getHostelProperty(landlordId, propertyId);
   const prefix = String(input.prefix || "").trim();
@@ -122,7 +126,7 @@ export async function priceHostelRoomRange(landlordId: string, input: {
     if (String(room.status) !== "ACTIVE") throw new CampusEngineError("INVALID_STATE", `${label} is retired and cannot be priced.`, 409);
   }
   const ids = rooms.map(room => String(room.id));
-  const spaces = rowsToObjects(await turso(`SELECT s.room_id,s.id AS space_id,s.status AS space_status,l.id AS listing_id,l.price,l.status AS listing_status
+  const spaces = rowsToObjects(await turso(`SELECT s.room_id,s.id AS space_id,CASE WHEN ${bedAvailableSql('s',"'"+periodId.replaceAll("'","''")+"'")} THEN 'AVAILABLE' ELSE 'UNAVAILABLE' END AS space_status,l.id AS listing_id,l.price,l.status AS listing_status
     FROM hostel_spaces s LEFT JOIN hostel_listings l ON l.space_id=s.id AND l.period_id=?
     WHERE s.room_id IN (${ids.map(() => "?").join(",")}) AND s.status<>'RETIRED'`, [periodId, ...ids]));
   const byRoom = new Map<string, Record<string, unknown>[]>();
@@ -152,6 +156,7 @@ export async function submitHostelRoomRange(landlordId: string, input: {
   propertyId?: unknown; prefix?: unknown; start?: unknown; end?: unknown; width?: unknown; periodId?: unknown;
 }) {
   await ensureHostelTables();
+  await ensureHostelResidencyTables();
   const propertyId = String(input.propertyId || "").trim();
   const property = await getHostelProperty(landlordId, propertyId);
   const owner = await ownerReadiness(landlordId);
@@ -168,7 +173,7 @@ export async function submitHostelRoomRange(landlordId: string, input: {
   if (!periodId) throw new CampusEngineError("VALIDATION_ERROR", "Choose an academic year.", 400);
   const period = rowsToObjects(await turso("SELECT id,COALESCE(active,1) AS active FROM hostel_periods WHERE id=? LIMIT 1", [periodId]))[0];
   if (!period || Number(period.active) !== 1) throw new CampusEngineError("INVALID_STATE", "That academic year is closed to new listings.", 409);
-  const rows = rowsToObjects(await turso(`SELECT r.label,r.status AS room_status,s.status AS space_status,l.id AS listing_id,l.status AS listing_status,l.price
+  const rows = rowsToObjects(await turso(`SELECT r.label,r.status AS room_status,CASE WHEN ${bedAvailableSql('s',"'"+periodId.replaceAll("'","''")+"'")} THEN 'AVAILABLE' ELSE 'UNAVAILABLE' END AS space_status,l.id AS listing_id,l.status AS listing_status,l.price
     FROM hostel_rooms r JOIN hostel_spaces s ON s.room_id=r.id
     LEFT JOIN hostel_listings l ON l.space_id=s.id AND l.period_id=?
     WHERE r.property_id=? AND r.label IN (${labels.map(() => "?").join(",")}) AND s.status<>'RETIRED'`, [periodId, propertyId, ...labels]));

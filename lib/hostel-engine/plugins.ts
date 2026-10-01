@@ -258,7 +258,7 @@ function pluginView(row: Record<string, unknown>): HostelPlugin {
   };
 }
 
-function subscriptionView(row: Record<string, unknown>): HostelPluginSubscription {
+export function subscriptionView(row: Record<string, unknown>): HostelPluginSubscription {
   return {
     id: String(row.id || ""),
     landlordId: String(row.landlord_id || ""),
@@ -279,7 +279,7 @@ function subscriptionView(row: Record<string, unknown>): HostelPluginSubscriptio
   };
 }
 
-function serviceView(row: Record<string, unknown>): HostelServiceRequest {
+export function serviceView(row: Record<string, unknown>): HostelServiceRequest {
   return {
     id: String(row.id || ""),
     bookingId: String(row.booking_id || ""),
@@ -524,11 +524,16 @@ export async function requestHostelService(input: {
 
   const id = crypto.randomUUID();
   const stamp = new Date().toISOString();
-  await turso(
+  const created = await turso(
     `INSERT INTO hostel_service_requests (id,booking_id,plugin_id,landlord_id,student_email,price,note,status,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,'REQUESTED',?,?)`,
-    [id, input.booking.id, String(plugin.id), input.booking.landlordId, input.booking.studentEmail, Number(subscription.resident_price || 0), String(input.note || "").slice(0, 300), stamp, stamp],
+     SELECT ?,?,?,?,?,?,?,'REQUESTED',?,? WHERE EXISTS (
+       SELECT 1 FROM hostel_bookings b LEFT JOIN hostel_stays st ON st.booking_id=b.id LEFT JOIN hostel_periods pe ON pe.id=b.period_id
+       WHERE b.id=? AND b.status='PAID' AND COALESCE(st.status,'EXPECTED') IN ('EXPECTED','CHECKED_IN')
+       AND COALESCE(pe.ends_on,'9999-12-31')>=? AND pe.starts_on<=?
+     ) AND NOT EXISTS (SELECT 1 FROM hostel_service_requests WHERE booking_id=? AND plugin_id=? AND status IN ('REQUESTED','APPROVED','ACTIVE'))`,
+    [id, input.booking.id, String(plugin.id), input.booking.landlordId, input.booking.studentEmail, Number(subscription.resident_price || 0), String(input.note || "").slice(0, 300), stamp, stamp, input.booking.id, stamp.slice(0, 10), stamp.slice(0, 10), input.booking.id, String(plugin.id)],
   );
+  if (Number(created.affected_row_count) !== 1) throw new CampusEngineError("INVALID_STATE", "The stay has ended or this service already has an open request. Refresh your residency before trying again.", 409);
   await incrementMetric("hostel_service_requested");
   return getHostelServiceRequest(id);
 }

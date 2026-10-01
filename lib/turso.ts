@@ -53,6 +53,16 @@ export async function turso(sql: string, values: Array<string | number | null> =
   return stepResult(first);
 }
 
+/** Parameterized independent reads share one request; every error is reported. */
+export async function tursoReadBatch(statements: Array<{ sql: string; args: Array<string | number | null> }>) {
+  if (!statements.length) return [];
+  if (statements.some(statement => !/^\s*SELECT\b/i.test(statement.sql))) throw new Error("Read batches accept SELECT statements only.");
+  const result = await pipeline(statements.map(statement => ({ type: "execute", stmt: {
+    sql: statement.sql, args: statement.args.map(value => value === null ? { type: "null" } : { type: typeof value === "number" ? "integer" : "text", value: String(value) }),
+  } })));
+  return statements.map((_statement, index) => stepResult(result[index]));
+}
+
 /** Atomic, ordered writes on one Hrana stream. Failed steps skip COMMIT;
  * ROLLBACK (and closing the stream) releases the write lock on every failure. */
 export async function tursoTransaction(statements: Array<{ sql: string; args: Array<string | number | null> }>) {

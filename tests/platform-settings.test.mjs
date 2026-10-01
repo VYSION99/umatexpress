@@ -103,6 +103,7 @@ beforeEach(() => {
   delete process.env.PAYOUT_AUTO_ENABLED;
   delete process.env.HOSTEL_PAYOUT_AUTO_ENABLED;
   delete process.env.HOSTEL_IDENTITY_DOCUMENTS_VISIBLE;
+  delete process.env.GOOGLE_MAPS_ENABLED;
   resetPlatformSettingsCache();
 });
 
@@ -272,4 +273,38 @@ test("a numeric limit is written, read back and clamped through the API", async 
   assert.equal((await clamped.json()).setting.value, 48, "a limit cannot be set outside its documented bounds");
   const refused = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "cinema_room_idle_minutes", value: "soon" }));
   assert.equal(refused.status, 400);
+});
+
+
+test("Google Maps is off by default and only admins can enable its public display policy", async () => {
+  const mapConfig = await vite.ssrLoadModule("/app/api/maps/config/route.ts");
+  const initial = await mapConfig.GET();
+  assert.deepEqual(await initial.json(), { googleMapsEnabled: false });
+  assert.equal(initial.headers.get("cache-control"), "no-store");
+
+  for (const cookie of [undefined, await cookieFor("console-organizer")]) {
+    const denied = await settingsRoute.PATCH(apiRequest("PATCH", cookie, { key: "google_maps_enabled", enabled: true }));
+    assert.ok([401, 403].includes(denied.status));
+    assert.equal(settings.size, 0);
+  }
+  const admin = await cookieFor("console-admin");
+  const enabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "google_maps_enabled", enabled: true }));
+  assert.equal(enabled.status, 200);
+  assert.deepEqual(await (await mapConfig.GET()).json(), { googleMapsEnabled: true }, "public response must contain no key, account or other settings");
+  assert.equal(audits.at(-1).target_reference, "google_maps_enabled");
+  assert.equal(audits.at(-1).admin_email, "admin@umat.edu.gh");
+
+  process.env.GOOGLE_MAPS_ENABLED = "true";
+  const disabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "google_maps_enabled", enabled: false }));
+  assert.equal(disabled.status, 200);
+  assert.deepEqual(await (await mapConfig.GET()).json(), { googleMapsEnabled: false }, "the saved off switch overrides the runtime environment");
+});
+
+test("the map display policy is available on both app origins without exposing other map routes", async () => {
+  const { consoleHostAction } = await vite.ssrLoadModule("/lib/console-hosts.ts");
+  const hosts = ["console.example.test"];
+  for (const host of ["console.example.test", "students.example.test"]) {
+    assert.equal(consoleHostAction(host, "/api/maps/config", hosts).action, "serve");
+  }
+  assert.equal(consoleHostAction(hosts[0], "/api/maps/anything-else", hosts).action, "not-found");
 });

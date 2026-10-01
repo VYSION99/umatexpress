@@ -163,8 +163,8 @@ const worker = {
 /**
  * Security headers every response carries.
  *
- * A Content-Security-Policy is deliberately absent: the student map runs
- * MapLibre with blob workers and the console ships Next's inline bootstrap, so
+ * A Content-Security-Policy is deliberately absent: the student map loads
+ * Google Maps scripts and tiles and the console ships Next's inline bootstrap, so
  * a policy that does not break them has to be written and tested against both
  * origins first. These five are the ones that are safe unconditionally.
  */

@@ -215,3 +215,16 @@ test("a vacation message names what the booking holds and invents nothing", asyn
   assert.equal(humanTravelDate("not-a-date"), "not-a-date");
   assert.equal(moneyLabel(0), "");
 });
+
+test("maintenance notifications open the workspace without a payment or ride reference", async () => {
+ const {maintenanceWorkspaceLink}=await vite.ssrLoadModule('/lib/campus-engine/notify-templates.ts');
+ assert.equal(maintenanceWorkspaceLink('hostel_maintenance_student').path,'/hostel/resident?section=maintenance');
+ assert.equal(maintenanceWorkspaceLink('hostel_maintenance_staff').path,'/console/hostels/residents?section=maintenance');
+ assert.equal(maintenanceWorkspaceLink('driver_accepted'),null);
+});
+
+test("condition record notifications link to the matching residency workspace",async()=>{
+ const {residentCareWorkspaceLink}=await vite.ssrLoadModule('/lib/campus-engine/notify-templates.ts');
+ assert.equal(residentCareWorkspaceLink('hostel_condition_student').path,'/hostel/resident?section=conditions');
+ assert.equal(residentCareWorkspaceLink('hostel_condition_staff').path,'/console/hostels/residents?section=conditions');
+});

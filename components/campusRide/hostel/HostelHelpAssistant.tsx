@@ -2,7 +2,7 @@
 import { useState, type FormEvent } from "react";
 import { PaperPlaneTilt, Sparkle } from "@phosphor-icons/react";
 
-const PROMPTS = ["How do I book a bed?", "What does the price include?", "How do refund requests work?"];
+const PROMPTS = ["How do I renew or change my room?", "How do I record my room condition?", "How do I report a maintenance problem?"];
 export function HostelHelpAssistant({ staff = false }: { staff?: boolean }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -29,7 +29,7 @@ export function HostelHelpAssistant({ staff = false }: { staff?: boolean }) {
       <label htmlFor={staff ? "hostel-staff-question" : "hostel-student-question"}>Your question</label>
       <div className="hostel-guide-ai-input"><input id={staff ? "hostel-staff-question" : "hostel-student-question"} maxLength={500} value={question} onChange={event => setQuestion(event.target.value)} placeholder={staff ? "How do I review a new property?" : "How does booking or a refund work?"}/><button type="submit" disabled={busy || question.trim().length < 3} aria-label="Ask"><PaperPlaneTilt size={17}/>{busy ? "Thinking…" : "Ask"}</button></div>
     </form>
-    {!answer && <div className="hostel-guide-ai-prompts">{(staff ? ["What approvals are required before booking?", "How do I create 100 rooms quickly?", "What should I check before submitting beds?"] : PROMPTS).map(item => <button type="button" key={item} disabled={busy} onClick={() => { setQuestion(item); void ask(item); }}>{item}</button>)}</div>}
+    {!answer && <div className="hostel-guide-ai-prompts">{(staff ? ["How do I manage renewals and room changes?", "How do I review a room condition record?", "How do I manage maintenance reports?"] : PROMPTS).map(item => <button type="button" key={item} disabled={busy} onClick={() => { setQuestion(item); void ask(item); }}>{item}</button>)}</div>}
     {answer && <div className="hostel-guide-ai-answer" role="status"><p>{answer}</p>{fallback && <small>Guide response; live AI is unavailable on this deployment.</small>}</div>}
     {error && <p className="hostel-guide-ai-error" role="alert">{error}</p>}
   </section>;

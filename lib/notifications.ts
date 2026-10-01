@@ -1,5 +1,6 @@
 import type { SqlExecutor } from "@/lib/campus-engine/queue";
-import { ticketLinkForTemplate, ticketUrl } from "@/lib/campus-engine/notify-templates";
+import { parseConsoleHosts } from "@/lib/console-hosts";
+import { residentCareWorkspaceLink, ticketLinkForTemplate, ticketUrl } from "@/lib/campus-engine/notify-templates";
 import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
 import { looksLikePhone, sailupReady, sendSms, type SailupConfig } from "@/lib/sailup";
@@ -290,8 +291,16 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
       const link = ticketLinkForTemplate(template);
       const message = String(row.message || "");
       const hostelPath = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? message.match(/\/hostel\/[A-Za-z0-9_-]+(?:\?periodId=[A-Za-z0-9_-]+)?/)?.[0] : undefined;
-      const url = hostelPath && appUrl ? `${appUrl.replace(/\/$/, "")}${hostelPath}` : (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "" : ticketUrl(String(row.reference || ""), appUrl, link.path);
-      const cta = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "View this hostel" : link.cta;
+      let url = hostelPath && appUrl ? `${appUrl.replace(/\/$/, "")}${hostelPath}` : (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "" : ticketUrl(String(row.reference || ""), appUrl, link.path);
+      let cta = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "View this hostel" : link.cta;
+      const maintenanceLink = residentCareWorkspaceLink(template);
+      if (maintenanceLink) {
+        const staff = template === "hostel_maintenance_staff" || template === "hostel_condition_staff" || template === "hostel_stay_request_staff";
+        const hosts = staff ? parseConsoleHosts(await envValue("CONSOLE_HOSTS")) : [];
+        const origin = hosts.length ? `https://${hosts[0]}` : appUrl.replace(/\/$/, "");
+        url = origin ? `${origin}${maintenanceLink.path}` : "";
+        cta = maintenanceLink.cta;
+      }
       const result = byText
         ? await sendSms({ config: text, to, text: smsBody(message, url) })
         : await sendEmail({

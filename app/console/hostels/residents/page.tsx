@@ -19,7 +19,7 @@ export default function HostelResidentsPage() {
         service="hostels"
         label="ACCOMMODATION"
         title="Residents & services"
-        blurb="Every student who has paid for a bed, what they have asked for since, and the services your hostel offers them."
+        blurb="Manage arrivals, rooms, keys, and resident requests across your properties."
       >
         <ResidentWorkspace session={session} />
       </ConsoleShell>

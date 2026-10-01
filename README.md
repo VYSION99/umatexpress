@@ -22,6 +22,8 @@ It also ships as an installable web app with home-screen support on mobile devic
 campusRide planning and implementation notes live in [`campusRide/`](./campusRide/).
 The codebase navigation map lives in [`docs/PROJECT_TREE.md`](./docs/PROJECT_TREE.md).
 
+The next Hostel Finder student features are organized into [Phases 5–7 and milestones M1–M6](docs/Hostels/HOSTEL_FINDER_STUDENT_MILESTONES.md), starting with maintenance requests. [M1 maintenance](docs/Hostels/HOSTEL_MAINTENANCE_M1.md) uses platform/property opt-in; a controlled property pilot remains pending.
+
 ## Requirements
 
 - Node.js 22.13 or newer
@@ -40,6 +42,8 @@ npm run dev
 ```
 
 The checked-in `.env.example` documents all required variables. `.env` is ignored and must never be committed.
+
+Maps use Google Maps. Configure its browser key and both application domains using [Google Maps setup](docs/GOOGLE_MAPS.md).
 
 ## Environment variables
 
@@ -253,3 +257,7 @@ Stored admin passwords are hashed, so a forgotten password cannot be viewed. To 
 ## Admin audit logs
 
 Cancelled bookings can be permanently deleted from the admin table, but the app first writes a copy of the deleted booking into `admin_audit_logs`. The table is created by [`sql/000_umatexpress_full_migration.sql`](./sql/000_umatexpress_full_migration.sql) if you are applying SQL manually.
+
+[M2 room condition records](docs/Hostels/HOSTEL_CONDITIONS_M2.md) adds private move-in/check-out evidence, versioned amendments and atomic handovers on transfer. It is implemented locally with platform/property enablement off; pilot and deployment remain pending.
+
+[M3 stay plans](docs/Hostels/HOSTEL_STAY_PLANS_M3.md) adds equal-price room-change requests and next-year renewals with academic-year inventory protection. Default off; different-price moves and the property pilot remain gated.

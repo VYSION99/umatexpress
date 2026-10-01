@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import "maplibre-gl/dist/maplibre-gl.css";
-import type { GeoJSONSource, LngLatBoundsLike, LngLatLike, Map as MapLibreMap, Marker } from "maplibre-gl";
-import { Car, Crosshair, MapPin } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef } from "react";
+import { useGoogleMap } from "@/components/maps/useGoogleMap";
+import { MapStatus } from "@/components/maps/MapStatus";
+import { MapLocateButton } from "@/components/maps/MapLocateButton";
+import { googlePoint } from "@/lib/google-maps";
+import { Car, MapPin } from "@phosphor-icons/react";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
 import { corridorGeometry, routeMetrics } from "@/lib/campus-route-geometry";
@@ -23,23 +25,9 @@ type RouteFeature = {
   geometry: { type: "LineString"; coordinates: Array<[number, number]> };
 };
 
-const DEFAULT_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-const UMAT_CENTER: [number, number] = [-1.9931, 5.3018];
-const UMAT_BOUNDS: LngLatBoundsLike = [
-  [-2.012, 5.284],
-  [-1.972, 5.318],
-];
-
-// A build that never defined the variable can still publish the literal string
-// "undefined" through the client env shim. That string is truthy, so a plain
-// `|| fallback` would hand MapLibre a relative URL and the map would fail to
-// load with a 404 on /undefined.
-function publicValue(value: string | undefined, fallback: string) {
-  const candidate = (value || "").trim();
-  return !candidate || candidate === "undefined" || candidate === "null" ? fallback : candidate;
-}
-
-const MAP_STYLE_URL = publicValue(process.env.NEXT_PUBLIC_MAP_STYLE_URL, DEFAULT_STYLE_URL);
+const OPTIONS: google.maps.MapOptions = {
+  center: googlePoint(-1.9931, 5.3018), zoom: 15, minZoom: 12, maxZoom: 20,
+};
 
 function zoneCoordinate(zone?: Pick<CampusZone, "latitude" | "longitude">): [number, number] | null {
   if (!zone || typeof zone.latitude !== "number" || typeof zone.longitude !== "number") return null;
@@ -84,8 +72,7 @@ function routeFeatureFor(match: CampusRideMatch, zoneById: Map<string, CampusZon
 }
 
 function markerElement(className: string, label: string) {
-  const element = document.createElement("button");
-  element.type = "button";
+  const element = document.createElement("div");
   element.className = className;
   element.setAttribute("aria-label", label);
   return element;
@@ -99,6 +86,7 @@ function appendMarkerLabel(element: HTMLElement, label: string) {
 
 function popupContent(title: string, detail: string) {
   const container = document.createElement("div");
+  container.className = "google-map-popup";
   const heading = document.createElement("strong");
   const paragraph = document.createElement("p");
   heading.textContent = title;
@@ -111,10 +99,7 @@ type CampusMapProps = { zones: CampusZone[]; corridors?: CampusCorridor[]; rides
 
 export function CampusMap({ zones, corridors = [], rides = [], matches = [], selectedRideId, title = "Campus map" }: CampusMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
-  const markersRef = useRef<Marker[]>([]);
-  const [mapReady, setMapReady] = useState(false);
-  const [mapError, setMapError] = useState("");
+  const { instance, loading, error, disabled, retry } = useGoogleMap(containerRef, OPTIONS);
   const zoneById = useMemo(() => new Map(zones.map((zone) => [zone.id, zone])), [zones]);
   const corridorById = useMemo(() => new Map(corridors.map((corridor) => [corridor.id, corridor])), [corridors]);
   const activeRides = useMemo(() => {
@@ -142,7 +127,6 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
       return feature ? [{ ...feature, properties: { ...feature.properties, selected: selectedRideId === feature.properties.id } }] : [];
     }),
   }), [matches, selectedRideId, zoneById, corridorById]);
-  const routeFeaturesRef = useRef(routeFeatures);
   const routeStats = useMemo(() => {
     const selected = routeFeatures.features.find((feature) => feature.properties.selected);
     return selected ? {
@@ -154,122 +138,58 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
   }, [routeFeatures]);
 
   useEffect(() => {
-    routeFeaturesRef.current = routeFeatures;
-  }, [routeFeatures]);
-
-  useEffect(() => {
-    let disposed = false;
-    async function setupMap() {
-      if (!containerRef.current || mapRef.current) return;
-      try {
-        const maplibregl = await import("maplibre-gl");
-        if (disposed || !containerRef.current) return;
-        const map = new maplibregl.Map({
-          container: containerRef.current,
-          style: MAP_STYLE_URL,
-          center: UMAT_CENTER,
-          zoom: 14.6,
-          minZoom: 12.5,
-          maxZoom: 19,
-          maxBounds: UMAT_BOUNDS,
-          attributionControl: { compact: true },
-        });
-        mapRef.current = map;
-        map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-        map.addControl(new maplibregl.FullscreenControl(), "top-right");
-        map.addControl(new maplibregl.GeolocateControl({
-          positionOptions: { enableHighAccuracy: true },
-          trackUserLocation: true,
-        }), "top-right");
-        map.on("load", () => {
-          if (disposed) return;
-          map.addSource("campus-routes", { type: "geojson", data: routeFeaturesRef.current });
-          map.addLayer({
-            id: "campus-routes-base",
-            type: "line",
-            source: "campus-routes",
-            paint: { "line-color": "#17684f", "line-width": 5, "line-opacity": 0.72 },
-          });
-          map.addLayer({
-            id: "campus-routes-selected",
-            type: "line",
-            source: "campus-routes",
-            filter: ["==", ["get", "selected"], true],
-            paint: { "line-color": "#f4a62a", "line-width": 8, "line-opacity": 0.9 },
-          });
-          setMapReady(true);
-        });
-        map.on("error", () => setMapError("Map tiles could not load. Check the map provider or network connection."));
-      } catch {
-        setMapError("The real map could not start on this device.");
-      }
+    if (!instance) return;
+    const { map, maps, marker } = instance;
+    const popup = new maps.InfoWindow();
+    const events = new AbortController();
+    const pins: google.maps.marker.AdvancedMarkerElement[] = [];
+    function addPin(coordinate: [number, number], title: string, detail: string, className: string, label: string) {
+      const element = markerElement(className, title);
+      appendMarkerLabel(element, label);
+      const pin = new marker.AdvancedMarkerElement({ map, position: googlePoint(...coordinate), title, gmpClickable: true });
+      pin.append(element);
+      pin.addEventListener("gmp-click", () => { popup.setContent(popupContent(title, detail)); popup.open({ map, anchor: pin }); }, { signal: events.signal });
+      pins.push(pin);
     }
-    setupMap();
-    return () => {
-      disposed = true;
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
-      mapRef.current?.remove();
-      mapRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    const source = map.getSource("campus-routes") as GeoJSONSource | undefined;
-    source?.setData(routeFeatures);
-  }, [mapReady, routeFeatures]);
-
-  const syncMarkers = useCallback(async () => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    const maplibregl = await import("maplibre-gl");
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
-    zones.forEach((zone) => {
+    zones.forEach(zone => {
       const coordinate = zoneCoordinate(zone);
-      if (!coordinate) return;
-      const element = markerElement("real-map-marker zone-marker", zone.name);
-      appendMarkerLabel(element, zone.name);
-      const marker = new maplibregl.Marker({ element, anchor: "bottom" })
-        .setLngLat(coordinate as LngLatLike)
-        .setPopup(new maplibregl.Popup({ offset: 18 }).setDOMContent(popupContent(zone.name, zone.landmark || zone.description || "Campus zone")))
-        .addTo(map);
-      markersRef.current.push(marker);
+      if (coordinate) addPin(coordinate, zone.name, zone.landmark || zone.description || "Campus zone", "real-map-marker zone-marker", zone.name);
     });
-    ridePins.forEach((ride) => {
-      const element = markerElement(`real-map-marker ride-marker${ride.selected ? " is-selected" : ""}`, ride.label);
-      appendMarkerLabel(element, String(ride.slots));
-      const marker = new maplibregl.Marker({ element, anchor: "center" })
-        .setLngLat(ride.coordinate as LngLatLike)
-        .setPopup(new maplibregl.Popup({ offset: 18 }).setDOMContent(popupContent(ride.label, `${ride.status} · ${ride.slots} slots available`)))
-        .addTo(map);
-      markersRef.current.push(marker);
-    });
-    const selected = ridePins.find((ride) => ride.selected);
-    if (selected) map.easeTo({ center: selected.coordinate, zoom: Math.max(map.getZoom(), 15.5), duration: 550 });
-  }, [mapReady, ridePins, zones]);
-
-  useEffect(() => {
-    syncMarkers();
-  }, [syncMarkers]);
+    ridePins.forEach(ride => addPin(ride.coordinate, ride.label, ride.status + " · " + ride.slots + " slots available", "real-map-marker ride-marker" + (ride.selected ? " is-selected" : ""), String(ride.slots)));
+    const paths = routeFeatures.features.map(feature => new maps.Polyline({
+      map,
+      path: feature.geometry.coordinates.map(point => googlePoint(...point)),
+      strokeColor: feature.properties.selected ? "#f4a62a" : "#17684f",
+      strokeWeight: feature.properties.selected ? 8 : 5,
+      strokeOpacity: feature.properties.selected ? 0.9 : 0.72,
+      zIndex: feature.properties.selected ? 2 : 1,
+      clickable: false,
+    }));
+    const selected = ridePins.find(ride => ride.selected);
+    if (selected) { map.setCenter(googlePoint(...selected.coordinate)); map.setZoom(Math.max(map.getZoom() || 15, 16)); }
+    return () => {
+      events.abort();
+      popup.close();
+      pins.forEach(pin => { pin.map = null; });
+      paths.forEach(path => path.setMap(null));
+    };
+  }, [instance, ridePins, zones, routeFeatures]);
 
   return <section className="campus-map-widget real-map-widget">
     <div className="campus-map-top">
       <div><p>LIVE MAP</p><h2>{title}</h2></div>
       <span>{activeRides.length} active rides</span>
     </div>
-    <div className="campus-map-frame">
-      <div ref={containerRef} className="campus-map-canvas real-map-canvas" aria-label="Interactive CampusRide map" />
-      {!mapReady && !mapError && <div className="real-map-loading"><MapPin size={22}/><span>Loading real map...</span></div>}
-      {mapError && <div className="real-map-error"><Crosshair size={22}/><span>{mapError}</span></div>}
+    <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
+      <div ref={containerRef} className="campus-map-canvas real-map-canvas google-map-canvas" aria-label="Interactive CampusRide map" />
+      <MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} />
     </div>
-    <div className="real-map-legend">
+    {!disabled && <MapLocateButton instance={instance} />}
+    {!disabled && <div className="real-map-legend">
       <span><MapPin size={14}/> Zone</span>
       <span><Car size={14}/> Ride</span>
       {routeStats && <span>{Math.max(1, Math.round(routeStats.durationSeconds / 60))} min ETA · {(routeStats.distanceMeters / 1000).toFixed(1)} km</span>}
-      <span>{routeStats?.fallback ? "Estimated route" : "Surveyed corridor"} · OpenStreetMap</span>
-    </div>
+      <span>{routeStats?.fallback ? "Estimated route" : "Surveyed corridor"} · Google Maps</span>
+    </div>}
   </section>;
 }

@@ -1,45 +1,57 @@
 "use client";
+
 import { useEffect, useRef, useState } from "react";
-import "maplibre-gl/dist/maplibre-gl.css";
-import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import { Crosshair } from "@phosphor-icons/react";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
-const DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/positron";
+import { googleMapsLocationLink, googlePoint } from "@/lib/google-maps";
+import { MapStatus } from "@/components/maps/MapStatus";
+import { useGoogleMap } from "@/components/maps/useGoogleMap";
+
+const OPTIONS: google.maps.MapOptions = {
+  center: googlePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
+  zoom: 14,
+  restriction: { latLngBounds: { south: 5.0, north: 5.6, west: -2.4, east: -1.6 }, strictBounds: false },
+};
+
+function propertyPoint(latitude: string, longitude: string) {
+  if (!latitude.trim() || !longitude.trim()) return null;
+  const lat = Number(latitude), lng = Number(longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 5.0 && lat <= 5.6 && lng >= -2.4 && lng <= -1.6 ? { lat, lng } : null;
+}
+
 export function HostelLocationPicker({ latitude, longitude, onChange }: { latitude: string; longitude: string; onChange: (latitude: string, longitude: string) => void }) {
   const container = useRef<HTMLDivElement | null>(null);
-  const map = useRef<MapLibreMap | null>(null);
-  const marker = useRef<MapLibreMarker | null>(null);
+  const marker = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const latest = useRef(onChange);
+  const active = useRef(true);
+  const { instance, loading, error: mapError, disabled, retry } = useGoogleMap(container, OPTIONS);
   const [error, setError] = useState("");
   const [locating, setLocating] = useState(false);
   const [locationNotice, setLocationNotice] = useState("");
+  const selected = propertyPoint(latitude, longitude);
   useEffect(() => { latest.current = onChange; }, [onChange]);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+
   function useMyLocation() {
-    setError("");
-    setLocationNotice("");
+    setError(""); setLocationNotice("");
     if (!navigator.geolocation) {
       setError("This browser cannot access device location. Search for the address or enter coordinates manually.");
       return;
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(position => {
-      const latitude = position.coords.latitude;
-      const longitude = position.coords.longitude;
+      if (!active.current) return;
       setLocating(false);
-      if (latitude < 5.0 || latitude > 5.6 || longitude < -2.4 || longitude > -1.6) {
+      const point = propertyPoint(String(position.coords.latitude), String(position.coords.longitude));
+      if (!point) {
         setError("Your current location is outside the Hostel Finder service area. Search for the property address or enter its coordinates manually.");
         return;
       }
-      const lat = latitude.toFixed(6);
-      const lng = longitude.toFixed(6);
-      latest.current(lat, lng);
-      setLocationNotice("Pin set from your device. Confirm it marks the building entrance, then adjust it if needed.");
-      marker.current?.setLngLat([longitude, latitude]);
-      if (marker.current) marker.current.getElement().style.display = "";
-      map.current?.easeTo({ center: [longitude, latitude], zoom: 16, duration: 350 });
+      latest.current(point.lat.toFixed(6), point.lng.toFixed(6));
+      setLocationNotice("Location captured. Confirm it marks the building entrance, then adjust it if needed.");
     }, cause => {
+      if (!active.current) return;
       setLocating(false);
-      setLocationNotice("");
       setError(cause.code === cause.PERMISSION_DENIED
         ? "Location access was denied. Search for the property address or enter coordinates manually."
         : cause.code === cause.TIMEOUT
@@ -47,43 +59,54 @@ export function HostelLocationPicker({ latitude, longitude, onChange }: { latitu
           : "Your device could not determine its location. Try again or enter the address or coordinates manually.");
     }, { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 });
   }
+
   useEffect(() => {
-    let disposed = false;
-    async function setup() {
-      if (!container.current) return;
-      try {
-        const maplibre = await import("maplibre-gl");
-        if (disposed || !container.current) return;
-        const instance = new maplibre.Map({ container: container.current, style: !process.env.NEXT_PUBLIC_MAP_STYLE_URL || ["undefined", "null"].includes(process.env.NEXT_PUBLIC_MAP_STYLE_URL) ? DEFAULT_STYLE : process.env.NEXT_PUBLIC_MAP_STYLE_URL, center: [CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude], zoom: 14.5, maxBounds: [[-2.4, 5.0], [-1.6, 5.6]], attributionControl: { compact: true }, scrollZoom: false });
-        map.current = instance;
-        instance.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
-        const pin = new maplibre.Marker({ color: "#0d694d", draggable: true }).setLngLat([CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude]).addTo(instance);
-        pin.getElement().style.display = "none";
-        marker.current = pin;
-        instance.on("click", event => { setError(""); latest.current(event.lngLat.lat.toFixed(6), event.lngLat.lng.toFixed(6)); });
-        pin.on("dragend", () => { const point = pin.getLngLat(); latest.current(point.lat.toFixed(6), point.lng.toFixed(6)); });
-        instance.on("error", () => setError("Map tiles could not load. You can still enter the coordinates below."));
-      } catch { setError("The map could not start. Enter the location coordinates below."); }
+    if (!instance) return;
+    const pin = new instance.marker.AdvancedMarkerElement({ map: instance.map, gmpDraggable: true, title: "Property entrance. Drag to adjust." });
+    marker.current = pin;
+    const update = (latitude: number, longitude: number) => {
+      const point = propertyPoint(String(latitude), String(longitude));
+      if (!point) { setError("Choose a location within the Hostel Finder service area."); return; }
+      setError(""); setLocationNotice("");
+      latest.current(point.lat.toFixed(6), point.lng.toFixed(6));
+    };
+    const click = instance.map.addListener("click", (event: google.maps.MapMouseEvent) => {
+      if (event.latLng) update(event.latLng.lat(), event.latLng.lng());
+    });
+    const drag = () => {
+      const position = pin.position;
+      if (position) update(typeof position.lat === "function" ? position.lat() : position.lat, typeof position.lng === "function" ? position.lng() : position.lng);
+    };
+    pin.addEventListener("gmp-dragend", drag);
+    return () => { click.remove(); pin.removeEventListener("gmp-dragend", drag); pin.map = null; marker.current = null; };
+  }, [instance]);
+
+  useEffect(() => {
+    if (!instance || !marker.current) return;
+    const point = propertyPoint(latitude, longitude);
+    marker.current.position = point;
+    if (point) {
+      instance.map.setCenter(point);
+      instance.map.setZoom(Math.max(instance.map.getZoom() || 14, 16));
     }
-    void setup();
-    return () => { disposed = true; marker.current?.remove(); map.current?.remove(); marker.current = null; map.current = null; };
-  }, []);
-  useEffect(() => {
-    const lat = Number(latitude), lng = Number(longitude);
-    if (!latitude || !longitude || !Number.isFinite(lat) || !Number.isFinite(lng) || lat < 5.0 || lat > 5.6 || lng < -2.4 || lng > -1.6) return;
-    marker.current?.setLngLat([lng, lat]);
-    if (marker.current) marker.current.getElement().style.display = "";
-    map.current?.easeTo({ center: [lng, lat], zoom: Math.max(map.current.getZoom(), 15), duration: 0 });
-  }, [latitude, longitude]);
+  }, [instance, latitude, longitude]);
+
   return <div className="hostel-location-picker">
-    <p>If you are at the property, use your device location to set the entrance. Otherwise search for the address, tap the map, or enter coordinates manually below.</p>
+    <p>{disabled
+      ? "If you are at the property, use your device location to set the entrance. Otherwise search for the address or enter coordinates manually below."
+      : "If you are at the property, use your device location to set the entrance. Otherwise search for the address, tap the map, or enter coordinates manually below."}</p>
     <div className="hostel-location-actions">
       <button type="button" className="console-secondary" onClick={useMyLocation} disabled={locating}>
         <Crosshair size={15} aria-hidden />{locating ? "Getting location…" : "Use my location"}
       </button>
-      <span>Allow location access when your browser asks. You can still adjust the pin on the map.</span>
+      <span>Allow location access when your browser asks. {disabled ? "You can still adjust the coordinates below." : "You can still adjust the pin on the map."}</span>
     </div>
-    <div ref={container} className="hostel-location-map" role="application" aria-label="Select hostel location on map" />
+    <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
+      <div ref={container} className="hostel-location-map google-map-canvas" role="region" aria-label="Select hostel location on Google Maps" />
+      <MapStatus disabled={disabled} loading={loading} error={mapError} onRetry={retry} />
+    </div>
+    {mapError && <p>You can still use your device location or enter the coordinates below.</p>}
+    {selected && <p><a href={googleMapsLocationLink(selected.lat, selected.lng)} target="_blank" rel="noreferrer">View selected location in Google Maps</a></p>}
     {error && <p role="alert">{error}</p>}
     {locationNotice && <p role="status">{locationNotice}</p>}
   </div>;

@@ -127,3 +127,18 @@ export const CAMPUS_NOTIFY_BY_STATUS: Record<string, CampusNotifyTemplate> = {
   COMPLETED: "trip_completed",
   CANCELLED_BY_DRIVER: "driver_cancelled",
 };
+
+/** Maintenance references are report events, never ride or payment references. */
+export function maintenanceWorkspaceLink(template: string) {
+  if (template === "hostel_maintenance_student") return { path: "/hostel/resident?section=maintenance", cta: "View maintenance requests" };
+  if (template === "hostel_maintenance_staff") return { path: "/console/hostels/residents?section=maintenance", cta: "View maintenance requests" };
+  return null;
+}
+
+export function residentCareWorkspaceLink(template: string) {
+  if (template === "hostel_stay_request_staff") return { path: "/console/hostels/residents?section=stay-plans", cta: "View stay plans" };
+  if (template === "hostel_stay_request_student") return { path: "/hostel/resident?section=stay-plans", cta: "View stay plans" };
+  if (template === "hostel_condition_student") return { path: "/hostel/resident?section=conditions", cta: "View condition records" };
+  if (template === "hostel_condition_staff") return { path: "/console/hostels/residents?section=conditions", cta: "View condition records" };
+  return maintenanceWorkspaceLink(template);
+}

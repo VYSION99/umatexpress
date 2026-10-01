@@ -1,0 +1,69 @@
+.maintenance-panel,.maintenance-detail { --maintenance-accent:#087568; --maintenance-line:var(--border,#dce5e1); color:var(--text,#162d29); min-width:0; }
+.maintenance-panel { margin-block:1.25rem; }
+.maintenance-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem; }
+.maintenance-heading h3 { font-size:clamp(1.2rem,2vw,1.5rem); margin:.4rem 0; letter-spacing:-.03em; }
+.maintenance-heading p,.maintenance-muted,.maintenance-help { color:var(--muted,#546a64); font-size:.88rem; line-height:1.6; margin:.3rem 0; }
+.maintenance-eyebrow { display:flex; gap:.4rem; align-items:center; font-size:.7rem; letter-spacing:.13em; font-weight:700; color:var(--maintenance-accent); }
+.maintenance-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+.maintenance-panel button,.maintenance-detail button,.maintenance-form button { font:inherit; font-size:.87rem; cursor:pointer; min-height:44px; padding:.6rem .9rem; border:1px solid var(--maintenance-line,#dce5e1); border-radius:10px; background:var(--panel,#fff); color:inherit; }
+.maintenance-actions button { display:flex; align-items:center; justify-content:center; gap:.4rem; }
+.maintenance-panel button:disabled,.maintenance-detail button:disabled,.maintenance-form button:disabled { opacity:.55; cursor:not-allowed; }
+.maintenance-panel button.maintenance-primary,.maintenance-detail button.maintenance-primary,.maintenance-form button.maintenance-primary { background:#087568; color:white; border-color:#087568; font-weight:650; }
+.maintenance-panel :is(button,input,select,summary,a):focus-visible,.maintenance-form :is(button,input,textarea,select,a):focus-visible,.maintenance-detail :is(button,select,a):focus-visible { outline:3px solid #d28a27; outline-offset:3px; }
+.maintenance-service-note { padding:.85rem 1rem; border:1px solid var(--maintenance-line,#dce5e1); border-radius:12px; background:var(--surface-soft,#f3f8f5); font-size:.85rem; line-height:1.6; margin-bottom:1rem; }
+.maintenance-service-note p { margin:.25rem 0; }
+.maintenance-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.7rem; margin:1rem 0; }
+.maintenance-metrics>div { padding:1rem; border:1px solid var(--maintenance-line); border-radius:12px; background:var(--panel,#fff); display:grid; gap:.4rem; }
+.maintenance-metrics strong { font-size:1.6rem; letter-spacing:-.04em; }
+.maintenance-metrics span { font-size:.78rem; color:var(--muted,#546a64); }
+.maintenance-filters { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; margin-block:1rem; }
+.maintenance-filters label,.maintenance-form label { display:grid; gap:.4rem; font-size:.82rem; font-weight:600; min-width:0; }
+.maintenance-search { flex:1; min-width:180px!important; }
+.maintenance-filters :is(input,select),.maintenance-form :is(input:not([type=checkbox]),select,textarea) { box-sizing:border-box; width:100%; min-width:0; min-height:44px; padding:.65rem .75rem; border:1px solid var(--maintenance-line,#cadbd4); border-radius:9px; background:var(--panel,#fff); color:inherit; font:inherit; font-size:16px; }
+.maintenance-extra-filters { width:100%; }
+.maintenance-extra-filters summary { cursor:pointer; min-height:44px; padding:.5rem 0; font-size:.86rem; }
+.maintenance-extra-filters>div { display:flex; flex-wrap:wrap; align-items:center; gap:.75rem; padding:.6rem 0; }
+.maintenance-check { display:flex!important; align-items:center; gap:.6rem!important; min-height:44px; }
+.maintenance-check input { width:20px!important; height:20px; min-height:20px; flex-shrink:0; }
+.maintenance-list { border:1px solid var(--maintenance-line); border-radius:14px; overflow:hidden; }
+.maintenance-list:empty { border:0; }
+.maintenance-panel button.maintenance-ticket { display:flex; width:100%; align-items:center; justify-content:space-between; gap:1rem; padding:1.1rem; border:0; border-bottom:1px solid var(--maintenance-line); border-radius:0; text-align:left; }
+.maintenance-ticket:last-child { border-bottom:0!important; }
+.maintenance-ticket:hover { background:var(--surface-soft,#f3f8f5); }
+.maintenance-ticket>div:first-child { display:grid; min-width:0; gap:.35rem; }
+.maintenance-ticket strong { font-size:1rem; }
+.maintenance-ticket span,.maintenance-ticket small { overflow-wrap:anywhere; }
+.maintenance-reference,.maintenance-ticket small { font-size:.75rem; color:var(--muted,#546a64); }
+.maintenance-badges { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.4rem; max-width:230px; flex-shrink:0; }
+.maintenance-badge { display:inline-block; width:fit-content; border-radius:6px; padding:.28rem .5rem; background:var(--surface-soft,#eef5f1); font-size:.73rem; font-weight:650; }
+.maintenance-badge.is-urgent { background:#fff1df; color:#874407; }
+.maintenance-badge.is-resolved,.maintenance-badge.is-closed { background:#e1f5eb; color:#146547; }
+.maintenance-open { width:100%; text-align:right; font-size:.78rem; color:var(--maintenance-accent); padding-top:.35rem; }
+.maintenance-empty { text-align:center; padding:2.5rem 1rem; background:var(--surface-soft,#f3f8f5); border-radius:12px; }
+.maintenance-empty h4 { margin:.65rem 0; }
+.maintenance-empty p { font-size:.88rem; color:var(--muted,#546a64); }
+.maintenance-help { margin-top:1rem; }
+.maintenance-form { --maintenance-accent:#087568; }
+.maintenance-form fieldset { display:grid; gap:1rem; min-width:0; padding:0; border:0; margin:0; }
+.maintenance-form textarea { resize:vertical; }
+.maintenance-two-fields { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; }
+.maintenance-steps { display:flex; padding:0; margin:0 0 .75rem; list-style:none; gap:1rem; font-size:.78rem; color:var(--muted,#546a64); }
+.maintenance-steps li[aria-current] { color:#087568; font-weight:700; border-bottom:2px solid; padding-bottom:.5rem; }
+.maintenance-prose { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.65; font-size:.92rem; }
+.maintenance-photo-picker { display:grid; gap:.5rem; }
+.maintenance-photo-picker small { line-height:1.5; color:var(--muted,#546a64); }
+.maintenance-photo-picker ul { list-style:none; padding:0; margin:0; }
+.maintenance-photo-picker li { display:flex; align-items:center; gap:.5rem; justify-content:space-between; font-size:.8rem; }
+.maintenance-photo-picker li span { overflow-wrap:anywhere; min-width:0; }
+.maintenance-update { padding:1rem; border:1px solid var(--maintenance-line); border-radius:12px; margin-block:1.25rem; background:var(--surface-soft,#f3f8f5); }
+.maintenance-history h4 { margin-bottom:.5rem; }
+.maintenance-history ol { list-style:none; padding:0; margin:1rem 0; }
+.maintenance-history li { position:relative; padding:0 0 1.25rem 1.2rem; border-left:2px solid var(--maintenance-line); margin-left:.35rem; }
+.maintenance-history li::before { content:""; position:absolute; width:10px; height:10px; border-radius:50%; background:#087568; left:-6px; top:4px; }
+.maintenance-history li>div:first-child { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; font-size:.88rem; }
+.maintenance-history time,.maintenance-history small { font-size:.75rem; color:var(--muted,#546a64); }
+.maintenance-history p { margin:.5rem 0; }
+.maintenance-photos { display:flex; flex-wrap:wrap; gap:.5rem; }
+.maintenance-photos a { padding:.65rem; border:1px solid var(--maintenance-line); border-radius:8px; min-height:44px; font-size:.8rem; overflow-wrap:anywhere; }
+@media(max-width:700px) { .maintenance-heading { flex-direction:column; } .maintenance-actions { width:100%; } .maintenance-actions button { flex:1; } .maintenance-metrics { grid-template-columns:1fr 1fr; } .maintenance-panel button.maintenance-ticket { flex-direction:column; align-items:stretch; } .maintenance-badges { max-width:none; justify-content:flex-start; align-items:center; } .maintenance-open { width:auto; margin-left:auto; } .maintenance-filters>label { flex:1 1 130px; } .maintenance-extra-filters>div>label { flex:1 1 130px; } }
+@media(max-width:390px) { .maintenance-two-fields { grid-template-columns:1fr; } .maintenance-actions { flex-wrap:wrap; } .maintenance-steps { font-size:.7rem; gap:.65rem; } }

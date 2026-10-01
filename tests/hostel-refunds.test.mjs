@@ -46,7 +46,7 @@ const newestFirst = (rows) => [...rows].sort((left, right) => String(right.creat
 
 function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
-  if (/^CREATE |^ALTER /.test(sql)) return ok(empty);
+  if (/^INSERT INTO hostel_bed_claims|^INSERT INTO hostel_stays|^UPDATE hostel_stays|^CREATE |^ALTER /.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
   if (/^UPDATE hostel_landlords SET commission_bps/.test(sql)) return affected(0);
   if (/^INSERT INTO metrics_counters/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
@@ -161,6 +161,7 @@ function handle(sql, args) {
     const booking = state.bookings.get(args[1]);
     if (booking && ["PAID", "PAYMENT_REVIEW"].includes(booking.status)) {
       booking.status = "CANCELLED";
+      booking.updated_at = args[0];
       return affected(1);
     }
     return affected(0);
@@ -170,8 +171,9 @@ function handle(sql, args) {
     if (booking) booking.status = "REFUNDED";
     return affected(booking ? 1 : 0);
   }
-  if (/^UPDATE hostel_spaces SET status = 'AVAILABLE'/.test(sql)) {
-    const space = state.spaces.find((entry) => entry.id === args[1]);
+  if (/^UPDATE hostel_spaces SET status\s*=\s*'AVAILABLE'/.test(sql)) {
+    const booking = state.bookings.get(args[1]);
+    const space = state.spaces.find((entry) => entry.id === (sql.includes("SELECT space_id") ? booking?.space_id : args[1]));
     if (space && ["OCCUPIED", "RESERVED"].includes(space.status)) {
       space.status = "AVAILABLE";
       return affected(1);
@@ -200,7 +202,23 @@ globalThis.fetch = async (url, options = {}) => {
   const target = String(url);
   if (target.includes("/v2/pipeline")) {
     const body = typeof options.body === "string" ? JSON.parse(options.body) : {};
-    const results = (body.requests || []).filter((request) => request?.stmt).map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value))));
+    const results = (body.requests || []).filter(request => request.type !== "close").map(request => {
+      const run = stmt => handle(stmt.sql, (stmt.args || []).map(arg => arg.type === "null" ? null : arg.value));
+      if (request.type === "execute") return run(request.stmt);
+      const snapshot = structuredClone({ bookings: state.bookings, spaces: state.spaces });
+      const step_results = [], step_errors = [];
+      const allowed = condition => !condition || (condition.type === "ok" ? Boolean(step_results[condition.step]) : condition.type === "not" ? !allowed(condition.cond) : condition.conds.every(allowed));
+      for (const step of request.batch.steps) {
+        let response = {};
+        if (allowed(step.condition)) {
+          if (step.stmt.sql === "ROLLBACK") { state.bookings = snapshot.bookings; state.spaces = snapshot.spaces; response = ok({}); }
+          else if (["BEGIN IMMEDIATE", "COMMIT"].includes(step.stmt.sql)) response = ok({});
+          else response = run(step.stmt);
+        }
+        step_results.push(response.response?.result || null); step_errors.push(response.error || null);
+      }
+      return ok({ step_results, step_errors });
+    });
     return { ok: true, json: async () => ({ results }) };
   }
   if (target.endsWith("/refund") && (options.method || "GET") === "POST") {

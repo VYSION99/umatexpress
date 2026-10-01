@@ -9,6 +9,19 @@
 
 This document breaks down the delivery of the Hostel Finder into clear, sequential phases with specific goals and acceptance criteria.
 
+## Next student features — Phases 5–7
+
+The six new student features are planned in [Student feature milestones](HOSTEL_FINDER_STUDENT_MILESTONES.md), with deliverables, dependencies, and completion criteria. M1 maintenance is implemented behind default-off switches with switches off; pilot and deployment remain pending. M2 condition records are also implemented behind default-off switches; see the [M2 guide and release record](HOSTEL_CONDITIONS_M2.md). M3.1 room changes and M3.2 renewals are implemented behind default-off switches; see the [M3 stay plans guide](HOSTEL_STAY_PLANS_M3.md). M3.3 different-price moves remain gated, and M4–M6 remain planned. See the [M1 implementation and pilot guide](HOSTEL_MAINTENANCE_M1.md).
+
+| Phase | Milestones |
+| --- | --- |
+| 5 — Resident care | M1 Maintenance requests; M2 Move-in condition records |
+| 6 — Stay management | M3 Renewals and room-change requests; M4 Resident and visitor passes |
+| 7 — Community and convenience | M5 Roommate matching; M6 Parcel collection |
+
+**Next:** M1, beginning with request records, access rules, state transitions, and feature controls. The remaining sections retain the original core rollout history.
+
+
 ---
 
 ## Phase 1 — Foundation (No Money)

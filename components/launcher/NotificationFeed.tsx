@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Bell, Check } from "@phosphor-icons/react";
-import { ticketKindForTemplate } from "@/lib/campus-engine/notify-templates";
+import { residentCareWorkspaceLink, ticketKindForTemplate } from "@/lib/campus-engine/notify-templates";
 import { ticketHref } from "@/lib/passenger-profile";
 import { useNotifications } from "@/components/account/useNotifications";
 
@@ -58,7 +58,7 @@ export function NotificationFeed() {
           <small>{relativeTime(item.createdAt)}</small>
         </div>
         <p>{item.message}</p>
-        {item.reference && <Link href={ticketHref({ reference: item.reference, kind: ticketKindForTemplate(item.template) })}>Open ticket<ArrowRight size={14} aria-hidden /></Link>}
+        {item.reference && <Link href={residentCareWorkspaceLink(item.template)?.path || ticketHref({ reference: item.reference, kind: ticketKindForTemplate(item.template) })}>{residentCareWorkspaceLink(item.template)?.cta || "Open ticket"}<ArrowRight size={14} aria-hidden /></Link>}
       </li>)}
     </ul>
   </div>;

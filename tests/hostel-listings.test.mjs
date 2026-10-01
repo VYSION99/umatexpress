@@ -145,6 +145,10 @@ function handle(sql, args) {
     return ok();
   }
 
+  if (/^SELECT s\.id FROM hostel_spaces s WHERE s\.id=/.test(sql)) {
+    const space=spaces.find(item=>item.id===args[0]&&item.status==='AVAILABLE');
+    return ok(space?table(['id'],[space]):empty);
+  }
   // --- listings ------------------------------------------------------------
   if (/^SELECT s\.id AS space_id/.test(sql)) {
     const space = spaces.find((item) => item.id === args[0]);

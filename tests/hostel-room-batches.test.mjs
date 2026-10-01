@@ -53,21 +53,22 @@ const vite = await createServer({ configFile: false, appType: "custom", root, re
   if (source === "@/lib/hostel-engine/onboarding" || source.endsWith("/lib/hostel-engine/onboarding") || source.endsWith("/lib/hostel-engine/onboarding.ts")) return "\0onboarding";
   if (source === "@/lib/console-audit" || source.endsWith("/lib/console-audit") || source.endsWith("/lib/console-audit.ts")) return "\0audit";
 }, load(id) {
-  if (id === "\0landlord") return `import { CampusEngineError } from '@/lib/campus-engine/errors'; export async function ensureHostelTables() {} export async function getHostelProperty(owner,id) { if ((owner === 'owner' && id === 'p') || (owner === 'unverified' && id === 'other')) return { id, status: owner === 'owner' ? 'APPROVED' : 'DRAFT' }; throw new CampusEngineError('NOT_FOUND','Property not found.',404); }`;
+  if (id === "\0landlord") return `import { CampusEngineError } from '@/lib/campus-engine/errors'; export const HOSTEL_DEFAULT_COMMISSION_BPS=300; export async function ensureHostelTables() {} export async function getHostelProperty(owner,id) { if ((owner === 'owner' && id === 'p') || (owner === 'unverified' && id === 'other')) return { id, status: owner === 'owner' ? 'APPROVED' : 'DRAFT' }; throw new CampusEngineError('NOT_FOUND','Property not found.',404); }`;
   if (id === "\0onboarding") return "export async function ownerReadiness(owner) { return { identityStatus: owner === 'owner' ? 'VERIFIED' : 'PENDING', profileStatus: owner === 'owner' ? 'APPROVED' : 'PENDING' }; }";
   if (id === "\0audit") return "export async function consoleAudit() {}";
 } }], server: { middlewareMode: true, hmr: false } });
 after(async () => { await vite.close(); globalThis.fetch = originalFetch; rmSync(directory, { recursive: true, force: true }); for (const [key,value] of Object.entries(saved)) { const name = key === "url" ? "TURSO_DATABASE_URL" : "TURSO_AUTH_TOKEN"; if (value === undefined) delete process.env[name]; else process.env[name] = value; } });
 const { turso, rowsToObjects } = await vite.ssrLoadModule("/lib/turso.ts");
 const { createHostelRoomBatch, priceHostelRoomRange, submitHostelRoomRange } = await vite.ssrLoadModule("/lib/hostel-engine/room-batches.ts");
+await turso("CREATE TABLE hostel_landlords (id TEXT PRIMARY KEY,commission_bps INTEGER DEFAULT 300)");
 await turso("CREATE TABLE hostel_properties (id TEXT PRIMARY KEY,landlord_id TEXT,status TEXT,updated_at TEXT)");
 await turso("CREATE TABLE hostel_rooms (id TEXT PRIMARY KEY,property_id TEXT,label TEXT,capacity INTEGER,utilities_fee INTEGER,amenities TEXT,bed_layout TEXT,status TEXT,created_at TEXT,updated_at TEXT)");
 await turso("CREATE UNIQUE INDEX idx_rooms_label ON hostel_rooms(property_id,label) WHERE status='ACTIVE'");
 await turso("CREATE TABLE hostel_spaces (id TEXT PRIMARY KEY,room_id TEXT,label TEXT,status TEXT,created_at TEXT,updated_at TEXT)");
-await turso("CREATE TABLE hostel_periods (id TEXT PRIMARY KEY,name TEXT,active INTEGER)");
+await turso("CREATE TABLE hostel_periods (id TEXT PRIMARY KEY,name TEXT,active INTEGER,starts_on TEXT,ends_on TEXT)");
 await turso("CREATE TABLE hostel_listings (id TEXT PRIMARY KEY,space_id TEXT,period_id TEXT,price INTEGER,status TEXT,review_reason TEXT,submitted_at TEXT,reviewed_at TEXT,reviewed_by TEXT,created_at TEXT,updated_at TEXT)");
 await turso("INSERT INTO hostel_properties VALUES ('p','owner','DRAFT','now'),('other','unverified','DRAFT','now')");
-await turso("INSERT INTO hostel_periods VALUES ('year','2026/27',1),('closed','2025/26',0)");
+await turso("INSERT INTO hostel_periods VALUES ('year','2026/27',1,'2026-09-01','2027-07-31'),('closed','2025/26',0,'2025-09-01','2026-07-31')");
 const rows = async (sql, args = []) => rowsToObjects(await turso(sql, args));
 const input = { propertyId: "p", prefix: "Room", start: 1, end: 20, width: 3, capacity: 4, bedLayout: "BUNK", utilitiesFee: 10000, amenities: "Desk, wardrobe", periodId: "year", price: 120000 };
 

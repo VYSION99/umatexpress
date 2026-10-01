@@ -63,7 +63,7 @@ export type HostelAnnouncement = {
   createdAt: string;
 };
 
-function announcementView(row: Record<string, unknown>): HostelAnnouncement {
+export function announcementView(row: Record<string, unknown>): HostelAnnouncement {
   return {
     id: String(row.id || ""),
     landlordId: String(row.landlord_id || ""),

@@ -5,7 +5,7 @@ import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { initiatePaystackRefund, verifyPaystackRefund } from "@/lib/paystack";
 import { ensureHostelTables } from "@/lib/hostel-engine/landlord";
-import { rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
  * Cancellation and the refund policy.
@@ -125,7 +125,7 @@ const REFUND_COLUMNS = `id,booking_id,reference,COALESCE(landlord_id,'') AS land
   COALESCE(paystack_reference,'') AS paystack_reference,COALESCE(provider_status,'') AS provider_status,COALESCE(settled_at,'') AS settled_at,
   created_at,updated_at`;
 
-function refundView(row: Record<string, unknown>): HostelRefund {
+export function refundView(row: Record<string, unknown>): HostelRefund {
   return {
     id: String(row.id || ""),
     bookingId: String(row.booking_id || ""),
@@ -310,8 +310,13 @@ async function reverseBookingAccrual(bookingId: string, actor: string) {
 /** Frees the bed so another student can take it. */
 async function releaseBookingSpace(booking: Pick<HostelBooking, "spaceId" | "id">) {
   const stamp = new Date().toISOString();
-  await turso("UPDATE hostel_spaces SET status = 'AVAILABLE', updated_at = ? WHERE id = ? AND status IN ('OCCUPIED','RESERVED')", [stamp, booking.spaceId]);
-  await turso("UPDATE hostel_bookings SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND status IN ('PAID','PAYMENT_REVIEW')", [stamp, booking.id]);
+  await tursoTransaction([
+    { sql: "UPDATE hostel_bookings SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND status IN ('PAID','PAYMENT_REVIEW')", args: [stamp, booking.id] },
+    { sql: `UPDATE hostel_spaces SET status='AVAILABLE',updated_at=? WHERE id=(SELECT space_id FROM hostel_bookings WHERE id=? AND status='CANCELLED' AND updated_at=?)
+      AND status IN ('OCCUPIED','RESERVED') AND NOT EXISTS (SELECT 1 FROM hostel_bookings b LEFT JOIN hostel_stays st ON st.booking_id=b.id
+      WHERE b.space_id=hostel_spaces.id AND EXISTS(SELECT 1 FROM hostel_periods pe WHERE pe.id=b.period_id AND pe.starts_on<=date('now')) AND b.status IN ('PAID','PENDING_PAYMENT','PAYMENT_REVIEW') AND COALESCE(st.status,'EXPECTED') NOT IN ('CHECKED_OUT','NO_SHOW','CANCELLED'))`, args: [stamp, booking.id, stamp] },
+    { sql: "UPDATE hostel_stays SET status='CANCELLED',updated_at=?,version=version+1 WHERE booking_id=? AND status NOT IN ('CHECKED_OUT','NO_SHOW')", args: [stamp, booking.id] },
+  ]);
 }
 
 /**

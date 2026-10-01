@@ -1,25 +1,15 @@
 "use client";
+import { StayPlansPanel } from "@/components/campusRide/hostel/StayPlansPanel";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Bell, Chat, Check, CircleNotch, PaperPlaneTilt, Phone, Plus, SealCheck, UserMinus, Wallet, X } from "@phosphor-icons/react";
+import { Bell, Check, CircleNotch, PaperPlaneTilt, Phone, Plus, SealCheck, UserMinus, Wallet, X } from "@phosphor-icons/react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { ConditionPanel } from "@/components/campusRide/hostel/ConditionPanel";
+import { MaintenancePanel } from "@/components/campusRide/hostel/MaintenancePanel";
+import { ResidentRoster } from "./ResidentRoster";
+import { ResidencyDialog } from "@/components/campusRide/hostel/ResidencyDialog";
 import { cedis } from "@/components/campusRide/hostel/format";
 import { subscribeToHostelThread } from "@/components/campusRide/hostel/message-stream-client";
-
-type Booking = {
-  id: string; reference: string; studentName: string; studentEmail: string; studentPhone: string;
-  propertyName: string; roomLabel: string; spaceLabel: string; periodName: string;
-  totalAmount: number; netAmount: number; commissionAmount: number;
-  status: string; paidAt: string; createdAt: string; holdExpiresAt: string;
-};
-
-type Resident = Booking & { unreadMessages: number; openServices: number };
-
-type Summary = {
-  total: number; resident: number; awaitingPayment: number; needsReview: number;
-  unreadMessages: number; openServices: number;
-  bedRevenue: number; commission: number; net: number;
-};
 
 type ServiceRequest = {
   id: string; bookingId: string; pluginId: string; pluginName: string; pluginCategory: string;
@@ -68,10 +58,13 @@ type PayoutStatement = {
   totals: { accruedAmount: number; payableAmount: number; releasedAmount: number };
 };
 
-type Tab = "residents" | "requests" | "services" | "payouts" | "team" | "notices";
+type Tab = "stay-plans" | "residents" | "maintenance" | "conditions" | "requests" | "services" | "payouts" | "team" | "notices";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "residents", label: "Residents" },
+  { id: "maintenance", label: "Maintenance" },
+  { id: "conditions", label: "Condition records" },
+  { id: "stay-plans", label: "Stay plans" },
   { id: "requests", label: "Service requests" },
   { id: "services", label: "Services & fees" },
   { id: "payouts", label: "Money & payouts" },
@@ -116,8 +109,10 @@ const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", {
  */
 export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [tab, setTab] = useState<Tab>("residents");
-  const [residents, setResidents] = useState<Resident[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "maintenance") queueMicrotask(() => setTab("maintenance")); }, []);
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "stay-plans") queueMicrotask(() => setTab("stay-plans")); }, []);
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "conditions") queueMicrotask(() => setTab("conditions")); }, []);
+  const [rosterVersion, setRosterVersion] = useState(0);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [catalogue, setCatalogue] = useState<Plugin[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -133,15 +128,6 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [thread, setThread] = useState<{ reference: string; name: string } | null>(null);
-
-  const loadResidents = useCallback(async () => {
-    const response = await fetch("/api/console/hostel/residents", { credentials: "same-origin", cache: "no-store" });
-    const data = await response.json() as { residents?: Resident[]; summary?: Summary; isOwner?: boolean; error?: string };
-    if (!response.ok) throw new Error(data.error || "The residents could not be loaded.");
-    setResidents(data.residents || []);
-    setSummary(data.summary || null);
-    setOwnerAccess(Boolean(data.isOwner));
-  }, []);
 
   const loadRequests = useCallback(async () => {
     const response = await fetch("/api/console/hostel/services", { credentials: "same-origin", cache: "no-store" });
@@ -210,10 +196,9 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
 
   useEffect(() => {
     queueMicrotask(() => {
-      void run(loadResidents);
       void loadFilters().catch(() => undefined);
     });
-  }, [loadFilters, loadResidents, run]);
+  }, [loadFilters]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -251,20 +236,15 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
   }, [loadServices]);
 
   return <>
-    {summary && <section className="console-totals">
-      <article><span>RESIDENTS</span><strong>{summary.resident}</strong><small>{summary.total} bookings on record</small></article>
-      <article><span>BED MONEY</span><strong>{cedis(summary.bedRevenue)}</strong><small>paid this year</small></article>
-      <article><span>PLATFORM 3%</span><strong>{cedis(summary.commission)}</strong><small>your net is {cedis(summary.net)}</small></article>
-      <article><span>NEEDS YOU</span><strong>{summary.openServices}</strong><small>{summary.unreadMessages} unread messages</small></article>
-    </section>}
 
     <section className="console-panel">
       <h2><Wallet size={18} aria-hidden />Residents &amp; services</h2>
-      <div className="console-toolbar">
+      <div className="console-toolbar residency-workspace-tabs" role="group" aria-label="Resident workspace sections">
         {TABS.map((entry) => <button
           key={entry.id}
           type="button"
           className={entry.id === tab ? "is-active" : ""}
+          aria-pressed={entry.id === tab}
           onClick={() => { setNotice(""); setError(""); setTab(entry.id); }}
         >{entry.label}</button>)}
       </div>
@@ -272,11 +252,11 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
       {error && <div className="console-alert" role="alert">{error}</div>}
       {notice && !error && <div className="console-alert console-alert-ok" role="status">{notice}</div>}
 
-      {tab === "residents" && <ResidentsTable
-        residents={residents}
-        busy={busy}
-        onThread={(resident) => setThread({ reference: resident.reference, name: resident.studentName || resident.studentEmail })}
-      />}
+      {tab === "residents" && <ResidentRoster properties={properties} periods={periods} refreshKey={rosterVersion} onOwner={setOwnerAccess} onMessage={setThread} />}
+
+      {tab === "stay-plans" && <StayPlansPanel properties={properties} />}
+      {tab === "conditions" && <ConditionPanel properties={properties} />}
+      {tab === "maintenance" && <MaintenancePanel properties={properties} />}
 
       {tab === "requests" && <RequestsTable
         requests={requests}
@@ -294,7 +274,7 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
             if (!response.ok) throw new Error(data.error || "That decision did not go through.");
             setNotice(`${request.pluginName} · ${statusLabel[action === "APPROVE" ? "APPROVED" : action === "DECLINE" ? "DECLINED" : action === "START" ? "ACTIVE" : action === "COMPLETE" ? "COMPLETED" : "CANCELLED"]}`);
             await loadRequests();
-            await loadResidents();
+            setRosterVersion(value => value + 1);
           } finally {
             setBusy("");
           }
@@ -435,29 +415,6 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
       onClose={() => setThread(null)}
     />}
   </>;
-}
-
-function ResidentsTable({ residents, busy, onThread }: {
-  residents: Resident[];
-  busy: string;
-  onThread: (resident: Resident) => void;
-}) {
-  if (!residents.length) return <p className="console-empty">No student has booked a bed yet. Approved beds appear on the student map straight away.</p>;
-  return <table className="console-table">
-    <thead><tr><th>Resident</th><th>Bed</th><th>Paid</th><th>Status</th><th>Needs you</th><th></th></tr></thead>
-    <tbody>
-      {residents.map((resident) => <tr key={resident.id}>
-        <td><strong>{resident.studentName || "Student"}</strong><small>{resident.studentEmail}{resident.studentPhone ? ` · ${resident.studentPhone}` : ""}</small></td>
-        <td><span>{resident.propertyName}</span><small>{resident.roomLabel}{resident.spaceLabel ? ` · ${resident.spaceLabel}` : ""} · {resident.periodName}</small></td>
-        <td><span>{cedis(resident.totalAmount)}</span><small>net {cedis(resident.netAmount)}</small></td>
-        <td><span className={`console-badge console-badge-${resident.status.toLowerCase().replace("_", "")}`}>{statusLabel[resident.status] || resident.status}</span></td>
-        <td><span>{resident.unreadMessages} unread</span><small>{resident.openServices} open service{resident.openServices === 1 ? "" : "s"}</small></td>
-        <td className="console-row-actions">
-          <button type="button" disabled={busy === resident.id} onClick={() => onThread(resident)}><Chat size={15} aria-hidden />Message</button>
-        </td>
-      </tr>)}
-    </tbody>
-  </table>;
 }
 
 function RequestsTable({ requests, busy, onDecide }: {
@@ -818,7 +775,7 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
       setMessages(data.messages || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "That thread could not be loaded.");
-      setMessages([]);
+      setMessages(current => current ?? []);
     }
   }, [reference]);
 
@@ -856,10 +813,7 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
     }
   };
 
-  return <section className="console-panel">
-    <h2><Chat size={18} aria-hidden />Thread with {name}
-      <button type="button" className="console-panel-close" onClick={onClose}>Close</button>
-    </h2>
+  return <ResidencyDialog open title={`Messages · ${name}`} onClose={onClose} busy={sending}>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {messages === null
       ? <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Loading the thread…</p>
@@ -881,5 +835,5 @@ function ThreadPanel({ reference, name, onClose }: { reference: string; name: st
         Send
       </button>
     </form>
-  </section>;
+  </ResidencyDialog>;
 }

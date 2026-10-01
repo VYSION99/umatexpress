@@ -37,7 +37,7 @@ try {
   await call("Runtime.enable"); await call("Page.enable");
   await call("Page.navigate", { url:`${origin}/campus` });
   await until(`document.querySelector('.nearest-ride-finder') && document.readyState === 'complete'`);
-  await until(`Boolean(document.querySelector('.real-map-error')) || Boolean(document.querySelector('.maplibregl-canvas'))`);
+  await until(`Boolean(document.querySelector('.real-map-error')) || Boolean(document.querySelector('.google-map-canvas .gm-style'))`);
   errors.length = 0;
   for (const width of [320, 390, 768, 1440]) {
     await call("Emulation.setDeviceMetricsOverride", { width, height:1000, deviceScaleFactor:1, mobile:false });
@@ -47,7 +47,7 @@ try {
       page: document.documentElement.scrollWidth,
       tiny: [...document.querySelectorAll('.campus-student-shell button,.campus-student-shell select,.campus-student-shell input')]
         .filter(element => !element.closest('.real-map-canvas') && element.getClientRects().length && (element.getBoundingClientRect().height < 40 || element.getBoundingClientRect().width < 40)).length,
-      mapCanvas: Boolean(document.querySelector('.maplibregl-canvas')),
+      mapCanvas: Boolean(document.querySelector('.google-map-canvas .gm-style')),
       mapError: document.querySelector('.real-map-error')?.textContent || '',
       zoneMarkers: document.querySelectorAll('.zone-marker').length,
       rideMarkers: document.querySelectorAll('.ride-marker').length
