@@ -75,7 +75,7 @@ test("student passwords must clear the same bar as driver passwords", () => {
 test("an account view never exposes the stored hash or salt", () => {
   const row = { id: "acc-1", email: "ama@st.umat.edu.gh", name: "Ama", phone: "0555000111", created_at: "2026-01-01T00:00:00.000Z", last_login_at: "", password_hash: "SECRET", password_salt: "SALT", password_iterations: 100000, token_version: 7 };
   const view = studentAccountView(row);
-  assert.deepEqual(Object.keys(view).sort(), ["createdAt", "email", "id", "lastLoginAt", "name", "phone"]);
+  assert.deepEqual(Object.keys(view).sort(), ["createdAt", "email", "emailVerified", "id", "lastLoginAt", "name", "phone", "verificationRequired"]);
   assert.equal(JSON.stringify(view).includes("SECRET"), false);
   assert.equal(JSON.stringify(view).includes("SALT"), false);
 });
@@ -156,14 +156,15 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
   process.env.TURSO_AUTH_TOKEN = "test-token";
   const originalFetch = globalThis.fetch;
   const statements = [];
+  let verificationRequired = 0;
   globalThis.fetch = async (_url, init) => {
     const sql = JSON.parse(String(init?.body)).requests[0].stmt.sql;
     statements.push(sql);
     // Only the by-id account lookup returns a row; everything else (schema
     // self-heal, last-login stamp) is a no-op.
     if (sql.includes("FROM student_accounts WHERE id = ?")) {
-      const columns = ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active", "password_hash", "password_salt", "password_iterations"];
-      const values = ["acc-1", "ama@st.umat.edu.gh", "Ama", "0555000111", "2026-01-01T00:00:00.000Z", "", 0, 1, "hash", "salt", 100000];
+      const columns = ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active", "password_hash", "password_salt", "password_iterations", "email_verified", "verification_required"];
+      const values = ["acc-1", "ama@st.umat.edu.gh", "Ama", "0555000111", "2026-01-01T00:00:00.000Z", "", 0, 1, "hash", "salt", 100000, 0, verificationRequired];
       return Response.json({ results: [{ type: "ok", response: { result: { rows: [values.map((value) => ({ value }))], cols: columns.map((name) => ({ name })) } } }] });
     }
     return Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [] } } }] });
@@ -171,7 +172,7 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
   try {
     const cookie = (await studentSessionCookie("acc-1", new Request("http://localhost/"))).split(";")[0];
     const account = await requireStudent(request(cookie));
-    assert.deepEqual(account, { id: "acc-1", email: "ama@st.umat.edu.gh", name: "Ama", phone: "0555000111", createdAt: "2026-01-01T00:00:00.000Z", lastLoginAt: "" });
+    assert.deepEqual(account, { id: "acc-1", email: "ama@st.umat.edu.gh", name: "Ama", phone: "0555000111", createdAt: "2026-01-01T00:00:00.000Z", lastLoginAt: "", emailVerified: false, verificationRequired: false });
 
     // The token-version probe reads the same table, so the credential columns are
     // what identify the full account lookup.
@@ -182,6 +183,8 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
     assert.equal(lookup[0].match(/FROM/g).length, 1, "exactly one FROM in the account lookup");
     assert.ok(lookup[0].indexOf("password_iterations") < lookup[0].indexOf("FROM"), "columns must all precede FROM");
     assert.match(lookup[0], /WHERE id = \? LIMIT 1$/);
+    verificationRequired = 1;
+    await assert.rejects(() => requireStudent(request(cookie)), /Verify your UMaT email/);
   } finally {
     globalThis.fetch = originalFetch;
     if (previous.url === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previous.url;

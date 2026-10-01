@@ -1,6 +1,6 @@
 import type { SqlExecutor } from "@/lib/campus-engine/queue";
 import { parseConsoleHosts } from "@/lib/console-hosts";
-import { residentCareWorkspaceLink, ticketLinkForTemplate, ticketUrl } from "@/lib/campus-engine/notify-templates";
+import { notificationAction } from "@/lib/notification-destinations";
 import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
 import { looksLikePhone, sailupReady, sendSms, type SailupConfig } from "@/lib/sailup";
@@ -81,7 +81,7 @@ export type NotificationQueueMessage = { id: string; reference: string; template
  * A queue message is a nudge, never the record: the row in
  * `notification_outbox` is what gets delivered, atomically claimed, and
  * retried. That means a lost, duplicated or late message costs latency at
- * worst, and the five-minute cron sweep still picks up anything the queue did
+ * worst, and the notification sweep still picks up anything the queue did
  * not deliver.
  */
 async function wakeNotificationQueue(message: NotificationQueueMessage) {
@@ -117,21 +117,43 @@ export async function queueNotification(exec: SqlExecutor, input: {
   nowIso: string;
   /** Defaults to email; pass "sms" to reach a handset instead of an inbox. */
   channel?: NotificationChannel;
+  /** Email-only proof or other private delivery, never shown in the feed. */
+  sensitive?: boolean;
+  /** Time-limited messages cannot be sent after their proof expires. */
+  expiresAt?: string;
 }) {
   const recipient = String(input.recipient || "").trim();
   if (!recipient) return false;
   const id = crypto.randomUUID();
   const result = await exec(
-    `INSERT INTO notification_outbox (id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at)
-     VALUES (?,?,?,?,?,?,?,'PENDING',0,'',?,?)
+    `INSERT INTO notification_outbox (id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at,sensitive,expires_at)
+     VALUES (?,?,?,?,?,?,?,'PENDING',0,'',?,?,?,?)
      ON CONFLICT(reference, template) DO NOTHING`,
-    [id, input.channel === "sms" ? "sms" : DEFAULT_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso],
+    [id, input.channel === "sms" ? "sms" : DEFAULT_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso, input.sensitive ? 1 : 0, input.expiresAt || ""],
   );
   const inserted = Number(result?.affected_row_count ?? 0) > 0;
   if (inserted) {
     await wakeNotificationQueue({ id, reference: input.reference, template: input.template, queuedAt: input.nowIso });
   }
   return inserted;
+}
+
+/** Security mail is email-only and has no in-app action or secret payload. */
+export async function notifyPasswordChanged(recipient: string) {
+  try {
+    await ensureNotificationsTable();
+    return await queueNotification(turso, {
+      recipient,
+      template: "auth_password_changed",
+      subject: "Your UMaTeXPRESS password was changed",
+      message: "Your account password was changed. If this was not you, use account recovery immediately and contact support.",
+      reference: "security:" + crypto.randomUUID(),
+      nowIso: new Date().toISOString(),
+    });
+  } catch (error) {
+    logEvent("error", "password_change_notice_failed", { reason: error instanceof Error ? error.message : "unknown" });
+    return false;
+  }
 }
 
 /**
@@ -156,9 +178,10 @@ export async function reclaimStaleNotifications(exec: SqlExecutor, input: { nowI
 /** Drops stale rows so the outbox cannot grow without bound. */
 export async function pruneNotifications(exec: SqlExecutor, input: { now?: number } = {}) {
   const now = input.now ?? Date.now();
-  const pending = await exec("DELETE FROM notification_outbox WHERE status = 'PENDING' AND created_at < ?", [new Date(now - PENDING_RETENTION_MS).toISOString()]);
-  const settled = await exec("DELETE FROM notification_outbox WHERE status IN ('SENT','FAILED') AND created_at < ?", [new Date(now - SETTLED_RETENTION_MS).toISOString()]);
-  return Number(pending?.affected_row_count ?? 0) + Number(settled?.affected_row_count ?? 0);
+  const settled = await exec("DELETE FROM notification_outbox WHERE status IN ('SENT','FAILED') AND COALESCE(sent_at,available_at) < ?", [new Date(now - SETTLED_RETENTION_MS).toISOString()]);
+  const expired = await exec("UPDATE notification_outbox SET status='FAILED',last_error='Message expired',available_at=?,subject='Authentication message',message='',sensitive=1 WHERE status='PENDING' AND ((expires_at<>'' AND expires_at<=?) OR (template='auth_login_code' AND created_at<?) OR (template='auth_password_reset' AND created_at<?))", [new Date(now).toISOString(), new Date(now).toISOString(), new Date(now - 10 * 60_000).toISOString(), new Date(now - 30 * 60_000).toISOString()]);
+  const pending = await exec("UPDATE notification_outbox SET status = 'FAILED', last_error = 'Delivery window exceeded', available_at = ?, subject = CASE WHEN sensitive=1 THEN 'Authentication message' ELSE subject END, message = CASE WHEN sensitive=1 THEN '' ELSE message END WHERE status = 'PENDING' AND created_at < ?", [new Date(now).toISOString(), new Date(now - PENDING_RETENTION_MS).toISOString()]);
+  return Number(pending?.affected_row_count ?? 0) + Number(expired?.affected_row_count ?? 0) + Number(settled?.affected_row_count ?? 0);
 }
 
 /**
@@ -172,7 +195,7 @@ export async function listNotifications(recipient: string, limit = FEED_LIMIT) {
   const rows = rowsToObjects(await turso(
     `SELECT id,template,subject,message,reference,created_at,read_at
      FROM notification_outbox
-     WHERE recipient = ?
+     WHERE recipient = ? AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')
      ORDER BY created_at DESC
      LIMIT ?`,
     [address, Math.max(1, Math.min(FEED_LIMIT, Math.round(limit || FEED_LIMIT)))],
@@ -188,6 +211,14 @@ export async function listNotifications(recipient: string, limit = FEED_LIMIT) {
   }));
 }
 
+export async function unreadNotificationCount(recipient: string) {
+  const address = String(recipient || "").trim();
+  if (!address || !(await isTursoConfiguredRuntime())) return 0;
+  await ensureNotificationsTable();
+  const rows = rowsToObjects(await turso("SELECT COUNT(*) AS count FROM notification_outbox WHERE recipient=? AND read_at IS NULL AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')", [address]));
+  return Number(rows[0]?.count || 0);
+}
+
 export type FeedNotification = Awaited<ReturnType<typeof listNotifications>>[number];
 
 /**
@@ -200,7 +231,7 @@ export async function markNotificationsRead(recipient: string, input: { id?: unk
   await ensureNotificationsTable();
   const nowIso = new Date().toISOString();
   if (input.all) {
-    const result = await turso("UPDATE notification_outbox SET read_at = ? WHERE recipient = ? AND read_at IS NULL", [nowIso, address]);
+    const result = await turso("UPDATE notification_outbox SET read_at = ? WHERE recipient = ? AND read_at IS NULL AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')", [nowIso, address]);
     return Number(result?.affected_row_count ?? 0);
   }
   const id = String(input.id || "").trim();
@@ -265,7 +296,7 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
   const limit = Math.max(1, Math.min(100, Math.round(input.limit || ids.length || DEFAULT_BATCH)));
   const idFilter = ids.length ? ` AND id IN (${ids.map(() => "?").join(",")})` : "";
   const due = rowsToObjects(await turso(
-    `SELECT id,channel,recipient,subject,template,message,reference FROM notification_outbox WHERE status = 'PENDING' AND available_at <= ?${idFilter} ORDER BY created_at ASC LIMIT ?`,
+    `SELECT id,channel,recipient,subject,template,message,reference,attempts,sensitive,expires_at FROM notification_outbox WHERE status = 'PENDING' AND available_at <= ?${idFilter} ORDER BY created_at ASC LIMIT ?`,
     [new Date().toISOString(), ...ids, limit],
   ));
   // The feed shows the message alone; the link is added for the channel that
@@ -279,28 +310,30 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
     const id = String(row.id);
     const to = String(row.recipient || "").trim();
     const byText = String(row.channel || "") === "sms";
-    // A channel that is not switched on, or a recipient that does not match the
-    // channel it was queued for, is skipped rather than failed: the row stays
-    // pending and ages out through retention instead of burning three attempts.
-    if (byText ? !sailupReady(text) || !looksLikePhone(to) : !resendReady(config) || !looksLikeEmail(to)) continue;
+    const sensitive = Number(row.sensitive || 0) === 1 || /^auth_(password_reset|login_code)$/.test(String(row.template || ""));
+    if (String(row.expires_at || "") && String(row.expires_at) <= new Date().toISOString()) {
+      await turso("UPDATE notification_outbox SET status='FAILED',last_error='Message expired',subject=CASE WHEN ? THEN 'Authentication message' ELSE subject END,message=CASE WHEN ? THEN '' ELSE message END WHERE id=? AND status='PENDING'", [sensitive ? 1 : 0, sensitive ? 1 : 0, id]);
+      failed += 1;
+      continue;
+    }
+    // Missing provider credentials may be restored; retain the row for retry.
+    if (byText ? !sailupReady(text) : !resendReady(config)) continue;
+    if (byText ? !looksLikePhone(to) : !looksLikeEmail(to)) {
+      await turso("UPDATE notification_outbox SET status='FAILED',last_error='Invalid recipient',subject=CASE WHEN ? THEN 'Authentication message' ELSE subject END,message=CASE WHEN ? THEN '' ELSE message END WHERE id=? AND status='PENDING'", [sensitive ? 1 : 0, sensitive ? 1 : 0, id]);
+      failed += 1;
+      continue;
+    }
     // Another worker already owns this message; leave it to them.
     if (!(await claimNotification(turso, { id, leaseUntil }))) continue;
     const attempts = Number(row.attempts || 0) + 1;
     try {
       const template = String(row.template || "");
-      const link = ticketLinkForTemplate(template);
       const message = String(row.message || "");
-      const hostelPath = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? message.match(/\/hostel\/[A-Za-z0-9_-]+(?:\?periodId=[A-Za-z0-9_-]+)?/)?.[0] : undefined;
-      let url = hostelPath && appUrl ? `${appUrl.replace(/\/$/, "")}${hostelPath}` : (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "" : ticketUrl(String(row.reference || ""), appUrl, link.path);
-      let cta = (template === "hostel_bed_available" || template === "hostel_year_open" || template.startsWith("hostel_viewing_")) ? "View this hostel" : link.cta;
-      const maintenanceLink = residentCareWorkspaceLink(template);
-      if (maintenanceLink) {
-        const staff = template === "hostel_maintenance_staff" || template === "hostel_condition_staff" || template === "hostel_stay_request_staff";
-        const hosts = staff ? parseConsoleHosts(await envValue("CONSOLE_HOSTS")) : [];
-        const origin = hosts.length ? `https://${hosts[0]}` : appUrl.replace(/\/$/, "");
-        url = origin ? `${origin}${maintenanceLink.path}` : "";
-        cta = maintenanceLink.cta;
-      }
+      const action = notificationAction(template, String(row.reference || ""), message);
+      const hosts = action?.href.startsWith("/console") ? parseConsoleHosts(await envValue("CONSOLE_HOSTS")) : [];
+      const origin = hosts.length ? "https://" + hosts[0] : appUrl.replace(/\/$/, "");
+      const url = action && origin ? origin + action.href : "";
+      const cta = action?.label || "";
       const result = byText
         ? await sendSms({ config: text, to, text: smsBody(message, url) })
         : await sendEmail({
@@ -310,15 +343,15 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
           text: emailBody(message, url, cta),
         });
       if (!result.ok) throw new Error(result.error || "delivery failed");
-      await turso("UPDATE notification_outbox SET status = 'SENT', sent_at = ?, last_error = '' WHERE id = ? AND status = 'SENDING'", [new Date().toISOString(), id]);
+      await turso("UPDATE notification_outbox SET status = 'SENT', sent_at = ?, last_error = '', subject = CASE WHEN ? THEN 'Authentication message' ELSE subject END, message = CASE WHEN ? THEN '' ELSE message END WHERE id = ? AND status = 'SENDING'", [new Date().toISOString(), sensitive ? 1 : 0, sensitive ? 1 : 0, id]);
       sent += 1;
       await incrementMetric("notification_sent");
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 200) : "delivery failed";
       const exhausted = attempts >= MAX_ATTEMPTS;
       await turso(
-        "UPDATE notification_outbox SET status = ?, last_error = ?, available_at = ? WHERE id = ? AND status = 'SENDING'",
-        [exhausted ? "FAILED" : "PENDING", reason, new Date(Date.now() + notificationBackoffMs(attempts)).toISOString(), id],
+        "UPDATE notification_outbox SET status = ?, last_error = ?, available_at = ?, subject = CASE WHEN ? THEN 'Authentication message' ELSE subject END, message = CASE WHEN ? THEN '' ELSE message END WHERE id = ? AND status = 'SENDING'",
+        [exhausted ? "FAILED" : "PENDING", reason, new Date(Date.now() + notificationBackoffMs(attempts)).toISOString(), exhausted && sensitive ? 1 : 0, exhausted && sensitive ? 1 : 0, id],
       );
       failed += 1;
       await incrementMetric("notification_failed");

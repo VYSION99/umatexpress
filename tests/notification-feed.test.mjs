@@ -43,6 +43,7 @@ test("the feed reads and marks only the signed-in student's own messages", async
         [["acc-1", "ama@st.umat.edu.gh", "Ama", "0555000111", "2026-01-01T00:00:00.000Z", "", 0, 1, "hash", "salt", 100000]],
       ));
     }
+    if (sql.includes("SELECT COUNT(*) AS count FROM notification_outbox")) return Response.json(result(["count"], [[1]]));
     if (sql.includes("FROM notification_outbox")) {
       return Response.json(result(
         ["id", "template", "subject", "message", "reference", "created_at", "read_at"],
@@ -70,12 +71,14 @@ test("the feed reads and marks only the signed-in student's own messages", async
     // The session, not the request body, decides whose messages come back.
     const read = statements.find((entry) => entry.sql.includes("FROM notification_outbox"));
     assert.match(read.sql, /WHERE recipient = \?/);
+    assert.match(read.sql, /sensitive,0\)=0/);
+    assert.match(read.sql, /auth_password_reset/);
     assert.equal(read.args[0], "ama@st.umat.edu.gh");
 
     const patch = await route.PATCH(request(cookie, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) }));
     assert.equal(patch.status, 200);
     const update = statements.find((entry) => entry.sql.includes("UPDATE notification_outbox SET read_at"));
-    assert.match(update.sql, /WHERE recipient = \? AND read_at IS NULL$/);
+    assert.match(update.sql, /WHERE recipient = \? AND read_at IS NULL/);
     assert.equal(update.args[1], "ama@st.umat.edu.gh");
   } finally {
     globalThis.fetch = originalFetch;

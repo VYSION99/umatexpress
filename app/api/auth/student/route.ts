@@ -11,6 +11,8 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { authGuardClear, authGuardFailure, authGuardStatus } from "@/lib/auth-guard";
+import { requestLoginCode } from "@/lib/auth-recovery";
+import { logEvent } from "@/lib/observability";
 
 /**
  * The one UMaTeXPRESS account endpoint. campusRide and vacationRide both use the
@@ -58,8 +60,11 @@ export async function PUT(request: Request) {
     const limited = await rateLimit(request, "student-signup", { limit: 20, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const account = await registerStudent(await request.json());
-    // Creating an account signs the student straight in; there is no email
-    // delivery channel to confirm the address first.
+    // A new account may sign in to verify its address, but cannot use services
+    // until the emailed one-time code proves ownership.
+    await requestLoginCode({ scope: "STUDENT", email: account.email }).catch(error => {
+      logEvent("error", "signup_verification_queue_failed", { reason: error instanceof Error ? error.message : "unknown" });
+    });
     return ok({ account }, { status: 201, headers: { "Set-Cookie": await studentSessionCookie(account.id, request), "Cache-Control": "no-store" } }, request);
   } catch (error) {
     return fail(error, request);

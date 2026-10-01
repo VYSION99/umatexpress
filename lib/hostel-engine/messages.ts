@@ -211,7 +211,7 @@ async function notifyCounterpart(
   if (senderType === "STUDENT" && booking.landlordEmail) {
     await queueNotification(turso, {
       recipient: booking.landlordEmail,
-      template: "hostel_message_received",
+      template: "hostel_message_staff",
       subject: `New message about ${booking.propertyName || "your hostel"}`,
       message: `${booking.studentName || booking.studentEmail} wrote: "${preview}". Reply from the console under Bookings.`,
       reference: `${booking.reference}:msg:${crypto.randomUUID()}`,
@@ -221,7 +221,7 @@ async function notifyCounterpart(
   if ((senderType === "HOST" || senderType === "ADMIN") && booking.studentEmail) {
     await queueNotification(turso, {
       recipient: booking.studentEmail,
-      template: "hostel_message_received",
+      template: "hostel_message_student",
       subject: `New message about your hostel bed`,
       message: `${booking.landlordName || "Your hostel"} wrote: "${preview}". Open your resident page to reply.`,
       reference: `${booking.reference}:msg:${crypto.randomUUID()}`,

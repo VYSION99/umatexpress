@@ -13,8 +13,9 @@ import {
 } from "@/lib/cinema-engine/schedule";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { consoleAudit } from "@/lib/console-audit";
+import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
-import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 /**
  * Cinema rooms: the phase-one half of docs/Cinema.
@@ -663,10 +664,25 @@ export async function inviteToRoom(input: { id: string; studentId: string; email
     throw new CampusEngineError("VALIDATION_ERROR", "You are already in this room.", 400);
   }
   const stamp = new Date().toISOString();
-  await turso(
+  const inserted = await turso(
     "INSERT OR IGNORE INTO cinema_room_invites (session_id,student_id,invited_by,created_at) VALUES (?,?,?,?)",
     [String(row.id), inviteeId, String(input.studentId), stamp],
   );
+  if (Number(inserted.affected_row_count || 0) === 1) {
+    try {
+      await ensureNotificationsTable();
+      await queueNotification(turso, {
+        recipient: email,
+        template: "cinema_invite",
+        subject: "You were invited to a Cinema room",
+        message: String(row.title || "A student Cinema room") + " invited you to join. Open the room to watch together.",
+        reference: String(row.id),
+        nowIso: stamp,
+      });
+    } catch (error) {
+      logEvent("error", "cinema_invite_notification_failed", { roomId: String(row.id), reason: error instanceof Error ? error.message : "unknown" });
+    }
+  }
   logEvent("info", "cinema_room_invited", { roomId: String(row.id) });
   return {
     invite: { studentId: inviteeId, email, name: String(account.name || ""), createdAt: stamp },

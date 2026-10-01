@@ -1,6 +1,7 @@
 import { validateAdminCredentials } from "@/lib/admin-auth";
 import { adminMustChangePassword } from "@/lib/admin-credentials";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { notifyPasswordChanged } from "@/lib/notifications";
 import { verifyDriverCredentials } from "@/lib/campus-engine/driver-auth";
 import {
   assertConsolePassword,
@@ -114,4 +115,5 @@ export async function changeConsolePassword(account: ConsoleAccount, currentPass
   }
   assertConsolePassword(account.role, newPassword);
   await setConsolePassword(account.id, newPassword);
+  await notifyPasswordChanged(account.email);
 }

@@ -345,7 +345,9 @@ async function createNotificationsTable() {
     available_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
     sent_at TEXT,
-    read_at TEXT
+    read_at TEXT,
+    sensitive INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL DEFAULT ''
   )`);
   if (!(await hasColumn("notification_outbox", "subject"))) {
     await turso("ALTER TABLE notification_outbox ADD COLUMN subject TEXT NOT NULL DEFAULT ''");
@@ -353,6 +355,14 @@ async function createNotificationsTable() {
   if (!(await hasColumn("notification_outbox", "read_at"))) {
     await turso("ALTER TABLE notification_outbox ADD COLUMN read_at TEXT");
   }
+  if (!(await hasColumn("notification_outbox", "sensitive"))) {
+    await turso("ALTER TABLE notification_outbox ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!(await hasColumn("notification_outbox", "expires_at"))) {
+    await turso("ALTER TABLE notification_outbox ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''");
+  }
+  // Clear settled copies of codes and reset links from the older shared outbox.
+  await turso("UPDATE notification_outbox SET subject='Authentication message', message='', sensitive=1 WHERE template IN ('auth_password_reset','auth_login_code') AND status IN ('SENT','FAILED') AND message<>''");
   await turso("CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_dedupe ON notification_outbox(reference, template)");
   await turso("CREATE INDEX IF NOT EXISTS idx_notification_due ON notification_outbox(status, available_at)");
   await turso("CREATE INDEX IF NOT EXISTS idx_notification_recipient ON notification_outbox(recipient, created_at)");

@@ -30,7 +30,8 @@ function newDatabase() {
       subject TEXT NOT NULL DEFAULT '', message TEXT NOT NULL, reference TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'PENDING',
       attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
-      available_at TEXT NOT NULL, created_at TEXT NOT NULL, sent_at TEXT, read_at TEXT
+      available_at TEXT NOT NULL, created_at TEXT NOT NULL, sent_at TEXT, read_at TEXT,
+      sensitive INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL DEFAULT ''
     );
     CREATE UNIQUE INDEX idx_notification_dedupe ON notification_outbox(reference, template);
   `);
@@ -113,7 +114,8 @@ test("retention pruning drops stale rows and keeps fresh ones", async () => {
   insert.run("new-pending", "sms", "054", "t", "m", "CR-8", "PENDING", recent, recent);
 
   assert.equal(await pruneNotifications(exec, { now }), 2);
-  assert.deepEqual(db.prepare("SELECT id FROM notification_outbox ORDER BY id").all().map((row) => row.id), ["new-pending"]);
+  assert.deepEqual(db.prepare("SELECT id FROM notification_outbox ORDER BY id").all().map((row) => row.id), ["new-pending", "old-pending"]);
+  assert.equal(db.prepare("SELECT status FROM notification_outbox WHERE id = ?").get("old-pending").status, "FAILED");
 });
 
 
@@ -227,4 +229,17 @@ test("condition record notifications link to the matching residency workspace",a
  const {residentCareWorkspaceLink}=await vite.ssrLoadModule('/lib/campus-engine/notify-templates.ts');
  assert.equal(residentCareWorkspaceLink('hostel_condition_student').path,'/hostel/resident?section=conditions');
  assert.equal(residentCareWorkspaceLink('hostel_condition_staff').path,'/console/hostels/residents?section=conditions');
+});
+
+test("notification actions stay within the service that created them", async () => {
+  const { notificationAction } = await vite.ssrLoadModule("/lib/notification-destinations.ts");
+  assert.equal(notificationAction("auth_login_code", "otp:private"), null);
+  assert.equal(notificationAction("auth_password_reset", "reset:private"), null);
+  assert.equal(notificationAction("vacation_booking_confirmed", "VAC-1").href, "/payment/callback?reference=VAC-1");
+  assert.equal(notificationAction("driver_arrived", "CR-1").href, "/campus/ticket?reference=CR-1");
+  assert.equal(notificationAction("hostel_message_student", "H-1").href, "/hostel/resident?section=messages");
+  assert.equal(notificationAction("hostel_message_staff", "H-1").href, "/console/hostels");
+  assert.equal(notificationAction("hostel_viewing_confirm", "view-1", "Check /hostel/property-1").href, "/hostel/property-1");
+  assert.equal(notificationAction("cinema_invite", "room-1").href, "/cinema/room-1");
+  assert.equal(notificationAction("unknown", "any"), null);
 });

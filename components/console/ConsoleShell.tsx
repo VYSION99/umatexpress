@@ -7,6 +7,7 @@ import { ArrowRight, ArrowSquareOut, House, LockKey, MagnifyingGlass, ShieldChec
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole, consoleServicesForRole, consoleServiceById, consoleServiceNavForRole } from "@/components/admin/console-services";
 import { ConsoleAssistant } from "@/components/console/ConsoleAssistant";
+import { ConsoleNotifications } from "@/components/console/ConsoleNotifications";
 import "@/components/launcher/launcher.css";
 import "@/components/admin/console.css";
 
@@ -130,6 +131,7 @@ export function ConsoleShell({
           <span className="console-account-email">{session.account.email}</span>
           {actions}
         </div>
+        <ConsoleNotifications />
         <button className="console-signout" onClick={signOut} disabled={signingOut}>
           <SignOut size={17}/><span>{signingOut ? "Signing out…" : "Sign out"}</span>
         </button>

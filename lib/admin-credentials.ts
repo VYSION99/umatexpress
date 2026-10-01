@@ -1,5 +1,6 @@
 import { hasColumn, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 import { envValue } from "@/lib/runtime-env";
+import { notifyPasswordChanged } from "@/lib/notifications";
 
 export const DEFAULT_ADMIN_PASSWORD = "Admin@12345";
 const ITERATIONS = 100_000;
@@ -106,4 +107,5 @@ export async function changeAdminPassword(email: string, currentPassword: string
     "INSERT INTO admin_credentials (email, password_hash, password_salt, password_iterations, session_epoch, updated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash, password_salt = excluded.password_salt, password_iterations = excluded.password_iterations, session_epoch = admin_credentials.session_epoch + 1, updated_at = excluded.updated_at",
     [email.toLowerCase(), bytesToBase64(hash), bytesToBase64(salt), ITERATIONS, new Date().toISOString()],
   );
+  await notifyPasswordChanged(email.toLowerCase());
 }

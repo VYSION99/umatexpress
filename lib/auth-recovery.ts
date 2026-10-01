@@ -27,7 +27,7 @@ import { logEvent } from "@/lib/observability";
 import { envValue } from "@/lib/runtime-env";
 import { assertStudentPassword, ensureStudentAccountsTable } from "@/lib/student-auth";
 import { normalizeStudentEmail, validStudentEmail } from "@/lib/student-email";
-import { rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { ensureNotificationsTable, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 export const AUTH_RECOVERY_SCOPES = ["STUDENT", "CONSOLE"] as const;
 export type AuthRecoveryScope = (typeof AUTH_RECOVERY_SCOPES)[number];
@@ -162,7 +162,8 @@ type ResetEmailInput = { origin: string; resetPath: string; token: string; code:
  */
 async function sendResetEmail(email: string, input: ResetEmailInput, now: Date) {
   const link = `${input.origin.replace(/\/$/, "")}${input.resetPath}?token=${encodeURIComponent(input.token)}`;
-  await queueNotification(turso, {
+  const reference = `reset:${await digest(`${email}:${now.getTime()}`)}`.slice(0, 80);
+  await ensureNotificationsTable().then(() => queueNotification(turso, {
     recipient: email,
     template: "auth_password_reset",
     subject: "Reset your UMaTeXPRESS password",
@@ -177,13 +178,19 @@ async function sendResetEmail(email: string, input: ResetEmailInput, now: Date) 
       "",
       "The link and code work once and expire in 30 minutes. If you did not ask, you can ignore this message — nothing has changed.",
     ].join("\n"),
-    reference: `reset:${await digest(`${email}:${now.getTime()}`)}`.slice(0, 80),
+    reference,
     nowIso: now.toISOString(),
-  }).catch(() => false);
+    sensitive: true,
+    expiresAt: new Date(now.getTime() + RESET_TTL_MS).toISOString(),
+  })).catch((error) => {
+    logEvent("error", "auth_reset_delivery_queue_failed", { reason: error instanceof Error ? error.message : "unknown" });
+    return false;
+  });
 }
 
 async function sendLoginCode(email: string, code: string, now: Date) {
-  await queueNotification(turso, {
+  const reference = `otp:${await digest(`${email}:${now.getTime()}`)}`.slice(0, 80);
+  await ensureNotificationsTable().then(() => queueNotification(turso, {
     recipient: email,
     template: "auth_login_code",
     subject: `Your UMaTeXPRESS sign-in code: ${code}`,
@@ -192,9 +199,14 @@ async function sendLoginCode(email: string, code: string, now: Date) {
       "",
       "It works once and expires in 10 minutes. If you did not try to sign in, change your password — someone may have it.",
     ].join("\n"),
-    reference: `otp:${await digest(`${email}:${now.getTime()}`)}`.slice(0, 80),
+    reference,
     nowIso: now.toISOString(),
-  }).catch(() => false);
+    sensitive: true,
+    expiresAt: new Date(now.getTime() + LOGIN_TTL_MS).toISOString(),
+  })).catch((error) => {
+    logEvent("error", "auth_login_code_delivery_queue_failed", { reason: error instanceof Error ? error.message : "unknown" });
+    return false;
+  });
 }
 
 /** Normalises the address for the scope: student addresses get their domain rules. */
@@ -303,6 +315,7 @@ export async function verifyLoginCode(input: { scope: AuthRecoveryScope; email: 
   if (!await consumeCode({ request, code: input.code, now })) return null;
   const account = await recoveryAccount(input.scope, email);
   if (!account || String(account.id) !== String(request.account_id)) return null;
+  if (input.scope === "STUDENT") await turso("UPDATE student_accounts SET email_verified=1,updated_at=? WHERE id=?", [now.toISOString(), account.id]);
   logEvent("info", "auth_otp_verified", { scope: input.scope, accountId: account.id });
   return account;
 }

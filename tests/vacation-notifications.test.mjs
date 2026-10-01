@@ -73,6 +73,14 @@ function handle(sql, args) {
     return ok(student ? table(["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"], [{ ...student, created_at: "", last_login_at: "" }]) : empty);
   }
 
+  if (/^SELECT id FROM bookings WHERE trip_id = \? AND/.test(sql)) {
+    const [tripId, nowIso] = args;
+    const match = bookings.find((booking) => booking.trip_id === tripId && (
+      ["CONFIRMED", "PAYMENT_RECEIVED_REVIEW"].includes(booking.booking_status) ||
+      (booking.booking_status === "AWAITING_PAYMENT" && booking.hold_expires_at > nowIso)
+    ));
+    return ok(match ? table(["id"], [match]) : empty);
+  }
   if (/^SELECT id, booking_id, provider, reference_id, amount,.*access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
     return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "currency", "status", "access_token_hash"], [{ ...payment, currency: payment.currency || "GHS" }]) : empty);
@@ -113,6 +121,20 @@ function handle(sql, args) {
       ["id", "title", "route_from", "route_to", "travel_date", "departure_time", "arrival_time", "price", "capacity", "coach_type", "tag", "amenities", "notes", "active", "archived", "display_order", "created_at", "organizer_id", "review_status"],
       trips,
     ));
+  }
+
+  if (/n\.template='vacation_departure_reminder'/.test(sql)) {
+    const [lower, upper, limit] = args;
+    const rows = bookings.filter((booking) => {
+      if (booking.booking_status !== "CONFIRMED") return false;
+      if (outbox.some((notice) => notice.reference === booking.reference && notice.template === "vacation_departure_reminder")) return false;
+      const departure = `${booking.travel_date}T${booking.departure_time}:00.000Z`;
+      return departure >= lower && departure <= upper;
+    }).slice(0, Number(limit)).map((booking) => {
+      const trip = trips.find((item) => item.id === booking.trip_id);
+      return { ...booking, route_from: trip?.route_from || "", route_to: trip?.route_to || "" };
+    });
+    return ok(table(["reference", "email", "seat", "travel_date", "departure_time", "route_from", "route_to"], rows));
   }
 
   // The notification helper's own lookup: the booking plus its trip's route.
@@ -272,4 +294,32 @@ test("a guest without a payment token is still refused", async () => {
   const { GET } = await vite.ssrLoadModule("/app/api/payments/verify/route.ts");
   const response = await GET(new Request(`${URL_BASE}/api/payments/verify?reference=ref-vac2`));
   assert.equal(response.status, 403);
+});
+
+test("a confirmed passenger receives one departure reminder about an hour before leaving", async () => {
+  const { scanVacationDepartures } = await vite.ssrLoadModule("/lib/vacation-notify.ts");
+  const now = new Date("2026-10-03T05:30:00.000Z");
+  const first = await scanVacationDepartures({ now });
+  assert.equal(first.queued, 1);
+  const reminders = outbox.filter((row) => row.template === "vacation_departure_reminder");
+  assert.equal(reminders[0].recipient, "esi@st.umat.edu.gh");
+  assert.match(reminders[0].message, /UMaT → Accra.*Seat 8/);
+  assert.equal(reminders.some((row) => row.recipient === "ama@st.umat.edu.gh"), false, "cancelled passengers receive no departure reminder");
+  assert.equal((await scanVacationDepartures({ now })).queued, 0);
+});
+
+test("admins cannot silently edit or archive a trip with a confirmed ticket", async () => {
+  const { PATCH, DELETE } = await vite.ssrLoadModule("/app/api/trips/schedule/route.ts");
+  const session = await vite.ssrLoadModule("/lib/admin-auth.ts");
+  const cookie = `umx_admin_session=${encodeURIComponent(await session.createAdminSession("admin@example.com"))}`;
+  const trip = trips[0];
+  const edit = await PATCH(new Request(`${URL_BASE}/api/trips/schedule`, {
+    method: "PATCH", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ id: trip.id, title: "Changed trip", routeFrom: trip.route_from, routeTo: trip.route_to, travelDate: trip.travel_date, departureTime: trip.departure_time, arrivalTime: trip.arrival_time, price: trip.price, capacity: trip.capacity, coachType: trip.coach_type }),
+  }));
+  assert.equal(edit.status, 409);
+  assert.equal(trips[0].title, "UMaT to Accra");
+  const archive = await DELETE(new Request(`${URL_BASE}/api/trips/schedule`, { method: "DELETE", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ id: trip.id }) }));
+  assert.equal(archive.status, 409);
+  assert.equal(trips[0].archived, 0);
 });

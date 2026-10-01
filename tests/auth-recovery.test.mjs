@@ -41,9 +41,9 @@ function handle(sql, args) {
   if (/^PRAGMA table_info/.test(sql)) return ok(empty);
   if (/^INSERT INTO admin_audit_logs/.test(sql)) { audits.push(args); return affected(1); }
   if (/^INSERT INTO notification_outbox/.test(sql)) {
-    const [id, , recipient, template, subject, message, reference, , nowIso] = args;
+    const [id, , recipient, template, subject, message, reference, , nowIso, sensitive, expiresAt] = args;
     if (outbox.some((item) => item.reference === reference && item.template === template)) return affected(0);
-    outbox.push({ id, recipient, template, subject, message, reference, createdAt: nowIso });
+    outbox.push({ id, recipient, template, subject, message, reference, createdAt: nowIso, sensitive, expiresAt });
     return affected(1);
   }
 
@@ -85,6 +85,11 @@ function handle(sql, args) {
   if (/^UPDATE auth_recovery_requests SET attempts = COALESCE\(attempts,0\) \+ 1/.test(sql)) {
     const row = requests.find((item) => item.id === args[1]);
     if (row) { row.attempts = Number(row.attempts || 0) + 1; row.updated_at = args[0]; }
+    return affected(row ? 1 : 0);
+  }
+  if (/^UPDATE student_accounts SET email_verified=1/.test(sql)) {
+    const row = students.find(item => item.id === args[1]);
+    if (row) row.email_verified = 1;
     return affected(row ? 1 : 0);
   }
   if (/^UPDATE student_accounts SET password_hash = \?/.test(sql)) {
@@ -145,6 +150,8 @@ test("a reset link stores only a hash and works exactly once", async () => {
   assert.equal(asked.requested, true);
   assert.equal(asked.delivered, true);
   const mail = resetMail();
+  assert.equal(Number(mail.sensitive), 1, "recovery proof is excluded from the in-app feed");
+  assert.ok(Date.parse(mail.expiresAt) > Date.parse(mail.createdAt));
   assert.equal(mail.recipient, "ama@st.umat.edu.gh", "the student address is normalised before it is stored or mailed");
   const token = tokenIn(mail);
   const code = codeIn(mail);
@@ -249,6 +256,7 @@ test("a one-time code signs the right account in, once", async () => {
   const account = await verifyLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", code });
   assert.equal(account.id, "student-1");
   assert.equal(account.email, "ama@st.umat.edu.gh");
+  assert.equal(students[0].email_verified, 1, "the mailed code proves ownership");
   assert.equal(await verifyLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", code }), null, "a code works once");
 });
 

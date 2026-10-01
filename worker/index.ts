@@ -1,11 +1,12 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
+import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, VACATION_REMINDER_CRON, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
 import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
 import { runCinemaCleanup } from "@/lib/cinema-engine/cleanup";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
 import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/lib/notifications";
+import { scanVacationDepartures } from "@/lib/vacation-notify";
 import { logEvent } from "@/lib/observability";
 import { runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
 import { runHostelPayoutReconcileJob, runHostelPayoutReleaseJob } from "@/lib/hostel-engine/payouts";
@@ -96,6 +97,10 @@ const worker = {
       ctx.waitUntil(runNotificationSweep({ limit: 10 }));
       return;
     }
+    if (controller?.cron === VACATION_REMINDER_CRON) {
+      ctx.waitUntil(scanVacationDepartures().catch(error => { logEvent("error", "vacation_reminder_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+      return;
+    }
     if (controller?.cron === HOSTEL_AVAILABILITY_CRON) {
       ctx.waitUntil(scanHostelAvailability().catch(error => { logEvent("error", "hostel_availability_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
       return;
@@ -131,7 +136,7 @@ const worker = {
    *
    * The queue carries only row ids, so this handler is a nudge to the outbox
    * dispatcher rather than a second delivery path. A batch that cannot be
-   * dispatched is retried, and the five-minute cron sweep delivers anything the
+   * dispatched is retried, and the dedicated notification sweep delivers anything the
    * queue gives up on, so a passenger never loses a message to a queue outage.
    */
   async queue(batch: MessageBatch<NotificationQueueMessage>): Promise<void> {

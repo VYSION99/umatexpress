@@ -3,6 +3,7 @@ import { isTursoConfiguredRuntime, turso } from "@/lib/turso";
 import { ensureScheduledTripsTable, getDynamicTrips, seedDefaultScheduledTrips } from "@/lib/dynamic-trips";
 import { organizerDisplayNames } from "@/lib/organizers";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { tripHasLiveBookings } from "@/lib/vacation-booking-guard";
 
 export type ScheduledTripInput = {
   title: string;
@@ -160,6 +161,7 @@ export async function PATCH(request: Request) {
     const now = new Date().toISOString();
 
     await ensureScheduledTripsTable();
+    if (await tripHasLiveBookings(id)) return Response.json({ error: "This trip has bookings. Coordinate changes with passengers before editing it." }, { status: 409 });
     await turso(
       "UPDATE scheduled_trips SET title = ?, route_from = ?, route_to = ?, travel_date = ?, departure_time = ?, arrival_time = ?, price = ?, capacity = ?, coach_type = ?, tag = ?, amenities = ?, notes = ?, active = ?, display_order = ?, updated_at = ? WHERE id = ?",
       [title, routeFrom, routeTo, travelDate, departureTime, arrivalTime, price, capacity, coachType, tag, JSON.stringify(amenities), notes, active ? 1 : 0, displayOrder, now, id],
@@ -180,6 +182,7 @@ export async function DELETE(request: Request) {
     const id = String((await request.json() as { id?: string }).id || "").trim();
     if (!id) return Response.json({ error: "Missing trip id." }, { status: 400 });
     await ensureScheduledTripsTable();
+    if (await tripHasLiveBookings(id)) return Response.json({ error: "This trip has bookings and cannot be archived." }, { status: 409 });
     await turso("UPDATE scheduled_trips SET archived = 1, active = 0, updated_at = ? WHERE id = ?", [new Date().toISOString(), id]);
     return Response.json({ ok: true, archived: true, id });
   } catch (error) {

@@ -1,4 +1,4 @@
-import { listNotifications, markNotificationsRead } from "@/lib/notifications";
+import { listNotifications, markNotificationsRead, unreadNotificationCount } from "@/lib/notifications";
 import { requireStudent } from "@/lib/student-auth";
 import { fail, ok } from "@/lib/campus-engine/responses";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const student = await requireStudent(request);
     const notifications = await listNotifications(student.email);
     return ok(
-      { notifications, unread: notifications.filter((item) => !item.read).length },
+      { notifications, unread: await unreadNotificationCount(student.email) },
       { headers: { "Cache-Control": "no-store" } },
       request,
     );

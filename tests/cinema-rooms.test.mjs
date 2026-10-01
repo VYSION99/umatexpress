@@ -16,7 +16,7 @@ process.env.TURSO_DATABASE_URL = "https://cinema-rooms-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const state = { rooms: [], members: [], invites: [], metrics: new Map(), failMembershipOnce: false };
+const state = { rooms: [], members: [], invites: [], notifications: [], metrics: new Map(), failMembershipOnce: false };
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -35,6 +35,14 @@ function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
   if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
+  if (/^PRAGMA table_info\(notification_outbox\)/.test(sql)) return ok(table(["name"], ["subject", "read_at", "sensitive", "expires_at"].map(name => ({ name }))));
+  if (/^UPDATE notification_outbox SET subject='Authentication message'/.test(sql)) return affected(0);
+  if (/^INSERT INTO notification_outbox/.test(sql)) {
+    const [id, channel, recipient, template, subject, message, reference] = args;
+    if (state.notifications.some(item => item.reference === reference && item.template === template)) return affected(0);
+    state.notifications.push({ id, channel, recipient, template, subject, message, reference });
+    return affected(1);
+  }
   if (/^ALTER TABLE/.test(sql)) return ok(empty);
 
   // The Turso rate-limit store, which the routes use when no Durable Object
@@ -262,6 +270,7 @@ beforeEach(() => {
   state.rooms.length = 0;
   state.members.length = 0;
   state.invites.length = 0;
+  state.notifications.length = 0;
   state.metrics.clear();
 });
 
@@ -502,10 +511,13 @@ test("an invitation names an existing UMaT address, and lets it read and join", 
   const invited = await inviteToRoom({ id: room.id, studentId: host.id, email: "Kwesi@st.umat.edu.gh" });
   assert.equal(invited.invite.studentId, guest.id, "the address resolves to the one account that owns it");
   assert.equal(invited.invites.length, 1);
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].recipient, "kwesi@st.umat.edu.gh");
   assert.equal(invited.invites[0].name, "Kwesi Guest");
   assert.equal((await listRoomInvites({ id: room.id, studentId: host.id })).invites.length, 1, "inviting twice is idempotent");
   await inviteToRoom({ id: room.id, studentId: host.id, email: "kwesi@st.umat.edu.gh" });
   assert.equal((await listRoomInvites({ id: room.id, studentId: host.id })).invites.length, 1);
+  assert.equal(state.notifications.length, 1, "repeat invites do not repeat notices");
 
   const seen = await readRoom({ id: room.id, studentId: guest.id });
   assert.equal(seen.invited, true);

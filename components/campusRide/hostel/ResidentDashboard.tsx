@@ -166,6 +166,7 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh, onVerify, verify
   useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "stay-plans") queueMicrotask(() => { setActiveTab("requests"); setRequestView("stay-plans"); }); }, []);
   useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "conditions") queueMicrotask(() => { setActiveTab("requests"); setRequestView("conditions"); }); }, []);
   useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "maintenance") queueMicrotask(() => setActiveTab("requests")); }, []);
+  useEffect(() => { const section = new URLSearchParams(window.location.search).get("section"); if (section === "messages" || section === "payments") queueMicrotask(() => setActiveTab(section)); }, []);
   const [refundConfirm, setRefundConfirm] = useState(false);
   const stayClosed = ["CHECKED_OUT", "NO_SHOW", "CANCELLED"].includes(booking.stayStatus) || Boolean(booking.periodEndsOn && booking.periodEndsOn < new Date().toISOString().slice(0, 10));
   const [thread, setThread] = useState<Message[] | null>(null);

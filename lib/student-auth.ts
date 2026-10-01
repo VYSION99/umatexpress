@@ -5,10 +5,9 @@
  * this same session, so a student signs in once and can book either service.
  * Browsing is never gated — only creating a booking or starting a payment is.
  *
- * Only UMaT student addresses are accepted (`@st.umat.edu.gh`). No email
- * provider is configured on this deployment, so an account is an email plus a
- * password rather than a magic link, and `email_verified` stays 0 until a
- * delivery channel exists to prove the address.
+ * Only UMaT student addresses are accepted. New accounts must prove control
+ * of that address with an emailed code before they use authenticated services.
+ * Existing accounts are grandfathered until a separate verification campaign.
  *
  * Nothing here ever returns a password hash, salt or iteration count.
  */
@@ -16,6 +15,7 @@
 import { hashPassword, validPasswordRecord, verifyPassword, bytesToBase64 } from "@/lib/campus-engine/crypto";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { envValue } from "@/lib/runtime-env";
+import { notifyPasswordChanged } from "@/lib/notifications";
 import { STUDENT_EMAIL_DOMAIN, normalizeStudentEmail, validStudentEmail } from "@/lib/student-email";
 import { hasColumn, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
@@ -31,6 +31,8 @@ export type StudentAccount = {
   phone: string;
   createdAt: string;
   lastLoginAt: string;
+  emailVerified: boolean;
+  verificationRequired: boolean;
 };
 
 type StudentSessionPayload = { sid: string; exp: number; ver: number };
@@ -57,11 +59,13 @@ export function studentAccountView(row: Record<string, unknown>): StudentAccount
     phone: String(row.phone || ""),
     createdAt: String(row.created_at || ""),
     lastLoginAt: String(row.last_login_at || ""),
+    emailVerified: Number(row.email_verified || 0) === 1,
+    verificationRequired: Number(row.verification_required || 0) === 1,
   };
 }
 
 /** The readable projection: everything except the credential columns. */
-const ACCOUNT_COLUMNS = "id,email,COALESCE(name,'') AS name,COALESCE(phone,'') AS phone,COALESCE(created_at,'') AS created_at,COALESCE(last_login_at,'') AS last_login_at";
+const ACCOUNT_COLUMNS = "id,email,COALESCE(name,'') AS name,COALESCE(phone,'') AS phone,COALESCE(created_at,'') AS created_at,COALESCE(last_login_at,'') AS last_login_at,COALESCE(email_verified,0) AS email_verified,COALESCE(verification_required,0) AS verification_required";
 
 let studentAccountsTable: Promise<void> | null = null;
 
@@ -95,6 +99,7 @@ async function createStudentAccountsTable() {
     password_iterations INTEGER NOT NULL,
     token_version INTEGER NOT NULL DEFAULT 0,
     email_verified INTEGER NOT NULL DEFAULT 0,
+    verification_required INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -105,6 +110,9 @@ async function createStudentAccountsTable() {
   }
   if (!(await hasColumn("student_accounts", "email_verified"))) {
     await turso("ALTER TABLE student_accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!(await hasColumn("student_accounts", "verification_required"))) {
+    await turso("ALTER TABLE student_accounts ADD COLUMN verification_required INTEGER NOT NULL DEFAULT 0");
   }
   if (!(await hasColumn("student_accounts", "active"))) {
     await turso("ALTER TABLE student_accounts ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
@@ -261,6 +269,9 @@ export async function requireStudent(request: Request): Promise<StudentAccount> 
   const session = await studentSessionFromRequest(request);
   const account = session ? await accountFromSession(session) : null;
   if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to your UMaTeXPRESS account to continue.", 401);
+  if (account.verificationRequired && !account.emailVerified) {
+    throw new CampusEngineError("FORBIDDEN", "Verify your UMaT email on the account page before continuing.", 403);
+  }
   return account;
 }
 
@@ -280,7 +291,7 @@ export async function registerStudent(input: { email?: unknown; password?: unkno
   const id = crypto.randomUUID();
   try {
     await turso(
-      "INSERT INTO student_accounts (id,email,name,phone,password_hash,password_salt,password_iterations,created_at,updated_at,last_login_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO student_accounts (id,email,name,phone,password_hash,password_salt,password_iterations,verification_required,created_at,updated_at,last_login_at) VALUES (?,?,?,?,?,?,?,1,?,?,?)",
       [id, email, name, phone, hashed.hash, hashed.salt, hashed.iterations, stamp, stamp, stamp],
     );
   } catch {
@@ -288,7 +299,7 @@ export async function registerStudent(input: { email?: unknown; password?: unkno
     throw new CampusEngineError("CONFLICT", "An account already exists for that email. Sign in instead.", 409);
   }
   const row = await storedAccountById(id);
-  return row ? studentAccountView(row) : { id, email, name, phone, createdAt: stamp, lastLoginAt: stamp };
+  return row ? studentAccountView(row) : { id, email, name, phone, createdAt: stamp, lastLoginAt: stamp, emailVerified: false, verificationRequired: true };
 }
 
 /**
@@ -332,5 +343,6 @@ export async function changeStudentPassword(request: Request, input: { currentPa
     "UPDATE student_accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, token_version = COALESCE(token_version,0) + 1, updated_at = ? WHERE id = ?",
     [hashed.hash, hashed.salt, hashed.iterations, new Date().toISOString(), session.accountId],
   );
+  await notifyPasswordChanged(String(row.email));
   return { changed: true, accountId: session.accountId };
 }

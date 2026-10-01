@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Bell, Check } from "@phosphor-icons/react";
-import { residentCareWorkspaceLink, ticketKindForTemplate } from "@/lib/campus-engine/notify-templates";
-import { ticketHref } from "@/lib/passenger-profile";
+import { notificationAction } from "@/lib/notification-destinations";
 import { useNotifications } from "@/components/account/useNotifications";
 
 /** "4m ago" / "Yesterday" / "12 Mar" — short enough for a list row. */
@@ -26,12 +25,12 @@ export function relativeTime(value: string, now = Date.now()) {
  * empty list, because the feed belongs to the account and not to the device.
  */
 export function NotificationFeed() {
-  const { ready, signedIn, items, unread, markAllRead } = useNotifications();
+  const { ready, signedIn, items, unread, error, refresh, markAllRead } = useNotifications();
 
   if (!signedIn) return <div className="launch-panel-message">
     <Bell size={32} aria-hidden />
-    <h3>Sign in to see your ride updates.</h3>
-    <p>Driver accepted, driver arrived and trip complete messages are sent to your student account and collected here. One UMaT account covers campusRide and vacationRide.</p>
+    <h3>Sign in to see your updates.</h3>
+    <p>Ride, hostel and cinema updates for your student account appear here.</p>
     <Link href="/account?next=%2F">Sign in →</Link>
   </div>;
 
@@ -42,24 +41,26 @@ export function NotificationFeed() {
 
   if (!items.length) return <div className="launch-panel-message">
     <Bell size={32} aria-hidden />
-    <h3>No ride updates yet.</h3>
-    <p>Join a campusRide queue and every step — driver accepted, arrived, trip complete — lands here and in your inbox.</p>
+    <h3>{error ? "Updates are unavailable" : "No updates yet."}</h3>
+    <p>{error || "When a service has news for you, it will appear here and in your inbox."}</p>
+    {error && <button type="button" onClick={() => void refresh()}>Try again</button>}
   </div>;
 
   return <div className="feed">
+    {error && <p role="alert">{error} <button type="button" onClick={() => void refresh()}>Retry</button></p>}
     <div className="feed-head">
       <span>{items.length} message{items.length === 1 ? "" : "s"}{unread ? ` · ${unread} unread` : ""}</span>
       {unread > 0 && <button className="feed-read-all" onClick={() => void markAllRead()}><Check size={15} aria-hidden /> Mark all read</button>}
     </div>
     <ul>
-      {items.map((item) => <li key={item.id} className={item.read ? "" : "is-unread"}>
+      {items.map((item) => { const action = notificationAction(item.template, item.reference, item.message); return <li key={item.id} className={item.read ? "" : "is-unread"}>
         <div className="feed-item-head">
           <strong>{item.subject}</strong>
           <small>{relativeTime(item.createdAt)}</small>
         </div>
         <p>{item.message}</p>
-        {item.reference && <Link href={residentCareWorkspaceLink(item.template)?.path || ticketHref({ reference: item.reference, kind: ticketKindForTemplate(item.template) })}>{residentCareWorkspaceLink(item.template)?.cta || "Open ticket"}<ArrowRight size={14} aria-hidden /></Link>}
-      </li>)}
+        {action && <Link href={action.href}>{action.label}<ArrowRight size={14} aria-hidden /></Link>}
+      </li>; })}
     </ul>
   </div>;
 }

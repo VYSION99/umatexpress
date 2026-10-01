@@ -411,3 +411,18 @@
 .console-disclosure p { margin: 10px 0 0; color: var(--ui-muted, #57675f); font-size: 12px; line-height: 1.7; }
 
 .console-onboarding-link{display:inline-flex;align-items:center;min-height:44px;margin-top:10px;padding:0 15px;border-radius:12px;background:#0d694d;color:#fff!important;font-size:13px;font-weight:800;text-decoration:none}.console-onboarding-link:hover{background:#0b5740}
+
+.console-notifications { position: relative; flex: none; }
+.console-notifications summary { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--console-line, #d9e2ec); border-radius: 12px; cursor: pointer; list-style: none; }
+.console-notifications summary::-webkit-details-marker { display: none; }
+.console-notifications-count { position: absolute; top: -5px; right: -5px; min-width: 19px; padding: 1px 4px; border-radius: 99px; color: #fff; background: #a32b2b; font-size: 11px; text-align: center; }
+.console-notifications-panel { position: absolute; z-index: 50; top: calc(100% + 10px); right: 0; width: min(380px, calc(100vw - 24px)); max-height: min(70vh, 600px); overflow: auto; padding: 16px; border: 1px solid #d9e2ec; border-radius: 16px; background: #fff; box-shadow: 0 18px 45px #14283d30; color: #1c2937; }
+.console-notifications-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.console-notifications-heading button { display: inline-flex; gap: 5px; align-items: center; border: 0; background: transparent; color: #146b68; cursor: pointer; }
+.console-notifications-panel ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.console-notifications-panel li { padding: 12px 0; border-top: 1px solid #e7edf2; }
+.console-notifications-panel li.is-unread { border-left: 3px solid #1c8980; padding-left: 9px; }
+.console-notifications-panel li p { margin: 4px 0; line-height: 1.45; overflow-wrap: anywhere; }
+.console-notifications-panel li small { display: block; color: #657382; }
+.console-notifications-panel li a { display: inline-block; margin-top: 6px; color: #146b68; font-weight: 600; }
+@media (max-width: 600px) { .console-notifications-panel { position: fixed; top: 64px; right: 12px; left: 12px; width: auto; } }

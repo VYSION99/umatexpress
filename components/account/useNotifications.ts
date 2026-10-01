@@ -13,7 +13,7 @@ export type FeedNotification = {
   read: boolean;
 };
 
-type FeedSnapshot = { ready: boolean; items: FeedNotification[] };
+type FeedSnapshot = { ready: boolean; items: FeedNotification[]; unread: number; error: string };
 
 /**
  * The in-app notification feed, shared by every consumer on the page.
@@ -23,7 +23,7 @@ type FeedSnapshot = { ready: boolean; items: FeedNotification[] };
  * apart, and opening the panel does not ask the server a second time. The
  * server holds the read state, so a reload is the source of truth.
  */
-let snapshot: FeedSnapshot = { ready: false, items: [] };
+let snapshot: FeedSnapshot = { ready: false, items: [], unread: 0, error: "" };
 let inFlight: Promise<void> | null = null;
 const listeners = new Set<(next: FeedSnapshot) => void>();
 
@@ -48,11 +48,12 @@ export function refreshNotifications() {
   inFlight = (async () => {
     try {
       const response = await fetch("/api/notifications", { credentials: "same-origin", cache: "no-store" });
-      const data = response.ok ? await response.json() as { notifications?: FeedNotification[] } : null;
-      publish({ ready: true, items: Array.isArray(data?.notifications) ? data.notifications : [] });
+      if (!response.ok) throw new Error("Notifications are unavailable.");
+      const data = await response.json() as { notifications?: FeedNotification[]; unread?: number };
+      const items = Array.isArray(data.notifications) ? data.notifications : [];
+      publish({ ready: true, items, unread: Number(data.unread ?? items.filter(item => !item.read).length), error: "" });
     } catch {
-      // A feed that cannot be reached is empty, not an error the student must read.
-      publish({ ready: true, items: [] });
+      publish({ ...snapshot, ready: true, error: "Could not load updates. Try again." });
     } finally {
       inFlight = null;
     }
@@ -63,7 +64,7 @@ export function refreshNotifications() {
 /** Signing out must not leave the previous student's messages in memory. */
 export function clearNotifications() {
   if (!snapshot.ready && !snapshot.items.length) return;
-  publish({ ready: false, items: [] });
+  publish({ ready: false, items: [], unread: 0, error: "" });
 }
 
 export function useNotifications() {
@@ -77,26 +78,36 @@ export function useNotifications() {
     if (!accountReady) return;
     if (!account) { clearNotifications(); return; }
     void refreshNotifications();
+    const onFocus = () => void refreshNotifications();
+    const onVisible = () => { if (!document.hidden) void refreshNotifications(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(() => { if (!document.hidden) void refreshNotifications(); }, 60_000);
+    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisible); window.clearInterval(timer); };
   }, [accountReady, account]);
 
   const markAllRead = async () => {
-    if (!state.items.some((item) => !item.read)) return;
-    publish({ ...state, items: state.items.map((item) => ({ ...item, read: true })) });
+    if (!state.unread) return;
+    publish({ ...state, unread: 0, items: state.items.map((item) => ({ ...item, read: true })) });
     try {
-      await fetch("/api/notifications", {
+      const response = await fetch("/api/notifications", {
         method: "PATCH",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ all: true }),
       });
-    } catch { /* the next page load re-reads what the server still holds */ }
+      if (!response.ok) throw new Error("Could not save read state.");
+    } catch {
+      publish({ ...state, error: "Could not mark updates as read." });
+    }
   };
 
   return {
     ready: state.ready,
     signedIn: Boolean(account),
     items: state.items,
-    unread: state.items.filter((item) => !item.read).length,
+    unread: state.unread,
+    error: state.error,
     refresh: refreshNotifications,
     markAllRead,
   };

@@ -18,10 +18,13 @@ export const CAMPUS_RECONCILE_CRON = "*/5 * * * *";
  *
  * The minutes are deliberately off the five-minute grid. Cloudflare collapses
  * two triggers that fall due at the same minute into one invocation, so a
- * quarter-hourly sweep would never run at all: every :00, :15, :30 and :45 also
- * belongs to the reconcile trigger, and only that one was ever delivered.
+ * sweep must avoid the payment and hostel triggers as well. These minutes
+ * keep the fallback within six minutes while giving it a separate budget.
  */
-export const NOTIFICATION_SWEEP_CRON = "2,17,32,47 * * * *";
+export const NOTIFICATION_SWEEP_CRON = "2,7,13,18,23,28,33,38,43,48,53,58 * * * *";
+
+/** Vacation departure reminders get their own bounded Worker invocation. */
+export const VACATION_REMINDER_CRON = "4,19,34,49 * * * *";
 
 /** Saved hostel transitions get a separate budget every fifteen minutes. */
 export const HOSTEL_AVAILABILITY_CRON = "12,27,42,57 * * * *";
@@ -72,9 +75,10 @@ export const PAYOUT_RELEASE_CRON = `${
       ...minutesOf(CAMPUS_RECONCILE_CRON),
       ...minutesOf(NOTIFICATION_SWEEP_CRON),
       ...minutesOf(HOSTEL_AVAILABILITY_CRON),
+      ...minutesOf(VACATION_REMINDER_CRON),
       ...minutesOf(PAYOUT_RECONCILE_CRON),
     ]).has(minute))
     .join(",")
 } * * * *`;
 
-export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON];
+export const WORKER_CRONS = [CAMPUS_RECONCILE_CRON, NOTIFICATION_SWEEP_CRON, HOSTEL_AVAILABILITY_CRON, VACATION_REMINDER_CRON, PAYOUT_RELEASE_CRON, PAYOUT_RECONCILE_CRON];

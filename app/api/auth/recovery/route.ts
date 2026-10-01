@@ -1,9 +1,12 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { assertAuthScopeHost } from "@/lib/auth-scope-host";
 import { fail, ok } from "@/lib/campus-engine/responses";
 import {
   isAuthRecoveryScope, requestLoginCode, requestPasswordReset, resetPassword, type AuthRecoveryScope,
 } from "@/lib/auth-recovery";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { parseConsoleHosts } from "@/lib/console-hosts";
+import { envValue } from "@/lib/runtime-env";
 
 /**
  * Account recovery for every auth surface.
@@ -22,7 +25,11 @@ function scopeOrThrow(value: unknown): AuthRecoveryScope {
   return scope;
 }
 
-function originOf(request: Request) {
+async function originOf(request: Request, scope: AuthRecoveryScope) {
+  if (scope === "CONSOLE") {
+    const hosts = parseConsoleHosts(await envValue("CONSOLE_HOSTS"));
+    if (hosts.length) return `https://${hosts[0]}`;
+  }
   return new URL(request.url).origin;
 }
 
@@ -32,7 +39,8 @@ export async function POST(request: Request) {
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const body = await request.json() as { scope?: unknown; email?: unknown };
     const scope = scopeOrThrow(body.scope);
-    const result = await requestPasswordReset({ scope, email: body.email, origin: originOf(request) });
+    await assertAuthScopeHost(request, scope);
+    const result = await requestPasswordReset({ scope, email: body.email, origin: await originOf(request, scope) });
     // The same answer for every address: asking is not a way to test who exists.
     return ok({ requested: true, expiresAt: result.expiresAt }, { headers: { "Cache-Control": "no-store" } }, request);
   } catch (error) {
@@ -46,6 +54,7 @@ export async function PUT(request: Request) {
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const body = await request.json() as { scope?: unknown; email?: unknown };
     const scope = scopeOrThrow(body.scope);
+    await assertAuthScopeHost(request, scope);
     const result = await requestLoginCode({ scope, email: body.email });
     return ok({ requested: true, expiresAt: result.expiresAt }, { headers: { "Cache-Control": "no-store" } }, request);
   } catch (error) {
@@ -59,6 +68,7 @@ export async function PATCH(request: Request) {
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const body = await request.json() as { scope?: unknown; token?: unknown; email?: unknown; code?: unknown; newPassword?: unknown };
     const scope = scopeOrThrow(body.scope);
+    await assertAuthScopeHost(request, scope);
     const result = await resetPassword({ scope, token: body.token, email: body.email, code: body.code, newPassword: body.newPassword });
     // No session is minted here on purpose: a reset proves the inbox, and the
     // next sign-in with the new password proves the person.

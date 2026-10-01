@@ -4,6 +4,7 @@ import { ensureScheduledTripsTable } from "@/lib/dynamic-trips";
 import { findRouteOverlaps } from "@/lib/organizer-insights";
 import { notifyParty, providerListingNotice } from "@/lib/notify-templates";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
+import { tripHasLiveBookings } from "@/lib/vacation-booking-guard";
 
 /**
  * The trip lifecycle for organizers.
@@ -164,6 +165,7 @@ export async function updateOrganizerTrip(organizerId: string, tripId: string, i
   // organizer cannot probe for ids they do not own.
   if (!existing) throw new CampusEngineError("NOT_FOUND", "That trip was not found.", 404);
   const trip = normalizeOrganizerTrip(input);
+  if (await tripHasLiveBookings(tripId)) throw new CampusEngineError("INVALID_STATE", "This trip has bookings. Contact an administrator to coordinate changes with passengers.", 409);
   const stamp = new Date().toISOString();
   const wasLive = String(existing.review_status) === "APPROVED";
   // Editing a live trip sends it back for review: nothing an organizer writes
@@ -196,6 +198,7 @@ export async function archiveOrganizerTrip(organizerId: string, tripId: string) 
   await ensureScheduledTripsTable();
   const existing = await ownedTrip(organizerId, tripId);
   if (!existing) throw new CampusEngineError("NOT_FOUND", "That trip was not found.", 404);
+  if (await tripHasLiveBookings(tripId)) throw new CampusEngineError("INVALID_STATE", "This trip has bookings and cannot be archived.", 409);
   if (String(existing.review_status) === "APPROVED") {
     throw new CampusEngineError("INVALID_STATE", "Ask an administrator to pull a live trip before you remove it.", 409);
   }

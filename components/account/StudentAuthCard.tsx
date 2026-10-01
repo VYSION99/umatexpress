@@ -6,7 +6,7 @@ import { ShieldCheck, SignOut } from "@phosphor-icons/react";
 import { STUDENT_EMAIL_DOMAIN } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
 import { writeProfile } from "@/lib/passenger-profile";
-import { publishStudentAccount, useStudentAccount } from "./useStudentAccount";
+import { loadStudentAccount, publishStudentAccount, useStudentAccount } from "./useStudentAccount";
 import "./account.css";
 
 type Mode = "signin" | "signup";
@@ -27,6 +27,9 @@ export function StudentAuthCard({ next }: { next?: string }) {
   const [form, setForm] = useState({ email: "", password: "", name: "", phone: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -45,7 +48,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
       // Mirror the account into the device profile so booking forms fill instantly.
       writeProfile({ name: data.account.name, email: data.account.email, phone: data.account.phone });
       publishStudentAccount(data.account);
-      window.location.assign(destination);
+      window.location.assign(mode === "signup" ? "/account?next=" + encodeURIComponent(destination) : destination);
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "That did not work. Please try again.");
       setLoading(false);
@@ -59,6 +62,45 @@ export function StudentAuthCard({ next }: { next?: string }) {
     setLoading(false);
     setForm({ email: "", password: "", name: "", phone: "" });
   };
+
+  const verifyEmail = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!account) return;
+    setVerificationBusy(true); setVerificationError("");
+    try {
+      const response = await fetch("/api/auth/otp", { method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "STUDENT", email: account.email, code: verificationCode }) });
+      if (!response.ok) throw new Error("That code is incorrect or expired. Request a new one.");
+      const refreshed = await loadStudentAccount(true);
+      publishStudentAccount(refreshed);
+      if (refreshed?.emailVerified) window.location.assign(destination);
+    } catch (error) { setVerificationError(error instanceof Error ? error.message : "Could not verify email."); }
+    finally { setVerificationBusy(false); }
+  };
+
+  const resendVerification = async () => {
+    if (!account) return;
+    setVerificationBusy(true); setVerificationError("");
+    try {
+      const response = await fetch("/api/auth/recovery", { method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "STUDENT", email: account.email }) });
+      if (!response.ok) throw new Error("Could not send a code. Try again shortly.");
+      setVerificationError("A new code is on its way to your UMaT email.");
+    } catch (error) { setVerificationError(error instanceof Error ? error.message : "Could not send a code."); }
+    finally { setVerificationBusy(false); }
+  };
+
+  if (ready && account?.verificationRequired && !account.emailVerified) {
+    return <form className="campus-auth-card student-auth-signed-in" onSubmit={verifyEmail}>
+      <h2>Verify your UMaT email</h2>
+      <p>Enter the six-digit code sent to {account.email}. This confirms you own the address before you book or join a service.</p>
+      <label>Verification code<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={verificationCode} onChange={event => setVerificationCode(event.target.value)} /></label>
+      {verificationError && <p role="status">{verificationError}</p>}
+      <div className="student-auth-actions">
+        <button className="is-primary" disabled={verificationBusy}>{verificationBusy ? "Checking…" : "Verify email"}</button>
+        <button type="button" disabled={verificationBusy} onClick={() => void resendVerification()}>Send a new code</button>
+        <button type="button" onClick={signOut} disabled={verificationBusy}>Sign out</button>
+      </div>
+    </form>;
+  }
 
   if (ready && account) {
     return <div className="campus-auth-card student-auth-signed-in">

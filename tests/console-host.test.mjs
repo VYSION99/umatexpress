@@ -37,7 +37,7 @@ test("the console entry point redirects from the console root", () => {
 test("the console origin serves console work and refuses the public site", () => {
   // /api/hostel/periods is a public read the landlord workspace also calls, so
   // the console origin must answer it rather than 404 the listing form.
-  for (const path of ["/console", "/console/campus", "/console/vacation", "/console/driver", "/console/change-password", "/api/console/session", "/admin/reset-password", "/api/admin/bookings", "/api/driver/me", "/api/trips/schedule", "/api/campus/ai", "/api/hostel/periods", "/api/hostel/properties"]) {
+  for (const path of ["/console", "/console/campus", "/console/vacation", "/console/driver", "/console/change-password", "/api/console/session", "/admin/reset-password", "/api/admin/bookings", "/api/driver/me", "/api/trips/schedule", "/api/campus/ai", "/api/auth/recovery", "/api/auth/otp", "/api/hostel/periods", "/api/hostel/properties"]) {
     assert.deepEqual(consoleHostAction("console.umatexpress.com", path, CONSOLE), { action: "serve" }, `${path} should be served on the console host`);
   }
   for (const path of ["/vacation", "/campus", "/api/auth/student", "/api/campus/queue/initialize", "/api/payments/webhook", "/api/trips/availability", "/sw.js"]) {
@@ -134,4 +134,19 @@ test("the boundary response is what the worker returns verbatim", () => {
   assert.equal(consoleBoundaryResponse(new Request("https://umatexpress.example.test/api/console/session"), ""), null);
   assert.equal(consoleBoundaryResponse(new Request("http://127.0.0.1:5173/vacation"), hosts), null);
   assert.equal(consoleBoundaryResponse(new Request("https://console.example.test/console"), hosts), null);
+});
+
+test("authentication proofs stay on the matching student or console origin", async () => {
+  const previous = process.env.CONSOLE_HOSTS;
+  process.env.CONSOLE_HOSTS = "console.umatexpress.com";
+  try {
+    const { assertAuthScopeHost } = await vite.ssrLoadModule("/lib/auth-scope-host.ts");
+    await assert.doesNotReject(assertAuthScopeHost(new Request("https://console.umatexpress.com/api/auth/otp"), "CONSOLE"));
+    await assert.doesNotReject(assertAuthScopeHost(new Request("https://umatexpress.example.test/api/auth/otp"), "STUDENT"));
+    await assert.rejects(assertAuthScopeHost(new Request("https://umatexpress.example.test/api/auth/otp"), "CONSOLE"), /console sign-in/);
+    await assert.rejects(assertAuthScopeHost(new Request("https://console.umatexpress.com/api/auth/otp"), "STUDENT"), /student account/);
+  } finally {
+    if (previous === undefined) delete process.env.CONSOLE_HOSTS;
+    else process.env.CONSOLE_HOSTS = previous;
+  }
 });

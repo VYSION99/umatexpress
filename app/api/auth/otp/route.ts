@@ -1,4 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { assertAuthScopeHost } from "@/lib/auth-scope-host";
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { isAuthRecoveryScope, verifyLoginCode, type AuthRecoveryScope } from "@/lib/auth-recovery";
 import { consoleAudit } from "@/lib/console-audit";
@@ -21,6 +22,7 @@ export async function PATCH(request: Request) {
     const requested = String(body.scope || "STUDENT").trim().toUpperCase();
     if (!isAuthRecoveryScope(requested)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a valid account type.", 400);
     const scope: AuthRecoveryScope = requested;
+    await assertAuthScopeHost(request, scope);
     const account = await verifyLoginCode({ scope, email: body.email, code: body.code });
     if (!account) throw new CampusEngineError("UNAUTHORIZED", "That code is not correct, has expired, or was already used.", 401);
 

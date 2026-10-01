@@ -1,6 +1,6 @@
 import { queueNotification } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
-import { ensureBookingsTable, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
+import { ensureBookingsTable, ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 /**
  * Passenger messages for a vacationRide booking.
@@ -137,4 +137,38 @@ export function notifyVacationBookingConfirmed(bookingId: string) {
 /** Tells the passenger a booking they paid for was cancelled. */
 export function notifyVacationBookingCancelled(bookingId: string) {
   return queueBookingNotice(bookingId, VACATION_CANCELLED_TEMPLATE, "CANCELLED", vacationCancelledMessage);
+}
+
+
+/** A bounded sweep for confirmed bookings departing in roughly an hour. */
+export async function scanVacationDepartures(input: { now?: Date; limit?: number } = {}) {
+  if (!(await isTursoConfiguredRuntime())) return { considered: 0, queued: 0 };
+  await ensureBookingsTable();
+  await ensureNotificationsTable();
+  const now = input.now ?? new Date();
+  const lower = new Date(now.getTime() + 45 * 60_000).toISOString();
+  const upper = new Date(now.getTime() + 75 * 60_000).toISOString();
+  const limit = Math.max(1, Math.min(15, Math.round(input.limit || 15)));
+  const rows = rowsToObjects(await turso(
+    `SELECT b.reference,b.email,b.seat,b.travel_date,b.departure_time,
+      COALESCE(t.route_from,'') AS route_from,COALESCE(t.route_to,'') AS route_to
+     FROM bookings b LEFT JOIN scheduled_trips t ON t.id=b.trip_id
+     LEFT JOIN notification_outbox n ON n.reference=b.reference AND n.template='vacation_departure_reminder'
+     WHERE b.booking_status='CONFIRMED' AND n.id IS NULL
+       AND datetime(b.travel_date || ' ' || b.departure_time) BETWEEN datetime(?) AND datetime(?)
+     ORDER BY b.travel_date,b.departure_time,b.id LIMIT ?`,
+    [lower, upper, limit],
+  ));
+  let queued = 0;
+  for (const row of rows) {
+    const reference = String(row.reference || "");
+    const route = [String(row.route_from || ""), String(row.route_to || "")].filter(Boolean).join(" → ");
+    const message = `Your ${route || "vacationRide"} trip leaves ${humanTravelDate(row.travel_date)} at ${String(row.departure_time || "")}. Seat ${String(row.seat || "")}; reference ${reference}. Check your ticket for boarding details.`;
+    try {
+      if (await queueNotification(turso, { recipient: String(row.email || ""), template: "vacation_departure_reminder", subject: "Your vacationRide departure is coming up", message, reference, nowIso: now.toISOString() })) queued += 1;
+    } catch (error) {
+      logEvent("error", "vacation_reminder_queue_failed", { reference, reason: error instanceof Error ? error.message : "unknown" });
+    }
+  }
+  return { considered: rows.length, queued };
 }
