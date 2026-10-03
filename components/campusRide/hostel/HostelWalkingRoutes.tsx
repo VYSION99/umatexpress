@@ -1,27 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useHereMap } from "@/components/maps/useHereMap";
+import { useOsmMap } from "@/components/maps/useOsmMap";
 import { MapStatus } from "@/components/maps/MapStatus";
-import { fitHereMap, herePoint, herePolyline } from "@/lib/here-maps";
+import { fitOsmMap, mapPoint, osmPolyline } from "@/lib/osm-maps";
 import type { WalkingDestination, WalkingRoute } from "@/lib/hostel-engine/walking";
 import { distanceLabel } from "./format";
 
 function RouteMap({ route }: { route: Extract<WalkingRoute, { available: true }> }) {
   const element = useRef<HTMLDivElement>(null);
-  const options = useMemo(() => ({ center: herePoint(...route.coordinates[0]), zoom: 15 }), [route]);
-  const { instance, loading, error, disabled, retry } = useHereMap(element, options);
+  const options = useMemo(() => ({ center: mapPoint(...route.coordinates[0]), zoom: 15 }), [route]);
+  const { instance, loading, error, disabled, retry } = useOsmMap(element, options);
   useEffect(() => {
     if (!instance) return;
-    const points = route.coordinates.map(point => herePoint(...point));
-    const path = herePolyline(instance, points, "#106a48", 6);
-    const origin = new instance.api.map.Marker(points[0]);
-    const destination = new instance.api.map.Marker(points[points.length - 1]);
-    instance.map.addObject(origin); instance.map.addObject(destination);
-    fitHereMap(instance, points, 17);
-    return () => { instance.map.removeObject(path); instance.map.removeObject(origin); instance.map.removeObject(destination); };
+    const points = route.coordinates.map(point => mapPoint(...point));
+    const path = osmPolyline(instance, points, "#106a48", 6);
+    const origin = instance.L.circleMarker([points[0].lat, points[0].lng], { radius: 8, color: "#fff", weight: 3, fillColor: "#0d694d", fillOpacity: 1 }).addTo(instance.map);
+    const destination = instance.L.circleMarker([points[points.length - 1].lat, points[points.length - 1].lng], { radius: 8, color: "#fff", weight: 3, fillColor: "#e86a32", fillOpacity: 1 }).addTo(instance.map);
+    fitOsmMap(instance, points, 17);
+    return () => { if (!instance.disposed) { path.remove(); origin.remove(); destination.remove(); } };
   }, [instance, route]);
-  return <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}><div className="hostel-walk-map here-map-canvas" ref={element} role="region" aria-label={"Walking route to " + route.destination.name} /><MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} /></div>;
+  return <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}><div className="hostel-walk-map osm-map-canvas" ref={element} role="region" aria-label={"Walking route to " + route.destination.name} /><MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} /></div>;
 }
 
 export function HostelWalkingRoutes({ propertyId, directDistanceM, destinations }: { propertyId: string; directDistanceM: number | null; destinations: WalkingDestination[] }) {
@@ -48,6 +47,6 @@ export function HostelWalkingRoutes({ propertyId, directDistanceM, destinations 
     {busy && <p role="status">Finding the pedestrian route…</p>}
     {error && <p role="alert">{error}</p>}
     {route?.available === false && <p role="status">{route.reason}</p>}
-    {route?.available && <><div className="hostel-walking-result"><strong>{route.durationMinutes} min walk</strong><span>{(route.distanceM / 1000).toFixed(1)} km along the pedestrian route to {route.destination.name}</span></div><RouteMap route={route} /><p className="hostel-route-source">Walking route: GraphHopper · Map: HERE</p></>}
+    {route?.available && <><div className="hostel-walking-result"><strong>{route.durationMinutes} min walk</strong><span>{(route.distanceM / 1000).toFixed(1)} km along the pedestrian route to {route.destination.name}</span></div><RouteMap route={route} /><p className="hostel-route-source">Walking route: GraphHopper · Map: OpenStreetMap</p></>}
   </section>;
 }

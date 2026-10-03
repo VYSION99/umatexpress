@@ -4,6 +4,7 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables, getHostelProperty } from "@/lib/hostel-engine/landlord";
 import { ownerReadiness } from "@/lib/hostel-engine/onboarding";
+import { requireApprovedRoomSetup } from "@/lib/hostel-engine/room-setup";
 import { rowsToObjects, turso, tursoTransaction } from "@/lib/turso";
 
 const SEPARATE_BEDS = ["Bed A", "Bed B", "Bed C", "Bed D", "Bed E", "Bed F"];
@@ -25,7 +26,8 @@ export async function createHostelRoomBatch(landlordId: string, input: {
   await ensureHostelTables();
   await ensureHostelResidencyTables();
   const propertyId = String(input.propertyId || "").trim();
-  await getHostelProperty(landlordId, propertyId);
+  const property = await getHostelProperty(landlordId, propertyId);
+  await requireApprovedRoomSetup(landlordId, property.status);
   const prefix = String(input.prefix || "").trim();
   if (!prefix || prefix.length > 18) throw new CampusEngineError("VALIDATION_ERROR", "Enter a room name prefix under 19 characters.", 400);
   const start = whole(input.start, 1, 9999, "Start the range at a room number from 1 to 9999.");
@@ -84,7 +86,7 @@ export async function createHostelRoomBatch(landlordId: string, input: {
       if (pricing) statements.push({ sql: "INSERT INTO hostel_listings (id,space_id,period_id,price,status,review_reason,submitted_at,reviewed_at,reviewed_by,created_at,updated_at) VALUES (?,?,?,?,'DRAFT','','','','',?,?)", args: [crypto.randomUUID(), spaceId, periodId, price, stamp, stamp] });
     }
   }
-  statements.push({ sql: "UPDATE hostel_properties SET status='DRAFT',updated_at=? WHERE id=? AND landlord_id=? AND status='APPROVED'", args: [stamp, propertyId, landlordId] });
+  // New rooms need their own bed-listing review; existing property approval remains valid.
   try { await tursoTransaction(statements); }
   catch (error) {
     if (error instanceof Error && /unique constraint/i.test(error.message)) throw new CampusEngineError("CONFLICT", "A room in this range was added at the same time. Refresh and retry.", 409);

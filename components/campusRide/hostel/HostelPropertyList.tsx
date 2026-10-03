@@ -9,21 +9,21 @@ import { Stars } from "@/components/campusRide/hostel/PropertyReviews";
  * The answer under the map: every approved building in the open year, in the
  * order the filters asked for. The card keeps to four facts a student uses to
  * decide whether to open it — where it is, how far, how many beds are free and
- * what the cheapest one costs.
+ * what the cheapest approved bed costs when one is available.
  */
 export function HostelPropertyList({ properties, periodId = "", total = properties.length }: { properties: PublicProperty[]; periodId?: string; total?: number }) {
   if (!properties.length) {
     return <section className="hostel-empty">
       <Bed size={26} aria-hidden />
-      <h2>No hostel beds match this search</h2>
-      <p>Try another academic year, a wider distance or a bigger budget. New beds appear here the moment the platform approves them.</p>
+      <h2>No hostels match this search</h2>
+      <p>Try another academic year, a wider distance or a bigger budget. Approved properties appear here, even while their beds are being prepared.</p>
       <Link href={`/hostel?periodId=${encodeURIComponent(periodId)}`} className="hostel-card-link">Clear the filters</Link>
     </section>;
   }
   return <section className="hostel-results" aria-label="Hostels">
     <div className="hostel-results-head">
       <h2>{total} {total === 1 ? "hostel" : "hostels"}</h2>
-      <span>Approved beds · selected academic year</span>
+      <span>Approved properties · selected academic year</span>
     </div>
     <div className="hostel-card-grid">
       {properties.map((property) => <article key={property.id} className="hostel-card">
@@ -32,24 +32,24 @@ export function HostelPropertyList({ properties, periodId = "", total = properti
         </Link> : <div className="hostel-card-cover hostel-photo-placeholder"><Bed size={30} aria-hidden /><span>Photos coming soon</span></div>}
         <div className="hostel-card-top">
           <h3><Link href={`/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`}>{property.name}</Link></h3>
-          <span className="hostel-card-beds">{bedsLabel(property.availableSpaces)}</span>
+          <span className={`hostel-card-beds${property.availableSpaces === 0 ? " is-preparing" : ""}`}>{property.availableSpaces ? bedsLabel(property.availableSpaces) : "Beds coming soon"}</span>
         </div>
         <p className="hostel-card-address"><MapPin size={14} aria-hidden />{property.address || "Address on the property page"}</p>
-        {!property.bookingReady && <span className="hostel-booking-paused">Booking paused while payout details are reviewed</span>}
+        {property.availableSpaces > 0 && !property.bookingReady && <span className="hostel-booking-paused">Booking paused while payout details are reviewed</span>}
         {property.ratingCount > 0 && <p className="hostel-card-rating"><Stars rating={property.ratingAverage} size={13} /><span>{property.ratingAverage.toFixed(1)} ({property.ratingCount})</span></p>}
         <ul className="hostel-card-facts">
           <li>{distanceLabel(property.distanceM)}</li>
-          <li>{property.roomCount} {property.roomCount === 1 ? "room" : "rooms"}</li>
+          <li>{property.roomCount} {property.roomCount === 1 ? "room" : "rooms"} in the building</li>
           {property.utilitiesEnabled && <li><Lightning size={12} aria-hidden />Total includes utilities</li>}
         </ul>
         <HostelChoiceActions propertyId={property.id} propertyName={property.name} />
         <div className="hostel-card-foot">
           <div>
-            <span>From</span>
-            <strong>{cedis(property.minTotal)}</strong>
-            <small>per academic year{property.utilitiesEnabled ? ", including utilities" : ""}</small>
+            <span>{property.availableSpaces ? "From" : "Availability"}</span>
+            <strong>{property.availableSpaces ? cedis(property.minTotal) : "Preparing beds"}</strong>
+            <small>{property.availableSpaces ? `per student bed / academic year${property.utilitiesEnabled ? ", including utilities" : ""}` : "Browse the approved property and ask about its rooms"}</small>
           </div>
-          <Link href={`/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`} className="hostel-card-link">See the beds <ArrowRight size={14} aria-hidden /></Link>
+          <Link href={`/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`} className="hostel-card-link">{property.availableSpaces ? "View rooms" : "View property"} <ArrowRight size={14} aria-hidden /></Link>
         </div>
       </article>)}
     </div>

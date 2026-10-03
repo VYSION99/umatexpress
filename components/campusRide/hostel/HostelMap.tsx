@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { Bed, MapPin } from "@phosphor-icons/react";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
-import { fitHereMap, herePoint, validMapPoint, hereDomMarker, openHereBubble } from "@/lib/here-maps";
-import { useHereMap } from "@/components/maps/useHereMap";
+import { fitOsmMap, mapPoint, validMapPoint, osmDomMarker, openOsmPopup } from "@/lib/osm-maps";
+import { useOsmMap } from "@/components/maps/useOsmMap";
 import { MapStatus } from "@/components/maps/MapStatus";
 import { MapLocateButton } from "@/components/maps/MapLocateButton";
 
@@ -20,7 +20,7 @@ export type HostelMapProperty = {
 };
 
 const OPTIONS: { center: { lat: number; lng: number }; zoom: number } = {
-  center: herePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
+  center: mapPoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
   zoom: 14,
 };
 
@@ -32,39 +32,34 @@ function popupContent(property: HostelMapProperty, periodId: string) {
   const place = document.createElement("p");
   place.textContent = bedsLabel(property.availableSpaces) + " · " + distanceLabel(property.distanceM);
   const price = document.createElement("p");
-  price.textContent = "From " + cedis(property.minTotal) + " a year";
+  price.textContent = property.availableSpaces ? "From " + cedis(property.minTotal) + " per bed / year" : "Bed availability coming soon";
   const link = document.createElement("a");
   link.href = "/hostel/" + encodeURIComponent(property.id) + "?periodId=" + encodeURIComponent(periodId);
-  link.textContent = "See the beds";
+  link.textContent = property.availableSpaces ? "View rooms" : "View property";
   container.append(heading, place, price, link);
   return container;
 }
 
 export function HostelMap({ properties, periodId = "", title = "Approved hostels near campus" }: { properties: HostelMapProperty[]; periodId?: string; title?: string }) {
   const container = useRef<HTMLDivElement | null>(null);
-  const { instance, loading, error, disabled, retry } = useHereMap(container, OPTIONS);
+  const { instance, loading, error, disabled, retry } = useOsmMap(container, OPTIONS);
   const pinned = useMemo(() => properties.filter(property => validMapPoint(property.latitude, property.longitude)), [properties]);
 
   useEffect(() => {
     if (!instance) return;
-    const { map } = instance;
-    let bubble: ReturnType<typeof openHereBubble> | null = null;
-    const positions = pinned.map(property => herePoint(property.longitude!, property.latitude!));
+    const positions = pinned.map(property => mapPoint(property.longitude!, property.latitude!));
     const pins = pinned.map((property, index) => {
       const element = document.createElement("div");
       element.className = "real-map-marker hostel-marker";
       const label = document.createElement("span");
-      label.textContent = String(property.availableSpaces);
+      label.textContent = property.availableSpaces ? String(property.availableSpaces) : "•";
       element.append(label);
-      const pin = hereDomMarker(instance, positions[index], element);
-      pin.addEventListener("tap", () => {
-        if (bubble) instance.ui.removeBubble(bubble);
-        bubble = openHereBubble(instance, positions[index], popupContent(property, periodId));
-      });
+      const pin = osmDomMarker(instance, positions[index], element);
+      pin.on("click", () => openOsmPopup(pin, popupContent(property, periodId)));
       return pin;
     });
-    fitHereMap(instance, positions);
-    return () => { if (bubble) instance.ui.removeBubble(bubble); pins.forEach(pin => map.removeObject(pin)); };
+    fitOsmMap(instance, positions);
+    return () => { if (!instance.disposed) pins.forEach(pin => pin.remove()); };
   }, [instance, pinned, periodId]);
 
   return <section className="campus-map-widget real-map-widget hostel-map-widget">
@@ -73,7 +68,7 @@ export function HostelMap({ properties, periodId = "", title = "Approved hostels
       <span>{pinned.length} {pinned.length === 1 ? "pin" : "pins"}</span>
     </div>
     <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
-      <div ref={container} className="campus-map-canvas real-map-canvas hostel-map-canvas here-map-canvas" aria-label="Interactive Hostel Finder map" />
+      <div ref={container} className="campus-map-canvas real-map-canvas hostel-map-canvas osm-map-canvas" aria-label="Interactive Hostel Finder map" />
       <MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} />
     </div>
     {!disabled && <MapLocateButton instance={instance} />}
@@ -81,7 +76,7 @@ export function HostelMap({ properties, periodId = "", title = "Approved hostels
       <span><Bed size={14} /> Pin shows beds free</span>
       <span><MapPin size={14} /> Approved hostel</span>
       {properties.length > pinned.length && <span>{properties.length - pinned.length} without a pin, available in the list</span>}
-      <span>HERE Maps</span>
+      <span>OpenStreetMap</span>
     </div>}
   </section>;
 }

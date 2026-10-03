@@ -1002,7 +1002,7 @@
 .hostel-assistant-contact label{display:grid;gap:5px;font-size:12px;font-weight:800}
 .hostel-assistant-contact input{min-height:41px;border:1px solid var(--ui-line);border-radius:10px;padding:8px 10px;font:inherit;font-size:13px}
 
-/* HERE map controls retain their native sizing inside console forms. */
+/* Legacy HERE controls retained for older embedded maps. */
 .here-map-canvas { display: block; }
 .here-map-canvas img { max-width: none; }
 .console-form .here-map-canvas button,
@@ -1021,3 +1021,15 @@
 .campus-map-frame.is-map-disabled .here-map-canvas{display:none}
 .real-map-disabled{display:flex;align-items:center;gap:10px;padding:20px;color:var(--muted);background:var(--surface-soft,#f5f7f5);font-size:14px}
 .real-map-disabled svg{flex-shrink:0}
+
+/* Leaflet supplies the controls; the app supplies accessible branded pins. */
+.osm-map-canvas{display:block}
+.osm-map-canvas img{max-width:none}
+.console-form .osm-map-canvas button,
+.console-form .osm-map-canvas button:hover{all:revert;box-sizing:border-box}
+.osm-map-canvas .leaflet-control-attribution{max-width:calc(100% - 12px);font-size:10px;line-height:1.35}
+.osm-marker-icon{border:0;background:transparent}
+.osm-property-pin{border:0;background:transparent}
+.osm-property-pin span{display:block;width:27px;height:27px;margin:2px auto 0;border:4px solid #fff;border-radius:50% 50% 50% 4px;background:#0d694d;box-shadow:0 3px 14px #0b4632a6;transform:rotate(-45deg)}
+.osm-property-pin span:after{content:"";display:block;width:7px;height:7px;margin:6px;border-radius:50%;background:#fff}
+.campus-map-frame.is-map-disabled .osm-map-canvas{display:none}

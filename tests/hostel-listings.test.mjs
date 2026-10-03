@@ -286,7 +286,7 @@ globalThis.fetch = async (_url, init) => {
 };
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
+const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, plugins: [{ name: "approved-room-setup-fixture", enforce: "pre", resolveId(source) { if (source === "@/lib/hostel-engine/room-setup" || source.endsWith("/lib/hostel-engine/room-setup") || source.endsWith("/lib/hostel-engine/room-setup.ts")) return "\0approved-room-setup"; }, load(id) { if (id === "\0approved-room-setup") return "export async function requireApprovedRoomSetup() {}"; } }], server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
 
 const { CONSOLE_SESSION_COOKIE, createConsoleSession } = await vite.ssrLoadModule("/lib/console-auth.ts");

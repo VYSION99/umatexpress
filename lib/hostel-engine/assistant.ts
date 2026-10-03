@@ -46,7 +46,7 @@ export function hostelAssistantFacts(input: { property: PublicProperty; spaces: 
     `Academic year: ${input.periodName} (${input.periodStartsOn} to ${input.periodEndsOn})`,
     `Beds on sale in that year: ${property.availableSpaces}`,
     `Rooms: ${property.roomCount}`,
-    `Cheapest bed for the year: GHS ${(cheapest / 100).toFixed(2)} (rent + utilities where the listing charges them)`,
+    prices.length ? `Cheapest bed for the year: GHS ${(cheapest / 100).toFixed(2)} (rent + utilities where the listing charges them)` : "No approved bed price is available for this academic year yet; do not quote a price or offer booking.",
     dearest && dearest !== cheapest ? `Most expensive bed: GHS ${(dearest / 100).toFixed(2)}` : "",
     property.utilitiesEnabled
       ? "Utilities are billed per room and are already included in the yearly totals shown."

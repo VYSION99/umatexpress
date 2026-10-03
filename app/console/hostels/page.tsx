@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowCounterClockwise, Bed, Buildings, Check, DoorOpen, MapPin, NotePencil, PaperPlaneTilt, Plus, SealCheck, ShieldCheck, Trash } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Bed, Buildings, Check, DoorOpen, MapPin, NotePencil, PaperPlaneTilt, Plus, SealCheck, ShieldCheck, Trash, X } from "@phosphor-icons/react";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -11,9 +11,12 @@ import { HostelViewingDesk } from "@/components/console/hostel/HostelViewingDesk
 import { PropertyPhotos } from "@/components/console/hostel/PropertyPhotos";
 import { HostelAiDesk } from "@/components/console/hostel/HostelAiDesk";
 import { HostelRoomBatch } from "@/components/console/hostel/HostelRoomBatch";
+import { HostelLocationPicker } from "@/components/console/hostel/HostelLocationPicker";
 import { HostelRateBatch } from "@/components/console/hostel/HostelRateBatch";
 import { HostelSubmitBatch } from "@/components/console/hostel/HostelSubmitBatch";
 import "@/components/console/hostel/workspace.css";
+
+type SetupOwner = { profileStatus: string; identityStatus: string; payoutStatus: string };
 
 type Landlord = {
   id: string; name: string; phone: string; email: string; organization: string;
@@ -88,6 +91,7 @@ export default function HostelWorkspacePage() {
 
 function HostelWorkspace() {
   const [landlord, setLandlord] = useState<Landlord | null>(null);
+  const [setupOwner, setSetupOwner] = useState<SetupOwner | null>(null);
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [detail, setDetail] = useState<PropertyDetail | null>(null);
   const [draft, setDraft] = useState({ name: "", address: "", latitude: "", longitude: "", utilitiesEnabled: false });
@@ -106,15 +110,41 @@ function HostelWorkspace() {
   const [mobileSection, setMobileSection] = useState<"overview" | "rooms" | "rates" | "media" | "assistant">("overview");
   const [roomPage, setRoomPage] = useState(0);
   const [listingPage, setListingPage] = useState(0);
+  const [compact, setCompact] = useState(false);
+  const [roomSearch, setRoomSearch] = useState("");
+  const [listingSearch, setListingSearch] = useState("");
+  const [listingStatus, setListingStatus] = useState("ALL");
+  const [expandedListingId, setExpandedListingId] = useState("");
+  const [roomMode, setRoomMode] = useState<"manage" | "add">("manage");
+  const [rateMode, setRateMode] = useState<"manage" | "price">("manage");
   const [singleRoomOpen, setSingleRoomOpen] = useState(false);
   const [mediaSection, setMediaSection] = useState<"photos" | "viewings">("photos");
+  const [createOpen, setCreateOpen] = useState(false);
+  const createDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const update = () => { setCompact(media.matches); setRoomPage(0); setListingPage(0); };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    const node = createDialog.current;
+    if (createOpen && node && !node.open) node.showModal();
+    if (!createOpen && node?.open) node.close();
+  }, [createOpen]);
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch("/api/console/hostel/properties", { credentials: "same-origin", cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Your hostel workspace could not be loaded.");
+      const [propertiesResponse, setupResponse] = await Promise.all([
+        fetch("/api/console/hostel/properties", { credentials: "same-origin", cache: "no-store" }),
+        fetch("/api/console/hostel/onboarding", { credentials: "same-origin", cache: "no-store" }),
+      ]);
+      const [data, setup] = await Promise.all([propertiesResponse.json(), setupResponse.json()]);
+      if (!propertiesResponse.ok) throw new Error(data.error || "Your hostel workspace could not be loaded.");
+      if (!setupResponse.ok) throw new Error(setup.error || "Setup approval status could not be loaded.");
       setLandlord(data.landlord);
+      setSetupOwner(setup.owner);
       setProperties(data.properties || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Your hostel workspace could not be loaded.");
@@ -159,16 +189,32 @@ function HostelWorkspace() {
 
   async function openProperty(property: Property) {
     setBusy(`open:${property.id}`); setError(""); setSaved("");
-    setPanels(null); setRoomEdit(null); setListings(null); setListingEdit(null); setRoomPage(0); setListingPage(0); setMobileSection("rooms");
+    setPanels(null); setRoomEdit(null); setListings(null); setListingEdit(null); setRoomPage(0); setListingPage(0); setRoomSearch(""); setListingSearch(""); setListingStatus("ALL"); setExpandedListingId(""); setRoomMode("manage"); setRateMode("manage"); setMobileSection("overview");
     try {
       await refreshDetail(property.id);
       await refreshListings(property.id);
       setPropertyEdit(null);
+      requestAnimationFrame(() => document.getElementById(window.matchMedia("(max-width: 760px)").matches ? "hostel-mobile-context" : "hostel-property")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : "That property could not be opened.");
     } finally {
       setBusy("");
     }
+  }
+
+  async function submitPropertyReview() {
+    if (!detail || detail.property.status !== "DRAFT") return;
+    setBusy("property-review"); setError(""); setSaved("");
+    try {
+      await request("/api/console/hostel/properties/review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ propertyId: detail.property.id }),
+      });
+      await Promise.all([refreshDetail(detail.property.id), load()]);
+      setSaved("Property submitted. Staff will review the building separately from its bed listings.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Property could not be submitted for review.");
+    } finally { setBusy(""); }
   }
 
   async function addProperty(event: FormEvent) {
@@ -183,8 +229,9 @@ function HostelWorkspace() {
       const property = data.property as Property;
       setProperties((current) => [property, ...(current || [])]);
       setDraft({ name: "", address: "", latitude: "", longitude: "", utilitiesEnabled: false });
-      setSaved(`${property.name} saved as a draft. Add its rooms and beds below.`);
+      setCreateOpen(false);
       await openProperty(property);
+      setSaved(`${property.name} saved as a draft. Complete its location and building photos before review.`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The property could not be saved.");
     } finally {
@@ -234,6 +281,7 @@ function HostelWorkspace() {
       setRoomDraft({ ...EMPTY_ROOM }); setSingleRoomOpen(false);
       setSaved(`${room.label} added with ${room.spaces.length} ${room.spaces.length === 1 ? "bed" : "beds"}.`);
       await refreshDetail(detail.property.id);
+      setRoomMode("manage");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The room could not be saved.");
     } finally {
@@ -319,6 +367,7 @@ function HostelWorkspace() {
       setListingDraft({ roomId: "", periodId: rate.periodId, price: "" });
       setSaved(`${rate.roomLabel}: all ${rate.bedCount} beds now share the same annual rent for ${rate.periodName}. Submit new drafts for review.`);
       await refreshListings(detail.property.id);
+      setRateMode("manage");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "That bed could not be priced.");
     } finally {
@@ -380,19 +429,32 @@ function HostelWorkspace() {
   }
 
   const openRoom = detail?.rooms.find((room) => room.id === (panels?.roomId || roomEdit?.id)) || null;
-  const shownRooms = detail?.rooms.slice(roomPage * PAGE_SIZE, (roomPage + 1) * PAGE_SIZE) || [];
-  const shownListings = listings?.slice(listingPage * PAGE_SIZE, (listingPage + 1) * PAGE_SIZE) || [];
+  const ownerSetupApproved = setupOwner?.profileStatus === "APPROVED" && setupOwner.identityStatus === "VERIFIED" && setupOwner.payoutStatus === "APPROVED";
+  const setupComplete = ownerSetupApproved && (properties?.some(property => property.status === "APPROVED") ?? false);
+  const roomSetupApproved = ownerSetupApproved && detail?.property.status === "APPROVED";
+  const pageSize = compact ? 4 : PAGE_SIZE;
+  const filteredRooms = (detail?.rooms || []).filter(room => `${room.label} ${room.amenities}`.toLowerCase().includes(roomSearch.trim().toLowerCase()));
+  const filteredListings = (listings || []).filter(listing =>
+    (listingStatus === "ALL" || listing.status === listingStatus) &&
+    `${listing.roomLabel} ${listing.spaceLabel} ${listing.periodName}`.toLowerCase().includes(listingSearch.trim().toLowerCase()));
+  const activeRoomPage = Math.min(roomPage, Math.max(0, Math.ceil(filteredRooms.length / pageSize) - 1));
+  const activeListingPage = Math.min(listingPage, Math.max(0, Math.ceil(filteredListings.length / pageSize) - 1));
+  const shownRooms = filteredRooms.slice(activeRoomPage * pageSize, (activeRoomPage + 1) * pageSize);
+  const shownListings = filteredListings.slice(activeListingPage * pageSize, (activeListingPage + 1) * pageSize);
+  const showRoomPage = (page: number) => { setRoomPage(page); requestAnimationFrame(() => document.getElementById("hostel-rooms")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+  const showListingPage = (page: number) => { setListingPage(page); setExpandedListingId(""); requestAnimationFrame(() => document.getElementById("hostel-rates")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
 
-  return <div className="hostel-workspace">
+  return <div className="hostel-workspace" data-mobile-focused={detail ? "true" : "false"}>
     <div className="hostel-workspace-intro">
-      <div><span className="hostel-workspace-eyebrow">HOSTEL OPERATIONS</span><h2>Manage your properties</h2><p>Keep your rooms, availability and student enquiries in one place. Each review decision stays visible as you work.</p></div>
-      <div className="hostel-workspace-quicklinks"><Link href="/console/hostels/guide" className="hostel-workspace-primary">Staff guide & assistant →</Link><Link href="/console/hostels/onboarding" className="hostel-workspace-primary">Continue setup →</Link></div>
+      <div><span className="hostel-workspace-eyebrow">PROPERTY MANAGEMENT</span><p>Open a building to manage its rooms, prices, media and review status.</p></div>
+      <div className="hostel-workspace-quicklinks"><Link href="/console/hostels/guide" className="hostel-workspace-primary">Staff guide & assistant →</Link>{setupComplete ? <button type="button" className="hostel-workspace-primary" onClick={() => setCreateOpen(true)}>Add property +</button> : <Link href="/console/hostels/onboarding" className="hostel-workspace-primary">Continue setup →</Link>}</div>
     </div>
+    {detail && <div className="hostel-mobile-context" id="hostel-mobile-context"><button type="button" onClick={() => { setDetail(null); setPropertyEdit(null); setPanels(null); setRoomEdit(null); setMobileSection("overview"); requestAnimationFrame(() => document.getElementById("hostel-overview")?.scrollIntoView({ behavior: "smooth", block: "start" })); }}>← All properties</button><strong>{detail.property.name}</strong><span className={badge(detail.property.status)}>{detail.property.status.replace("_", " ")}</span></div>}
     <div className="hostel-workspace-metrics" aria-label="Workspace overview" data-mobile-section="overview" data-active={mobileSection === "overview"}>
       <div><strong>{properties?.length ?? "—"}</strong><span>{properties?.length === 1 ? "Property" : "Properties"}</span></div>
       <div><strong>{properties?.filter(property => property.status === "APPROVED").length ?? "—"}</strong><span>Approved</span></div>
-      <div><strong>{detail?.rooms.length ?? "—"}</strong><span>Rooms in focus</span></div>
-      <div><strong>{detail?.rooms.reduce((count, room) => count + room.spaces.filter(space => space.status === "AVAILABLE").length, 0) ?? "—"}</strong><span>Available bed spaces</span></div>
+      {detail && <><div><strong>{detail.rooms.length}</strong><span>Rooms in focus</span></div>
+      <div><strong>{detail.rooms.reduce((count, room) => count + room.spaces.filter(space => space.status === "AVAILABLE").length, 0)}</strong><span>Available bed spaces</span></div></>}
     </div>
     {detail && <nav className="hostel-workspace-mobile-nav" aria-label="Hostel workspace tasks">{(["overview", "rooms", "rates", "media", "assistant"] as const).map(section => <button type="button" key={section} aria-current={mobileSection === section ? "page" : undefined} onClick={() => { setMobileSection(section); setError(""); setSaved(""); }}>{section === "overview" ? "Overview" : section === "media" ? "Photos & visits" : section === "assistant" ? "AI info" : section === "rates" ? "Rates" : "Rooms"}</button>)}</nav>}
     {detail && <nav className="hostel-workspace-jumps" aria-label="Property workspace sections"><a href="#hostel-property">Property</a><a href="#hostel-rooms">Rooms</a><a href="#hostel-rates">Rates</a><a href="#hostel-assistant">Assistant</a></nav>}
@@ -400,7 +462,7 @@ function HostelWorkspace() {
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
     <div className="hostel-workspace-overview" id="hostel-overview" data-mobile-section="overview" data-active={mobileSection === "overview"}>
-    <section className="console-panel hostel-workspace-account">
+    {!setupComplete && <section className="console-panel hostel-workspace-account">
       <h2><ShieldCheck size={18}/>Landlord account
         {landlord && <span className={badge(landlord.kycStatus === "VERIFIED" ? "APPROVED" : landlord.kycStatus)}>KYC {landlord.kycStatus}</span>}
       </h2>
@@ -411,61 +473,41 @@ function HostelWorkspace() {
         Your account is active. Complete the three-step setup so staff can review owner identity, property details and payout destination separately.
       </p>
       <Link href="/console/hostels/onboarding" className="console-onboarding-link">Open setup &amp; verification →</Link>
-    </section>
+    </section>}
 
-    <section className="console-panel hostel-workspace-add">
-      <h2><Buildings size={18}/>Add a property</h2>
-      <form className="console-form" onSubmit={addProperty}>
-        <label>Property name
-          <input type="text" required minLength={2} maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Green View Hostel" />
-        </label>
-        <label>Address
-          <input type="text" required minLength={3} maxLength={160} value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} placeholder="Near UMaT main gate, Tarkwa" />
-        </label>
-        <label>Latitude (optional)
-          <input type="text" inputMode="decimal" value={draft.latitude} onChange={(event) => setDraft({ ...draft, latitude: event.target.value })} placeholder="5.3009" />
-        </label>
-        <label>Longitude (optional)
-          <input type="text" inputMode="decimal" value={draft.longitude} onChange={(event) => setDraft({ ...draft, longitude: event.target.value })} placeholder="-1.9897" />
-        </label>
-        <label className="console-check-field">
-          <input type="checkbox" checked={draft.utilitiesEnabled} onChange={(event) => setDraft({ ...draft, utilitiesEnabled: event.target.checked })} /> Charge a utilities fee per bed
-        </label>
-        <button disabled={busy === "property"}><Plus size={16}/>{busy === "property" ? "Saving…" : "Save property"}</button>
-      </form>
-      <p className="console-note">
-        <MapPin size={13}/> Latitude and longitude place the property on the student map. You can add them later; without them the property still lists.
-      </p>
-    </section>
+    {!setupComplete && <section className="console-panel hostel-workspace-add">
+      <span className="hostel-workspace-eyebrow">GROW YOUR PORTFOLIO</span>
+      <h2><Buildings size={18}/>{properties?.length ? "Add another property" : "Create your first property"}</h2>
+      <p className="console-note">Start with the building name and address. Add its precise location and building photos during setup; rooms follow approval.</p>
+      <button type="button" className="hostel-workspace-create-button" onClick={() => setCreateOpen(true)}><Plus size={17}/> Create property</button>
+    </section>}
+    <dialog ref={createDialog} className="hostel-batch-dialog hostel-create-dialog" aria-labelledby="hostel-create-title" onCancel={(event) => { if (busy === "property") event.preventDefault(); else setCreateOpen(false); }} onClick={(event) => { if (event.target === event.currentTarget && busy !== "property") setCreateOpen(false); }}>
+        <div className="hostel-batch-inner"><header><div><span>NEW BUILDING</span><h2 id="hostel-create-title">Create a property draft</h2><p>Start with the essentials, then complete staff review in setup.</p></div><button type="button" aria-label="Close" disabled={busy === "property"} onClick={() => setCreateOpen(false)}><X size={20}/></button></header>
+          <form className="console-form" onSubmit={addProperty}>
+            <label>Property name<input type="text" required minLength={2} maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Green View Hostel" /></label>
+            <label>Address<input type="text" required minLength={3} maxLength={160} value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} placeholder="Near UMaT main gate, Tarkwa" /></label>
+            <label className="console-check-field"><input type="checkbox" checked={draft.utilitiesEnabled} onChange={(event) => setDraft({ ...draft, utilitiesEnabled: event.target.checked })} /> Charge utilities per bed</label>
+            <p className="console-note">A confirmed property pin is required before staff can approve the building. You can add it after creating this draft.</p>
+            <footer><button type="button" className="hostel-batch-cancel" disabled={busy === "property"} onClick={() => setCreateOpen(false)}>Cancel</button><button type="submit" disabled={busy === "property"}><Plus size={16}/>{busy === "property" ? "Saving…" : "Create draft"}</button></footer>
+          </form>
+        </div>
+    </dialog>
 
     <section className="console-panel hostel-workspace-properties">
       <h2><Bed size={18}/>Your properties</h2>
       {!properties
         ? <p className="console-empty">Loading your properties…</p>
         : properties.length === 0
-          ? <p className="console-empty">No properties yet. Add your first building above.</p>
-          : <table className="console-table">
-            <thead><tr><th>Property</th><th>Location</th><th>Utilities</th><th>Status</th><th>Added</th><th></th></tr></thead>
-            <tbody>
-              {properties.map((property) => (
-                <tr key={property.id}>
-                  <td data-label="Property"><span>{property.name}</span><small>{property.address || "No address yet"}</small></td>
-                  <td data-label="Location">{property.latitude !== null && property.longitude !== null ? `${property.latitude.toFixed(4)}, ${property.longitude.toFixed(4)}` : "Not pinned"}</td>
-                  <td data-label="Utilities">{property.utilitiesEnabled ? "Fee per bed" : "Rent only"}</td>
-                  <td data-label="Status"><span className={badge(property.status)}>{property.status.replace("_", " ")}</span></td>
-                  <td data-label="Added">{when(property.createdAt)}</td>
-                  <td className="console-row-actions" data-label="Actions">
-                    <button disabled={busy === `open:${property.id}`} onClick={() => void openProperty(property)}>
-                      <DoorOpen size={15}/>{detail?.property.id === property.id ? "Rooms & beds" : "Open"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>}
-      <p className="console-note">
-        A property stays a draft while you build it. Add every room and bed-space now — you only upload photos and submit for review when the building is complete.
-      </p>
+          ? <div className="hostel-workspace-empty"><p className="console-empty">No properties yet. Create your first building, then add its location and photos for review.</p><button type="button" onClick={() => setCreateOpen(true)}><Plus size={16}/> Create first property</button></div>
+          : <div className="hostel-property-grid">
+            {properties.map((property) => <article className={`hostel-property-tile${detail?.property.id === property.id ? " is-selected" : ""}`} key={property.id}>
+              <div className="hostel-property-tile-top"><span>HOSTEL PROPERTY</span><span className={badge(property.status)}>{property.status.replace("_", " ")}</span></div>
+              <h3>{property.name}</h3><p>{property.address || "Address still needed"}</p>
+              <div className="hostel-property-tile-meta"><span><MapPin size={15}/>{property.latitude !== null && property.longitude !== null ? "Location pinned" : "Location needed"}</span><span>{property.utilitiesEnabled ? "Utilities per bed" : "Rent only"}</span><span>Added {when(property.createdAt)}</span></div>
+              <button type="button" disabled={busy === `open:${property.id}`} onClick={() => void openProperty(property)}><DoorOpen size={17}/>{busy === `open:${property.id}` ? "Opening…" : detail?.property.id === property.id ? "Manage selected property" : "Manage property"}</button>
+            </article>)}
+          </div>}
+      <p className="console-note">A property becomes public after staff approve the building. Beds and prices require their own review.</p>
     </section>
 
     </div>
@@ -489,6 +531,22 @@ function HostelWorkspace() {
         {detail.property.address || "No address yet"} · {detail.property.utilitiesEnabled ? "Utilities fee per bed applies" : "Rent only"} · {detail.rooms.length} {detail.rooms.length === 1 ? "room" : "rooms"}
       </p>
 
+      <div className={`hostel-publication-status is-${detail.property.status.toLowerCase()}`} role="status">
+        <div><span className="hostel-publication-eyebrow">STUDENT VISIBILITY</span>
+          <strong>{detail.property.status === "APPROVED" ? "Property visible to students" : detail.property.status === "PENDING_REVIEW" ? "Property awaiting staff approval" : detail.property.status === "SUSPENDED" ? "Property suspended" : "Property is not public yet"}</strong>
+          <p>{detail.property.status === "APPROVED"
+            ? `${listings?.filter(item => item.status === "APPROVED" && item.periodActive).length || 0} approved bed listings. Students can browse this building; only approved available beds can be booked.`
+            : detail.property.status === "PENDING_REVIEW" ? "Your property is in the staff queue. Approved photos alone do not publish a building."
+            : detail.property.status === "SUSPENDED" ? "Staff have paused this building. Contact the platform team for the review reason."
+            : detail.property.latitude === null || detail.property.longitude === null
+              ? "Add and save a location pin first. Approved photos and rooms do not approve the building; staff must review the property separately."
+              : "A saved building and approved photos are separate from property approval. Submit the building for review to publish it."}</p>
+        </div>
+        {detail.property.status === "DRAFT" && (detail.property.latitude === null || detail.property.longitude === null
+          ? <button type="button" onClick={() => setPropertyEdit({ name: detail.property.name, address: detail.property.address, latitude: "", longitude: "", utilitiesEnabled: detail.property.utilitiesEnabled })}>Set property location</button>
+          : <button type="button" disabled={Boolean(busy)} onClick={() => void submitPropertyReview()}>{busy === "property-review" ? "Submitting…" : "Submit property for review"}</button>)}
+        {detail.property.status === "APPROVED" && <Link href={`/hostel/${encodeURIComponent(detail.property.id)}`} target="_blank" rel="noopener noreferrer">View student page ↗</Link>}
+      </div>
       {propertyEdit && <form className="console-form" onSubmit={savePropertyEdit}>
         <label>Property name
           <input type="text" required minLength={2} maxLength={80} value={propertyEdit.name} onChange={(event) => setPropertyEdit({ ...propertyEdit, name: event.target.value })} />
@@ -496,6 +554,7 @@ function HostelWorkspace() {
         <label>Address
           <input type="text" required minLength={3} maxLength={160} value={propertyEdit.address} onChange={(event) => setPropertyEdit({ ...propertyEdit, address: event.target.value })} />
         </label>
+        <div className="hostel-workspace-location"><HostelLocationPicker latitude={propertyEdit.latitude} longitude={propertyEdit.longitude} onChange={(latitude, longitude) => setPropertyEdit(current => current ? { ...current, latitude, longitude } : current)}/></div>
         <label>Latitude
           <input type="text" inputMode="decimal" value={propertyEdit.latitude} onChange={(event) => setPropertyEdit({ ...propertyEdit, latitude: event.target.value })} placeholder="5.3009" />
         </label>
@@ -519,10 +578,13 @@ function HostelWorkspace() {
       onNotice={setSaved}
     />}</div>}
 
-    {detail && <div data-mobile-section="rooms" data-active={mobileSection === "rooms"}><section className="console-panel">
+    {detail && <div data-mobile-section="rooms" data-active={mobileSection === "rooms"}>
+    {roomSetupApproved && detail.rooms.length > 0 && <nav className="hostel-workspace-task-switch" aria-label="Room tasks"><button type="button" aria-current={roomMode === "manage" ? "page" : undefined} onClick={() => setRoomMode("manage")}>Manage rooms <span>{detail.rooms.length}</span></button><button type="button" aria-current={roomMode === "add" ? "page" : undefined} onClick={() => { setRoomMode("add"); setRoomEdit(null); setPanels(null); }}>Add rooms</button></nav>}
+    {!roomSetupApproved && <section className="console-panel hostel-room-create" role="status"><h2><ShieldCheck size={18}/>Rooms open after setup approval</h2><p className="console-note">Complete the separate reviews for account details, identity, payout destination and this property. Once all four are approved, return here to add rooms and beds.</p><Link href="/console/hostels/onboarding" className="console-onboarding-link">Check setup progress →</Link></section>}
+    {roomSetupApproved && <section className="console-panel hostel-room-create" data-task-active={roomMode === "add" || detail.rooms.length === 0}>
       <h2><Plus size={18}/>Add rooms to {detail.property.name}</h2>
       <p className="console-note">Create a numbered range with matching beds and features in batches, or add one room manually.</p>
-      <HostelRoomBatch key={detail.property.id} propertyId={detail.property.id} propertyName={detail.property.name} canPrice={landlord?.kycStatus === "VERIFIED"} roomTemplates={detail.rooms} onComplete={async message => { setSaved(message); await Promise.all([refreshDetail(detail.property.id), refreshListings(detail.property.id)]); }} />
+      <HostelRoomBatch key={detail.property.id} propertyId={detail.property.id} propertyName={detail.property.name} canPrice={landlord?.kycStatus === "VERIFIED"} roomTemplates={detail.rooms} onComplete={async message => { setSaved(message); await Promise.all([refreshDetail(detail.property.id), refreshListings(detail.property.id)]); setRoomMode("manage"); }} />
       <button type="button" className="hostel-single-room-toggle" onClick={() => setSingleRoomOpen(value => !value)}>{singleRoomOpen ? "Hide single-room form" : "Add one room manually"}</button>
       {singleRoomOpen && <>
       <form className="console-form" onSubmit={addRoom}>
@@ -547,12 +609,13 @@ function HostelWorkspace() {
       <p className="console-note">
         Each student bed space is created separately. Bunk layouts name lower and upper places, so students choose their own bed rather than booking the entire room.
       </p></>}
-    </section>
+    </section>}
 
-    {detail && <section className="console-panel" id="hostel-rooms">
+    {detail && <section className="console-panel hostel-room-manage" id="hostel-rooms" data-task-active={roomMode === "manage" && detail.rooms.length > 0}>
       <h2><Bed size={18}/>Rooms and beds</h2>
-      {detail.rooms.length === 0
-        ? <p className="console-empty">No rooms yet. Add the first one above.</p>
+      {detail.rooms.length > 5 && <div className="hostel-list-toolbar"><label>Find a room<input type="search" value={roomSearch} onChange={event => { setRoomSearch(event.target.value); setRoomPage(0); }} placeholder="Search room number or feature" /></label><span>{filteredRooms.length} of {detail.rooms.length} rooms</span></div>}
+      {filteredRooms.length === 0
+        ? <p className="console-empty">{detail.rooms.length ? "No rooms match that search." : "No rooms yet. Add the first one above."}</p>
         : <table className="console-table">
           <thead><tr><th>Room</th><th>Beds</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -593,7 +656,7 @@ function HostelWorkspace() {
             })}
           </tbody>
         </table>}
-      {detail.rooms.length > PAGE_SIZE && <div className="hostel-page-controls"><span>Rooms {roomPage * PAGE_SIZE + 1}–{Math.min((roomPage + 1) * PAGE_SIZE, detail.rooms.length)} of {detail.rooms.length}</span><button type="button" disabled={roomPage === 0} onClick={() => setRoomPage(page => page - 1)}>Previous</button><button type="button" disabled={(roomPage + 1) * PAGE_SIZE >= detail.rooms.length} onClick={() => setRoomPage(page => page + 1)}>Next</button></div>}
+      {filteredRooms.length > pageSize && <div className="hostel-page-controls"><span>Rooms {activeRoomPage * pageSize + 1}–{Math.min((activeRoomPage + 1) * pageSize, filteredRooms.length)} of {filteredRooms.length}</span><button type="button" disabled={activeRoomPage === 0} onClick={() => showRoomPage(activeRoomPage - 1)}>Previous</button><button type="button" disabled={(activeRoomPage + 1) * pageSize >= filteredRooms.length} onClick={() => showRoomPage(activeRoomPage + 1)}>Next</button></div>}
       <p className="console-note">
         Shrinking a room retires its highest beds for you; growing it adds more. A bed with a live listing is never retired behind your back.
       </p>
@@ -675,11 +738,14 @@ function HostelWorkspace() {
 
     </div>}
 
-    {detail && landlord?.kycStatus !== "VERIFIED" && <div data-mobile-section="rates" data-active={mobileSection === "rates"}><section className="console-panel" id="hostel-rates"><h2><ShieldCheck size={18}/>Listings unlock after identity review</h2><p className="console-note">You can prepare your property, rooms and photos now. Once staff approve your identity and authority evidence, yearly bed listings open here.</p><Link href="/console/hostels/onboarding" className="console-onboarding-link">Continue identity review →</Link></section></div>}
+    {detail && landlord?.kycStatus !== "VERIFIED" && <div data-mobile-section="rates" data-active={mobileSection === "rates"}><section className="console-panel" id="hostel-rates"><h2><ShieldCheck size={18}/>Listings unlock after identity review</h2><p className="console-note">Complete your property and building photos first. Rooms and beds open after account, identity, payout and property approval; yearly listings then receive their own review.</p><Link href="/console/hostels/onboarding" className="console-onboarding-link">Continue identity review →</Link></section></div>}
 
-    {detail && landlord?.kycStatus === "VERIFIED" && <div data-mobile-section="rates" data-active={mobileSection === "rates"}><section className="console-panel" id="hostel-rates">
+    {detail && landlord?.kycStatus === "VERIFIED" && <div data-mobile-section="rates" data-active={mobileSection === "rates"}>
+    {listings && listings.length > 0 && <nav className="hostel-workspace-task-switch" aria-label="Rate tasks"><button type="button" aria-current={rateMode === "manage" ? "page" : undefined} onClick={() => setRateMode("manage")}>Manage beds <span>{listings.length}</span></button><button type="button" aria-current={rateMode === "price" ? "page" : undefined} onClick={() => setRateMode("price")}>Set prices</button></nav>}
+    <section className="console-panel" id="hostel-rates">
       <h2><SealCheck size={18}/>Beds for sale</h2>
-      {periods && periods.length > 0 && <div className="hostel-rate-batch"><HostelRateBatch key={detail.property.id} propertyId={detail.property.id} periods={periods} onComplete={async message => { setSaved(message); await refreshListings(detail.property.id); }}/><HostelSubmitBatch key={detail.property.id} propertyId={detail.property.id} periods={periods} onComplete={async message => { setSaved(message); await refreshListings(detail.property.id); }}/><span>Price or submit 1–100 numbered rooms at a time.</span></div>}
+      <div className="hostel-rate-create" data-task-active={rateMode === "price" || (listings !== null && listings.length === 0)}>
+      {periods && periods.length > 0 && <div className="hostel-rate-batch"><HostelRateBatch key={detail.property.id} propertyId={detail.property.id} periods={periods} onComplete={async message => { setSaved(message); await refreshListings(detail.property.id); setRateMode("manage"); }}/><HostelSubmitBatch key={detail.property.id} propertyId={detail.property.id} periods={periods} onComplete={async message => { setSaved(message); await refreshListings(detail.property.id); }}/><span>Price or submit 1–100 numbered rooms at a time.</span></div>}
       {periods !== null && periods.length === 0
         ? <p className="console-empty">The platform has not opened an academic year yet. You can price beds as soon as it does.</p>
         : <form className="console-form" onSubmit={addListing}>
@@ -700,16 +766,19 @@ function HostelWorkspace() {
           </label>
           <button disabled={busy === "listing"}><Plus size={16}/>{busy === "listing" ? "Saving…" : "Set one rate for every bed"}</button>
         </form>}
+      </div>
+      <div className="hostel-rate-manage" data-task-active={rateMode === "manage" && (listings === null || listings.length > 0)}>
+      {listings && listings.length > 8 && <div className="hostel-list-toolbar"><label>Find a bed<input type="search" value={listingSearch} onChange={event => { setListingSearch(event.target.value); setListingPage(0); }} placeholder="Search room, bed or year" /></label><label>Status<select value={listingStatus} onChange={event => { setListingStatus(event.target.value); setListingPage(0); }}><option value="ALL">All statuses</option><option value="DRAFT">Draft</option><option value="PENDING_REVIEW">Pending review</option><option value="APPROVED">Approved</option><option value="SUSPENDED">Suspended</option></select></label><span>{filteredListings.length} of {listings.length} beds</span></div>}
       {!listings
         ? <p className="console-empty">Loading the listings for this property…</p>
-        : listings.length === 0
-          ? <p className="console-empty">No rooms priced yet. Set one annual rate per student bed for each room.</p>
+        : filteredListings.length === 0
+          ? <p className="console-empty">{listings.length ? "No beds match those filters." : "No rooms priced yet. Set one annual rate per student bed for each room."}</p>
           : <table className="console-table">
             <thead><tr><th>Bed</th><th>Year</th><th>Rent per bed</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {shownListings.map((listing) => (
-                <tr key={listing.id}>
-                  <td data-label="Bed"><strong>{listing.roomLabel} · {listing.spaceLabel}</strong><small>Added {when(listing.createdAt)}</small></td>
+                <tr key={listing.id} data-expanded={expandedListingId === listing.id}>
+                  <td data-label="Bed"><strong>{listing.roomLabel} · {listing.spaceLabel}</strong><small>Added {when(listing.createdAt)}</small><button type="button" className="hostel-listing-expand" aria-expanded={expandedListingId === listing.id} onClick={() => setExpandedListingId(current => current === listing.id ? "" : listing.id)}>{expandedListingId === listing.id ? "Hide actions" : "Manage this bed"}</button></td>
                   <td data-label="Academic year">{listing.periodName || "—"}</td>
                   <td data-label="Rent per bed">{cedis(listing.price)}</td>
                   <td data-label="Status">
@@ -736,10 +805,11 @@ function HostelWorkspace() {
               ))}
             </tbody>
           </table>}
-      {listings && listings.length > PAGE_SIZE && <div className="hostel-page-controls"><span>Beds {listingPage * PAGE_SIZE + 1}–{Math.min((listingPage + 1) * PAGE_SIZE, listings.length)} of {listings.length}</span><button type="button" disabled={listingPage === 0} onClick={() => setListingPage(page => page - 1)}>Previous</button><button type="button" disabled={(listingPage + 1) * PAGE_SIZE >= listings.length} onClick={() => setListingPage(page => page + 1)}>Next</button></div>}
+      {listings && filteredListings.length > pageSize && <div className="hostel-page-controls"><span>Beds {activeListingPage * pageSize + 1}–{Math.min((activeListingPage + 1) * pageSize, filteredListings.length)} of {filteredListings.length}</span><button type="button" disabled={activeListingPage === 0} onClick={() => showListingPage(activeListingPage - 1)}>Previous</button><button type="button" disabled={(activeListingPage + 1) * pageSize >= filteredListings.length} onClick={() => showListingPage(activeListingPage + 1)}>Next</button></div>}
       <p className="console-note">
         Each bed is booked separately, but every bed in the same room has one annual rent per student for that academic year. Changing the room rate sends changed offers back to review.
       </p>
+      </div>
     </section></div>}
 
     {detail && <div id="hostel-assistant" data-mobile-section="assistant" data-active={mobileSection === "assistant"}><HostelAiDesk key={detail.property.id} propertyId={detail.property.id} rooms={detail.rooms.map(room => ({ id: room.id, label: room.label }))} /></div>}

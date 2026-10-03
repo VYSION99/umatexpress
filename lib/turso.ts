@@ -1,6 +1,6 @@
 import { envValue } from "@/lib/runtime-env";
 
-type SqlArg = { type: "text" | "integer" | "null"; value?: string };
+type SqlArg = { type: "text" | "integer" | "float" | "null"; value?: string | number };
 type TursoResult = { rows?: unknown[]; cols?: Array<{ name: string }>; affected_row_count?: number; step_results?: Array<TursoResult | null>; step_errors?: Array<{ message?: string } | null> };
 type TursoStep = { error?: { message?: string }; response?: { result?: TursoResult } };
 
@@ -43,12 +43,17 @@ async function config() {
   return { url, token };
 }
 
+function sqlArg(value: string | number | null): SqlArg {
+  if (value === null) return { type: "null" };
+  if (typeof value === "string") return { type: "text", value };
+  if (!Number.isFinite(value)) throw new TypeError("Database numbers must be finite.");
+  return Number.isInteger(value)
+    ? { type: "integer", value: String(value) }
+    : { type: "float", value };
+}
+
 export async function turso(sql: string, values: Array<string | number | null> = []) {
-  // Turso sends SQL NULL as a tagged cell with no value at all; sending the
-  // string "null" instead would store four characters and read back as filled.
-  const args: SqlArg[] = values.map((value) => (value === null
-    ? { type: "null" as const }
-    : { type: typeof value === "number" ? "integer" as const : "text" as const, value: String(value) }));
+  const args = values.map(sqlArg);
   const [first] = await pipeline([{ type: "execute", stmt: { sql, args } }]);
   return stepResult(first);
 }
@@ -58,7 +63,7 @@ export async function tursoReadBatch(statements: Array<{ sql: string; args: Arra
   if (!statements.length) return [];
   if (statements.some(statement => !/^\s*SELECT\b/i.test(statement.sql))) throw new Error("Read batches accept SELECT statements only.");
   const result = await pipeline(statements.map(statement => ({ type: "execute", stmt: {
-    sql: statement.sql, args: statement.args.map(value => value === null ? { type: "null" } : { type: typeof value === "number" ? "integer" : "text", value: String(value) }),
+    sql: statement.sql, args: statement.args.map(sqlArg),
   } })));
   return statements.map((_statement, index) => stepResult(result[index]));
 }
@@ -71,7 +76,7 @@ export async function tursoTransaction(statements: Array<{ sql: string; args: Ar
   for (const statement of statements) {
     steps.push({ condition: { type: "ok", step: steps.length - 1 }, stmt: {
       sql: statement.sql,
-      args: statement.args.map(value => value === null ? { type: "null" } : { type: typeof value === "number" ? "integer" : "text", value: String(value) }),
+      args: statement.args.map(sqlArg),
     } });
   }
   const commit = steps.length;

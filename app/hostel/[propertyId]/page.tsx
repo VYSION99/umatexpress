@@ -40,14 +40,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   if (!record) return { title: "Hostel not found | UMaTeXPRESS" };
   return {
     title: `${record.property.name} | Hostel Finder | UMaTeXPRESS`,
-    description: `Approved beds at ${record.property.name}, ${record.property.address || "near UMaT"}.`,
+    description: `Explore ${record.property.name}, ${record.property.address || "near UMaT"}, and see approved beds when available.`,
   };
 }
 
 /**
- * One hostel, every approved bed. A property that is suspended, unpublished or
- * has no bed on sale in the open year is a 404: the public gate is the same
- * query the map uses, so a page can never outlive the approval behind it.
+ * One approved hostel, with its separately reviewed beds when available.
+ * Unapproved or suspended buildings remain inaccessible.
  */
 export default async function HostelPropertyPage({ params, searchParams }: PageProps) {
   const { propertyId } = await params;
@@ -58,7 +57,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
   const { period, property, spaces, photos, reviews } = record;
   const [verifications, destinations] = await Promise.all([listPublicHostelVerifications(property.id), listWalkingDestinations()]);
 
-  return <CampusShell area="HOSTELFINDER" title={property.name} subtitle={`${period.name} · ${bedsLabel(property.availableSpaces)}`}>
+  return <CampusShell area="HOSTELFINDER" title={property.name} subtitle={`${period.name} · ${property.availableSpaces ? bedsLabel(property.availableSpaces) : "Beds being prepared"}`}>
     <nav className="hostel-breadcrumb">
       <Link href="/hostel/help">Hostel Finder help</Link>
       <Link href={`/hostel?periodId=${encodeURIComponent(period.id)}`}><ArrowLeft size={14} aria-hidden /> All hostels</Link>
@@ -78,7 +77,7 @@ export default async function HostelPropertyPage({ params, searchParams }: PageP
           </ul>
           <p className="hostel-detail-note">Prices are for the whole {period.name}, from {new Date(`${period.startsOn}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} to {new Date(`${period.endsOn}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.</p>
         </section>
-        {!property.bookingReady && <div className="hostel-booking-pause-notice" role="status"><strong>Booking temporarily paused</strong><span>You can browse rooms and request a viewing while this hostel’s payout details are reviewed.</span></div>}
+        {property.availableSpaces > 0 && !property.bookingReady && <div className="hostel-booking-pause-notice" role="status"><strong>Booking temporarily paused</strong><span>You can browse rooms and request a viewing while this hostel’s payout details are reviewed.</span></div>}
         <HostelRoomMedia photos={photos} spaces={spaces} />
         <HostelViewingRequest propertyId={property.id} />
         <HostelBedPicker spaces={spaces} periodName={period.name} bookingReady={property.bookingReady} />

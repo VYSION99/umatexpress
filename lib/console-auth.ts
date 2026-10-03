@@ -81,7 +81,7 @@ export async function consoleDelegateRecord(accountId: string) {
 
 /** A delegate may access only explicit console service areas; unknown routes fail closed. */
 export function delegateServiceForPath(pathname: string): string | null {
-  if (pathname === "/api/console/session" || pathname === "/console" || pathname === "/console/change-password") return null;
+  if (pathname === "/api/console/session" || pathname === "/api/console/account" || pathname === "/console" || pathname === "/console/account" || pathname === "/console/change-password") return null;
   if (pathname.startsWith("/api/console/delegates") || pathname.startsWith("/console/delegates") || pathname.startsWith("/api/console/assistant")) return "__owner_only__";
   const paths: Array<[string, string]> = [
     ["/api/console/campus", "campus"], ["/api/admin/campus", "campus"], ["/api/v1/campus/admin", "campus"],

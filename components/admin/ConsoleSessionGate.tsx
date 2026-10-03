@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 export type ConsoleSessionInfo = {
   authenticated: true;
-  account: { id: string; email: string; name: string; role: string; status: string; profileId: string; delegateServices?: string[] };
+  account: { id: string; email: string; name: string; phone: string; role: string; status: string; profileId: string; delegateServices?: string[] };
   mustChangePassword: boolean;
 };
 
@@ -26,20 +26,24 @@ export function ConsoleSessionGate({
 
   useEffect(() => {
     let active = true;
-    fetch("/api/console/session", { cache: "no-store", credentials: "same-origin" })
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("not signed in"))))
-      .then((data: ConsoleSessionInfo) => {
-        if (!active) return;
-        if (data.mustChangePassword && !allowPasswordChange) {
-          window.location.replace("/console/change-password");
-          return;
-        }
-        setSession(data);
-      })
-      .catch(() => {
-        if (active) window.location.replace("/console/login");
-      });
-    return () => { active = false; };
+    const refresh = () => {
+      fetch("/api/console/session", { cache: "no-store", credentials: "same-origin" })
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error("not signed in"))))
+        .then((data: ConsoleSessionInfo) => {
+          if (!active) return;
+          if (data.mustChangePassword && !allowPasswordChange) {
+            window.location.replace("/console/change-password");
+            return;
+          }
+          setSession(data);
+        })
+        .catch(() => {
+          if (active) window.location.replace("/console/login");
+        });
+    };
+    refresh();
+    window.addEventListener("console-profile-updated", refresh);
+    return () => { active = false; window.removeEventListener("console-profile-updated", refresh); };
   }, [allowPasswordChange]);
 
   if (!session) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type RefObject } from "react";
-import { createHereMap, hereMapsConfig, loadHereMaps, MAP_UNAVAILABLE, type HereMapInstance, type MapPoint } from "@/lib/here-maps";
+import { createHereMap, disposeHereMap, hereMapsConfig, loadHereMaps, MAP_UNAVAILABLE, type HereMapInstance, type MapPoint } from "@/lib/here-maps";
 
 export function useHereMap(container: RefObject<HTMLDivElement | null>, options: { center: MapPoint; zoom: number }) {
   const [instance, setInstance] = useState<HereMapInstance | null>(null);
@@ -28,7 +28,7 @@ export function useHereMap(container: RefObject<HTMLDivElement | null>, options:
       resize.observe(element);
       setInstance(current); setLoading(false);
     }).catch(() => { if (!disposed) { setError(MAP_UNAVAILABLE); setLoading(false); } });
-    return () => { disposed = true; resize?.disconnect(); current?.ui.dispose(); current?.map.dispose(); element.replaceChildren(); };
+    return () => { disposed = true; resize?.disconnect(); if (current) disposeHereMap(current); element.replaceChildren(); };
   }, [container, options, attempt]);
   return { instance, loading, disabled, error, retry };
 }

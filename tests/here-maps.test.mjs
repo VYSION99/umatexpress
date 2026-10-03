@@ -81,3 +81,17 @@ test("HERE modules load once in dependency order and share a concurrent request"
   await maps.loadHereMaps();
   assert.equal(scripts.length, 4);
 });
+
+
+test("map disposal marks the instance before dependent pin cleanup", async () => {
+  const maps = await fresh();
+  const calls = [];
+  const instance = { disposed: false, ui: { dispose() { calls.push(["ui", instance.disposed]); } }, map: {
+    dispose() { calls.push(["map", instance.disposed]); },
+    removeObject() { calls.push(["remove", instance.disposed]); },
+  } };
+  maps.disposeHereMap(instance);
+  if (!instance.disposed) instance.map.removeObject({});
+  maps.disposeHereMap(instance);
+  assert.deepEqual(calls, [["ui", true], ["map", true]]);
+});

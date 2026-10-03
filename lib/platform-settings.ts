@@ -109,9 +109,9 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
   {
     key: "here_maps_enabled",
     kind: "toggle",
-    label: "HERE Maps",
-    summary: "Enable interactive maps in Hostel Finder and CampusRide.",
-    detail: "On loads HERE maps for hostel discovery, property locations, walking routes and campus rides. Off stops new embedded map loads; property staff can still use device location or enter coordinates manually. Changes apply after refreshing the page; allow up to 15 seconds across servers. Configure a HERE browser API key before turning this on.",
+    label: "Interactive maps",
+    summary: "Show OpenStreetMap-based maps in Hostel Finder and CampusRide.",
+    detail: "On shows OpenStreetMap tiles for hostel discovery, property locations, walking routes and campus rides. HERE address suggestions and GraphHopper walking directions remain separate. Off stops new embedded map loads; property staff can still use device location or enter coordinates manually. Changes apply after refreshing the page; allow up to 15 seconds across servers.",
     env: "HERE_MAPS_ENABLED",
     fallback: false,
   },

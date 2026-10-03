@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Crosshair } from "@phosphor-icons/react";
-import type { HereMapInstance } from "@/lib/here-maps";
+import type { CircleMarker } from "leaflet";
+import type { OsmMapInstance } from "@/lib/osm-maps";
 
-export function MapLocateButton({ instance }: { instance: HereMapInstance | null }) {
-  const pin = useRef<import("@/lib/here-maps").HereMarker | null>(null);
+export function MapLocateButton({ instance }: { instance: OsmMapInstance | null }) {
+  const pin = useRef<CircleMarker | null>(null);
   const request = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -13,7 +14,7 @@ export function MapLocateButton({ instance }: { instance: HereMapInstance | null
     queueMicrotask(() => setBusy(false));
     return () => {
       request.current += 1;
-      if (pin.current && instance) instance.map.removeObject(pin.current);
+      if (pin.current && instance && !instance.disposed) instance.map.removeLayer(pin.current);
       pin.current = null;
     };
   }, [instance]);
@@ -25,15 +26,14 @@ export function MapLocateButton({ instance }: { instance: HereMapInstance | null
     const id = ++request.current;
     setBusy(true);
     navigator.geolocation.getCurrentPosition(position => {
-      if (request.current !== id) return;
+      if (request.current !== id || instance.disposed) return;
       setBusy(false);
-      const point = { lat: position.coords.latitude, lng: position.coords.longitude };
-      if (!pin.current) { pin.current = new instance.api.map.Marker(point); instance.map.addObject(pin.current); }
-      else pin.current.setGeometry(point);
-      instance.map.setCenter(point);
-      instance.map.setZoom(16);
+      const point: [number, number] = [position.coords.latitude, position.coords.longitude];
+      if (!pin.current) pin.current = instance.L.circleMarker(point, { radius: 8, color: "#fff", weight: 3, fillColor: "#0d694d", fillOpacity: 1 }).addTo(instance.map);
+      else pin.current.setLatLng(point);
+      instance.map.setView(point, 16);
     }, () => {
-      if (request.current !== id) return;
+      if (request.current !== id || instance.disposed) return;
       setBusy(false);
       setError("Location could not be accessed. You can still browse the map.");
     }, { enableHighAccuracy: true, timeout: 15_000, maximumAge: 30_000 });

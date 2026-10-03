@@ -54,7 +54,7 @@ const vite = await createServer({ configFile: false, appType: "custom", root, re
   if (source === "@/lib/console-audit" || source.endsWith("/lib/console-audit") || source.endsWith("/lib/console-audit.ts")) return "\0audit";
 }, load(id) {
   if (id === "\0landlord") return `import { CampusEngineError } from '@/lib/campus-engine/errors'; export const HOSTEL_DEFAULT_COMMISSION_BPS=300; export async function ensureHostelTables() {} export async function getHostelProperty(owner,id) { if ((owner === 'owner' && id === 'p') || (owner === 'unverified' && id === 'other')) return { id, status: owner === 'owner' ? 'APPROVED' : 'DRAFT' }; throw new CampusEngineError('NOT_FOUND','Property not found.',404); }`;
-  if (id === "\0onboarding") return "export async function ownerReadiness(owner) { return { identityStatus: owner === 'owner' ? 'VERIFIED' : 'PENDING', profileStatus: owner === 'owner' ? 'APPROVED' : 'PENDING' }; }";
+  if (id === "\0onboarding") return "export async function ownerReadiness(owner) { return { identityStatus: owner === 'owner' ? 'VERIFIED' : 'PENDING', profileStatus: owner === 'owner' ? 'APPROVED' : 'PENDING', payoutStatus: owner === 'owner' ? 'APPROVED' : 'PENDING' }; }";
   if (id === "\0audit") return "export async function consoleAudit() {}";
 } }], server: { middlewareMode: true, hmr: false } });
 after(async () => { await vite.close(); globalThis.fetch = originalFetch; rmSync(directory, { recursive: true, force: true }); for (const [key,value] of Object.entries(saved)) { const name = key === "url" ? "TURSO_DATABASE_URL" : "TURSO_AUTH_TOKEN"; if (value === undefined) delete process.env[name]; else process.env[name] = value; } });
@@ -107,11 +107,10 @@ test("conflicts, oversized requests and other owners never create partial rooms"
   assert.equal((await rows("SELECT id FROM hostel_rooms")).length, before);
 });
 
-test("unverified owners may prepare rooms but cannot set yearly bed rents", async () => {
+test("unapproved setups cannot create rooms, even without a yearly price", async () => {
   await assert.rejects(() => createHostelRoomBatch("unverified", { ...input, propertyId: "other", start: 1, end: 2 }), error => error.code === "INVALID_STATE");
-  const prepared = await createHostelRoomBatch("unverified", { ...input, propertyId: "other", start: 1, end: 2, periodId: "", price: "" });
-  assert.equal(prepared.created, 2);
-  assert.equal((await rows("SELECT id FROM hostel_listings")).length, 100);
+  await assert.rejects(() => createHostelRoomBatch("unverified", { ...input, propertyId: "other", start: 1, end: 2, periodId: "", price: "" }), error => error.code === "INVALID_STATE");
+  assert.equal((await rows("SELECT id FROM hostel_rooms WHERE property_id='other'")).length, 0);
 });
 
 
@@ -156,4 +155,12 @@ test("one suspended bed prevents partial bulk submission", async () => {
   await turso("UPDATE hostel_listings SET status='SUSPENDED' WHERE id=?", [String(row.id)]);
   await assert.rejects(() => submitHostelRoomRange("owner", { propertyId: "p", prefix: "Room", start: 30, end: 31, width: 3, periodId: "year" }), error => error.code === "INVALID_STATE");
   assert.equal((await rows("SELECT COUNT(*) AS total FROM hostel_listings l JOIN hostel_spaces s ON s.id=l.space_id JOIN hostel_rooms r ON r.id=s.room_id WHERE r.label IN ('Room 030','Room 031') AND l.status='PENDING_REVIEW'"))[0].total, 0);
+});
+
+test("adding draft beds to an approved building does not unpublish it", async () => {
+  await turso("UPDATE hostel_properties SET status='APPROVED' WHERE id='p'");
+  const result = await createHostelRoomBatch("owner", { ...input, start: 32, end: 32 });
+  assert.equal(result.created, 1);
+  assert.equal((await rows("SELECT status FROM hostel_properties WHERE id='p'"))[0].status, "APPROVED");
+  assert.equal((await rows("SELECT COUNT(*) AS total FROM hostel_listings l JOIN hostel_spaces s ON s.id=l.space_id JOIN hostel_rooms r ON r.id=s.room_id WHERE r.label='Room 032' AND l.status='DRAFT'"))[0].total, 4);
 });

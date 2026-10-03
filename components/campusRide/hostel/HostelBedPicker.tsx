@@ -10,6 +10,7 @@ export function HostelBedPicker({ spaces, periodName, bookingReady }: { spaces: 
   const selected = spaces.find(bed => bed.listingId === selectedId);
   const rooms = new Map<string, PublicSpace[]>();
   spaces.forEach(space => { const beds = rooms.get(space.roomLabel) || []; beds.push(space); rooms.set(space.roomLabel, beds); });
+  if (!spaces.length) return <section className="hostel-rooms hostel-no-beds" aria-labelledby="hostel-rooms-title"><span className="hostel-section-kicker">ROOM AVAILABILITY</span><h2 id="hostel-rooms-title">Beds are being prepared</h2><p>The building is approved, but no beds have been approved for {periodName} yet. You can explore the property, request a viewing, or ask the staff a question.</p></section>;
   return <section className="hostel-rooms" aria-labelledby="hostel-rooms-title">
     <div className="hostel-results-head"><h2 id="hostel-rooms-title">Choose your room and bed</h2><span>Prices for {periodName}</span></div>
     <p className="hostel-detail-note">Select a bed to review the total. {bookingReady ? "Your ten-minute hold starts when you continue to payment." : "Booking is paused while the hostel's payout details are reviewed."}</p>

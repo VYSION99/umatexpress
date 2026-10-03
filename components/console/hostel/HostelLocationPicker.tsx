@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Crosshair } from "@phosphor-icons/react";
+import type { Marker } from "leaflet";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
-import { hereLocationLink, herePoint, type HereMarker, type MapEvent } from "@/lib/here-maps";
+import { mapPoint, osmLocationLink } from "@/lib/osm-maps";
 import { MapStatus } from "@/components/maps/MapStatus";
-import { useHereMap } from "@/components/maps/useHereMap";
+import { useOsmMap } from "@/components/maps/useOsmMap";
 
 const OPTIONS: { center: { lat: number; lng: number }; zoom: number } = {
-  center: herePoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
+  center: mapPoint(CAMPUS_REFERENCE.longitude, CAMPUS_REFERENCE.latitude),
   zoom: 14,
 };
 
@@ -20,11 +21,10 @@ function propertyPoint(latitude: string, longitude: string) {
 
 export function HostelLocationPicker({ latitude, longitude, onChange }: { latitude: string; longitude: string; onChange: (latitude: string, longitude: string) => void }) {
   const container = useRef<HTMLDivElement | null>(null);
-  const marker = useRef<HereMarker | null>(null);
-  const markerVisible = useRef(false);
+  const marker = useRef<Marker | null>(null);
   const latest = useRef(onChange);
   const active = useRef(true);
-  const { instance, loading, error: mapError, disabled, retry } = useHereMap(container, OPTIONS);
+  const { instance, loading, error: mapError, disabled, retry } = useOsmMap(container, OPTIONS);
   const [error, setError] = useState("");
   const [locating, setLocating] = useState(false);
   const [locationNotice, setLocationNotice] = useState("");
@@ -61,64 +61,40 @@ export function HostelLocationPicker({ latitude, longitude, onChange }: { latitu
   }
 
   useEffect(() => {
-    if (!instance) return;
-    const pin = new instance.api.map.Marker({ lat: CAMPUS_REFERENCE.latitude, lng: CAMPUS_REFERENCE.longitude });
-    pin.draggable = true;
+    if (!instance || instance.disposed) return;
+    const pin = instance.L.marker([CAMPUS_REFERENCE.latitude, CAMPUS_REFERENCE.longitude], {
+      draggable: true,
+      icon: instance.L.divIcon({ className: "osm-property-pin", html: '<span aria-hidden="true"></span>', iconSize: [32, 40], iconAnchor: [16, 39] }),
+    });
     marker.current = pin;
-    const update = (latitude: number, longitude: number) => {
-      const point = propertyPoint(String(latitude), String(longitude));
+    const update = (nextLatitude: number, nextLongitude: number) => {
+      const point = propertyPoint(String(nextLatitude), String(nextLongitude));
       if (!point) { setError("Choose a location within the Hostel Finder service area."); return; }
       setError(""); setLocationNotice("");
       latest.current(point.lat.toFixed(6), point.lng.toFixed(6));
     };
-    const tap = (event: MapEvent) => {
-      if (event.target !== instance.map || !event.currentPointer) return;
-      const point = instance.map.screenToGeo(event.currentPointer.viewportX, event.currentPointer.viewportY);
+    const tap = (event: { latlng: { lat: number; lng: number } }) => update(event.latlng.lat, event.latlng.lng);
+    const dragEnd = () => {
+      const point = pin.getLatLng();
       update(point.lat, point.lng);
     };
-    let offset: { x: number; y: number } | null = null;
-    const dragStart = (event: MapEvent) => {
-      if (event.target !== pin || !event.currentPointer) return;
-      instance.behavior.disable(instance.api.mapevents.Behavior.Feature.PANNING);
-      const screen = instance.map.geoToScreen(pin.getGeometry());
-      offset = { x: event.currentPointer.viewportX - screen.x, y: event.currentPointer.viewportY - screen.y };
-    };
-    const drag = (event: MapEvent) => {
-      if (event.target !== pin || !event.currentPointer || !offset) return;
-      pin.setGeometry(instance.map.screenToGeo(event.currentPointer.viewportX - offset.x, event.currentPointer.viewportY - offset.y));
-    };
-    const dragEnd = (event: MapEvent) => {
-      if (event.target !== pin) return;
-      instance.behavior.enable(instance.api.mapevents.Behavior.Feature.PANNING);
-      offset = null;
-      const point = pin.getGeometry();
-      update(point.lat, point.lng);
-    };
-    instance.map.addEventListener("tap", tap);
-    instance.map.addEventListener("dragstart", dragStart);
-    instance.map.addEventListener("drag", drag);
-    instance.map.addEventListener("dragend", dragEnd);
+    instance.map.on("click", tap);
+    pin.on("dragend", dragEnd);
     return () => {
-      instance.map.removeEventListener("tap", tap);
-      instance.map.removeEventListener("dragstart", dragStart);
-      instance.map.removeEventListener("drag", drag);
-      instance.map.removeEventListener("dragend", dragEnd);
-      if (markerVisible.current) instance.map.removeObject(pin);
-      markerVisible.current = false;
+      if (!instance.disposed) { instance.map.off("click", tap); pin.off("dragend", dragEnd); pin.remove(); }
       marker.current = null;
     };
   }, [instance]);
 
   useEffect(() => {
-    if (!instance || !marker.current) return;
+    if (!instance || instance.disposed || !marker.current) return;
+    const pin = marker.current;
     const point = propertyPoint(latitude, longitude);
-    if (point) marker.current.setGeometry(point);
-    if (point && !markerVisible.current) { instance.map.addObject(marker.current); markerVisible.current = true; }
-    if (!point && markerVisible.current) { instance.map.removeObject(marker.current); markerVisible.current = false; }
     if (point) {
-      instance.map.setCenter(point);
-      instance.map.setZoom(Math.max(instance.map.getZoom() || 14, 16));
-    }
+      pin.setLatLng([point.lat, point.lng]);
+      if (!instance.map.hasLayer(pin)) pin.addTo(instance.map);
+      instance.map.setView([point.lat, point.lng], Math.max(instance.map.getZoom(), 16));
+    } else if (instance.map.hasLayer(pin)) pin.remove();
   }, [instance, latitude, longitude]);
 
   return <div className="hostel-location-picker">
@@ -132,11 +108,11 @@ export function HostelLocationPicker({ latitude, longitude, onChange }: { latitu
       <span>Allow location access when your browser asks. {disabled ? "You can still adjust the coordinates below." : "You can still adjust the pin on the map."}</span>
     </div>
     <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
-      <div ref={container} className="hostel-location-map here-map-canvas" role="region" aria-label="Select hostel location on HERE Maps" />
+      <div ref={container} className="hostel-location-map osm-map-canvas" role="region" aria-label="Select hostel location on OpenStreetMap" />
       <MapStatus disabled={disabled} loading={loading} error={mapError} onRetry={retry} />
     </div>
     {mapError && <p>You can still use your device location or enter the coordinates below.</p>}
-    {selected && <p><a href={hereLocationLink(selected.lat, selected.lng)} target="_blank" rel="noreferrer">View selected location in HERE Maps</a></p>}
+    {selected && <p><a href={osmLocationLink(selected.lat, selected.lng)} target="_blank" rel="noreferrer">View selected location in OpenStreetMap</a></p>}
     {error && <p role="alert">{error}</p>}
     {locationNotice && <p role="status">{locationNotice}</p>}
   </div>;

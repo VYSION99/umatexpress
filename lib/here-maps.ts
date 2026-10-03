@@ -87,9 +87,16 @@ export function createHereMap(api: HereApi, element: HTMLElement, options: { cen
   const map = new api.Map(element, layers.vector.normal.map, { ...options, pixelRatio: Math.min(window.devicePixelRatio || 1, 2) });
   const behavior = new api.mapevents.Behavior(new api.mapevents.MapEvents(map));
   const ui = api.ui.UI.createDefault(map, layers);
-  return { api, map, ui, behavior };
+  return { api, map, ui, behavior, disposed: false };
 }
 export type HereMapInstance = ReturnType<typeof createHereMap>;
+export function disposeHereMap(instance: HereMapInstance) {
+  if (instance.disposed) return;
+  // React may clean up this hook before effects that own pins and listeners.
+  instance.disposed = true;
+  instance.ui.dispose();
+  instance.map.dispose();
+}
 export function herePoint(longitude: number, latitude: number): MapPoint { return { lat: latitude, lng: longitude }; }
 export function validMapPoint(latitude: number | null, longitude: number | null): boolean {
   return typeof latitude === "number" && typeof longitude === "number" && Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;

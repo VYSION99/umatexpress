@@ -1,4 +1,4 @@
-import { Bed, Bus, Car, FilmSlate, ForkKnife, IdentificationCard, LockKey, MapPinLine, Money, Scales, SlidersHorizontal, Storefront, UsersThree, Wallet } from "@phosphor-icons/react/ssr";
+import { Bed, Bus, Car, FilmSlate, ForkKnife, IdentificationCard, LockKey, MapPinLine, Money, Scales, SlidersHorizontal, Storefront, UsersThree, Wallet, UserCircle } from "@phosphor-icons/react/ssr";
 // The SSR entry ships the icons but not the shared prop/component types, so the
 // component type comes from the main entry. `import type` is erased at build
 // time, so the server bundle still only sees the SSR icons.
@@ -50,6 +50,7 @@ export const consoleServices: readonly ConsoleService[] = [
   { id: "cinema", title: "OnlineCinema", icon: FilmSlate, accent: "purple", group: "Entertainment", href: "/console/cinema", label: "ENTERTAINMENT · WATCH", description: "Study and watch together.", detail: "Every collaborative room, the people in it, and the reports students raise.", action: "Open rooms", tags: ["Study rooms", "Watch reports"], nav: [{ label: "Rooms", href: "/console/cinema" }, { label: "Reports", href: "/console/cinema/signals" }] },
   { id: "settings", title: "Platform settings", icon: SlidersHorizontal, accent: "cyan", group: "Administration", href: "/console/settings", label: "PLATFORM · CONTROLS", description: "One switchboard for the deployment.", detail: "Whether the scheduled jobs may pay out unattended, the transfer fee and minimum a payout must clear, and the cinema limits.", action: "Open settings", tags: ["Payout automation", "Fees & minimums"], nav: [{ label: "Payout automation", href: "/console/settings" }] },
   { id: "delegates", title: "Admin delegates", icon: UsersThree, accent: "blue", group: "Administration", href: "/console/delegates", label: "TEAM ACCESS", description: "Give each teammate only the console services they manage.", detail: "Create, scope and suspend administrator delegates. Access changes end existing sessions.", action: "Manage delegates", tags: ["Service permissions", "Access control"], nav: [{ label: "Delegate accounts", href: "/console/delegates" }] },
+  { id: "account", title: "My profile & settings", icon: UserCircle, accent: "green", group: "Account", href: "/console/account", label: "YOUR ACCOUNT", description: "Your account in one place.", detail: "Edit console contact details and open your security and service settings.", action: "Open profile", tags: ["Profile", "Account settings"], nav: [{ label: "Profile & actions", href: "/console/account" }] },
   { id: "security", title: "Account security", icon: LockKey, accent: "purple", group: "Account", href: "/console/change-password", label: "YOUR ACCESS", description: "Look after your access.", detail: "Change the password that opens this console.", action: "Change password", tags: ["Password settings"], nav: [{ label: "Password", href: "/console/change-password" }] },
 ];
 
@@ -72,16 +73,16 @@ const PERSONAL_SERVICE_IDS = ["driver", "organizer", "profile", "earnings"] as c
  * from the signed session on every request.
  */
 export function consoleServicesForRole(role: string, delegateServices?: readonly string[]) {
-  if (role === "ADMIN") return consoleServices.filter((service) => !(PERSONAL_SERVICE_IDS as readonly string[]).includes(service.id) && (delegateServices === undefined || service.id === "security" || delegateServices.includes(service.id)));
+  if (role === "ADMIN") return consoleServices.filter((service) => !(PERSONAL_SERVICE_IDS as readonly string[]).includes(service.id) && (delegateServices === undefined || service.id === "security" || service.id === "account" || delegateServices.includes(service.id)));
   // Role order matters: the role's own workspace leads and account security is
   // always last, so the first card is the one the person signed in to use.
   const order: Record<string, string[]> = {
-    MODERATOR: ["organizers", "disputes", "hostels", "cinema", "security"],
-    LANDLORD: ["hostels", "security"],
-    DRIVER: ["driver", "security"],
-    ORGANIZER: ["organizer", "profile", "earnings", "disputes", "security"],
+    MODERATOR: ["organizers", "disputes", "hostels", "cinema", "account", "security"],
+    LANDLORD: ["hostels", "account", "security"],
+    DRIVER: ["driver", "account", "security"],
+    ORGANIZER: ["organizer", "profile", "earnings", "disputes", "account", "security"],
   };
-  return (order[role] || ["security"]).flatMap((id) => consoleServices.filter((service) => service.id === id));
+  return (order[role] || ["account", "security"]).flatMap((id) => consoleServices.filter((service) => service.id === id));
 }
 
 /** The role's services, grouped the way a product directory is grouped. */

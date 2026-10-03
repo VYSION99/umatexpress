@@ -1,10 +1,13 @@
 import { platformSettingEnabled } from "@/lib/platform-settings";
 import { envValue } from "@/lib/runtime-env";
+import { DEFAULT_OSM_TILE_URL, validTileUrl } from "@/lib/osm-maps";
 
-/** Public map policy and HERE browser key. Settings writes remain admin-only. */
+/** Public map display policy. HERE remains server-side for address suggestions. */
 export async function GET() {
-  const [hereMapsEnabled, apiKey] = await Promise.all([platformSettingEnabled("here_maps_enabled"), envValue("HERE_API_KEY")]);
-  return Response.json({ hereMapsEnabled, hereApiKey: hereMapsEnabled ? apiKey : "" }, {
-    headers: { "Cache-Control": "no-store" },
-  });
+  const [mapsEnabled, configuredTileUrl] = await Promise.all([
+    platformSettingEnabled("here_maps_enabled"),
+    envValue("OSM_TILE_URL"),
+  ]);
+  const tileUrl = validTileUrl(configuredTileUrl) ? configuredTileUrl : DEFAULT_OSM_TILE_URL;
+  return Response.json({ mapsEnabled, tileUrl }, { headers: { "Cache-Control": "no-store" } });
 }

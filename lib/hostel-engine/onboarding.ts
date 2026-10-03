@@ -136,9 +136,9 @@ export async function submitPropertyForReview(input: { landlordId: string; prope
   const property = rowsToObjects(await turso("SELECT id,address,latitude,longitude,status FROM hostel_properties WHERE id=? AND landlord_id=? LIMIT 1", [input.propertyId, input.landlordId]))[0];
   if (!property) throw new CampusEngineError("NOT_FOUND", "That property was not found.", 404);
   if (String(property.status) === "SUSPENDED") throw new CampusEngineError("INVALID_STATE", "A suspended property cannot be submitted again by its owner.", 409);
+  if (String(property.status) === "APPROVED") throw new CampusEngineError("INVALID_STATE", "This property is already approved. Only changed property details need a new review.", 409);
+  if (String(property.status) === "PENDING_REVIEW") throw new CampusEngineError("INVALID_STATE", "This property is already waiting for staff review.", 409);
   if (!property.address || property.latitude == null || property.longitude == null) throw new CampusEngineError("INVALID_STATE", "Add an address and confirm the location pin first.", 409);
-  const rooms = rowsToObjects(await turso("SELECT id FROM hostel_rooms WHERE property_id=? AND status='ACTIVE' LIMIT 1", [input.propertyId]));
-  if (!rooms.length) throw new CampusEngineError("INVALID_STATE", "Add at least one room before submitting the property.", 409);
   const photos = rowsToObjects(await turso("SELECT id FROM hostel_property_photos WHERE property_id=? LIMIT 1", [input.propertyId]));
   if (!photos.length) throw new CampusEngineError("INVALID_STATE", "Upload at least one property photo before submitting.", 409);
   const stamp = new Date().toISOString();

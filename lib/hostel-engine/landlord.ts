@@ -3,6 +3,7 @@ import { consoleAudit } from "@/lib/console-audit";
 import { assertConsolePassword, createConsoleAccount, ensureConsoleAccountsTable } from "@/lib/console-auth";
 import { notifyParty, providerKycNotice } from "@/lib/notify-templates";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { requireApprovedRoomSetup } from "@/lib/hostel-engine/room-setup";
 
 /**
  * Landlord accounts and their buildings.
@@ -658,7 +659,8 @@ export async function createHostelRoom(landlordId: string, propertyId: string, i
 }): Promise<HostelRoomWithSpaces> {
   await ensureHostelTables();
   // Ownership first: the property must belong to the caller.
-  await getHostelProperty(landlordId, propertyId);
+  const property = await getHostelProperty(landlordId, propertyId);
+  await requireApprovedRoomSetup(landlordId, property.status);
   const label = requiredText(input.label, 1, 24, "Give the room a name like \"Room 3\" (1 to 24 characters).");
   const capacity = integerInRange(input.capacity, 1, 6, "A room holds between 1 and 6 beds.");
   const utilitiesFee = input.utilitiesFee === undefined || input.utilitiesFee === null || input.utilitiesFee === ""
@@ -682,7 +684,7 @@ export async function createHostelRoom(landlordId: string, propertyId: string, i
     [roomId, propertyId, label, capacity, utilitiesFee, amenities, bedLayout, stamp, stamp],
   );
   await createBeds(roomId, unusedBedNames([], capacity, bedLayout as "SEPARATE" | "BUNK"), stamp);
-  await turso("UPDATE hostel_properties SET status='DRAFT',updated_at=? WHERE id=? AND status='APPROVED'", [stamp, propertyId]);
+  // A new room has no approved bed listings yet; do not unpublish the building.
   await consoleAudit({
     actor: landlordId, action: "HOSTEL_ROOM_CREATED", targetType: "hostel_room", targetReference: roomId, details: { propertyId, label, capacity },
   }).catch(() => undefined);
@@ -743,6 +745,8 @@ export async function updateHostelRoom(landlordId: string, roomId: string, input
       await turso("UPDATE hostel_spaces SET status='RETIRED',updated_at=? WHERE id=?", [stamp, space.id]);
     }
   } else if (capacity > active.length) {
+    const property = await getHostelProperty(landlordId, room.propertyId);
+    await requireApprovedRoomSetup(landlordId, property.status);
     // Beds are restored before new ones are minted: a room that shrank and grew
     // back must not end up with a retired "Bed C" sitting beside a live one.
     const retired = allSpaces
@@ -803,6 +807,11 @@ export async function updateHostelSpace(landlordId: string, spaceId: string, inp
       throw new CampusEngineError("INVALID_STATE", "That bed belongs to a resident. Resolve the booking before changing its status.", 409);
     }
     status = String(input.status) as HostelSpaceStatus;
+  }
+  if (space.status === "RETIRED" && status === "AVAILABLE") {
+    const room = await getHostelRoom(landlordId, space.roomId);
+    const property = await getHostelProperty(landlordId, room.propertyId);
+    await requireApprovedRoomSetup(landlordId, property.status);
   }
   if (label !== space.label) {
     const duplicate = rowsToObjects(await turso(

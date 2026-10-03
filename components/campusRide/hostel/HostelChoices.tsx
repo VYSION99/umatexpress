@@ -136,7 +136,7 @@ export function HostelChoicesPanel() {
       <div className="hostel-compare-head"><div><h2>Compare hostels</h2><p>Live approved listings for this academic year. Prices are starting totals per year.</p></div><button type="button" onClick={() => setShowCompare(false)} aria-label="Close comparison">Close</button></div>
       {loading ? <p role="status">Refreshing prices and availability…</p> : compareError ? <p role="alert">{compareError}</p> : <div className="hostel-compare-scroll"><table><tbody>
         <tr><th scope="row">Hostel</th>{state.selected.map(item => <th scope="col" key={item.id}><Link href={`/hostel/${encodeURIComponent(item.id)}?periodId=${encodeURIComponent(state.periodId)}`}>{item.name}</Link><button type="button" onClick={() => state.toggleCompare(item)} aria-label={`Remove ${item.name} from comparison`}>×</button></th>)}</tr>
-        <tr><th scope="row">From / year</th>{ordered.map((item, index) => <td key={state.selected[index].id}>{item ? cedis(item.minTotal) : "Unavailable"}</td>)}</tr>
+        <tr><th scope="row">From / year</th>{ordered.map((item, index) => <td key={state.selected[index].id}>{item ? item.availableSpaces ? cedis(item.minTotal) : "Beds being prepared" : "Unavailable"}</td>)}</tr>
         <tr><th scope="row">Available beds</th>{ordered.map((item, index) => <td key={state.selected[index].id}>{item ? bedsLabel(item.availableSpaces) : "—"}</td>)}</tr>
         <tr><th scope="row">Distance</th>{ordered.map((item, index) => <td key={state.selected[index].id}>{item ? distanceLabel(item.distanceM) : "—"}</td>)}</tr>
         <tr><th scope="row">Rooms</th>{ordered.map((item, index) => <td key={state.selected[index].id}>{item?.roomCount ?? "—"}</td>)}</tr>

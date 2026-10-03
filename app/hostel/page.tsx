@@ -11,7 +11,7 @@ import { defaultHostelPeriodId, listHostelPeriods } from "@/lib/hostel-engine/pe
 
 export const metadata: Metadata = {
   title: "Hostel Finder | UMaTeXPRESS",
-  description: "Browse approved student hostels around UMaT: beds, yearly prices, utilities and how far each building is from campus.",
+  description: "Browse approved student hostels around UMaT, with clear bed availability, yearly prices, utilities and distance to campus.",
 };
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -60,11 +60,11 @@ export default async function HostelPage({ searchParams }: { searchParams?: Prom
     if (period) next.set("periodId", period.id);
     return `/hostel?${next}`;
   };
-  return <CampusShell area="HOSTELFINDER" title="Find your own corner of campus" subtitle="Approved hostel beds around UMaT, with the total yearly price and approximate distance to campus in plain sight.">
+  return <CampusShell area="HOSTELFINDER" title="Find your own corner of campus" subtitle="Explore approved hostels around UMaT. Compare locations and see bed prices when rooms are ready.">
     {period ? <>
       <section className="campus-status-banner">
         <strong>{period.name}</strong>
-        <span>Every bed below is approved by the platform. Browsing is open to everyone.</span>
+        <span>Buildings and photos are staff approved. Bed prices appear only after separate listing review.</span>
       </section>
       <div className="hostel-layout hostel-browse-layout">
         <div className="hostel-main">
@@ -86,7 +86,7 @@ export default async function HostelPage({ searchParams }: { searchParams?: Prom
           <section className="hostel-how">
             <p>HOW IT WORKS</p><Link href="/hostel/help" className="hostel-card-link">Student guide and help assistant →</Link>
             <ul>
-              <li><MapPinLine size={16} aria-hidden /><span><strong>Find a home.</strong> Browse every approved hostel and open the one that fits.</span></li>
+              <li><MapPinLine size={16} aria-hidden /><span><strong>Find a home.</strong> Browse approved properties and open the one that fits.</span></li>
               <li><Bed size={16} aria-hidden /><span><strong>Pick a bed.</strong> Rooms hold up to six beds, each priced for the academic year.</span></li>
               <li><Key size={16} aria-hidden /><span><strong>Sign in to book.</strong> Use your @st.umat.edu.gh email, then hold a bed for ten minutes while you pay.</span></li>
             </ul>

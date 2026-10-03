@@ -277,11 +277,11 @@ test("a numeric limit is written, read back and clamped through the API", async 
 });
 
 
-test("HERE Maps is off by default and only admins can enable its public display policy", async () => {
+test("interactive OSM maps are off by default and only admins can enable display", async () => {
   process.env.HERE_API_KEY = "test-public-key";
   const mapConfig = await vite.ssrLoadModule("/app/api/maps/config/route.ts");
   const initial = await mapConfig.GET();
-  assert.deepEqual(await initial.json(), { hereMapsEnabled: false, hereApiKey: "" });
+  assert.deepEqual(await initial.json(), { mapsEnabled: false, tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png" });
   assert.equal(initial.headers.get("cache-control"), "no-store");
 
   for (const cookie of [undefined, await cookieFor("console-organizer")]) {
@@ -292,14 +292,14 @@ test("HERE Maps is off by default and only admins can enable its public display 
   const admin = await cookieFor("console-admin");
   const enabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "here_maps_enabled", enabled: true }));
   assert.equal(enabled.status, 200);
-  assert.deepEqual(await (await mapConfig.GET()).json(), { hereMapsEnabled: true, hereApiKey: "test-public-key" }, "enabled response provides only the public browser key");
+  assert.deepEqual(await (await mapConfig.GET()).json(), { mapsEnabled: true, tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png" }, "the browser map does not expose the HERE address-search key");
   assert.equal(audits.at(-1).target_reference, "here_maps_enabled");
   assert.equal(audits.at(-1).admin_email, "admin@umat.edu.gh");
 
   process.env.HERE_MAPS_ENABLED = "true";
   const disabled = await settingsRoute.PATCH(apiRequest("PATCH", admin, { key: "here_maps_enabled", enabled: false }));
   assert.equal(disabled.status, 200);
-  assert.deepEqual(await (await mapConfig.GET()).json(), { hereMapsEnabled: false, hereApiKey: "" }, "the saved off switch hides the key");
+  assert.deepEqual(await (await mapConfig.GET()).json(), { mapsEnabled: false, tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png" }, "the saved off switch hides the map");
 });
 
 test("the map display policy is available on both app origins without exposing other map routes", async () => {

@@ -32,10 +32,9 @@ function sortParam(value: string | null): Sort {
 }
 
 /**
- * The buildings behind the student map: one row per property that has at least
- * one approved bed in the open year, with its pin, its cheapest bed and how many
- * beds are free. Browsing needs no account, so the response carries nothing
- * about the landlord and nothing unpublished.
+ * Approved buildings behind the student map, including those whose bed listings
+ * are still being reviewed. Prices and free-bed counts reflect only separately
+ * approved, available listings. Browsing needs no account.
  */
 export async function GET(request: Request) {
   try {

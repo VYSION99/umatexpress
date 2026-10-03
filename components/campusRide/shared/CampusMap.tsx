@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { useHereMap } from "@/components/maps/useHereMap";
+import { useOsmMap } from "@/components/maps/useOsmMap";
 import { MapStatus } from "@/components/maps/MapStatus";
 import { MapLocateButton } from "@/components/maps/MapLocateButton";
-import { herePoint, hereDomMarker, herePolyline, openHereBubble, type HereMarker } from "@/lib/here-maps";
+import { mapPoint, osmDomMarker, osmPolyline, openOsmPopup } from "@/lib/osm-maps";
+import type { Marker } from "leaflet";
 import { Car, MapPin } from "@phosphor-icons/react";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
@@ -26,7 +27,7 @@ type RouteFeature = {
 };
 
 const OPTIONS: { center: { lat: number; lng: number }; zoom: number } = {
-  center: herePoint(-1.9931, 5.3018), zoom: 15,
+  center: mapPoint(-1.9931, 5.3018), zoom: 15,
 };
 
 function zoneCoordinate(zone?: Pick<CampusZone, "latitude" | "longitude">): [number, number] | null {
@@ -99,7 +100,7 @@ type CampusMapProps = { zones: CampusZone[]; corridors?: CampusCorridor[]; rides
 
 export function CampusMap({ zones, corridors = [], rides = [], matches = [], selectedRideId, title = "Campus map" }: CampusMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const { instance, loading, error, disabled, retry } = useHereMap(containerRef, OPTIONS);
+  const { instance, loading, error, disabled, retry } = useOsmMap(containerRef, OPTIONS);
   const zoneById = useMemo(() => new Map(zones.map((zone) => [zone.id, zone])), [zones]);
   const corridorById = useMemo(() => new Map(corridors.map((corridor) => [corridor.id, corridor])), [corridors]);
   const activeRides = useMemo(() => {
@@ -140,18 +141,14 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
   useEffect(() => {
     if (!instance) return;
     const { map } = instance;
-    let bubble: ReturnType<typeof openHereBubble> | null = null;
-    const pins: HereMarker[] = [];
+    const pins: Marker[] = [];
     const current = instance;
     function addPin(coordinate: [number, number], title: string, detail: string, className: string, label: string) {
       const element = markerElement(className, title);
       appendMarkerLabel(element, label);
-      const point = herePoint(...coordinate);
-      const pin = hereDomMarker(current, point, element);
-      pin.addEventListener("tap", () => {
-        if (bubble) current.ui.removeBubble(bubble);
-        bubble = openHereBubble(current, point, popupContent(title, detail));
-      });
+      const point = mapPoint(...coordinate);
+      const pin = osmDomMarker(current, point, element);
+      pin.on("click", () => openOsmPopup(pin, popupContent(title, detail)));
       pins.push(pin);
     }
     zones.forEach(zone => {
@@ -159,16 +156,16 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
       if (coordinate) addPin(coordinate, zone.name, zone.landmark || zone.description || "Campus zone", "real-map-marker zone-marker", zone.name);
     });
     ridePins.forEach(ride => addPin(ride.coordinate, ride.label, ride.status + " · " + ride.slots + " slots available", "real-map-marker ride-marker" + (ride.selected ? " is-selected" : ""), String(ride.slots)));
-    const paths = routeFeatures.features.map(feature => herePolyline(instance,
-      feature.geometry.coordinates.map(point => herePoint(...point)),
+    const paths = routeFeatures.features.map(feature => osmPolyline(instance,
+      feature.geometry.coordinates.map(point => mapPoint(...point)),
       feature.properties.selected ? "#f4a62a" : "#17684f",
       feature.properties.selected ? 8 : 5));
     const selected = ridePins.find(ride => ride.selected);
-    if (selected) { map.setCenter(herePoint(...selected.coordinate)); map.setZoom(Math.max(map.getZoom() || 15, 16)); }
+    if (selected) { map.setView([selected.coordinate[1], selected.coordinate[0]], Math.max(map.getZoom(), 16)); }
     return () => {
-      if (bubble) current.ui.removeBubble(bubble);
-      pins.forEach(pin => map.removeObject(pin));
-      paths.forEach(path => map.removeObject(path));
+      if (current.disposed) return;
+      pins.forEach(pin => pin.remove());
+      paths.forEach(path => path.remove());
     };
   }, [instance, ridePins, zones, routeFeatures]);
 
@@ -178,7 +175,7 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
       <span>{activeRides.length} active rides</span>
     </div>
     <div className={`campus-map-frame${disabled ? " is-map-disabled" : ""}`}>
-      <div ref={containerRef} className="campus-map-canvas real-map-canvas here-map-canvas" aria-label="Interactive CampusRide map" />
+      <div ref={containerRef} className="campus-map-canvas real-map-canvas osm-map-canvas" aria-label="Interactive CampusRide map" />
       <MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} />
     </div>
     {!disabled && <MapLocateButton instance={instance} />}
@@ -186,7 +183,7 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
       <span><MapPin size={14}/> Zone</span>
       <span><Car size={14}/> Ride</span>
       {routeStats && <span>{Math.max(1, Math.round(routeStats.durationSeconds / 60))} min ETA · {(routeStats.distanceMeters / 1000).toFixed(1)} km</span>}
-      <span>{routeStats?.fallback ? "Estimated route" : "Surveyed corridor"} · HERE Maps</span>
+      <span>{routeStats?.fallback ? "Estimated route" : "Surveyed corridor"} · OpenStreetMap</span>
     </div>}
   </section>;
 }

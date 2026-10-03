@@ -46,13 +46,14 @@ test("each role gets the services it may use, without repeats", () => {
       assert.ok(consoleServices.some((entry) => entry.id === service.id), `${role} was offered an unknown service`);
     }
     assert.ok(ids.includes("security"), `${role} must always be able to change its password`);
+    assert.ok(ids.includes("account"), `${role} must always be able to manage its profile`);
   }
   assert.deepEqual(
     consoleServicesForRole("ADMIN").map((service) => service.id),
-    ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "food", "cinema", "settings", "delegates", "security"],
+    ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "food", "cinema", "settings", "delegates", "account", "security"],
     "an administrator gets the platform's services and the platform switchboard, never another role's personal workspace, and still sees what is coming",
   );
-  assert.deepEqual(consoleServicesForRole("SOMETHING").map((service) => service.id), ["security"], "an unknown role only ever reaches account security");
+  assert.deepEqual(consoleServicesForRole("SOMETHING").map((service) => service.id), ["account", "security"], "an unknown role only reaches account services");
 });
 
 test("the grouped directory is a re-grouping of exactly what the role was offered", () => {
@@ -78,8 +79,8 @@ test("every openable service lives on the console origin", () => {
 });
 
 test("a role is only offered the services its work belongs to", () => {
-  assert.deepEqual(consoleServicesForRole("DRIVER").map((service) => service.id), ["driver", "security"], "a driver only works the driver portal and their own account");
-  assert.deepEqual(consoleServicesForRole("LANDLORD").map((service) => service.id), ["hostels", "security"], "a landlord only gets the hostel workspace and their own account");
+  assert.deepEqual(consoleServicesForRole("DRIVER").map((service) => service.id), ["driver", "account", "security"], "a driver only works the driver portal and their own account");
+  assert.deepEqual(consoleServicesForRole("LANDLORD").map((service) => service.id), ["hostels", "account", "security"], "a landlord only gets the hostel workspace and their own account");
   for (const role of ["MODERATOR", "ORGANIZER"]) {
     const ids = consoleServicesForRole(role).map((service) => service.id);
     assert.ok(!ids.includes("campus") && !ids.includes("vacation"), `${role} was offered operations services: ${ids.join(", ")}`);
@@ -104,7 +105,7 @@ test("admin services are grouped by operational similarity", () => {
   assert.deepEqual(byGroup.Administration, ["settings", "delegates"]);
 });
 
-test("a delegate sees only granted services plus account security", () => {
-  assert.deepEqual(consoleServicesForRole("ADMIN", ["hostels", "cinema"]).map((service) => service.id), ["hostels", "cinema", "security"]);
-  assert.deepEqual(consoleServicesForRole("ADMIN", []).map((service) => service.id), ["security"]);
+test("a delegate sees only granted services plus their personal account", () => {
+  assert.deepEqual(consoleServicesForRole("ADMIN", ["hostels", "cinema"]).map((service) => service.id), ["hostels", "cinema", "account", "security"]);
+  assert.deepEqual(consoleServicesForRole("ADMIN", []).map((service) => service.id), ["account", "security"]);
 });

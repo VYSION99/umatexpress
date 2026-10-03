@@ -17,9 +17,8 @@ import { rowsToObjects, turso, tursoTransaction } from "@/lib/turso";
  *    ▲            │
  *    └── reject ──┘        an edit sends a listing back to draft
  *
- * The listing is the only door to a student's screen: a bed, a room and a
- * property being real is not enough, so the public read below is written in
- * terms of `status = 'APPROVED'` and nothing else. Ownership always travels
+ * A bed reaches students only after its own listing is approved. An approved
+ * property can be browsed while listings are still in review. Ownership travels
  * through space → room → property to the signed-in landlord, exactly like the
  * workspace that built those rows.
  */
@@ -75,7 +74,7 @@ export type PublicSpace = {
   total: number;
 };
 
-/** A building a signed-out visitor may browse: its pin, its price and its beds. */
+/** An approved building a signed-out visitor may browse, with available beds when reviewed. */
 export type PublicProperty = {
   id: string;
   name: string;
@@ -85,7 +84,7 @@ export type PublicProperty = {
   /** Metres from campus: what the landlord declared, else measured from the pin. */
   distanceM: number | null;
   utilitiesEnabled: boolean;
-  /** Approved, physically available beds in the open year. */
+  /** Approved, physically available beds in the open year; zero while listings await review. */
   availableSpaces: number;
   /** Whether the owner's current payout destination has passed staff review. */
   bookingReady: boolean;
@@ -589,12 +588,9 @@ export async function listPublicSpaces(input: { propertyId?: string; periodId?: 
 }
 
 /**
- * What the map and the browse page show: one row per building that has at least
- * one approved and physically available bed, in the open year. The same gates as
- * `listPublicSpaces` are applied here in aggregate, so a suspended property, a
- * retired bed, an inactive room or a draft listing can never put a pin on the
- * map. Payout readiness is returned separately because it blocks booking, not browsing. Distance is declared when the landlord typed it, computed from the pin
- * otherwise, and null when the building has neither.
+ * Approved buildings are browseable even while their individual bed listings
+ * await review. Only approved, available listings supply prices or booking
+ * options; payout review still gates booking separately.
  */
 export async function listPublicProperties(query: PublicPropertyQuery = {}) {
   await ensureHostelOnboardingTables();
@@ -621,22 +617,19 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
   if (Number.isFinite(query.minSpaces) && query.minSpaces! > 1) { having.push("available_spaces >= ?"); args.push(query.minSpaces!); }
   const rows = rowsToObjects(await turso(
     `SELECT p.id AS property_id,p.name AS property_name,COALESCE(p.address,'') AS property_address,p.latitude,p.longitude,
-       p.campus_distance_m,COALESCE(p.utilities_enabled,0) AS utilities_enabled,COALESCE(p.status,'DRAFT') AS property_status,
+       p.campus_distance_m,COALESCE(p.utilities_enabled,0) AS utilities_enabled,
        COALESCE(o.payout_status,'PENDING') AS payout_status,COALESCE(o.payout_snapshot,'') AS payout_snapshot,
        COALESCE(h.payout_method,'') AS payout_method,COALESCE(h.payout_account_last4,'') AS payout_last4,
        COALESCE(h.payout_bank_code,'') AS payout_bank_code,COALESCE(h.payout_updated_at,'') AS payout_updated_at,
-       COUNT(*) AS available_spaces,COUNT(DISTINCT r.id) AS room_count,MIN(l.price) AS min_price,
+       COUNT(l.id) AS available_spaces,COUNT(DISTINCT r.id) AS room_count,MIN(l.price) AS min_price,
        MIN(l.price + CASE WHEN COALESCE(p.utilities_enabled,0) = 1 THEN COALESCE(r.utilities_fee,0) ELSE 0 END) AS min_total
-     FROM hostel_listings l
-     JOIN hostel_spaces s ON s.id = l.space_id
-     JOIN hostel_rooms r ON r.id = s.room_id
-     JOIN hostel_properties p ON p.id = r.property_id
+     FROM hostel_properties p
      JOIN hostel_landlords h ON h.id = p.landlord_id
      JOIN hostel_owner_onboarding o ON o.landlord_id = h.id
-     WHERE l.period_id = ? AND l.status = 'APPROVED'
-       AND ${bedAvailableSql()}
-       AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
-       AND p.status = 'APPROVED' AND h.status = 'ACTIVE' AND h.kyc_status = 'VERIFIED'
+     LEFT JOIN hostel_rooms r ON r.property_id = p.id AND COALESCE(r.status,'ACTIVE') = 'ACTIVE'
+     LEFT JOIN hostel_spaces s ON s.room_id = r.id
+     LEFT JOIN hostel_listings l ON l.space_id = s.id AND l.period_id = ? AND l.status = 'APPROVED' AND ${bedAvailableSql()}
+     WHERE p.status = 'APPROVED' AND h.status = 'ACTIVE' AND h.kyc_status = 'VERIFIED'
        AND o.profile_status = 'APPROVED'
        AND EXISTS (SELECT 1 FROM hostel_property_photos ph WHERE ph.property_id=p.id AND ph.status='APPROVED')
        ${clauses.length ? "AND " + clauses.join(" AND ") : ""}
@@ -689,7 +682,7 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
 
   const sort = query.sort || "name";
   filtered.sort((left, right) => {
-    if (sort === "price") return left.minTotal - right.minTotal || left.name.localeCompare(right.name);
+    if (sort === "price") return (left.availableSpaces ? left.minTotal : Number.POSITIVE_INFINITY) - (right.availableSpaces ? right.minTotal : Number.POSITIVE_INFINITY) || left.name.localeCompare(right.name);
     if (sort === "distance") {
       if (left.distanceM === null) return right.distanceM === null ? left.name.localeCompare(right.name) : 1;
       if (right.distanceM === null) return -1;
@@ -722,9 +715,9 @@ export async function listPublicProperties(query: PublicPropertyQuery = {}) {
 }
 
 /**
- * One building with the beds a student can see: the browse row plus the labelled
- * spaces underneath it. A property with no approved bed resolves to `null`, so a
- * suspended building's page is a 404 rather than an empty promise.
+ * One approved building and any separately approved, available beds. A building
+ * without bookable beds still has a public information page; an unapproved or
+ * suspended building remains a 404.
  */
 export async function getPublicProperty(propertyId: string, periodId?: string) {
   const id = String(propertyId ?? "").trim();

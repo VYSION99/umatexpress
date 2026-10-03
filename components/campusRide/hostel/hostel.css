@@ -130,3 +130,35 @@
 .hostel-walk-map { width: 100%; height: 250px; margin-top: 12px; border-radius: 12px; overflow: hidden; }
 
 .hostel-booking-paused{display:inline-flex;align-items:center;padding:7px 10px;border-radius:9px;background:#fff3dc;color:#7d4b08;font-size:12px;font-weight:800;line-height:1.4}.hostel-booking-pause-notice{display:grid;gap:4px;margin:0 0 16px;padding:14px 16px;border:1px solid #f1d9ac;border-radius:14px;background:#fff8ea;color:#6e490e;font-size:13px}.hostel-booking-pause-notice strong{font-size:14px}
+
+/* Clear catalogue hierarchy at desktop and a single readable column on phones. */
+.hostel-browse-layout{width:min(1320px,100%);grid-template-columns:minmax(0,1fr) 292px;gap:28px}
+.hostel-browse-layout .hostel-main{gap:16px}
+.hostel-browse-layout .hostel-side{position:sticky;top:20px}
+.hostel-browse-layout .hostel-how{background:linear-gradient(155deg,#f0f8f3 0%,#fff 65%);padding:22px}
+.hostel-browse-layout .hostel-how .hostel-card-link{margin-top:12px}
+.hostel-results-head{align-items:end}
+.hostel-results-head h2{font-size:clamp(22px,2.4vw,29px);letter-spacing:-.035em}
+.hostel-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.hostel-card{gap:13px;padding:17px;border-radius:22px;box-shadow:0 14px 35px #163c2510}
+.hostel-card-cover{margin:-17px -17px 0;border-radius:21px 21px 0 0;aspect-ratio:3/2}
+.hostel-card-top h3{font-size:21px;letter-spacing:-.025em}
+.hostel-card-beds{font-size:11px;letter-spacing:0;text-transform:none;white-space:nowrap}
+.hostel-card-beds.is-preparing{background:#edf3ee;color:#466455}
+.hostel-card-address{align-items:start;line-height:1.45}
+.hostel-card-address svg{flex:none;margin-top:2px}
+.hostel-card-facts{gap:6px}
+.hostel-card-facts li{background:#f0f6f2;color:#426150}
+.hostel-card-foot{align-items:center;padding-top:16px}
+.hostel-card-foot strong{font-size:23px}
+.hostel-card-foot .hostel-card-link{min-height:44px;white-space:nowrap}
+.hostel-no-beds{gap:8px;padding:24px;border:1px solid #d7e6da;border-radius:20px;background:linear-gradient(130deg,#f0f8f3,#fff)}
+.hostel-no-beds h2{margin:0;font-size:22px;letter-spacing:-.03em}
+.hostel-no-beds p{max-width:62ch;margin:0;color:var(--ui-muted);font-size:13px;line-height:1.6}
+.hostel-section-kicker{color:var(--ui-green);font-size:10px;font-weight:900;letter-spacing:.14em}
+@media(max-width:1100px){.hostel-browse-layout{grid-template-columns:minmax(0,1fr) 250px;gap:18px}.hostel-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.hostel-card-foot{align-items:start;flex-direction:column}.hostel-card-foot .hostel-card-link{width:100%;justify-content:center}}
+@media(max-width:840px){.hostel-browse-layout{grid-template-columns:1fr}.hostel-browse-layout .hostel-side{position:static}.hostel-browse-layout .hostel-how{display:none}}
+@media(max-width:640px){.hostel-card-grid{grid-template-columns:1fr;gap:15px}.hostel-card{padding:15px}.hostel-card-cover{margin:-15px -15px 0;border-radius:21px 21px 0 0;aspect-ratio:16/10}.hostel-card-top h3{font-size:19px}.hostel-card-foot{display:flex;align-items:center;flex-direction:row}.hostel-card-foot .hostel-card-link{width:auto}.hostel-results-head{display:flex;align-items:baseline}.hostel-results-head span{max-width:18ch;text-align:right}}
+@media(max-width:390px){.hostel-card-foot{align-items:stretch;flex-direction:column}.hostel-card-foot .hostel-card-link{width:100%}}
+
+@media(max-width:560px){.hostel-filter-toggle{margin-top:8px}.hostel-filter-actions{margin-top:10px;gap:10px}.hostel-filter-apply{margin-top:0}.hostel-filters-head{align-items:flex-start}.hostel-filters-head span{white-space:nowrap}}

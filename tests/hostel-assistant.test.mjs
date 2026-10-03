@@ -53,6 +53,12 @@ test("the facts block carries the listing's own numbers, and nothing else", () =
   assert.doesNotMatch(facts, /landlord phone|password|console/i);
 });
 
+test("an approved property without reviewed beds never quotes a zero price", () => {
+  const facts = hostelAssistantFacts({ ...SOURCE, property: { ...SOURCE.property, availableSpaces: 0, minPrice: 0, minTotal: 0 }, spaces: [], periodName: SOURCE.period.name, periodStartsOn: SOURCE.period.startsOn, periodEndsOn: SOURCE.period.endsOn });
+  assert.match(facts, /No approved bed price is available/);
+  assert.doesNotMatch(facts, /GHS 0\.00/);
+});
+
 test("the model is handed the facts and the question, and its answer is trimmed", async () => {
   let seenSystem = "";
   let seenUser = "";

@@ -18,6 +18,7 @@ function accountPayload(account: ConsoleAccount) {
     id: account.id,
     email: account.email,
     name: account.name,
+    phone: account.phone,
     role: account.role,
     status: account.status,
     profileId: account.profileId,

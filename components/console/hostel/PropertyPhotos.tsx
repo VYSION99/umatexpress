@@ -127,14 +127,15 @@ export function PropertyPhotos({ propertyId, propertyName, rooms, onNotice }: {
           setMediaKind(next);
           if (next === "FLOOR_PLAN") setScopeType("ROOM");
           else if (scopeType === "ROOM" && !roomId) setScopeType("PROPERTY");
-        }}><option value="PHOTO">Photo</option><option value="FLOOR_PLAN">Room floor plan</option></select>
+        }}><option value="PHOTO">Photo</option><option value="FLOOR_PLAN" disabled={rooms.length === 0}>Room floor plan</option></select>
       </label>
+      {rooms.length === 0 && <p className="console-note console-field-wide">Start with whole-building or building-area photos. Room photos and floor plans open after rooms are added in the approved workspace.</p>}
       {mediaKind === "PHOTO" && <label>What does this photo show?
         <select value={scopeType} onChange={(event) => { setScopeType(event.target.value as typeof scopeType); setRoomId(""); }}>
           <option value="PROPERTY">Whole property / building</option>
           <option value="BUILDING_AREA">A building area (front, back, shared area…)</option>
-          <option value="ROOM_RANGE">A range of rooms</option>
-          <option value="ROOM">One specific room</option>
+          <option value="ROOM_RANGE" disabled={rooms.length === 0}>A range of rooms</option>
+          <option value="ROOM" disabled={rooms.length === 0}>One specific room</option>
         </select>
       </label>}
       {scopeType === "BUILDING_AREA" && <label>Building area

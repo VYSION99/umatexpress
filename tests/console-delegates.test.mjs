@@ -76,7 +76,7 @@ test("only named service grants appear in the delegate directory", async () => {
   delegate = await createAdminDelegate({ name: "Hostel reviewer", email: "reviewer@example.com", password: "Delegate-Password-123!", services: ["hostels"], actor: "admin@example.com" });
   assert.equal(delegate.mustChangePassword, true);
   assert.deepEqual((await listAdminDelegates()).map((entry) => entry.email), ["reviewer@example.com"]);
-  assert.deepEqual(consoleServicesForRole("ADMIN", ["hostels"]).map((service) => service.id), ["hostels", "security"]);
+  assert.deepEqual(consoleServicesForRole("ADMIN", ["hostels"]).map((service) => service.id), ["hostels", "account", "security"]);
   assert.equal((await consoleAccountFromRequest(request("/api/console/delegates", ownerSession)))?.id, ownerId);
   delegateSession = await createConsoleSession({ id: delegate.id, role: "ADMIN" }, { mustChangePassword: true });
   assert.equal((await consoleAccountFromRequest(request("/api/console/session", delegateSession)))?.mustChangePassword, true);

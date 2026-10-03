@@ -10,8 +10,8 @@ import { createServer } from "vite";
 /**
  * M4: student discovery. The public list, the filters and the pages all run
  * against a fake Turso, and the approval gates are asserted twice — once on the
- * rows the engine returns and once on the SQL it was given, so a future edit
- * cannot quietly widen "approved" into "anything in the table".
+ * rows the engine returns and once on the SQL it was given. Approved buildings
+ * may be browsed before their separately reviewed beds become bookable.
  */
 
 process.env.TURSO_DATABASE_URL = "https://hostel-discovery-test.turso.io";
@@ -70,7 +70,7 @@ function handle(sql, args) {
         if (!room || room.status !== "ACTIVE" || room.property_id !== property.id) return false;
         return property.status !== "SUSPENDED";
       });
-      if (!liveBeds.length) return;
+      if (property.status !== "APPROVED" || !photos.some(photo => photo.property_id === property.id && photo.status === "APPROVED")) return;
       const beds = liveBeds.map((listing) => {
         const space = spaces.find((item) => item.id === listing.space_id);
         const room = rooms.find((item) => item.id === space.room_id);
@@ -81,7 +81,8 @@ function handle(sql, args) {
         latitude: property.latitude, longitude: property.longitude, campus_distance_m: property.campus_distance_m,
         utilities_enabled: property.utilities_enabled, property_status: property.status,
         available_spaces: beds.length, room_count: new Set(beds.map((bed) => bed.roomId)).size,
-        min_price: Math.min(...beds.map((bed) => bed.price)), min_total: Math.min(...beds.map((bed) => bed.total)),
+        min_price: beds.length ? Math.min(...beds.map((bed) => bed.price)) : null,
+        min_total: beds.length ? Math.min(...beds.map((bed) => bed.total)) : null,
       });
     });
     return ok(table(["property_id", "property_name", "property_address", "latitude", "longitude", "campus_distance_m", "utilities_enabled", "property_status", "available_spaces", "room_count", "min_price", "min_total"], rows));
@@ -232,6 +233,21 @@ test("a suspended property and a closed year disappear from the map", async () =
   assert.equal(open.period.id, NEXT_YEAR.id, "another open year still answers");
 });
 
+test("an approved building with no approved beds is browseable but has no booking options", async () => {
+  seed();
+  photos.push({ id: "photo-c1", property_id: "property-c", caption: "Front", sort_order: 1, status: "APPROVED" });
+  const result = await listPublicProperties({ periodId: PERIOD.id });
+  const building = result.properties.find(item => item.id === "property-c");
+  assert.ok(building);
+  assert.equal(building.availableSpaces, 0);
+  assert.equal(building.minTotal, 0);
+  const detail = await getPublicProperty("property-c", PERIOD.id);
+  assert.equal(detail.spaces.length, 0);
+  const aggregate = statements.find(statement => /^SELECT p\.id AS property_id/.test(statement.sql));
+  assert.match(aggregate.sql, /LEFT JOIN hostel_listings l/);
+  assert.match(aggregate.sql, /p.status = 'APPROVED'/);
+});
+
 test("distance comes from the declared figure, else the pin", async () => {
   seed();
   const { properties: listed } = await listPublicProperties({ periodId: PERIOD.id });
@@ -277,6 +293,7 @@ test("sorting answers the filter bar", async () => {
   rooms.push({ id: "room-d1", property_id: "property-d", label: "Room 1", capacity: 2, utilities_fee: 0, status: "ACTIVE" });
   spaces.push({ id: "bed-d1", room_id: "room-d1", label: "Bed A", status: "AVAILABLE" });
   listings.push({ id: "listing-d1", space_id: "bed-d1", period_id: PERIOD.id, price: 150000, status: "APPROVED" });
+  photos.push({ id: "photo-d1", property_id: "property-d", caption: "Front", sort_order: 1, status: "APPROVED" });
 
   const byName = (await listPublicProperties({ periodId: PERIOD.id, sort: "name" })).properties;
   assert.deepEqual(byName.map((property) => property.name), ["Aroma Hostel", "Green Court Hostel"]);
