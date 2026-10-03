@@ -38,9 +38,9 @@ const ok = (result) => ({ type: "ok", response: { result: result || {} } });
 
 const LISTING_ROW_COLUMNS = [
   "id", "space_id", "period_id", "price", "status", "review_reason", "submitted_at", "reviewed_at", "reviewed_by", "created_at", "updated_at",
-  "space_status", "room_status", "room_label", "space_label", "property_id", "property_name", "property_status",
+  "space_status", "room_id", "room_status", "room_label", "space_label", "property_id", "property_name", "property_status",
   "period_name", "period_starts_on", "period_active", "utilities_enabled", "utilities_fee", "capacity",
-  "landlord_id", "landlord_name", "landlord_phone", "landlord_kyc_status", "landlord_email",
+  "landlord_id", "landlord_name", "landlord_phone", "landlord_kyc_status", "landlord_email", "landlord_status",
 ];
 const PERIOD_ROW_COLUMNS = ["id", "name", "starts_on", "ends_on", "active", "created_at"];
 const PROPERTY_ROW_COLUMNS = ["id", "landlord_id", "name", "address", "latitude", "longitude", "utilities_enabled", "status", "created_at", "updated_at"];
@@ -55,6 +55,7 @@ function listingRow(listing) {
   return {
     ...listing,
     space_status: space.status || "AVAILABLE",
+    room_id: room.id || "",
     room_status: room.status || "ACTIVE",
     room_label: room.label || "",
     space_label: space.label || "",
@@ -72,6 +73,7 @@ function listingRow(listing) {
     landlord_phone: landlord.phone || "",
     landlord_kyc_status: landlord.kyc_status || "PENDING",
     landlord_email: landlord.email || "",
+    landlord_status: landlord.status || "ACTIVE",
   };
 }
 
@@ -196,7 +198,8 @@ function handle(sql, args) {
     return ok(table(LISTING_ROW_COLUMNS, rows));
   }
   if (/WHERE l\.status = \?/.test(sql)) {
-    const rows = listings.filter((item) => item.status === args[0]).map(listingRow);
+    const rows = listings.filter((item) => item.status === args[0]).map(listingRow)
+      .filter(row => !/AND r\.id = \? AND l\.period_id = \?/.test(sql) || (row.room_id === args[1] && row.period_id === args[2]));
     return ok(table(LISTING_ROW_COLUMNS, rows));
   }
   if (/WHERE l\.id = \? LIMIT 1/.test(sql)) {
@@ -214,6 +217,17 @@ function handle(sql, args) {
     const row = listings.find((item) => item.id === id);
     if (row) Object.assign(row, { status: "PENDING_REVIEW", submitted_at: submittedAt, review_reason: "", updated_at: updatedAt });
     return ok();
+  }
+  if (/^UPDATE hostel_listings SET status=\?,review_reason=\?,reviewed_at=\?,reviewed_by=\?,updated_at=\?/.test(sql) && /id IN \(.*\)/s.test(sql)) {
+    const [status, reviewReason, reviewedAt, reviewedBy, updatedAt] = args;
+    const count = (args.length - 8) / 2;
+    const ids = args.slice(5, 5 + count);
+    const from = args[5 + count];
+    const eligible = ids.every(id => listings.find(item => item.id === id)?.status === from);
+    if (eligible) for (const id of ids) Object.assign(listings.find(item => item.id === id), {
+      status, review_reason: reviewReason, reviewed_at: reviewedAt, reviewed_by: reviewedBy, updated_at: updatedAt,
+    });
+    return ok({ affected_row_count: eligible ? count : 0 });
   }
   if (/^UPDATE hostel_listings SET status=\?,review_reason=\?,reviewed_at=\?,reviewed_by=\?,updated_at=\?/.test(sql)) {
     const [status, reviewReason, reviewedAt, reviewedBy, updatedAt, id] = args;
@@ -294,7 +308,7 @@ const { createHostelProperty, createHostelRoom } = await vite.ssrLoadModule("/li
 const { closeHostelPeriod, createHostelPeriod, hostelReleaseAfter, listHostelPeriods } = await vite.ssrLoadModule("/lib/hostel-engine/periods.ts");
 const {
   createHostelListing, getHostelListing, listHostelListingsForProperty, listHostelListingsForStaff,
-  listPublicSpaces, removeHostelListing, reviewHostelListing, submitHostelListing, updateHostelListing,
+  listPublicSpaces, removeHostelListing, reviewHostelListing, reviewHostelRoomListings, submitHostelListing, updateHostelListing,
 } = await vite.ssrLoadModule("/lib/hostel-engine/listings.ts");
 const publicPeriodsRoute = await vite.ssrLoadModule("/app/api/hostel/periods/route.ts");
 const publicSpacesRoute = await vite.ssrLoadModule("/app/api/hostel/spaces/route.ts");
@@ -810,4 +824,98 @@ test("the migration carries the review record both SQL files need", async () => 
   const index = /CREATE INDEX IF NOT EXISTS idx_hostel_listings_status_submitted ON hostel_listings\(status, submitted_at\)/;
   assert.match(foundation, index);
   assert.match(consolidated, index);
+});
+
+test("one room decision approves every submitted bed at the shared annual rate", async () => {
+  const { room, beds } = await buildProperty("landlord-a", 4);
+  const period = await buildPeriod();
+  const submitted = [];
+  for (const bed of beds) {
+    const listing = await createHostelListing("landlord-a", { spaceId: bed.id, periodId: period.id, price: 750000 });
+    await submitHostelListing("landlord-a", listing.id);
+    submitted.push(listing);
+  }
+  const review = await reviewHostelRoomListings({
+    roomId: room.id, periodId: period.id, action: "APPROVE", actor: "mod@umat.edu.gh",
+    expectedListingIds: submitted.map(item => item.id),
+  });
+  assert.equal(review.roomCount, 1);
+  assert.equal(review.listingCount, 4);
+  for (const item of submitted) assert.equal(listings.find(row => row.id === item.id).status, "APPROVED");
+  assert.ok(review.listings.every(item => item.reviewedBy === "mod@umat.edu.gh"));
+});
+
+test("a changed room snapshot cannot partially approve its beds", async () => {
+  const { room, beds } = await buildProperty("landlord-a", 2);
+  const period = await buildPeriod();
+  const submitted = [];
+  for (const bed of beds) {
+    const listing = await createHostelListing("landlord-a", { spaceId: bed.id, periodId: period.id, price: 800000 });
+    await submitHostelListing("landlord-a", listing.id);
+    submitted.push(listing);
+  }
+  await assert.rejects(
+    () => reviewHostelRoomListings({ roomId: room.id, periodId: period.id, action: "APPROVE", actor: "mod@umat.edu.gh", expectedListingIds: [submitted[0].id] }),
+    error => error.code === "CONFLICT",
+  );
+  assert.ok(submitted.every(item => listings.find(row => row.id === item.id).status === "PENDING_REVIEW"));
+});
+
+test("approve all is administrator-only and publishes the reviewed room snapshot", async () => {
+  for (const listing of listings) if (listing.status === "PENDING_REVIEW") listing.status = "DRAFT";
+  const period = await buildPeriod();
+  const submitted = [];
+  for (let index = 0; index < 2; index++) {
+    const { beds } = await buildProperty("landlord-a", 2);
+    for (const bed of beds) {
+      const listing = await createHostelListing("landlord-a", { spaceId: bed.id, periodId: period.id, price: 900000 });
+      await submitHostelListing("landlord-a", listing.id);
+      submitted.push(listing);
+    }
+  }
+  const call = async actor => {
+    const response = await staffQueueRoute.PATCH(new Request(`${URL_BASE}/api/console/hostel/listings/review`, {
+      method: "PATCH", headers: { "content-type": "application/json", cookie: await cookieFor(actor) },
+      body: JSON.stringify({ action: "APPROVE", scope: "ALL", expectedListingIds: submitted.map(item => item.id) }),
+    }));
+    return { status: response.status, body: await response.json() };
+  };
+  assert.equal((await call("acc-mod")).status, 403);
+  const result = await call("acc-admin");
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.review.roomCount, 2);
+  assert.equal(result.body.review.listingCount, 4);
+  assert.ok(submitted.every(item => listings.find(row => row.id === item.id).status === "APPROVED"));
+});
+
+test("rejecting and suspending a room apply the same reason to every reviewed bed", async () => {
+  const { room, beds } = await buildProperty("landlord-a", 2);
+  const period = await buildPeriod();
+  const submitted = [];
+  for (const bed of beds) {
+    const listing = await createHostelListing("landlord-a", { spaceId: bed.id, periodId: period.id, price: 650000 });
+    await submitHostelListing("landlord-a", listing.id);
+    submitted.push(listing);
+  }
+  await assert.rejects(
+    () => reviewHostelRoomListings({ roomId: room.id, periodId: period.id, action: "REJECT", actor: "mod@umat.edu.gh", expectedListingIds: submitted.map(item => item.id) }),
+    error => error.code === "VALIDATION_ERROR",
+  );
+  const rejected = await reviewHostelRoomListings({
+    roomId: room.id, periodId: period.id, action: "REJECT", actor: "mod@umat.edu.gh",
+    reason: "Confirm the shared annual rate.", expectedListingIds: submitted.map(item => item.id),
+  });
+  assert.equal(rejected.listingCount, 2);
+  assert.ok(submitted.every(item => {
+    const row = listings.find(entry => entry.id === item.id);
+    return row.status === "DRAFT" && row.review_reason === "Confirm the shared annual rate.";
+  }));
+  for (const item of submitted) await submitHostelListing("landlord-a", item.id);
+  await reviewHostelRoomListings({ roomId: room.id, periodId: period.id, action: "APPROVE", actor: "mod@umat.edu.gh", expectedListingIds: submitted.map(item => item.id) });
+  const suspended = await reviewHostelRoomListings({
+    roomId: room.id, periodId: period.id, action: "SUSPEND", actor: "admin@umat.edu.gh",
+    reason: "Safety inspection pending.", expectedListingIds: submitted.map(item => item.id),
+  });
+  assert.equal(suspended.listingCount, 2);
+  assert.ok(submitted.every(item => listings.find(row => row.id === item.id).status === "SUSPENDED"));
 });

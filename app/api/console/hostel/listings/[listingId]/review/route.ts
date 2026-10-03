@@ -1,7 +1,7 @@
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { resolveHostelHost } from "@/lib/hostel-engine/managers";
-import { reviewHostelListing, submitHostelListing } from "@/lib/hostel-engine/listings";
+import { reviewHostelRoomListings, submitHostelListing } from "@/lib/hostel-engine/listings";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -32,12 +32,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ listi
 
     const listing = action === "SUBMIT"
       ? await submitHostelListing((await resolveHostelHost(account)).landlordId, String(listingId || ""))
-      : await reviewHostelListing({
+      : (await reviewHostelRoomListings({
         listingId: String(listingId || ""),
         action: action as "APPROVE" | "REJECT" | "SUSPEND",
         reason: body.reason,
         actor: account.email,
-      });
+      })).listings.find(item => item.id === listingId);
     return Response.json({ ok: true, listing }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);

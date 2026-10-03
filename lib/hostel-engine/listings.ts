@@ -53,6 +53,7 @@ export type LandlordListing = HostelListing & {
 
 /** A listing with the people and places a reviewer has to weigh. */
 export type ReviewListing = LandlordListing & {
+  roomId: string;
   landlordId: string;
   landlordName: string;
   landlordPhone: string;
@@ -160,6 +161,7 @@ function landlordListingView(row: Record<string, unknown>): LandlordListing {
 function reviewListingView(row: Record<string, unknown>): ReviewListing {
   return {
     ...landlordListingView(row),
+    roomId: String(row.room_id || ""),
     landlordId: String(row.landlord_id || ""),
     landlordName: String(row.landlord_name || ""),
     landlordPhone: String(row.landlord_phone || ""),
@@ -446,7 +448,7 @@ export async function listHostelListingsForStaff(status: "PENDING_REVIEW" | "APP
   const rows = rowsToObjects(await turso(
     `SELECT ${LISTING_COLUMNS},
        p.id AS property_id,p.name AS property_name,p.status AS property_status,
-       r.label AS room_label,s.label AS space_label,
+       r.id AS room_id,r.label AS room_label,s.label AS space_label,
        COALESCE(pe.name,'') AS period_name,COALESCE(pe.starts_on,'') AS period_starts_on,COALESCE(pe.active,0) AS period_active,
        COALESCE(h.id,'') AS landlord_id,COALESCE(h.organization,h.name,'') AS landlord_name,COALESCE(h.phone,'') AS landlord_phone,COALESCE(h.kyc_status,'PENDING') AS landlord_kyc_status
      ${LISTING_JOINS}
@@ -456,6 +458,135 @@ export async function listHostelListingsForStaff(status: "PENDING_REVIEW" | "APP
     [status],
   ));
   return rows.map(reviewListingView);
+}
+
+/**
+ * A room/year is the review unit. One atomic statement changes every selected
+ * bed listing, and the submitted id snapshot prevents approving a newly arrived
+ * bed that the reviewer did not see.
+ */
+export async function reviewHostelRoomListings(input: {
+  action: "APPROVE" | "REJECT" | "SUSPEND";
+  actor: string;
+  reason?: unknown;
+  roomId?: string;
+  periodId?: string;
+  listingId?: string;
+  all?: boolean;
+  expectedListingIds?: string[];
+}) {
+  await ensureHostelResidencyTables();
+  if (input.all && input.action !== "APPROVE") throw new CampusEngineError("VALIDATION_ERROR", "Only pending rooms can be approved together.", 400);
+  if (input.all && !input.expectedListingIds?.length) throw new CampusEngineError("VALIDATION_ERROR", "Refresh the room queue before approving all.", 400);
+  const reason = String(input.reason ?? "").trim();
+  if (reason.length > 200) throw new CampusEngineError("VALIDATION_ERROR", "Keep the review reason within 200 characters.", 400);
+  if (input.action !== "APPROVE" && !reason) throw new CampusEngineError("VALIDATION_ERROR", "Give a reason so the landlord knows what to change.", 400);
+  let roomId = String(input.roomId || "").trim();
+  let periodId = String(input.periodId || "").trim();
+  if (input.listingId) {
+    const anchor = rowsToObjects(await turso(
+      `SELECT r.id AS room_id,l.period_id ${LISTING_JOINS} WHERE l.id = ? LIMIT 1`,
+      [input.listingId],
+    ))[0];
+    if (!anchor) throw new CampusEngineError("NOT_FOUND", "That listing was not found.", 404);
+    roomId = String(anchor.room_id || "");
+    periodId = String(anchor.period_id || "");
+  }
+  if (!input.all && (!roomId || !periodId)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a room and academic year.", 400);
+  const from = input.action === "SUSPEND" ? "APPROVED" : "PENDING_REVIEW";
+  const filters = input.all ? "" : " AND r.id = ? AND l.period_id = ?";
+  const rows = rowsToObjects(await turso(
+    `SELECT ${LISTING_COLUMNS},r.id AS room_id,r.label AS room_label,COALESCE(r.status,'ACTIVE') AS room_status,
+       p.id AS property_id,p.name AS property_name,
+       COALESCE(p.status,'DRAFT') AS property_status,COALESCE(pe.active,0) AS period_active,
+       h.id AS landlord_id,h.email AS landlord_email,COALESCE(h.status,'ACTIVE') AS landlord_status
+     ${LISTING_JOINS}
+     JOIN hostel_landlords h ON h.id = p.landlord_id
+     WHERE l.status = ?${filters}
+     ORDER BY p.id,r.id,l.period_id,s.label`,
+    input.all ? [from] : [from,roomId,periodId],
+  ));
+  if (!rows.length) throw new CampusEngineError("INVALID_STATE", "No eligible bed listings remain. Refresh the review queue.", 409);
+  if (rows.length > 5000) throw new CampusEngineError("VALIDATION_ERROR", "Review this queue in smaller groups.", 400);
+  const ids = rows.map(row => String(row.id));
+  if (input.expectedListingIds) {
+    const expected = [...new Set(input.expectedListingIds.map(id => String(id)))].sort();
+    const selected = [...ids].sort();
+    if (expected.length !== selected.length || expected.some((id,index) => id !== selected[index])) {
+      throw new CampusEngineError("CONFLICT", "The room queue changed. Refresh it before deciding.", 409);
+    }
+  }
+  const groups = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = `${row.room_id}:${row.period_id}`;
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key,group);
+  }
+  if (input.action === "APPROVE") {
+    const owners = new Map<string, Awaited<ReturnType<typeof ownerReadiness>>>();
+    for (const row of rows) {
+      const landlordId = String(row.landlord_id);
+      if (!owners.has(landlordId)) owners.set(landlordId, await ownerReadiness(landlordId));
+      const owner = owners.get(landlordId)!;
+      if (owner.identityStatus !== "VERIFIED" || owner.profileStatus !== "APPROVED"
+        || String(row.property_status) !== "APPROVED" || String(row.landlord_status) !== "ACTIVE"
+        || String(row.room_status) !== "ACTIVE" || Number(row.period_active) !== 1) {
+        throw new CampusEngineError("INVALID_STATE", `${String(row.property_name)} · ${String(row.room_label)} needs approved owner and property details, an active room and an open year before its rate can go live.`, 409);
+      }
+    }
+    for (const group of groups.values()) {
+      if (group.some(row => Number(row.price) !== Number(group[0].price))) {
+        throw new CampusEngineError("INVALID_STATE", `${String(group[0].property_name)} · ${String(group[0].room_label)} has different bed rates. Correct the annual rate before approving this room.`, 409);
+      }
+    }
+  }
+  const to: HostelListingStatus = input.action === "APPROVE" ? "APPROVED" : input.action === "REJECT" ? "DRAFT" : "SUSPENDED";
+  const stamp = new Date().toISOString();
+  const marks = ids.map(() => "?").join(",");
+  const updated = await turso(
+    `UPDATE hostel_listings SET status=?,review_reason=?,reviewed_at=?,reviewed_by=?,updated_at=?
+     WHERE id IN (${marks}) AND status=?
+       AND (SELECT COUNT(*) FROM hostel_listings WHERE id IN (${marks}) AND status=?)=?`,
+    [to,to === "APPROVED" ? "" : reason,stamp,input.actor,stamp,...ids,from,...ids,from,ids.length],
+  );
+  if (Number(updated.affected_row_count || 0) !== ids.length) {
+    throw new CampusEngineError("CONFLICT", "The bed listings changed during review. Refresh and try again.", 409);
+  }
+  await consoleAudit({
+    actor: input.actor,
+    action: input.all ? "HOSTEL_ROOMS_APPROVE_ALL" : `HOSTEL_ROOM_LISTINGS_${input.action}`,
+    targetType: input.all ? "hostel_review_batch" : "hostel_room",
+    targetReference: input.all ? crypto.randomUUID() : roomId,
+    details: { roomCount: groups.size, listingCount: ids.length, reason, listingIdsSample: ids.slice(0,100), listingIdsTruncated: ids.length > 100 },
+  }).catch(() => undefined);
+  if (input.all) {
+    const byLandlord = new Map<string, { email: string; rooms: Set<string>; beds: number }>();
+    for (const row of rows) {
+      const id = String(row.landlord_id);
+      const item = byLandlord.get(id) || { email: String(row.landlord_email || ""), rooms: new Set<string>(), beds: 0 };
+      item.rooms.add(`${row.room_id}:${row.period_id}`);
+      item.beds += 1;
+      byLandlord.set(id,item);
+    }
+    await Promise.all([...byLandlord].map(([id,item]) => notifyParty({
+      recipient: item.email,
+      reference: `rooms:${id}:${stamp}`,
+      notice: { template: "landlord_listing_approved", subject: "Your Hostel Finder rooms are live",
+        message: `${item.rooms.size} room rates covering ${item.beds} student beds were approved. Students can now see the available beds. Open your hostel workspace to review them.` },
+    })));
+  } else {
+    const first = rows[0];
+    await notifyParty({
+      recipient: first.landlord_email,
+      reference: `room:${roomId}:${periodId}:${stamp}`,
+      notice: providerListingNotice("landlord", input.action, {
+        listing: `${first.property_name} · ${first.room_label} (${rows.length} student beds)`, reason,
+      }),
+    });
+  }
+  return { roomCount: groups.size, listingCount: ids.length,
+    listings: rows.map(row => ({ ...listingView(row), status: to, reviewReason: to === "APPROVED" ? "" : reason, reviewedAt: stamp, reviewedBy: input.actor })) };
 }
 
 /** The listing decision requires a separately approved property and owner. */

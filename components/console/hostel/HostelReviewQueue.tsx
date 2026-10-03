@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Bed, CalendarBlank, Check, Plus, ShieldWarning, X } from "@phosphor-icons/react";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { PropertyVerificationReview } from "@/components/console/hostel/PropertyVerificationReview";
@@ -12,12 +12,37 @@ import "@/components/console/hostel/review-layout.css";
 type Listing = {
   id: string; spaceId: string; periodId: string; price: number; status: string;
   reviewReason: string; submittedAt: string; reviewedAt: string; reviewedBy: string;
-  propertyId: string; propertyName: string; roomLabel: string; spaceLabel: string;
+  propertyId: string; propertyName: string; roomId: string; roomLabel: string; spaceLabel: string;
   periodName: string; periodStartsOn: string; propertyStatus: string;
   landlordName: string; landlordPhone: string; landlordKycStatus: string;
 };
 
 type Period = { id: string; name: string; startsOn: string; endsOn: string; active: boolean; createdAt: string };
+type RoomGroup = {
+  key: string; roomId: string; periodId: string; propertyName: string; roomLabel: string;
+  periodName: string; landlordName: string; landlordPhone: string; price: number;
+  submittedAt: string; reviewedAt: string; listings: Listing[]; mixedPrices: boolean;
+};
+function groupByRoom(listings: Listing[]): RoomGroup[] {
+  const grouped = new Map<string, RoomGroup>();
+  for (const listing of listings) {
+    const key = `${listing.roomId}:${listing.periodId}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.listings.push(listing);
+      existing.mixedPrices ||= existing.price !== listing.price;
+    } else {
+      grouped.set(key, {
+        key, roomId: listing.roomId, periodId: listing.periodId, propertyName: listing.propertyName,
+        roomLabel: listing.roomLabel, periodName: listing.periodName, landlordName: listing.landlordName,
+        landlordPhone: listing.landlordPhone, price: listing.price, submittedAt: listing.submittedAt,
+        reviewedAt: listing.reviewedAt, listings: [listing], mixedPrices: false,
+      });
+    }
+  }
+  return [...grouped.values()];
+}
+
 const cedis = (pesewas: number) => `GH₵ ${(Number(pesewas || 0) / 100).toFixed(2)}`;
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const badge = (status: string) => `console-badge console-badge-${status.toLowerCase()}`;
@@ -38,6 +63,9 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState("");
+  const approveAllDialog = useRef<HTMLDialogElement>(null);
+  const pendingRooms = groupByRoom(queue || []);
+  const liveRooms = groupByRoom(live || []);
 
   const load = useCallback(async () => {
     try {
@@ -70,29 +98,46 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
     });
   }, [isAdmin, load, loadPeriods]);
 
-  async function decide(listing: Listing, action: "APPROVE" | "REJECT" | "SUSPEND") {
-    setBusy(listing.id); setError(""); setSaved("");
+  async function decideRoom(room: RoomGroup, action: "APPROVE" | "REJECT" | "SUSPEND") {
+    setBusy(room.key); setError(""); setSaved("");
     try {
-      const response = await fetch(`/api/console/hostel/listings/${encodeURIComponent(listing.id)}/review`, {
-        method: "PATCH",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, reason: reasons[listing.id] || "" }),
+      const response = await fetch("/api/console/hostel/listings/review", {
+        method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action, scope: "ROOM", roomId: room.roomId, periodId: room.periodId,
+          expectedListingIds: room.listings.map(item => item.id), reason: reasons[room.key] || "",
+        }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "That decision could not be saved.");
+      if (!response.ok) throw new Error(data.error || "That room decision could not be saved.");
       setSaved(action === "APPROVE"
-        ? `${listing.propertyName} · ${listing.roomLabel} ${listing.spaceLabel} is live for ${listing.periodName}.`
+        ? `${room.propertyName} · ${room.roomLabel}: ${data.review.listingCount} beds are live for ${room.periodName}.`
         : action === "SUSPEND"
-          ? `${listing.roomLabel} ${listing.spaceLabel} is suspended and hidden from students.`
-          : `Sent back to ${listing.landlordName || "the landlord"} with your reason.`);
-      setReasons((current) => ({ ...current, [listing.id]: "" }));
+          ? `${room.roomLabel}: ${data.review.listingCount} beds are hidden from students.`
+          : `${room.roomLabel} was sent back to ${room.landlordName || "the landlord"} with your reason.`);
+      setReasons(current => ({ ...current, [room.key]: "" }));
       await load();
-    } catch (decisionError) {
-      setError(decisionError instanceof Error ? decisionError.message : "That decision could not be saved.");
-    } finally {
-      setBusy("");
-    }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That room decision could not be saved.");
+    } finally { setBusy(""); }
+  }
+
+  async function approveAll() {
+    if (!queue?.length) return;
+    setBusy("all"); setError(""); setSaved("");
+    try {
+      const response = await fetch("/api/console/hostel/listings/review", {
+        method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "APPROVE", scope: "ALL", expectedListingIds: queue.map(item => item.id) }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The rooms could not all be approved.");
+      approveAllDialog.current?.close();
+      setSaved(`${data.review.roomCount} rooms and ${data.review.listingCount} beds are live.`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The rooms could not all be approved.");
+    } finally { setBusy(""); }
   }
 
   async function addPeriod(event: FormEvent) {
@@ -138,8 +183,8 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
   }
 
   return <div className="hostel-review-workspace">
-    <div className="hostel-review-intro"><div><span>HOSTEL REVIEW DESK</span><h2>Decisions, clearly separated</h2><p>Review evidence, property details and individual bed offers in their own queues.</p></div><div className="hostel-review-counts"><strong>{queue?.length ?? "—"}<small>bed offers waiting</small></strong><strong>{live?.length ?? "—"}<small>live bed offers</small></strong></div></div>
-    <nav className="hostel-review-jumps" aria-label="Review sections"><a href="#hostel-review-photos">Photos</a><a href="#hostel-review-claims">Details</a><a href="#hostel-review-onboarding">Accounts</a><a href="#hostel-review-pending">Bed offers</a><a href="#hostel-review-live">Live</a>{isAdmin && <a href="#hostel-review-years">Years</a>}</nav>
+    <div className="hostel-review-intro"><div><span>HOSTEL REVIEW DESK</span><h2>Decisions, clearly separated</h2><p>Review evidence and property details separately, then decide each room’s annual rate once for all its submitted beds.</p></div><div className="hostel-review-counts"><strong>{queue ? pendingRooms.length : "—"}<small>rooms waiting · {queue?.length ?? 0} beds</small></strong><strong>{live ? liveRooms.length : "—"}<small>live rooms · {live?.length ?? 0} beds</small></strong></div></div>
+    <nav className="hostel-review-jumps" aria-label="Review sections"><a href="#hostel-review-photos">Photos</a><a href="#hostel-review-claims">Details</a><a href="#hostel-review-onboarding">Accounts</a><a href="#hostel-review-pending">Room rates</a><a href="#hostel-review-live">Live</a>{isAdmin && <a href="#hostel-review-years">Years</a>}</nav>
     {error && <div className="console-alert" role="alert">{error}</div>}
     {saved && !error && <div className="console-alert console-alert-ok" role="status">{saved}</div>}
 
@@ -148,90 +193,59 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
     <div id="hostel-review-onboarding"><HostelOnboardingReview /></div>
 
     <section className="console-panel" id="hostel-review-pending">
-      <h2><Bed size={18}/>Waiting for review
-        {queue && <span className="console-badge">{queue.length}</span>}
-      </h2>
+      <div className="hostel-review-section-heading"><h2><Bed size={18}/>Rooms waiting for review
+        {queue && <span className="console-badge">{pendingRooms.length}</span>}</h2>
+        {isAdmin && pendingRooms.length > 0 && <button type="button" className="hostel-review-approve-all" disabled={Boolean(busy)} onClick={() => approveAllDialog.current?.showModal()}><Check size={16}/>Approve all rooms</button>}
+      </div>
       {!queue
         ? <p className="console-empty">Loading the queue…</p>
-        : queue.length === 0
-          ? <p className="console-empty">Nothing is waiting. Approved beds appear under live listings.</p>
+        : pendingRooms.length === 0
+          ? <p className="console-empty">No room rates are waiting for a decision.</p>
           : <table className="console-table hostel-review-listing-table">
-            <thead><tr><th>Bed</th><th>Landlord</th><th>Year</th><th>Decision</th></tr></thead>
+            <thead><tr><th>Room</th><th>Landlord</th><th>Year and rate</th><th>Decision</th></tr></thead>
             <tbody>
-              {queue.map((listing) => (
-                <tr key={listing.id}>
-                  <td data-label="Bed">
-                    <strong>{listing.propertyName}</strong>
-                    <small>{listing.roomLabel} · {listing.spaceLabel}</small>
-                  </td>
-                  <td data-label="Landlord">
-                    <span>{listing.landlordName || "—"}</span>
-                    <small>{listing.landlordPhone}</small>
-                  </td>
-                  <td data-label="Academic year">
-                    <span>{listing.periodName}</span>
-                    <small>{cedis(listing.price)} · submitted {when(listing.submittedAt)}</small>
-                  </td>
+              {pendingRooms.map((room) => (
+                <tr key={room.key}>
+                  <td data-label="Room"><strong>{room.propertyName}</strong><small>{room.roomLabel} · {room.listings.length} submitted {room.listings.length === 1 ? "bed" : "beds"}</small><details><summary>See bed names</summary><small>{room.listings.map(item => item.spaceLabel).join(", ")}</small></details></td>
+                  <td data-label="Landlord"><span>{room.landlordName || "—"}</span><small>{room.landlordPhone}</small></td>
+                  <td data-label="Year"><span>{room.periodName}</span><small>{room.mixedPrices ? "Rates differ — ask landlord to correct them" : `${cedis(room.price)} per student bed`} · submitted {when(room.submittedAt)}</small></td>
                   <td className="console-row-actions" data-label="Decision">
-                    <input
-                      type="text"
-                      aria-label={`Reason for ${listing.propertyName} ${listing.spaceLabel}`}
-                      placeholder="Reason (needed to reject)"
-                      maxLength={200}
-                      value={reasons[listing.id] || ""}
-                      onChange={(event) => setReasons({ ...reasons, [listing.id]: event.target.value })}
-                    />
-                    <button disabled={busy === listing.id} onClick={() => void decide(listing, "APPROVE")}><Check size={15}/>Approve</button>
-                    <button disabled={busy === listing.id} onClick={() => void decide(listing, "REJECT")}><X size={15}/>Reject</button>
+                    <input type="text" aria-label={`Reason for ${room.propertyName} ${room.roomLabel}`} placeholder="Reason (needed to reject)" maxLength={200} value={reasons[room.key] || ""} onChange={event => setReasons({ ...reasons, [room.key]: event.target.value })}/>
+                    <button disabled={Boolean(busy) || room.mixedPrices} onClick={() => void decideRoom(room, "APPROVE")}><Check size={15}/>Approve room</button>
+                    <button disabled={Boolean(busy) || !reasons[room.key]?.trim()} onClick={() => void decideRoom(room, "REJECT")}><X size={15}/>Reject room</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>}
-      <p className="console-note">
-        Approving a bed publishes it only when the owner and property have already passed their separate reviews. A rejection needs a reason: it goes back to the landlord as a draft they can fix.
-      </p>
+      <p className="console-note">One room decision applies to every submitted bed in that room for this academic year. The owner, property and yearly rate must pass review before any bed goes live.</p>
     </section>
 
     <section className="console-panel" id="hostel-review-live">
-      <h2><ShieldWarning size={18}/>Live listings
-        {live && <span className="console-badge">{live.length}</span>}
-      </h2>
-      {!live
-        ? <p className="console-empty">Loading live listings…</p>
-        : live.length === 0
-          ? <p className="console-empty">No approved beds yet.</p>
-          : <table className="console-table hostel-review-listing-table">
-            <thead><tr><th>Bed</th><th>Landlord</th><th>Year</th><th></th></tr></thead>
-            <tbody>
-              {live.map((listing) => (
-                <tr key={listing.id}>
-                  <td data-label="Bed"><strong>{listing.propertyName}</strong><small>{listing.roomLabel} · {listing.spaceLabel}</small></td>
-                  <td data-label="Landlord"><span>{listing.landlordName || "—"}</span><small>{listing.landlordPhone}</small></td>
-                  <td data-label="Academic year"><span>{listing.periodName}</span><small>{cedis(listing.price)} · live since {when(listing.reviewedAt)}</small></td>
-                  <td className="console-row-actions" data-label="Action">
-                    {isAdmin
-                      ? <>
-                        <input
-                          type="text"
-                          aria-label={`Reason for suspending ${listing.propertyName} ${listing.spaceLabel}`}
-                          placeholder="Reason to suspend"
-                          maxLength={200}
-                          value={reasons[listing.id] || ""}
-                          onChange={(event) => setReasons({ ...reasons, [listing.id]: event.target.value })}
-                        />
-                        <button disabled={busy === listing.id} onClick={() => void decide(listing, "SUSPEND")}><ShieldWarning size={15}/>Suspend</button>
-                      </>
-                      : <span className="console-note">An administrator can suspend a live bed.</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>}
-      <p className="console-note">
-        Suspending hides a bed from students immediately and keeps its record. Staff must resolve a suspension before the bed can return to the review flow.
-      </p>
+      <h2><ShieldWarning size={18}/>Live room rates {live && <span className="console-badge">{liveRooms.length}</span>}</h2>
+      {!live ? <p className="console-empty">Loading live rooms…</p> : liveRooms.length === 0
+        ? <p className="console-empty">No approved rooms yet.</p>
+        : <table className="console-table hostel-review-listing-table">
+          <thead><tr><th>Room</th><th>Landlord</th><th>Year and rate</th><th>Action</th></tr></thead>
+          <tbody>{liveRooms.map(room => <tr key={room.key}>
+            <td data-label="Room"><strong>{room.propertyName}</strong><small>{room.roomLabel} · {room.listings.length} live {room.listings.length === 1 ? "bed" : "beds"}</small></td>
+            <td data-label="Landlord"><span>{room.landlordName || "—"}</span><small>{room.landlordPhone}</small></td>
+            <td data-label="Year"><span>{room.periodName}</span><small>{room.mixedPrices ? "Mixed rates" : `${cedis(room.price)} per student bed`} · live since {when(room.reviewedAt)}</small></td>
+            <td className="console-row-actions" data-label="Action">{isAdmin ? <>
+              <input type="text" aria-label={`Reason for suspending ${room.propertyName} ${room.roomLabel}`} placeholder="Reason to suspend" maxLength={200} value={reasons[room.key] || ""} onChange={event => setReasons({ ...reasons, [room.key]: event.target.value })}/>
+              <button disabled={Boolean(busy) || !reasons[room.key]?.trim()} onClick={() => void decideRoom(room, "SUSPEND")}><ShieldWarning size={15}/>Suspend room</button>
+            </> : <span className="console-note">An administrator can suspend this room.</span>}</td>
+          </tr>)}</tbody>
+        </table>}
+      <p className="console-note">Suspending a room hides its approved beds together. Existing booking records remain intact.</p>
     </section>
+
+    <dialog ref={approveAllDialog} className="hostel-review-bulk-dialog" aria-labelledby="hostel-approve-all-title" onCancel={event => { if (busy === "all") event.preventDefault(); }}>
+      <h2 id="hostel-approve-all-title">Approve all pending rooms?</h2>
+      <p>This will publish {pendingRooms.length} room rates covering {queue?.length ?? 0} submitted beds. Review the rooms and prices above before continuing. If the queue changes, the decision will stop and ask you to refresh.</p>
+      {error && <p className="hostel-review-bulk-error" role="alert">{error}</p>}
+      <div><button type="button" disabled={busy === "all"} onClick={() => approveAllDialog.current?.close()}>Cancel</button><button type="button" disabled={Boolean(busy) || pendingRooms.some(room => room.mixedPrices)} onClick={() => void approveAll()}><Check size={16}/>{busy === "all" ? "Approving…" : "Approve all rooms"}</button></div>
+    </dialog>
 
     {isAdmin && <section className="console-panel" id="hostel-review-years">
       <h2><CalendarBlank size={18}/>Academic years</h2>
