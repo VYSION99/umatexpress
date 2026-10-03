@@ -73,6 +73,20 @@ export function isLoopbackHost(host: string) {
     || name.endsWith(".localhost");
 }
 
+/** Public pages must open on the student origin when the console has its own host. */
+export function resolvePublicAppOrigin(requestUrl: string, configuredUrl: string, consoleHosts: readonly string[]): string {
+  const request = new URL(requestUrl);
+  if (isLoopbackHost(request.host)) return request.origin;
+  try {
+    const configured = new URL(configuredUrl);
+    if ((configured.protocol === "https:" || (configured.protocol === "http:" && isLoopbackHost(configured.host)))
+      && !configured.username && !configured.password) return configured.origin;
+  } catch {
+    // A missing or invalid public URL is handled below.
+  }
+  return consoleHosts.some(host => host.toLowerCase() === request.host.toLowerCase()) ? "" : request.origin;
+}
+
 function matchesPrefix(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }

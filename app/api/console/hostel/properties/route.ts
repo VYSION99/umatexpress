@@ -1,4 +1,6 @@
 import { campusErrorPayload } from "@/lib/campus-engine/errors";
+import { parseConsoleHosts, resolvePublicAppOrigin } from "@/lib/console-hosts";
+import { envValue } from "@/lib/runtime-env";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { createHostelProperty, getHostelLandlord, listHostelProperties } from "@/lib/hostel-engine/landlord";
 import { resolveHostelHost } from "@/lib/hostel-engine/managers";
@@ -19,7 +21,9 @@ export async function GET(request: Request) {
       getHostelLandlord(landlordId),
       listHostelProperties(landlordId),
     ]);
-    return Response.json({ ok: true, landlord, properties }, { headers: NO_STORE });
+    const [appUrl, consoleHosts] = await Promise.all([envValue("CAMPUS_APP_URL"), envValue("CONSOLE_HOSTS")]);
+    const publicAppOrigin = resolvePublicAppOrigin(request.url, appUrl, parseConsoleHosts(consoleHosts));
+    return Response.json({ ok: true, landlord, properties, publicAppOrigin }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

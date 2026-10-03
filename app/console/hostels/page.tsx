@@ -93,6 +93,7 @@ function HostelWorkspace() {
   const [landlord, setLandlord] = useState<Landlord | null>(null);
   const [setupOwner, setSetupOwner] = useState<SetupOwner | null>(null);
   const [properties, setProperties] = useState<Property[] | null>(null);
+  const [publicAppOrigin, setPublicAppOrigin] = useState("");
   const [detail, setDetail] = useState<PropertyDetail | null>(null);
   const [draft, setDraft] = useState({ name: "", address: "", latitude: "", longitude: "", utilitiesEnabled: false });
   const [propertyEdit, setPropertyEdit] = useState<{ name: string; address: string; latitude: string; longitude: string; utilitiesEnabled: boolean } | null>(null);
@@ -146,6 +147,7 @@ function HostelWorkspace() {
       setLandlord(data.landlord);
       setSetupOwner(setup.owner);
       setProperties(data.properties || []);
+      setPublicAppOrigin(data.publicAppOrigin || "");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Your hostel workspace could not be loaded.");
     }
@@ -432,6 +434,7 @@ function HostelWorkspace() {
   const ownerSetupApproved = setupOwner?.profileStatus === "APPROVED" && setupOwner.identityStatus === "VERIFIED" && setupOwner.payoutStatus === "APPROVED";
   const setupComplete = ownerSetupApproved && (properties?.some(property => property.status === "APPROVED") ?? false);
   const roomSetupApproved = ownerSetupApproved && detail?.property.status === "APPROVED";
+  const studentPageHref = (property: Property) => publicAppOrigin ? `${publicAppOrigin}/hostel/${encodeURIComponent(property.id)}` : "";
   const pageSize = compact ? 4 : PAGE_SIZE;
   const filteredRooms = (detail?.rooms || []).filter(room => `${room.label} ${room.amenities}`.toLowerCase().includes(roomSearch.trim().toLowerCase()));
   const filteredListings = (listings || []).filter(listing =>
@@ -505,6 +508,7 @@ function HostelWorkspace() {
               <h3>{property.name}</h3><p>{property.address || "Address still needed"}</p>
               <div className="hostel-property-tile-meta"><span><MapPin size={15}/>{property.latitude !== null && property.longitude !== null ? "Location pinned" : "Location needed"}</span><span>{property.utilitiesEnabled ? "Utilities per bed" : "Rent only"}</span><span>Added {when(property.createdAt)}</span></div>
               <button type="button" disabled={busy === `open:${property.id}`} onClick={() => void openProperty(property)}><DoorOpen size={17}/>{busy === `open:${property.id}` ? "Opening…" : detail?.property.id === property.id ? "Manage selected property" : "Manage property"}</button>
+              {property.status === "APPROVED" && studentPageHref(property) && <a className="hostel-property-student-link" href={studentPageHref(property)} target="_blank" rel="noopener noreferrer">View student page ↗</a>}
             </article>)}
           </div>}
       <p className="console-note">A property becomes public after staff approve the building. Beds and prices require their own review.</p>
@@ -545,7 +549,7 @@ function HostelWorkspace() {
         {detail.property.status === "DRAFT" && (detail.property.latitude === null || detail.property.longitude === null
           ? <button type="button" onClick={() => setPropertyEdit({ name: detail.property.name, address: detail.property.address, latitude: "", longitude: "", utilitiesEnabled: detail.property.utilitiesEnabled })}>Set property location</button>
           : <button type="button" disabled={Boolean(busy)} onClick={() => void submitPropertyReview()}>{busy === "property-review" ? "Submitting…" : "Submit property for review"}</button>)}
-        {detail.property.status === "APPROVED" && <Link href={`/hostel/${encodeURIComponent(detail.property.id)}`} target="_blank" rel="noopener noreferrer">View student page ↗</Link>}
+        {detail.property.status === "APPROVED" && studentPageHref(detail.property) && <a href={studentPageHref(detail.property)} target="_blank" rel="noopener noreferrer">View student page ↗</a>}
       </div>
       {propertyEdit && <form className="console-form" onSubmit={savePropertyEdit}>
         <label>Property name

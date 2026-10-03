@@ -73,6 +73,8 @@
 .hostel-property-tile>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;justify-self:start;min-height:42px;padding:8px 14px;border:1px solid #0d694d;border-radius:10px;background:#fff;color:#0d694d;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
 .hostel-property-tile>button:hover{background:#edf8f0}
 .hostel-property-tile>button:disabled,.hostel-workspace-create-button:disabled{opacity:.55;cursor:wait}
+.hostel-property-student-link{display:inline-flex;align-items:center;justify-self:start;min-height:40px;color:#0d694d;font-size:12px;font-weight:800;text-decoration:underline;text-underline-offset:3px}
+.hostel-property-student-link:hover{color:#084a37}
 .hostel-create-dialog .console-form{display:grid;gap:14px}
 .hostel-create-dialog .console-form>label{display:grid;gap:7px;font-size:12px;font-weight:800}
 .hostel-create-dialog .console-form input:not([type="checkbox"]){width:100%;min-height:45px;padding:10px 12px;border:1px solid #dce7df;border-radius:11px;font:inherit;font-size:14px}
@@ -80,7 +82,7 @@
 .hostel-create-dialog .console-form>footer button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:9px 16px;border:0;border-radius:10px;background:#0d694d;color:#fff;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
 .hostel-create-dialog .console-form>footer .hostel-batch-cancel{border:1px solid #dce7df;background:#fff;color:#52665a}
 @media(max-width:900px){.hostel-workspace-overview{grid-template-columns:1fr}.hostel-workspace-properties,.hostel-workspace-account,.hostel-workspace-add{grid-column:1;grid-row:auto}}
-@media(max-width:760px){.hostel-workspace-intro{padding:17px}.hostel-workspace-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.hostel-workspace-overview{gap:0}.hostel-workspace-add{align-items:stretch}.hostel-workspace-create-button{width:100%}.hostel-property-tile{padding:16px}.hostel-property-tile>button{width:100%}.hostel-create-dialog .console-form input:not([type="checkbox"]){font-size:16px}}
+@media(max-width:760px){.hostel-workspace-intro{padding:17px}.hostel-workspace-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.hostel-workspace-overview{gap:0}.hostel-workspace-add{align-items:stretch}.hostel-workspace-create-button{width:100%}.hostel-property-tile{padding:16px}.hostel-property-tile>button,.hostel-property-student-link{width:100%;justify-content:center}.hostel-create-dialog .console-form input:not([type="checkbox"]){font-size:16px}}
 
 .hostel-workspace-empty{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:12px;padding:18px;border:1px dashed #c9ddce;border-radius:14px;background:#f8fbf8}.hostel-workspace-empty .console-empty{margin:0}.hostel-workspace-empty button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:43px;padding:8px 14px;border:0;border-radius:10px;background:#0d694d;color:#fff;font:inherit;font-size:12px;font-weight:800;cursor:pointer}@media(max-width:760px){.hostel-workspace-empty{align-items:stretch}.hostel-workspace-empty button{width:100%}}
 

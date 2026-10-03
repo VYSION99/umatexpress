@@ -14,6 +14,7 @@ const {
   isConsoleSurfacePath,
   isFrameworkAssetPath,
   isLoopbackHost,
+  resolvePublicAppOrigin,
   legacyConsoleRedirect,
   consoleHostAction,
   consoleBoundaryResponse,
@@ -27,6 +28,15 @@ test("console hosts are parsed from a comma-separated list", () => {
   assert.deepEqual(parseConsoleHosts("https://console.umatexpress.com/"), ["console.umatexpress.com"]);
   assert.deepEqual(parseConsoleHosts(""), []);
   assert.deepEqual(parseConsoleHosts(undefined), []);
+});
+
+test("student page links leave the separate console origin", () => {
+  const request = "https://console.umatexpress.com/api/console/hostel/properties";
+  assert.equal(resolvePublicAppOrigin(request, "https://umatexpress.acmdevelopers2020.workers.dev/base?x=1", CONSOLE), "https://umatexpress.acmdevelopers2020.workers.dev");
+  assert.equal(resolvePublicAppOrigin("http://localhost:5173/api/console/hostel/properties", "https://umatexpress.acmdevelopers2020.workers.dev", CONSOLE), "http://localhost:5173");
+  assert.equal(resolvePublicAppOrigin(request, "", CONSOLE), "");
+  assert.equal(resolvePublicAppOrigin(request, "http://untrusted.example.test", CONSOLE), "");
+  assert.equal(resolvePublicAppOrigin("https://single.example.test/api/console/hostel/properties", "", CONSOLE), "https://single.example.test");
 });
 
 test("the console entry point redirects from the console root", () => {
