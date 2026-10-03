@@ -162,3 +162,48 @@
 @media(max-width:390px){.hostel-card-foot{align-items:stretch;flex-direction:column}.hostel-card-foot .hostel-card-link{width:100%}}
 
 @media(max-width:560px){.hostel-filter-toggle{margin-top:8px}.hostel-filter-actions{margin-top:10px;gap:10px}.hostel-filter-apply{margin-top:0}.hostel-filters-head{align-items:flex-start}.hostel-filters-head span{white-space:nowrap}}
+
+/* Keep the property page compact until a student chooses to inspect room availability. */
+.hostel-rooms-disclosure { min-width: 0; }
+.hostel-rooms-toggle,
+.hostel-room-toggle { cursor: pointer; list-style: none; }
+.hostel-rooms-toggle::-webkit-details-marker,
+.hostel-room-toggle::-webkit-details-marker { display: none; }
+.hostel-rooms-toggle:focus-visible,
+.hostel-room-toggle:focus-visible { outline: 3px solid var(--ui-gold); outline-offset: 3px; }
+.hostel-rooms-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 76px; padding: 16px 18px; border: 1px solid var(--ui-green-line); border-radius: 18px; background: #f3f9f5; color: var(--ui-ink); }
+.hostel-rooms-toggle > span:first-child,
+.hostel-room-toggle-info,
+.hostel-room-toggle-price { display: grid; gap: 4px; min-width: 0; }
+.hostel-rooms-toggle strong { font-size: 16px; }
+.hostel-rooms-toggle small,
+.hostel-room-toggle small { color: var(--ui-muted); font-size: 12px; line-height: 1.35; }
+.hostel-rooms-toggle-action { display: inline-flex; align-items: center; gap: 12px; flex: none; color: var(--ui-green); font-size: 13px; font-weight: 800; }
+.hostel-toggle-chevron { width: 9px; height: 9px; flex: none; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .18s ease; }
+.hostel-when-open { display: none; }
+.hostel-rooms-disclosure[open] > .hostel-rooms-toggle .hostel-when-closed,
+.hostel-room-disclosure[open] > .hostel-room-toggle .hostel-when-closed { display: none; }
+.hostel-rooms-disclosure[open] > .hostel-rooms-toggle .hostel-when-open,
+.hostel-room-disclosure[open] > .hostel-room-toggle .hostel-when-open { display: inline; }
+.hostel-rooms-disclosure[open] > .hostel-rooms-toggle .hostel-toggle-chevron,
+.hostel-room-disclosure[open] > .hostel-room-toggle .hostel-toggle-chevron { transform: rotate(225deg); }
+.hostel-rooms-content { display: grid; gap: 16px; padding-top: 4px; }
+.hostel-rooms-content > .hostel-detail-note { margin: 14px 0 0; }
+.hostel-room-disclosure { padding: 0; }
+.hostel-room-toggle { display: flex; align-items: center; gap: 14px; min-height: 76px; padding: 14px 18px; color: var(--ui-ink); }
+.hostel-room-toggle-info { flex: 1 1 auto; }
+.hostel-room-toggle-info strong { font-size: 16px; }
+.hostel-room-toggle-price { flex: none; text-align: right; }
+.hostel-room-toggle-price strong { color: var(--ui-green); font-size: 16px; }
+.hostel-room-toggle > .hostel-toggle-chevron { margin-left: 4px; color: var(--ui-green); }
+.hostel-room-disclosure[open] > .hostel-room-toggle { border-bottom: 1px solid var(--ui-line); }
+.hostel-room-beds { padding: 0 12px 12px; }
+@media(max-width:560px) {
+  .hostel-rooms-toggle { min-height: 72px; padding: 14px; }
+  .hostel-room-toggle { align-items: start; gap: 9px; padding: 14px; }
+  .hostel-room-toggle-info strong { font-size: 15px; }
+  .hostel-room-toggle-info small { font-size: 11px; }
+  .hostel-room-toggle-price strong { font-size: 14px; }
+  .hostel-room-toggle-price small { font-size: 11px; }
+  .hostel-room-toggle > .hostel-toggle-chevron { margin-top: 6px; }
+}
