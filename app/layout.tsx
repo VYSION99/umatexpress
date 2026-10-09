@@ -6,6 +6,9 @@ import "./palette.css";
 import "./material-icons.css";
 import "./bottom-sheet.css";
 
+// Runs before the body paints so a reload never flashes or replays the splash.
+const splashReloadGuard = `try{var n=performance.getEntriesByType('navigation')[0];var r=(n&&n.type==='reload')||(performance.navigation&&performance.navigation.type===1);var s=sessionStorage.getItem('umatexpress:intro-played:v1')==='1';if(r)document.documentElement.classList.add('page-is-reloading');if(r||s)document.documentElement.classList.add('splash-already-seen')}catch(e){}`;
+
 export const metadata: Metadata = {
   title: "UMaTeXPRESS | UMaT Student Transport",
   description: "Choose vacationRide for long-distance trips or campusRide for live campus transport.",
@@ -37,6 +40,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head><script dangerouslySetInnerHTML={{ __html: splashReloadGuard }} /></head>
       <body className="antialiased">
         {children}
         <AppInstallPrompt />
