@@ -77,7 +77,7 @@ test("the homepage and the services sheet only carry live services", () => {
   const hidden = normalizePreferences([{ id: "vacation", hidden: true, pinned: false }]);
   assert.ok(isServiceHidden(hidden, "vacation"), "a hidden service reports itself");
   assert.ok(!isServiceHidden(hidden, "campus"), "untouched services stay visible");
-  assert.deepEqual(homepageServices(hidden).map((service) => service.id), open.filter((id) => id !== "vacation"), "hiding a service drops its banner card");
+  assert.deepEqual(homepageServices(hidden).map((service) => service.id), open.filter((id) => id !== "vacation"), "hiding a service drops its homepage card");
 
   const pinned = homepageServices(normalizePreferences([{ id: "cinema", pinned: true }]));
   assert.ok(pinned.findIndex((service) => service.id === "cinema") < pinned.findIndex((service) => service.id === "hostels"), "pinned cards lead the rail");
@@ -120,34 +120,33 @@ test("the shell's bottom bar renders Home plus the live in-app services", async 
   assert.match(html, /<a[^>]*aria-current="page"[^>]*href="\/cinema"/, "the area the shell is in is marked current");
 });
 
-test("each partner carries the banner its spotlight card renders", () => {
+test("each partner carries a local logo for its main card", () => {
   for (const id of Object.keys(PARTNERS)) {
     const service = services.find((item) => item.id === id);
-    assert.ok(service.feature.trim(), `${id} needs long-form copy for the big card`);
-    assert.ok(service.banner?.src.startsWith("/"), `${id} must serve its brand asset from our own origin`);
-    assert.ok(existsSync(new URL(`../public${service.banner.src}`, import.meta.url)), `${id} points at a missing asset: ${service.banner.src}`);
-    if (service.banner.kind === "image") assert.ok(service.banner.alt.trim(), `${id} banner needs alt text`);
-    if (service.banner.kind === "mark") assert.ok(service.banner.word.trim(), `${id} needs the wordmark text`);
+    assert.ok(service.logo?.startsWith("/"), `${id} must serve its logo from our own origin`);
+    assert.ok(existsSync(new URL(`../public${service.logo}`, import.meta.url)), `${id} points at a missing logo: ${service.logo}`);
   }
 });
 
-test("the homepage gives every partner the same full-width card as the rides", () => {
+test("the homepage renders one card per live service, with partner logos", () => {
   const html = renderToStaticMarkup(createElement(CampusLauncher));
-  const rides = ["CampusRide", "VacationRide"].every((name) => html.includes(name));
-  assert.ok(rides, "the ride cards must still render");
+  assert.equal((html.match(/class="home-card is-/g) || []).length, homepageServices(defaultPreferences()).length);
+  assert.ok(!html.includes("home-feature-grid"), "duplicate feature cards are removed");
   for (const [id, url] of Object.entries(PARTNERS)) {
     const service = services.find((item) => item.id === id);
-    assert.ok(html.includes(`id="home-${id}-title"`), `${id} needs a spotlight card heading`);
-    assert.ok(html.includes(`src="${service.banner.src}"`), `${id} needs its brand asset on the card`);
-    assert.ok(html.includes(`href="${url}"`), `${id} card must link to the service`);
-    assert.ok(html.includes(service.feature), `${id} card must carry its spotlight copy`);
+    const start = html.indexOf(`href="${url}"`);
+    assert.ok(start > 0, `${id} card must link to the service`);
+    const card = html.slice(start, html.indexOf("</a>", start));
+    assert.ok(card.includes(`src="${service.logo}"`), `${id} needs its logo on the main card`);
+    assert.ok(card.includes(service.title), `${id} needs a readable title`);
+    assert.equal(html.split(`href="${url}"`).length - 1, 1, `${id} must appear only once on the homepage`);
   }
-  assert.equal((html.match(/target="_blank"/g) || []).length >= 4, true, "rail and spotlight cards both leave the app");
+  assert.equal((html.match(/target="_blank"/g) || []).length, Object.keys(PARTNERS).length);
 });
 
 test("the homepage rail never advertises a service that is not open", () => {
   const html = renderToStaticMarkup(createElement(CampusLauncher));
-  const rail = html.slice(html.indexOf('class="home-rail"'), html.indexOf("home-feature"));
+  const rail = html.slice(html.indexOf('class="home-rail"'), html.indexOf('id="home-soon-title"'));
   assert.ok(rail.includes("home-card"), "the rail still renders live cards");
   assert.ok(!rail.includes("Food"), "Food belongs to the On the way strip, not the rail");
 });

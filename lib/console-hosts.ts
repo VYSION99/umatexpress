@@ -51,6 +51,10 @@ const ASSET_FILES = new Set([
   "/icon-192.png", "/icon-512.png", "/icon-maskable-192.png", "/icon-maskable-512.png",
   "/apple-touch-icon.png", "/vip-coach.png",
   "/manifest.webmanifest", "/robots.txt",
+  "/console-mark.svg", "/console-logo.svg", "/console-favicon.ico",
+  "/console-icon-192.png", "/console-icon-512.png",
+  "/console-icon-maskable-192.png", "/console-icon-maskable-512.png",
+  "/console-apple-touch-icon.png", "/console-manifest.webmanifest",
 ]);
 
 /** The public shell service worker must never be registered on the console. */

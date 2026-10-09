@@ -3,7 +3,7 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { SlidersHorizontal } from "@phosphor-icons/react";
+import { SlidersHorizontal } from "@/components/ui/MaterialIcon";
 
 export type HostelFilterValues = {
   q?: string;

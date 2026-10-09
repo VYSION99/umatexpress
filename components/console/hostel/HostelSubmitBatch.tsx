@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { PaperPlaneTilt, X } from "@phosphor-icons/react";
+import { PaperPlaneTilt, X } from "@/components/ui/MaterialIcon";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import "@/components/console/hostel/room-batch.css";
 type Period = { id: string; name: string };
 export function HostelSubmitBatch({ propertyId, periods, onComplete }: { propertyId: string; periods: Period[]; onComplete: (message: string) => void | Promise<void> }) {
@@ -34,6 +35,7 @@ export function HostelSubmitBatch({ propertyId, periods, onComplete }: { propert
   return <>
     <button type="button" className="hostel-batch-launch" onClick={() => setOpen(true)}><PaperPlaneTilt size={17}/> Submit a room range</button>
     <dialog ref={ref} className="hostel-batch-dialog" aria-labelledby="hostel-submit-batch-title" onCancel={event => { if (busy) event.preventDefault(); else setOpen(false); }} onClick={event => { if (event.target === event.currentTarget && !busy) setOpen(false); }}>
+      <SheetHandle onDismiss={() => setOpen(false)} disabled={busy} />
       <div className="hostel-batch-inner"><header><div><span>FAST REVIEW SETUP</span><h2 id="hostel-submit-batch-title">Submit beds together</h2><p>Priced drafts across numbered rooms</p></div><button type="button" aria-label="Close" disabled={busy} onClick={() => setOpen(false)}><X size={20}/></button></header>
       {done ? <div className="hostel-batch-done" role="status"><strong>{submitted} beds submitted</strong><p>{processed} rooms checked. Existing live and pending beds were skipped.</p><button type="button" onClick={() => setOpen(false)}>Done</button></div> : <form onSubmit={event => void send(event)}>
         <div className="hostel-batch-fields">

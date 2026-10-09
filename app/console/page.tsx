@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "@phosphor-icons/react";
+import { ArrowRight } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole } from "@/components/admin/console-services";
 import { ConsoleBriefStrip } from "@/components/console/ConsoleBriefStrip";
@@ -41,9 +41,7 @@ function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
             <h2>{service.title}</h2>
             <p className="console-card-detail">{service.detail}</p>
             <div className="console-card-tags">{service.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
-            {service.href
-              ? <Link className="console-card-action" href={service.href}>{service.action}<ArrowRight size={17}/></Link>
-              : <span className="console-card-soon">Coming soon</span>}
+            <Link className="console-card-action" href={service.href}>{service.action}<ArrowRight size={17}/></Link>
           </article>;
         })}
       </div>

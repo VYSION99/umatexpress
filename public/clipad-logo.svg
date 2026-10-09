@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 306 96" role="img" aria-labelledby="title">
+  <title id="title">CliPad</title>
+  <defs>
+    <linearGradient id="clipad-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#00a851"/>
+      <stop offset="1" stop-color="#00a851" stop-opacity=".7"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(5 4) scale(2.75)">
+    <path d="M26 12C26 5 20 2 16 2 8 2 2 8 2 16s6 14 14 14c6 0 10-4 10-4" fill="none" stroke="url(#clipad-gradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m12 10 10 6-10 6Z" fill="url(#clipad-gradient)"/>
+    <circle cx="26" cy="6" r="3" fill="#ef4444"/>
+  </g>
+  <text x="109" y="66" fill="#0f172a" font-family="Arial, Helvetica, sans-serif" font-size="55" font-weight="800" letter-spacing="-2">CliPad</text>
+</svg>

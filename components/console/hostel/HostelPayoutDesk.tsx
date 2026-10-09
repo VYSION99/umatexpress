@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowsClockwise, CircleNotch, Eye, Money, SealCheck } from "@phosphor-icons/react";
+import { ArrowsClockwise, CircleNotch, Eye, Money, SealCheck } from "@/components/ui/MaterialIcon";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type PayoutLandlord = {

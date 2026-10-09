@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Chats, Envelope, Flag, Lock, LockOpen, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Radio, Sparkle, Square, Timer, UserPlus, X } from "@phosphor-icons/react";
+import { Chats, Envelope, Flag, Lock, LockOpen, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Radio, Sparkle, Square, Timer, UserPlus, X } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
@@ -17,6 +17,7 @@ import { UploadPlayer } from "./UploadPlayer";
 import { YouTubePlayer } from "./YouTubePlayer";
 import { useCinemaMedia } from "./useCinemaMedia";
 import { useCinemaRecorder } from "./useCinemaRecorder";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import "./cinema.css";
 
 /**
@@ -686,6 +687,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
  */
 function Sheet(input: { open: boolean; id: string; label: string; onClose: () => void; children: ReactNode }) {
   return <div id={input.id} className={`cinema-sheet${input.open ? " is-open" : ""}`}>
+    <SheetHandle onDismiss={input.onClose} />
     <button type="button" className="cinema-sheet-close" aria-label={`Close ${input.label}`} onClick={input.onClose}>
       <X size={16} aria-hidden />
     </button>

@@ -3,6 +3,7 @@ import { consoleAudit } from "@/lib/console-audit";
 import { privateBucket } from "@/lib/cloudflare-bindings";
 import { ensureHostelPayoutTables } from "@/lib/hostel-engine/payouts";
 import { rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { lastFour, maskAccountNumber, sealSecret } from "@/lib/secret-box";
 
 export type ReviewState = "PENDING" | "APPROVED" | "REJECTED";
 export type AffiliationClaim = "AFFILIATED" | "INDEPENDENT" | "UNSURE";
@@ -33,11 +34,17 @@ const STATEMENTS = [
   )`,
   "CREATE INDEX IF NOT EXISTS idx_hostel_affiliation_status ON hostel_property_affiliations(status,updated_at DESC)",
 ];
+const ID_NUMBER_STATEMENTS = [
+  "ALTER TABLE hostel_owner_onboarding ADD COLUMN identity_id_type TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE hostel_owner_onboarding ADD COLUMN identity_id_number TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE hostel_owner_onboarding ADD COLUMN identity_id_last4 TEXT NOT NULL DEFAULT ''",
+];
 let ready: Promise<void> | null = null;
 export function ensureHostelOnboardingTables() {
   ready ??= (async () => {
     await ensureHostelPayoutTables();
     await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelOwnerOnboarding", version: "039_hostel_owner_onboarding", statements: STATEMENTS });
+    await runSchemaPass({ metaTable: "campus_schema_meta", id: "hostelOwnerIdentityNumber", version: "040_hostel_owner_identity_number", statements: ID_NUMBER_STATEMENTS });
   })().catch((error: unknown) => { ready = null; throw error; });
   return ready;
 }
@@ -49,6 +56,7 @@ export async function createOwnerOnboarding(landlordId: string) {
 
 const OWNER_READINESS_SELECT = `SELECT h.id,h.name,h.phone,h.email,h.organization,h.status AS account_status,h.kyc_status,h.review_reason,
   COALESCE(o.owner_role,'OWNER') AS owner_role,
+  COALESCE(o.identity_id_type,'') AS identity_id_type,COALESCE(o.identity_id_last4,'') AS identity_id_last4,
   COALESCE(o.profile_status,'PENDING') AS profile_status,COALESCE(o.profile_reason,'') AS profile_reason,
   COALESCE(o.payout_status,'PENDING') AS payout_status,COALESCE(o.payout_reason,'') AS payout_reason,
   COALESCE(o.payout_snapshot,'') AS payout_snapshot,
@@ -61,6 +69,7 @@ function ownerReadinessView(row: Record<string, unknown>) {
   return {
     landlordId, name: String(row.name || ""), phone: String(row.phone || ""), email: String(row.email || ""),
     organization: String(row.organization || ""), ownerRole: String(row.owner_role || "OWNER"),
+    identityIdType: String(row.identity_id_type || ""), identityIdNumberMasked: maskAccountNumber(String(row.identity_id_last4 || "")),
     accountStatus: String(row.account_status || "ACTIVE"), profileStatus: String(row.profile_status || "PENDING") as ReviewState,
     profileReason: String(row.profile_reason || ""), identityReason: String(row.review_reason || ""), identityStatus: String(row.kyc_status || "PENDING") as "PENDING" | "VERIFIED" | "REJECTED",
     payoutStatus: (String(row.payout_status) === "APPROVED" && String(row.payout_snapshot) === payoutSnapshot && row.payout_method && row.payout_last4 ? "APPROVED" : String(row.payout_status) === "REJECTED" ? "REJECTED" : "PENDING") as ReviewState,
@@ -86,6 +95,19 @@ export async function updateOwnerProfile(input: { landlordId: string; ownerRole:
   return ownerReadiness(input.landlordId);
 }
 
+export async function saveOwnerIdentityNumber(input: { landlordId: string; idType: unknown; idNumber: unknown; actor: string }) {
+  await createOwnerOnboarding(input.landlordId);
+  const idType = String(input.idType || "").trim().toUpperCase();
+  const idNumber = String(input.idNumber || "").trim();
+  if (!["GHANA_CARD", "PASSPORT"].includes(idType)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a Ghana Card or passport.", 400);
+  if (idNumber.length < 4 || idNumber.length > 40) throw new CampusEngineError("VALIDATION_ERROR", "Enter the number as it appears on the document.", 400);
+  const stamp = new Date().toISOString();
+  await turso("UPDATE hostel_owner_onboarding SET identity_id_type=?,identity_id_number=?,identity_id_last4=?,updated_at=? WHERE landlord_id=?", [idType, await sealSecret(idNumber), lastFour(idNumber), stamp, input.landlordId]);
+  await turso("UPDATE hostel_landlords SET kyc_status='PENDING',review_reason='',updated_at=? WHERE id=?", [stamp, input.landlordId]);
+  await consoleAudit({ actor: input.actor, action: "HOSTEL_ID_NUMBER_SUBMITTED", targetType: "hostel_landlord", targetReference: input.landlordId, details: { idType } }).catch(() => undefined);
+  return ownerReadiness(input.landlordId);
+}
+
 export async function reviewOwnerStep(input: { landlordId: string; step: "PROFILE" | "IDENTITY" | "PAYOUT"; action: "APPROVE" | "REJECT"; reason?: string; actor: string }) {
   await createOwnerOnboarding(input.landlordId);
   const reason = String(input.reason || "").trim().slice(0, 500);
@@ -93,6 +115,8 @@ export async function reviewOwnerStep(input: { landlordId: string; step: "PROFIL
   const stamp = new Date().toISOString();
   if (input.step === "IDENTITY") {
     if (input.action === "APPROVE") {
+      const identity = rowsToObjects(await turso("SELECT identity_id_type,identity_id_number FROM hostel_owner_onboarding WHERE landlord_id=? LIMIT 1", [input.landlordId]))[0];
+      if (!["GHANA_CARD", "PASSPORT"].includes(String(identity?.identity_id_type || "")) || !String(identity?.identity_id_number || "")) throw new CampusEngineError("INVALID_STATE", "The owner must submit a Ghana Card or passport number first.", 409);
       const kinds = rowsToObjects(await turso("SELECT DISTINCT kind FROM hostel_identity_documents WHERE landlord_id=?", [input.landlordId])).map(row => String(row.kind));
       if (!kinds.includes("IDENTITY") || !kinds.includes("AUTHORITY")) throw new CampusEngineError("INVALID_STATE", "Review an identity document and proof of ownership or authority first.", 409);
     }

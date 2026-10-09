@@ -53,7 +53,7 @@ test("an empty value disables a binding and a value renames it", async () => {
     CLOUDFLARE_CINEMA_ROOM_BINDING: "",
     CLOUDFLARE_R2_BUCKET: "",
     CLOUDFLARE_QUEUE: "",
-    CLOUDFLARE_MTLS_CERTIFICATES: "MTN_MOMO_CERT=abc-123",
+    CLOUDFLARE_MTLS_CERTIFICATES: "PAYMENT_CERT=abc-123",
     CLOUDFLARE_SERVICE_BINDINGS: "CONSOLE=umatexpress-console",
   });
   const config = wranglerBindingConfig(plan);
@@ -67,9 +67,9 @@ test("an empty value disables a binding and a value renames it", async () => {
   // Object from declaring one it does not ship.
   assert.deepEqual(config.migrations, []);
   assert.deepEqual(config.services, [{ binding: "CONSOLE", service: "umatexpress-console" }]);
-  assert.deepEqual(config.mtls_certificates, [{ binding: "MTN_MOMO_CERT", certificate_id: "abc-123" }]);
+  assert.deepEqual(config.mtls_certificates, [{ binding: "PAYMENT_CERT", certificate_id: "abc-123" }]);
   assert.equal(config.vars.CLOUDFLARE_AI_BINDING, "");
-  assert.equal(plan.vars.CLOUDFLARE_MTLS_CERTIFICATES, "MTN_MOMO_CERT=abc-123");
+  assert.equal(plan.vars.CLOUDFLARE_MTLS_CERTIFICATES, "PAYMENT_CERT=abc-123");
 });
 
 test("an empty subrequest limit leaves the plan default alone", async () => {

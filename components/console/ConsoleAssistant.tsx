@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { PaperPlaneTilt, Sparkle, X } from "@phosphor-icons/react";
+import { PaperPlaneTilt, Sparkle, X } from "@/components/ui/MaterialIcon";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import type { ConsoleBrief } from "@/lib/console-assistant";
 

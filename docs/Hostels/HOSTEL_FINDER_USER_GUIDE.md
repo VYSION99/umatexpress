@@ -125,7 +125,7 @@ Use the **AI information** workspace to enter factual property and room notes th
 
 ### Viewings, residents, and services
 
-The resident directory has property, academic-year, status, and text filters, with 20 results per page. Totals cover the selected property and year across every page. Desktop uses a table; mobile uses cards and a filter popup.
+The resident directory starts when a student's bed payment is confirmed. Pending checkouts and payments under review do not appear as residents; previously confirmed stays remain in the directory after cancellation or refund. The page stays available beforehand so the owner can prepare managers and services. The directory has property, academic-year, status, and text filters, with 20 results per page. Totals cover the selected property and year across every page. Desktop uses a table; mobile uses cards and a filter popup.
 
 Open **View resident** for the detail panel. Set an arrival date within the booked year, check in the student, and record any issued key. Checkout and no-show release the bed while retaining the payment record; add a staff note. A no-show cannot be recorded before the arrival date. Transfers require an approved available bed in the same property and year with the same rent and utilities. Return any recorded key before checkout or transfer, and record the new key if issued. Each change records the staff member in residency activity. Refresh details if another member of staff has changed the record. Open refunds block occupancy actions until resolved.
 

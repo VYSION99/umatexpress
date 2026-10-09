@@ -12,6 +12,7 @@ import { failHostelBooking, getHostelBookingByReference, settleHostelBooking } f
 export async function settleHostelWebhookPayment(input: {
   reference: string;
   amount: number;
+  currency?: string;
   transactionId: string;
   source: string;
 }) {
@@ -22,7 +23,7 @@ export async function settleHostelWebhookPayment(input: {
   }
   const subscription = await getPluginSubscriptionByReference(input.reference);
   if (subscription) {
-    const result = await activatePluginSubscription({ reference: input.reference, amount: input.amount, source: input.source });
+    const result = await activatePluginSubscription({ reference: input.reference, amount: input.amount, currency: input.currency, source: input.source });
     if (result.handled) return result;
   }
   return { handled: false, reason: "HOSTEL_PAYMENT_NOT_FOUND" as const };

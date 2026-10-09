@@ -3,7 +3,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Bed, Door, Lightning, MapPin } from "@phosphor-icons/react/ssr";
+import { ArrowLeft, Bed, Door, Lightning, MapPin } from "@/components/ui/MaterialIcon";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { HostelChoiceActions, HostelChoicesPanel, HostelChoicesProvider } from "@/components/campusRide/hostel/HostelChoices";
 import { HostelBedPicker } from "@/components/campusRide/hostel/HostelBedPicker";

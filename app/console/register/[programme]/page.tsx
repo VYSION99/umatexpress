@@ -3,13 +3,13 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { PaperPlaneTilt } from "@phosphor-icons/react";
+import { PaperPlaneTilt } from "@/components/ui/MaterialIcon";
 import { consoleApplicationById, type ConsoleApplication } from "@/lib/console-applications";
 
 function ApplicationNotice({ title, message }: { title: string; message: string }) {
   return <main className="console-auth-page">
     <section className="console-auth-card">
-      <img src="/logo-web.png" alt="UMaTeXPRESS" />
+      <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{title}</h1>
       <span>{message}</span>
@@ -57,7 +57,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
   if (submitted) {
     return <main className="console-auth-page">
       <section className="console-auth-card">
-        <img src="/logo-web.png" alt="UMaTeXPRESS" />
+        <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
         <p>UMATEXPRESS CONSOLE</p>
         <h1>Application received</h1>
         <span>{submitted}</span>
@@ -68,7 +68,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
 
   return <main className="console-auth-page">
     <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo-web.png" alt="UMaTeXPRESS" />
+      <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{application.title}</h1>
       <span>{application.detail}</span>

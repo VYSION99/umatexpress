@@ -6,7 +6,7 @@ import { MapStatus } from "@/components/maps/MapStatus";
 import { MapLocateButton } from "@/components/maps/MapLocateButton";
 import { mapPoint, osmDomMarker, osmPolyline, openOsmPopup } from "@/lib/osm-maps";
 import type { Marker } from "leaflet";
-import { Car, MapPin } from "@phosphor-icons/react";
+import { Car, MapPin } from "@/components/ui/MaterialIcon";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
 import { corridorGeometry, routeMetrics } from "@/lib/campus-route-geometry";
@@ -87,7 +87,7 @@ function appendMarkerLabel(element: HTMLElement, label: string) {
 
 function popupContent(title: string, detail: string) {
   const container = document.createElement("div");
-  container.className = "here-map-popup";
+  container.className = "map-popup";
   const heading = document.createElement("strong");
   const paragraph = document.createElement("p");
   heading.textContent = title;

@@ -15,7 +15,7 @@ Current apps:
 
 The client routes (`/`, `/vacation`, `/campus`) deliberately do not link to the management console or the driver console: each audience reaches its own area by URL, and the two consoles are never surfaced from the passenger site.
 
-vacationRide provides live seat availability, Paystack or MTN MoMo payments, printable image tickets, and admin scheduling.
+vacationRide provides live seat availability, Paystack payments, printable image tickets, and admin scheduling.
 campusRide is being built as a paid live campus ride queue/matching system with driver accounts, PIN boarding, map widgets, and AI help.
 It also ships as an installable web app with home-screen support on mobile devices.
 
@@ -28,7 +28,7 @@ The next Hostel Finder student features are organized into [Phases 5–7 and mil
 
 - Node.js 22.13 or newer
 - A Turso database
-- Paystack transaction credentials, or MTN MoMo Collection API credentials
+- Paystack transaction credentials
 
 ## Setup
 
@@ -43,24 +43,19 @@ npm run dev
 
 The checked-in `.env.example` documents all required variables. `.env` is ignored and must never be committed.
 
-Maps use HERE for display and address suggestions and GraphHopper for walking routes. See [maps setup](docs/HERE_GRAPHOPPER_MAPS.md).
+Maps display OpenStreetMap tiles; HERE supplies optional server-side address suggestions, and GraphHopper supplies optional walking routes. See [maps setup](docs/MAPS_AND_ROUTES.md).
 
 ## Environment variables
 
 - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`: Turso connection credentials.
-- `PAYMENT_PROVIDER`: Use `PAYSTACK` while MTN MoMo KYC is pending, or `MTN_MOMO` later.
 - `PAYSTACK_BASE_URL`: Paystack API origin. The default is `https://api.paystack.co`.
 - `PAYSTACK_SECRET_KEY`: Paystack secret key from your dashboard.
 - `PAYSTACK_CURRENCY`: Currency sent to Paystack. Use `GHS` for Ghana.
-- `PAYSTACK_FEE_PERCENT`: Paystack fee percentage passed to the passenger. Defaults to `1.95` for Ghana.
+- `PAYSTACK_FEE_PERCENT`: Paystack checkout fee percentage passed to the payer (student or landlord). Defaults to `1.95` for Ghana.
 - `CLOUDFLARE_ACCOUNT_ID`: Optional Cloudflare account ID for Workers AI.
 - `CLOUDFLARE_AI_BINDING` (default `AI`): binds Workers AI directly, which is the preferred path and needs no token at all. See `docs/CLOUDFLARE_BINDINGS.md`.
 - `CLOUDFLARE_AI_TOKEN`: Optional narrow Workers AI token, used only as the fallback when the AI binding is disabled. Do not reuse the deployment API token here.
 - `CLOUDFLARE_AI_MODEL`: Optional Workers AI model name. Defaults to `@cf/meta/llama-3.3-70b-instruct-fp8-fast`.
-- `MTN_MOMO_BASE_URL`: MTN API origin. The sandbox default is included.
-- `MTN_MOMO_TARGET_ENVIRONMENT`: Usually `sandbox` or the configured production environment.
-- `MTN_MOMO_CURRENCY`: Use `EUR` in the MTN sandbox and the production account currency in production.
-- `MTN_MOMO_API_USER`, `MTN_MOMO_API_KEY`, and `MTN_MOMO_COLLECTION_KEY`: Collection API credentials.
 - `ADMIN_EMAILS`: Comma-separated email addresses allowed to sign in as administrators.
 - `TRUST_PLATFORM_IDENTITY`: Set to `true` only when a hosting proxy strips and injects `oai-authenticated-user-email` itself. Defaults to `false`, which ignores the header.
 - `ADMIN_PASSWORD`: Bootstrap password for local sign-in. It defaults to `Admin@12345`; change it from the admin security page once Turso is connected.
@@ -100,7 +95,6 @@ Add production secrets to Cloudflare:
 ```sh
 npx wrangler secret put TURSO_DATABASE_URL --name umatexpress
 npx wrangler secret put TURSO_AUTH_TOKEN --name umatexpress
-npx wrangler secret put PAYMENT_PROVIDER --name umatexpress
 npx wrangler secret put PAYSTACK_SECRET_KEY --name umatexpress
 npx wrangler secret put PAYSTACK_CURRENCY --name umatexpress
 npx wrangler secret put PAYSTACK_FEE_PERCENT --name umatexpress

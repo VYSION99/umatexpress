@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowsClockwise, Copy, CurrencyCircleDollar, FloppyDisk, Megaphone, PencilSimple, Robot, Sparkle, Ticket, Trash, Users } from "@phosphor-icons/react";
+import { ArrowsClockwise, Copy, CurrencyCircleDollar, FloppyDisk, Megaphone, PencilSimple, Robot, Sparkle, Ticket, Trash, Users } from "@/components/ui/MaterialIcon";
 import { formatTime } from "@/lib/trips";
 import { type FlyerPromo, type TripDisplayMode, type TripSchedule } from "@/lib/trip-settings";
 import { EMPTY_FLYER_PROMO } from "@/lib/trip-notice";

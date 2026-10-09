@@ -1,3 +1,4 @@
+import { withFinanceFetch } from "./helpers/finance-fetch.mjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { createServer } from "vite";
@@ -64,6 +65,28 @@ const ok = (result) => ({ type: "ok", response: { result: result || {} } });
 const okRows = (count) => ok({ affected_row_count: count });
 
 function handle(sql, args) {
+  if (sql.startsWith('INSERT INTO payment_inbox')) {
+    paymentEvents.push({ id: args[0], payload: args[4], status: 'PENDING' }); return okRows(1);
+  }
+  if (sql.startsWith('UPDATE payment_inbox') && sql.includes('RETURNING')) {
+    const row = paymentEvents.find(row => row.id === args[2] && row.status === 'PENDING');
+    if (!row) return ok(empty);
+    row.status = 'PROCESSING'; return ok(table(['payload', 'attempts'], [{ payload: row.payload, attempts: 1 }]));
+  }
+  if (sql.startsWith('SELECT status FROM payments WHERE reference_id=')) {
+    const row = payments.find(row => row.reference_id === args[0]);
+    return ok(row ? table(['status'], [row]) : empty);
+  }
+  if (sql.startsWith('UPDATE payments SET status = CASE')) {
+    const row = payments.find(row => row.reference_id === args[3]);
+    if (row) row.status = seatHolds.some(hold => hold.booking_id === row.booking_id && hold.status === 'BOOKED') ? 'SUCCESSFUL' : 'PAID_REVIEW';
+    return okRows(row ? 1 : 0);
+  }
+  if (sql.startsWith("UPDATE bookings SET payment_status='SUCCESSFUL'")) {
+    const row = bookings.find(row => row.id === args[3]);
+    if (row) { row.payment_status = 'SUCCESSFUL'; row.booking_status = 'CONFIRMED'; row.confirmed_at = args[2]; }
+    return okRows(row ? 1 : 0);
+  }
   if (/^CREATE |^ALTER |^INSERT OR REPLACE INTO campus_schema_meta|^INSERT INTO admin_audit_logs/.test(sql)) return ok(empty);
   const version = sql.match(/SELECT version FROM campus_schema_meta WHERE id = '([^']+)'/);
   if (version) return ok(table(["version"], [{ version: SCHEMA_VERSIONS[version[1]] || "0" }]));
@@ -85,7 +108,7 @@ function handle(sql, args) {
     const payment = payments.find((item) => item.reference_id === args[0]);
     return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "currency", "status", "access_token_hash"], [{ ...payment, currency: payment.currency || "GHS" }]) : empty);
   }
-  if (/^SELECT booking_id, amount,.*status FROM payments WHERE reference_id = \? AND provider = 'PAYSTACK' LIMIT 1/.test(sql)) {
+  if (/^SELECT booking_id, amount,.*status FROM payments WHERE reference_id = \? AND provider = \? LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
     return ok(payment ? table(["booking_id", "amount", "currency", "status"], [{ ...payment, currency: payment.currency || "GHS" }]) : empty);
   }
@@ -184,8 +207,13 @@ globalThis.fetch = async (url, init) => {
   }
   const body = JSON.parse(init.body);
   const results = body.requests
-    .filter((request) => request.type === "execute")
-    .map(({ stmt }) => {
+    .filter((request) => request.type === "execute" || request.type === "batch")
+    .map((request) => {
+      if (request.type === "batch") {
+        const step_results = request.batch.steps.map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map(arg => arg.type === "null" ? null : arg.value)).response.result);
+        return ok({ step_results, step_errors: step_results.map(() => null) });
+      }
+      const { stmt } = request;
       const args = (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value));
       return handle(stmt.sql, args);
     });
@@ -194,6 +222,10 @@ globalThis.fetch = async (url, init) => {
 };
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const productFetch = globalThis.fetch;
+const financeFetch = withFinanceFetch(productFetch);
+globalThis.fetch = financeFetch.fetch;
+
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true }, hmr: false });
 after(async () => vite.close());
 

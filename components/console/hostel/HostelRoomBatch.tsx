@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { StackPlus, X } from "@phosphor-icons/react";
+import { StackPlus, X } from "@/components/ui/MaterialIcon";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import "@/components/console/hostel/room-batch.css";
 
 type Period = { id: string; name: string };
@@ -89,6 +90,7 @@ export function HostelRoomBatch({ propertyId, propertyName, canPrice, roomTempla
   return <>
     <button type="button" className="hostel-batch-launch" onClick={() => void launch()}><StackPlus size={17}/> Create a room range</button>
     <dialog ref={dialog} className="hostel-batch-dialog" aria-labelledby="hostel-batch-title" onCancel={event => { if (busy) event.preventDefault(); else setOpen(false); }} onClick={event => { if (event.target === event.currentTarget && !busy) setOpen(false); }}>
+      <SheetHandle onDismiss={() => setOpen(false)} disabled={busy} />
       <div className="hostel-batch-inner">
         <header><div><span>FAST ROOM SETUP</span><h2 id="hostel-batch-title">Create matching rooms</h2><p>{propertyName} · one template for a numbered range</p></div><button type="button" aria-label="Close" disabled={busy} onClick={() => setOpen(false)}><X size={20}/></button></header>
         {done ? <div className="hostel-batch-done" role="status"><strong>{created} rooms created</strong><p>{skipped ? `${skipped} matching rooms were already present. ` : ""}Beds and optional rates are saved as drafts. Review the result before submitting listings.</p><button type="button" onClick={() => setOpen(false)}>Done</button></div> : <form onSubmit={event => void run(event)}>

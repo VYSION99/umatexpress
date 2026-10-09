@@ -25,7 +25,7 @@ point, assets and console route). There is no second place to remember.
 | Queue | `CLOUDFLARE_QUEUE_BINDING` | `NOTIFICATION_QUEUE` | queues `CLOUDFLARE_QUEUE` and `<queue>-dlq` | `lib/notifications.ts`, `worker/index.ts` `queue()` |
 | Durable Object | `CLOUDFLARE_RATE_LIMITER_BINDING` | `RATE_LIMITER` | none (migration `v1`) | `worker/rate-limiter.ts`, `lib/rate-limit.ts` |
 | Service binding | `CLOUDFLARE_SERVICE_BINDINGS` | empty | the other Worker must exist | `lib/cloudflare-bindings.ts` |
-| mTLS certificate | `CLOUDFLARE_MTLS_CERTIFICATES` | empty | an uploaded certificate | `lib/mtn-momo.ts` |
+| mTLS certificate | `CLOUDFLARE_MTLS_CERTIFICATES` | empty | an uploaded certificate | Paystack |
 | Subrequest limit | `CLOUDFLARE_SUBREQUEST_LIMIT` | empty | none | `limits.subrequests` in the generated config |
 
 Set a binding variable to the empty string to deploy without that binding.
@@ -82,13 +82,9 @@ Fill it in when the console or an image service becomes its own Worker, with
 that names a Worker that does not exist fails the deploy, which is why it is
 opt-in.
 
-**mTLS.** The MTN MoMo Collection API expects the client certificate outside
-the sandbox. Upload one with
-`npx wrangler mtls-certificate upload --cert cert.pem --key key.pem`, then set
-`CLOUDFLARE_MTLS_CERTIFICATES=MTN_MOMO_CERT=<certificate-id>`. `lib/mtn-momo.ts`
-routes every MoMo request through the binding when it is present and falls back
-to plain `fetch` when it is not. mTLS is a property of a custom domain, so a
-workers.dev host can never terminate client certificates.
+**mTLS.** Optional certificate bindings remain available for future external
+services. The payment system currently uses Paystack and does not need an mTLS
+client certificate.
 
 **Subrequest limit.** The Turso client spends one subrequest per SQL statement,
 and the Workers free plan allows fifty per invocation — a ceiling that a sweep

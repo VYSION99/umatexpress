@@ -55,8 +55,6 @@ export const DEFAULT_SUBREQUEST_LIMIT = 0;
 export const SERVICE_BINDINGS_VAR = "CLOUDFLARE_SERVICE_BINDINGS";
 export const MTLS_CERTIFICATES_VAR = "CLOUDFLARE_MTLS_CERTIFICATES";
 
-/** Name of the mTLS certificate binding the MTN MoMo client uses. */
-export const MOMO_MTLS_BINDING = "MTN_MOMO_CERT";
 
 /**
  * Resolves one configurable binding name: unset keeps the default, an empty

@@ -1,3 +1,5 @@
+import { reverseSettledTransfer } from "@/lib/payments/reversals";
+import { isProviderOutcomeUnknown, ProviderRejected } from "@/lib/payments/operations";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelTables, getHostelLandlord, HOSTEL_DEFAULT_COMMISSION_BPS } from "@/lib/hostel-engine/landlord";
@@ -710,6 +712,11 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
   if (landlord.status !== "ACTIVE") {
     throw new CampusEngineError("INVALID_STATE", "Reactivate the landlord account before sending a payout.", 409);
   }
+  const { ownerReadiness } = await import("@/lib/hostel-engine/onboarding");
+  const identity = await ownerReadiness(landlordId);
+  if (identity.identityStatus !== "VERIFIED" || !["GHANA_CARD", "PASSPORT"].includes(identity.identityIdType) || !identity.identityIdNumberMasked) {
+    throw new CampusEngineError("INVALID_STATE", "Verify the landlord's KYC with a Ghana Card or passport number before sending a payout.", 409);
+  }
   const account = await getHostelPayoutAccount(landlordId);
   if (!account.ready) {
     throw new CampusEngineError("INVALID_STATE", "The landlord has not saved a payout account yet.", 409);
@@ -816,11 +823,14 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
     throw new CampusEngineError("INVALID_STATE", "What is left after another payout is smaller than the transfer fee, so nothing was sent. It stays on the ledger.", 409);
   }
 
+  let transferSubmitted = false;
   try {
     // What the landlord receives: their share, less what Paystack charges to
     // send it. The batch keeps both numbers so the statement can say where the
     // difference went rather than quietly paying less than it recorded.
     const payable = claimedAmount - fee;
+    await turso("UPDATE hostel_payout_batches SET total_amount=?,entry_count=?,transfer_fee=?,recipient_code=?,updated_at=? WHERE id=?", [claimedAmount, claimedCount, fee, recipient.recipientCode, stamp, batchId]);
+    transferSubmitted = true;
     const transfer = await initiatePaystackTransfer({
       amount: payable,
       recipientCode: recipient.recipientCode,
@@ -850,6 +860,11 @@ export async function sendHostelPayoutBatch(input: { landlordId: string; note?: 
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "unknown";
+    if (isProviderOutcomeUnknown(error) || (transferSubmitted && !(error instanceof ProviderRejected))) {
+      await turso("UPDATE hostel_payout_batches SET reason='OUTCOME_UNKNOWN',updated_at=? WHERE id=? AND status='PENDING'",[stamp,batchId]).catch(()=>undefined);
+      const saved = rowsToObjects(await turso("SELECT * FROM hostel_payout_batches WHERE id=?",[batchId]))[0];
+      return { batch: batchView(saved), status: "PENDING", reason: "OUTCOME_UNKNOWN" };
+    }
     await failHostelPayoutBatch({ batchId, reason, stamp }).catch(() => undefined);
     logEvent("error", "hostel_payout_transfer_failed", { landlordId, batchId, reason });
     throw new CampusEngineError("ENGINE_ERROR", `Paystack refused the transfer: ${reason}`, 502);
@@ -953,6 +968,8 @@ export async function runHostelPayoutReleaseJob(options: { limit?: number; now?:
   const now = options.now ?? new Date();
   const stamp = now.toISOString();
   const limit = Math.max(1, Math.min(10, Math.round(Number(options.limit) || 4)));
+  const { ensureHostelOnboardingTables } = await import("@/lib/hostel-engine/onboarding");
+  await ensureHostelOnboardingTables();
 
   // One query decides the queue: due entries, an active and verified landlord,
   // somewhere to send the money, no standing debt, no entries the automation
@@ -965,10 +982,13 @@ export async function runHostelPayoutReleaseJob(options: { limit?: number; now?:
        COALESCE(SUM(p.net_amount),0) AS total_amount,
        COALESCE(l.status,'') AS landlord_status,
        COALESCE(l.kyc_status,'') AS kyc_status,
+       COALESCE(o.identity_id_type,'') AS identity_id_type,
+       COALESCE(o.identity_id_number,'') AS identity_id_number,
        COALESCE(l.payout_method,'') AS payout_method,
        COALESCE(l.payout_bank_code,'') AS payout_bank_code
      FROM hostel_payouts p
      LEFT JOIN hostel_landlords l ON l.id = p.landlord_id
+     LEFT JOIN hostel_owner_onboarding o ON o.landlord_id = p.landlord_id
      WHERE p.status = 'ACCRUED' AND COALESCE(p.batch_id,'') = '' AND p.release_after <= ?
        AND p.payout_attempts < ?
        AND NOT EXISTS (SELECT 1 FROM hostel_payout_batches b WHERE b.landlord_id = p.landlord_id AND b.status = 'PENDING')
@@ -990,6 +1010,7 @@ export async function runHostelPayoutReleaseJob(options: { limit?: number; now?:
     if (!landlordId) { skip("NO_LANDLORD"); continue; }
     if (String(candidate.landlord_status) !== "ACTIVE") { skip("NOT_ACTIVE"); continue; }
     if (String(candidate.kyc_status) !== "VERIFIED") { skip("KYC_NOT_VERIFIED"); continue; }
+    if (!["GHANA_CARD", "PASSPORT"].includes(String(candidate.identity_id_type || "")) || !String(candidate.identity_id_number || "")) { skip("KYC_ID_REQUIRED"); continue; }
     const method = String(candidate.payout_method || "").toUpperCase();
     if (!isPayoutMethod(method) || !String(candidate.payout_bank_code || "")) { skip("NO_DESTINATION"); continue; }
     // The fee follows the destination and comes off the payout itself, so the
@@ -1063,6 +1084,7 @@ export async function applyHostelPaystackTransferEvent(input: { event: string; d
   ))[0];
   if (!batch) return { handled: false, reason: "BATCH_NOT_FOUND" };
   const batchId = String(batch.id);
+  if (input.event === "transfer.reversed" && await reverseSettledTransfer("HOSTEL",batchId)) return { handled:true,status:"REVERSED" };
   if (String(batch.status) !== "PENDING") return { handled: true, reason: "ALREADY_SETTLED" };
   const stamp = new Date().toISOString();
   const status = input.event === "transfer.reversed"

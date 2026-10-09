@@ -146,7 +146,7 @@
 .hostel-card-beds{font-size:11px;letter-spacing:0;text-transform:none;white-space:nowrap}
 .hostel-card-beds.is-preparing{background:#edf3ee;color:#466455}
 .hostel-card-address{align-items:start;line-height:1.45}
-.hostel-card-address svg{flex:none;margin-top:2px}
+.hostel-card-address .material-icon{flex:none;margin-top:2px}
 .hostel-card-facts{gap:6px}
 .hostel-card-facts li{background:#f0f6f2;color:#426150}
 .hostel-card-foot{align-items:center;padding-top:16px}

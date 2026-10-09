@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Key } from "@phosphor-icons/react";
+import { Key } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 
 export default function ConsoleChangePasswordPage() {
@@ -40,7 +40,7 @@ function ChangePasswordForm({ session }: { session: ConsoleSessionInfo }) {
 
   return <main className="console-auth-page">
     <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo-web.png" alt="UMaTeXPRESS" />
+      <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>{session.mustChangePassword ? "Set your password" : "Change your password"}</h1>
       <span>

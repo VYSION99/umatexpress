@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowClockwise, Plus, Wrench } from "@phosphor-icons/react";
+import { ArrowClockwise, Plus, Wrench } from "@/components/ui/MaterialIcon";
 import Link from "next/link";
 import { ResidencyDialog } from "./ResidencyDialog";
 import { MAINTENANCE_CATEGORIES, MAINTENANCE_LABELS as LABEL, MAINTENANCE_STATUSES, MAX_MAINTENANCE_PHOTO_BYTES, type MaintenanceAction, type MaintenanceConfig, type MaintenanceDetail, type MaintenanceDraft, type MaintenanceList, type MaintenancePerson } from "@/lib/hostel-engine/maintenance-types";

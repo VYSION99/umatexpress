@@ -404,6 +404,22 @@
   height: auto;
 }
 
+/* Keep partner artwork legible on the same raised cards as the other services. */
+.home-card-art--brand {
+  display: grid;
+  place-items: center;
+  min-height: 112px;
+  padding: 16px;
+  background: #fff;
+}
+
+.home-card-art--brand img {
+  width: 100%;
+  max-height: 94px;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
 .home-card h3 {
   display: flex;
   align-items: center;
@@ -415,7 +431,7 @@
   letter-spacing: -.3px;
 }
 
-.home-card h3 svg {
+.home-card h3 .material-icon {
   color: var(--home-muted);
 }
 
@@ -441,228 +457,13 @@
   font-weight: 800;
 }
 
-.home-card-soon {
-  display: inline-flex;
-  align-items: center;
-
-  margin-top: 10px;
-  padding: 5px 11px;
-  align-self: flex-start;
-
-  border: 1px solid var(--home-line);
-  border-radius: 999px;
-  background: var(--card-soft);
-
-  color: var(--card-ink);
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .home-card-link:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 
-/* ========================================
-   FEATURE CARDS
-   ======================================== */
-
-.home-feature {
-  --card-ink: var(--home-neutral);
-  --card-soft: var(--home-neutral-soft);
-
-  position: relative;
-  overflow: hidden;
-
-  padding: 24px;
-  margin-bottom: 22px;
-
-  border: 1px solid var(--home-line);
-  border-radius: var(--home-r-lg);
-  background: #fff;
-  box-shadow: var(--home-shadow);
-}
-
-.home-feature.is-green {
-  --card-ink: var(--home-green);
-  --card-soft: var(--home-green-soft);
-}
-
-.home-feature.is-gold {
-  --card-ink: var(--home-gold-ink);
-  --card-soft: var(--home-gold-soft);
-}
-
-.home-feature.is-neutral {
-  --card-ink: var(--home-neutral);
-  --card-soft: var(--home-neutral-soft);
-}
-
-.home-feature-head {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  margin-bottom: 20px;
-}
-
-.home-feature-head h2 {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -.4px;
-}
-
-.home-feature-head p {
-  margin: 3px 0 0;
-  color: var(--home-muted);
-  font-size: 12.5px;
-}
-
-.home-steps {
-  display: grid;
-  gap: 2px;
-  margin: 0 0 22px;
-  padding: 0;
-  list-style: none;
-}
-
-.home-steps li {
-  position: relative;
-
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
-.home-steps i {
-  display: grid;
-  place-items: center;
-
-  width: 22px;
-  height: 22px;
-
-  border-radius: var(--home-r-xs);
-  background: var(--card-soft);
-  color: var(--card-ink);
-  font-style: normal;
-}
-
-.home-steps li:not(:last-child) i:after {
-  content: "";
-  position: absolute;
-
-  top: 26px;
-  bottom: 6px;
-  left: 10px;
-  width: 2px;
-
-  background: var(--home-line);
-}
-
-.home-steps div {
-  padding-bottom: 16px;
-}
-
-.home-steps small {
-  display: block;
-
-  color: var(--card-ink);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-
-.home-steps strong {
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.5;
-}
-
-.home-photo {
-  overflow: hidden;
-
-  margin-bottom: 18px;
-  border: 1px solid var(--home-line);
-  border-radius: var(--home-r-sm);
-  background: var(--card-soft);
-}
-
-.home-photo img {
-  display: block;
-  width: 100%;
-  height: clamp(160px, 30vw, 230px);
-  object-fit: cover;
-}
-
-/* A partner's own artwork sits on a flat white plate so a logo drawn for a dark
-   background still gets the light field it needs — no tint, no gradient. */
-.home-brand-plate {
-  display: grid;
-  place-items: center;
-
-  margin-bottom: 18px;
-  padding: clamp(16px, 4vw, 30px);
-
-  border: 1px solid var(--home-line);
-  border-radius: var(--home-r-sm);
-  background: #fff;
-}
-
-.home-brand-plate img {
-  display: block;
-  width: min(100%, 460px);
-  height: auto;
-}
-
-/* CliPad's brand is its mark plus the wordmark, the way their own app locks it
-   up; the word is text so it stays crisp at every width. */
-.home-brand-lockup {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-
-  margin-bottom: 18px;
-  padding: clamp(16px, 4vw, 26px);
-
-  border: 1px solid var(--home-line);
-  border-radius: var(--home-r-sm);
-  background: #fff;
-}
-
-.home-brand-lockup img {
-  width: clamp(42px, 11vw, 58px);
-  height: auto;
-}
-
-.home-brand-lockup span {
-  color: #0f172a;
-  font-size: clamp(26px, 7vw, 40px);
-  font-weight: 800;
-  letter-spacing: -.8px;
-}
-
-/* The gold card is the one that states a condition, so its action is gold too;
-   ink on gold clears 7:1, where gold ink on gold would not. */
-.home-feature.is-gold .home-cta {
-  background: var(--home-gold);
-  color: var(--ui-ink);
-}
-
-.home-feature.is-gold .home-cta:hover {
-  background: var(--home-gold-deep);
-}
-
-.home-feature-copy {
-  margin: 0 0 22px;
-  max-width: 46ch;
-
-  color: var(--home-muted);
-  font-size: 14px;
-  line-height: 1.65;
-}
+/* Shared primary action for the hero. */
 
 .home-cta {
   display: inline-flex;
@@ -685,121 +486,11 @@
 }
 
 
-/* ========================================
-   ON THE WAY
-   ======================================== */
-
-.home-soon {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px;
-}
-
-.home-soon article {
-  padding: 16px;
-
-  border: 1px dashed var(--ui-green-line);
-  border-radius: var(--home-r-sm);
-  /* A service that is not live yet has nothing to signal, so it rests on the
-     neutral tint and only the three available cards carry a hue. */
-  background: var(--home-neutral-soft);
-  color: var(--home-ink);
-  box-shadow: var(--home-shadow);
-}
-
-.home-soon article.is-green {
-  background: var(--home-green-soft);
-}
-
-.home-soon article.is-gold {
-  background: var(--home-gold-soft);
-}
-
-.home-soon article.is-neutral {
-  background: var(--home-neutral-soft);
-}
-
-.home-soon svg {
-  color: var(--home-muted);
-}
-
-.home-soon h3 {
-  margin: 10px 0 4px;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.home-soon p {
-  margin: 0;
-  color: var(--home-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-
-/* ========================================
-   BOOKINGS
-   ======================================== */
-
-.home-bookings {
-  padding: 24px;
-  margin-bottom: 22px;
-
-  border: 1px solid var(--home-line);
-  border-radius: var(--home-r-lg);
-  background: #fff;
-  box-shadow: var(--home-shadow);
-}
-
-.home-bookings-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.home-bookings-head span {
-  display: grid;
-  place-items: center;
-
-  width: 46px;
-  height: 46px;
-
-  border-radius: var(--home-r-sm);
-  background: var(--home-gold-soft);
-  color: var(--home-gold-ink);
-}
-
-.home-bookings-head h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -.4px;
-}
-
-.home-bookings-head p {
-  margin: 3px 0 0;
-  color: var(--home-muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
-.home-bookings strong {
-  display: block;
-  margin-bottom: 7px;
-  font-size: 16px;
-  font-weight: 750;
-}
-
-.home-bookings p {
-  margin: 0 0 18px;
-  max-width: 66ch;
-  color: var(--home-muted);
-  font-size: 13px;
-  line-height: 1.65;
-}
+/* A quiet roadmap line, not another stack of cards. */
+.home-soon { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.home-soon > div { display: flex; align-items: center; gap: 9px; min-height: 38px; color: var(--home-muted); font-size: 12px; }
+.home-soon .material-icon { color: var(--home-gold-ink); }
+.home-soon strong { color: var(--home-ink); font-size: 13px; }
 
 
 /* ========================================
@@ -818,7 +509,7 @@
   font-size: 12.5px;
 }
 
-.home-note svg {
+.home-note .material-icon {
   flex-shrink: 0;
   color: var(--home-green);
 }
@@ -1228,7 +919,7 @@ a.profile-forget {
   line-height: 1.6;
 }
 
-.profile-empty svg {
+.profile-empty .material-icon {
   flex: none;
   margin-top: 2px;
 }
@@ -1289,37 +980,12 @@ a.profile-forget {
     flex: 1 1 auto;
   }
 
-  .home-feature {
-    padding: 30px 32px;
-  }
-
   .home-section-head h2 {
     font-size: 20px;
   }
 }
 
 @media (min-width: 900px) {
-  .home-feature {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: center;
-    gap: 30px;
-  }
-
-  .home-feature-head {
-    grid-column: 1 / -1;
-    margin-bottom: 4px;
-  }
-
-  .home-feature .home-photo {
-    margin-bottom: 0;
-  }
-
-  .home-feature .home-steps {
-    grid-column: 1 / -1;
-    margin-bottom: 0;
-  }
-
   .home-cta {
     grid-column: 1 / -1;
     justify-self: start;
@@ -1469,7 +1135,7 @@ a.profile-forget {
 }
 .home-bar { padding-inline: max(24px, calc((100% - 1200px) / 2)); }
 .home-main { width: min(1200px, calc(100% - 64px)); padding-top: 40px; }
-.home-main, #services, #bookings { scroll-margin-top: 100px; }
+.home-main, #services { scroll-margin-top: 100px; }
 .home-hero {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
@@ -1501,7 +1167,7 @@ a.profile-forget {
 .home-day-list > div > div { flex: 1; min-width: 0; }
 .home-day-list strong { display: block; font-size: 13px; font-weight: 650; }
 .home-day-list small { display: block; margin-top: 5px; font-size: 11px; line-height: 1.5; color: #c7dad1; }
-.home-day-list > div > svg { color: #c7dad1; }
+.home-day-list > div > .material-icon { color: #c7dad1; }
 .home-day-footer { display: flex; align-items: center; gap: 6px; padding-top: 22px; color: #c7dad1; font-size: 10px; }
 .home-day-footer span { margin-left: auto; }
 .home-section { margin-bottom: 40px; }
@@ -1514,24 +1180,11 @@ a.profile-forget {
 .home-card:hover { box-shadow: 0 8px 24px #12261f0a; }
 .home-card-art { margin: -20px -20px 4px; border-radius: 15px 15px 0 0; }
 .home-card-art img { aspect-ratio: 840 / 310; object-fit: cover; }
+.home-card-art--brand { aspect-ratio: 840 / 310; }
+.home-card-art--brand img { width: 100%; height: 100%; max-height: 94px; aspect-ratio: auto; object-fit: contain; }
 .home-card h3 { font-size: 17px; }
 .home-card p { font-size: 13px; }
 .home-card-link { justify-content: space-between; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--home-line); }
-.home-feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 40px; }
-.home-feature-grid:empty { display: none; }
-.home-feature-grid .home-feature { display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; padding: 26px; margin: 0; }
-.home-feature-head { align-items: flex-start; margin-bottom: 24px; }
-.home-feature-head p { line-height: 1.6; }
-.home-feature-grid .home-cta { align-self: flex-start; margin-top: auto; }
-.home-feature-grid .home-steps { margin-bottom: 24px; }
-.home-steps li { padding-bottom: 8px; }
-.home-feature-grid .home-photo { margin-bottom: 18px; }
-.home-photo img { height: 180px; }
-.home-brand-plate, .home-brand-lockup { height: 144px; }
-.home-brand-plate img { max-height: 100%; width: auto; max-width: 100%; object-fit: contain; }
-.home-feature-copy { max-width: none; }
-.home-bookings { background: var(--home-green-soft); border-color: var(--ui-green-line); padding: 30px; }
-.home-bookings-head > p { margin-bottom: 0; }
 .home-note { padding: 0 0 20px; }
 .home button { cursor: pointer; }
 .home :is(a, button, input):focus-visible { outline: 3px solid var(--home-gold); outline-offset: 4px; }
@@ -1602,7 +1255,7 @@ a.profile-forget {
     box-shadow: 0 4px 0 var(--card-edge), 0 8px 12px -6px #12261f30;
     transform: rotate(-6deg);
   }
-  .home-card > .home-card-icon svg { transform: rotate(6deg); }
+  .home-card > .home-card-icon .material-icon { transform: rotate(6deg); }
   .home-card .home-card-link {
     min-height: 44px;
     padding: 8px;
@@ -1613,20 +1266,15 @@ a.profile-forget {
     text-decoration: none;
   }
   .home-card-art img { aspect-ratio: 840 / 394; }
+  .home-card-art--brand { aspect-ratio: auto; min-height: 112px; }
+  .home-card-art--brand img { aspect-ratio: auto; max-height: 78px; object-fit: contain; }
   .home-card h3 { font-size: 14px; flex-wrap: wrap; }
   .home-card p, .home-card-link { font-size: 12px; }
   .home-card-link { gap: 4px; }
-  .home-card-link svg { flex: none; }
-  .home-feature-grid { grid-template-columns: 1fr; gap: 26px; }
-  .home-feature-grid .home-feature, .home-bookings {
-    padding: 22px;
-    border: 1px solid #dce6df;
-    box-shadow: inset 0 1px 0 #fff, 0 5px 0 #dce6df, 0 12px 22px -12px #12261f30;
-  }
-  .home-feature .home-card-icon, .home-bookings-head > span {
-    border: 1px solid #fff;
-    box-shadow: 0 3px 0 #d5dfd9;
-  }
+  .home-card-link .material-icon { flex: none; }
+  .home-card.is-partner { grid-column: span 2; }
+  .home-card.is-partner .home-card-art--brand { min-height: 132px; }
+  .home-card.is-partner .home-card-art--brand img { max-height: 94px; }
   .home-section-head h2 { font-size: 21px; }
   .home-wordmark { font-size: 15px; }
   .home-tagline { font-size: 10px; }
@@ -1639,6 +1287,8 @@ a.profile-forget {
 @media (max-width: 359px) {
   .home-rail { grid-template-columns: minmax(0, 1fr); }
   .home-card-art img { max-height: 140px; object-fit: cover; }
+  .home-card.is-partner { grid-column: auto; }
+  .home-card-art--brand img { object-fit: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
   .home-card { transition: none; }
@@ -1646,13 +1296,6 @@ a.profile-forget {
 }
 
 /* The card itself is the link; the text at its foot is only the visual action. */
-.home a.home-card,
-.home a.home-feature { color: inherit; text-decoration: none; cursor: pointer; }
-.home a.home-card:focus-visible,
-.home a.home-feature:focus-visible { outline: 3px solid var(--home-green); outline-offset: 4px; }
+.home a.home-card { color: inherit; text-decoration: none; cursor: pointer; }
+.home a.home-card:focus-visible { outline: 3px solid var(--home-green); outline-offset: 4px; }
 .home a.home-card:hover .home-card-link { text-decoration: underline; text-underline-offset: 3px; }
-.home a.home-feature { transition: border-color .18s ease, box-shadow .18s ease; }
-.home a.home-feature:hover { border-color: var(--home-green); box-shadow: 0 14px 34px #12261f16; }
-.home a.home-feature:hover .home-cta { background: var(--ui-green-deep); }
-.home a.home-feature.is-gold:hover .home-cta { background: var(--home-gold-deep); }
-@media (prefers-reduced-motion: reduce) { .home a.home-feature { transition: none; } }

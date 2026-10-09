@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowsClockwise, ArrowUUpLeft, Eye, Gear, Lightning, Money, PaperPlaneTilt, SealCheck, ShieldCheck, UserMinus, Warning, Wrench } from "@phosphor-icons/react";
+import { ArrowsClockwise, ArrowUUpLeft, Eye, Gear, Lightning, Money, PaperPlaneTilt, SealCheck, ShieldCheck, UserMinus, Warning, Wrench } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -71,6 +71,7 @@ const SKIP_REASONS: Record<string, string> = {
   BALANCE_UNAVAILABLE: "the Paystack balance could not be read",
   NOT_APPROVED: "the organizer is not approved",
   KYC_NOT_VERIFIED: "KYC is not verified",
+  KYC_ID_REQUIRED: "Ghana Card or passport number is required",
   NO_DESTINATION: "no payout destination is saved",
   UNSUPPORTED_DESTINATION: "the saved account is a bank, and rides pay out to mobile money",
   NOTHING_DUE: "nothing is owed",

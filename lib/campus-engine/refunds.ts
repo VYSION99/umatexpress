@@ -1,3 +1,4 @@
+import { isProviderOutcomeUnknown } from "@/lib/payments/operations";
 import { campusAudit, type CampusAuditActorType } from "@/lib/campus-engine/audit";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { CAMPUS_NOTIFY_SUBJECTS, campusNotification, type CampusNotifyTemplate } from "@/lib/campus-engine/notify-templates";
@@ -503,6 +504,7 @@ async function sendCampusRefund(refundId: string) {
   if (!refund || refund.status !== "APPROVED") return refund;
   try {
     const sent = await initiatePaystackRefund({
+        operationId: refund.id,
       transactionReference: refund.paymentReference,
       amount: refund.amount,
       reason: refund.reason || `campusRide refund ${refund.reference}`,
@@ -516,6 +518,11 @@ async function sendCampusRefund(refundId: string) {
     if (settled) await incrementMetric("campus_refund_settled");
     return (await getCampusRefund(refund.id)) as CampusRefund;
   } catch (error) {
+    if (isProviderOutcomeUnknown(error)) {
+      await turso("UPDATE campus_refunds SET provider_status='OUTCOME_UNKNOWN',updated_at=? WHERE id=?",[new Date().toISOString(),refund.id]);
+      return (await getCampusRefund(refund.id)) as CampusRefund;
+    }
+
     // A rail hiccup is not a refused refund: the entry stays APPROVED and the
     // next reconcile tries again, with the reason recorded for the console.
     const message = error instanceof Error ? error.message : "Paystack refund failed.";

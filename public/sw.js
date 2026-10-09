@@ -1,4 +1,4 @@
-const CACHE_NAME = "umatexpress-shell-v6";
+const CACHE_NAME = "umatexpress-shell-v8";
 // Staff surfaces live on the console origin and are never precached here: a
 // cross-origin redirect is not a cacheable shell response.
 const APP_SHELL = [
@@ -13,6 +13,7 @@ const APP_SHELL = [
   "/apple-touch-icon.png",
   "/acmd-logo.png",
   "/clipad-mark.svg",
+  "/fonts/material-symbols-rounded-app.woff2",
   "/vip-coach.png",
   "/manifest.webmanifest"
 ];
@@ -39,6 +40,9 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  // A root-scoped student worker may already control same-origin staff pages.
+  // Never cache, intercept, or serve the student offline shell for the console.
+  if (url.pathname === "/console" || url.pathname.startsWith("/console/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(networkFirst(request));

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChatText, Gavel, Scales, Warning } from "@phosphor-icons/react";
+import { ChatText, Gavel, Scales, Warning } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 

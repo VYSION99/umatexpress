@@ -46,7 +46,7 @@ export default function ResetAdminPasswordPage() {
 
   return <main className="admin-login-page">
     <form className="admin-login-card" onSubmit={submit}>
-      <img className="login-logo" src="/logo-web.png" alt="UMaTeXPRESS" />
+      <img className="login-logo" src="/console-logo.svg" alt="UMaTeXPRESS Console" />
       <p>ADMIN SECURITY</p>
       <h1>Reset password</h1>
       <span>Use the admin account email and current password to create a new one.</span>

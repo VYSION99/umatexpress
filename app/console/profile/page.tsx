@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CreditCard, IdentificationCard, Info, SealCheck, ShieldWarning } from "@phosphor-icons/react";
+import { CreditCard, IdentificationCard, Info, SealCheck, ShieldWarning } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -9,8 +9,6 @@ import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 const ID_TYPES = [
   { value: "GHANA_CARD", label: "Ghana Card" },
   { value: "PASSPORT", label: "Passport" },
-  { value: "DRIVER_LICENSE", label: "Driver's licence" },
-  { value: "VOTER_ID", label: "Voter ID" },
 ] as const;
 
 type PayoutDestination = { code: string; name: string };
@@ -56,7 +54,7 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
       setProfile(data.profile);
       setDestinations(data.destinations || EMPTY_DESTINATIONS);
       setFees(data.fees || EMPTY_FEES);
-      if (data.profile?.kycIdType) setKyc((current) => ({ ...current, idType: data.profile.kycIdType }));
+      if (data.profile?.kycIdType && ID_TYPES.some(type => type.value === data.profile.kycIdType)) setKyc((current) => ({ ...current, idType: data.profile.kycIdType }));
       if (data.profile?.payoutMethod) {
         setPayout((current) => ({
           ...current,
@@ -123,12 +121,13 @@ function ProfileWorkspace({ session }: { session: ConsoleSessionInfo }) {
         </label>
         <button disabled={busy === "kyc"}><SealCheck size={16}/>{busy === "kyc" ? "Submitting…" : "Submit for verification"}</button>
       </form>
-      <p className="console-note">Only the document type and number are recorded. No scan is uploaded, so keep the original safe.</p>
+      <p className="console-note">A Ghana Card or passport number is required before payouts can be verified. The number is encrypted and shown masked after submission.</p>
     </section>
 
     <section className="console-panel">
       <h2><CreditCard size={18}/>Payout account</h2>
       <form className="console-form" onSubmit={(event) => { event.preventDefault(); void save("payout"); }}>
+        <p className="console-note">This mobile money account has a {cedis(fees.transferFee)} fee per successful payout. We deduct it from your earnings before sending the balance.</p>
         <label>Method
           <input type="text" value="Mobile money only" readOnly aria-readonly="true" />
         </label>

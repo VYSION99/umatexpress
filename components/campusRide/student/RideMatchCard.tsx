@@ -3,7 +3,8 @@
 import { useRef } from "react";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import { QueueJoinCard } from "@/components/campusRide/student/QueueJoinCard";
-import { ArrowRight, Check, Clock, MapPin, Users, X } from "@phosphor-icons/react";
+import { ArrowRight, Check, Clock, MapPin, Users, X } from "@/components/ui/MaterialIcon";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 
 const cedis = (pesewas: number) => pesewas > 0 ? `GH₵ ${(pesewas / 100).toFixed(2)}` : "Fare not set";
 
@@ -29,6 +30,7 @@ export function RideMatchCard({ match, pickupZoneId, destinationZoneId, pickupLa
       {selected && <div className="ride-selected-actions"><span><Check size={16}/> Selected ride</span><QueueJoinCard match={match} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} pickupLatitude={pickupLatitude} pickupLongitude={pickupLongitude} /></div>}
     </article>
     <dialog ref={dialogRef} className="campus-ride-dialog" aria-labelledby={`${titleId}-details`} onClick={(event) => { if (event.target === event.currentTarget) closeDetails(); }}>
+      <SheetHandle onDismiss={closeDetails} />
       <div className="campus-ride-dialog-content">
         <div className="campus-ride-dialog-head"><span>RIDE DETAILS</span><button type="button" aria-label="Close ride details" onClick={closeDetails}><X size={19} aria-hidden /></button></div>
         <h2 id={`${titleId}-details`}>{match.corridor?.name || "Campus ride"}</h2>

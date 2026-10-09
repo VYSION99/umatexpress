@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { X } from "@phosphor-icons/react";
+import { X } from "@/components/ui/MaterialIcon";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import "./residency.css";
 
 export function ResidencyDialog({ open, title, children, onClose, busy = false, drawer = false }: {
@@ -17,7 +18,9 @@ export function ResidencyDialog({ open, title, children, onClose, busy = false, 
     return () => { node.close(); document.body.style.overflow = previousOverflow; };
   }, [open]);
   return <dialog ref={dialog} className={`residency-dialog${drawer ? " residency-drawer" : ""}`} aria-labelledby={titleId}
-    onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+    onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}
+    onClick={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <SheetHandle onDismiss={onClose} disabled={busy} />
     <header><h2 id={titleId}>{title}</h2><button type="button" aria-label="Close dialog" disabled={busy} onClick={onClose}><X size={22} aria-hidden /></button></header>
     <div className="residency-dialog-body">{open && children}</div>
   </dialog>;

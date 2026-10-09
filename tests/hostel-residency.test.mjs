@@ -1,3 +1,4 @@
+import { withFinanceFetch } from "./helpers/finance-fetch.mjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -116,7 +117,7 @@ function bookableRow(listingId) {
 }
 
 const SUBSCRIPTION_COLUMNS = [
-  "id", "landlord_id", "plugin_id", "period_id", "property_id", "platform_price", "resident_price",
+  "id", "landlord_id", "plugin_id", "period_id", "property_id", "platform_price", "checkout_amount", "resident_price",
   "status", "reference", "hold_expires_at", "activated_at", "created_at",
   "plugin_code", "plugin_name", "plugin_category", "period_name",
 ];
@@ -415,13 +416,13 @@ function handle(sql, args) {
     return ok(row ? table(["id", "status"], [row]) : empty);
   }
   if (matched(/INSERT INTO hostel_plugin_subscriptions/, sql)) {
-    const [id, landlordId, pluginId, periodId, propertyId, platformPrice, residentPrice, reference, holdExpiresAt, createdAt, updatedAt] = args;
-    subscriptions.push({ id, landlord_id: landlordId, plugin_id: pluginId, period_id: periodId, property_id: propertyId, platform_price: platformPrice, resident_price: residentPrice, status: "PENDING_PAYMENT", reference, hold_expires_at: holdExpiresAt, activated_at: "", created_at: createdAt, updated_at: updatedAt });
+    const [id, landlordId, pluginId, periodId, propertyId, platformPrice, checkoutAmount, residentPrice, reference, holdExpiresAt, createdAt, updatedAt] = args;
+    subscriptions.push({ id, landlord_id: landlordId, plugin_id: pluginId, period_id: periodId, property_id: propertyId, platform_price: platformPrice, checkout_amount: checkoutAmount, resident_price: residentPrice, status: "PENDING_PAYMENT", reference, hold_expires_at: holdExpiresAt, activated_at: "", created_at: createdAt, updated_at: updatedAt });
     return affected(1);
   }
   if (matched(/UPDATE hostel_plugin_subscriptions SET status = 'PENDING_PAYMENT', platform_price = \?/, sql)) {
-    const row = subscriptions.find((item) => item.id === args[5]);
-    if (row) { row.status = "PENDING_PAYMENT"; row.platform_price = args[0]; row.resident_price = args[1]; row.reference = args[2]; row.hold_expires_at = args[3]; }
+    const row = subscriptions.find((item) => item.id === args[6]);
+    if (row) { row.status = "PENDING_PAYMENT"; row.platform_price = args[0]; row.checkout_amount = args[1]; row.resident_price = args[2]; row.reference = args[3]; row.hold_expires_at = args[4]; }
     return affected(row ? 1 : 0);
   }
   if (matched(/UPDATE hostel_plugin_subscriptions SET status = 'ACTIVE', activated_at = \?/, sql)) {
@@ -737,6 +738,10 @@ globalThis.fetch = async (url, init) => {
 /** What the mocked Paystack said a reference was worth, for the verify calls. */
 const paystackAmounts = new Map();
 
+const productFetch = globalThis.fetch;
+const financeFetch = withFinanceFetch(productFetch);
+globalThis.fetch = financeFetch.fetch;
+
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
@@ -869,7 +874,9 @@ test("a bed is claimed once, and the split is the platform's 3%", async () => {
   // the 3% is charged on what the student actually pays.
   assert.equal(first.booking.price, 120_000);
   assert.equal(first.booking.utilitiesFee, 5_000);
-  assert.equal(first.booking.totalAmount, 125_000);
+  assert.equal(first.booking.totalAmount, 127_486);
+  assert.equal(first.booking.processingFee, 2_486);
+  assert.equal(paystackAmounts.get(first.booking.reference), 127_486, "Paystack receives the full customer-paid total");
   assert.equal(first.booking.commissionAmount, 3_750);
   assert.equal(first.booking.netAmount, 121_250);
   assert.equal(first.holdMinutes, 10);
@@ -904,6 +911,7 @@ test("settling writes the payout once, turns the bed over and opens the thread",
   const payout = payouts.filter((item) => item.booking_id === settled.booking.id);
   assert.equal(payout.length, 1);
   // Cells come back from the fake the way Turso sends them: as text.
+  assert.equal(Number(payout[0].gross_amount), 125_000, "the processing fee is excluded from landlord earnings");
   assert.equal(Number(payout[0].commission_amount), 3_750);
   assert.equal(Number(payout[0].net_amount), 121_250);
   assert.equal(payout[0].status, "ACCRUED");
@@ -1013,6 +1021,9 @@ test("the catalogue prices every plugin once, and a subscription holds for half 
   subscriptionReference = started.subscription.reference;
   assert.equal(started.subscription.status, "PENDING_PAYMENT");
   assert.equal(started.subscription.platformPrice, 24_000);
+  assert.equal(started.subscription.checkoutAmount, 24_478);
+  assert.equal(started.subscription.processingFee, 478);
+  assert.equal(paystackAmounts.get(started.subscription.reference), 24_478);
   // The landlord did not name a resident price, so the catalogue's suggestion stands.
   assert.equal(started.subscription.residentPrice, 12_000);
   const holdMs = new Date(started.subscription.holdExpiresAt).getTime() - Date.now();
@@ -1024,7 +1035,7 @@ test("the catalogue prices every plugin once, and a subscription holds for half 
     pluginId: "plugin_wifi", periodId: "period-1", origin: ORIGIN,
   }), "CONFLICT", 409);
 
-  await activatePluginSubscription({ reference: subscriptionReference, amount: 24_000, source: "test" });
+  await activatePluginSubscription({ reference: subscriptionReference, amount: 24_478, source: "test" });
   const active = await getPluginSubscriptionByReference(subscriptionReference);
   assert.equal(active.status, "ACTIVE");
   const residentPlugins = await listResidentPlugins({ landlordId: "landlord-a", periodId: "period-1", propertyId: "property-a" });

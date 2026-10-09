@@ -1,0 +1,135 @@
+/* Shared mobile presentation for the app's native dialogs and cinema panels. */
+.app-sheet-handle { display: none; }
+
+@media (max-width: 760px) {
+  html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
+
+  dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog)[open] {
+    box-sizing: border-box;
+    position: fixed;
+    inset: auto 0 0;
+    width: 100vw;
+    max-width: 100vw;
+    max-height: calc(100dvh - env(safe-area-inset-top) - 12px);
+    margin: 0;
+    padding: 0;
+    border: 1px solid #e1e9e2;
+    border-bottom: 0;
+    border-radius: 28px 28px 0 0;
+    background: linear-gradient(165deg, #fff 0%, #fffefa 44%, #f7faf6 100%);
+    box-shadow: 0 -2px 0 #ffffffb8 inset, 0 -10px 28px #10281d1f, 0 -28px 72px #0e281e38;
+    overflow: hidden;
+    overscroll-behavior: contain;
+    translate: 0 var(--sheet-pull, 0px);
+    animation: app-sheet-enter .28s cubic-bezier(.2,.8,.2,1) both;
+  }
+
+  dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog)::backdrop {
+    background: #0d211d80;
+    backdrop-filter: blur(7px);
+  }
+
+  dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog) > .app-sheet-handle,
+  .cinema-sheet.is-open > .app-sheet-handle {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .app-sheet-handle > span {
+    display: block;
+    width: 38px;
+    height: 5px;
+    border-radius: 99px;
+    background: linear-gradient(180deg, #cad4ce, #9eada5);
+    box-shadow: 0 1px 0 #fff, 0 2px 4px #173b2c28;
+  }
+
+  .app-sheet-handle:active { cursor: grabbing; }
+  .app-sheet-handle:focus-visible { outline: 3px solid #d4a43b; outline-offset: -3px; }
+
+  dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog)[open] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 16px;
+  }
+
+  dialog[open] :is(.launch-dialog-heading, .vacation-dialog-head, .campus-ride-dialog-head, .hostel-batch-inner > header) button,
+  dialog.residency-dialog[open] > header button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  dialog[open] .launch-dialog-inner,
+  dialog[open] .vacation-dialog-inner,
+  dialog[open] .campus-ride-dialog-content,
+  dialog[open] .hostel-batch-inner {
+    box-sizing: border-box;
+    max-height: calc(100dvh - env(safe-area-inset-top) - 44px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  dialog[open] .launch-dialog-inner,
+  dialog[open] .vacation-dialog-inner,
+  dialog[open] .campus-ride-dialog-content { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  dialog.residency-dialog.residency-drawer[open] { height: auto; }
+  dialog[open] .residency-dialog-body,
+  dialog.residency-drawer[open] .residency-dialog-body {
+    max-height: calc(100dvh - env(safe-area-inset-top) - 124px);
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  dialog.hostel-review-bulk-dialog[open] { padding: 0 22px calc(22px + env(safe-area-inset-bottom)); }
+
+  dialog[open] .vacation-dialog-actions,
+  dialog[open] .campus-ride-dialog-actions {
+    position: sticky;
+    bottom: calc(-24px - env(safe-area-inset-bottom));
+    z-index: 2;
+    padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, #fffefaee, #f7faf6);
+    box-shadow: 0 -10px 24px #fffefabf;
+  }
+
+  dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog)[open] :is(button, a):not(.app-sheet-handle),
+  .cinema-sheet.is-open :is(button, a):not(.app-sheet-handle) {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  dialog[open] :is(.vacation-dialog-primary, .campus-ride-dialog-primary, .hostel-batch-inner footer button:not(.hostel-batch-cancel)) {
+    background: linear-gradient(180deg, #13885f, #0b6047);
+    box-shadow: inset 0 1px 0 #ffffff47, 0 3px 0 #074a36, 0 8px 17px #0d694d2b;
+    transition: transform .16s ease, box-shadow .16s ease;
+  }
+
+  dialog[open] :is(.vacation-dialog-primary, .campus-ride-dialog-primary, .hostel-batch-inner footer button:not(.hostel-batch-cancel)):active:not(:disabled) {
+    transform: translateY(2px);
+    box-shadow: inset 0 1px 0 #ffffff47, 0 1px 0 #074a36, 0 4px 9px #0d694d26;
+  }
+
+  .cinema-sheet.is-open .cinema-sheet-close {
+    box-shadow: inset 0 1px 0 #fff, 0 3px 0 #d9e5dc, 0 8px 13px #183d2a1a;
+  }
+
+  .cinema-sheet.is-open {
+    translate: 0 var(--sheet-pull, 0px);
+    animation: app-sheet-enter .28s cubic-bezier(.2,.8,.2,1) both;
+  }
+}
+
+@keyframes app-sheet-enter {
+  from { opacity: .75; transform: translateY(48px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog)[open],
+  .cinema-sheet.is-open { animation: none; }
+}

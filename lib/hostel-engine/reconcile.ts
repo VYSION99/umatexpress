@@ -46,7 +46,7 @@ export async function reconcilePendingHostelPayments(input: { staleMinutes?: num
     try {
       const payment = await verifyPaystackTransaction(reference);
       if (payment.status === "SUCCESSFUL") {
-        const result = await settleHostelBooking({ reference, amount: payment.amount, transactionId: payment.financialTransactionId, provider: "PAYSTACK", source: "reconcile" });
+        const result = await settleHostelBooking({ reference, amount: payment.amount, currency: payment.currency, transactionId: payment.financialTransactionId, provider: "PAYSTACK", source: "reconcile" });
         if (result.status === "PAYMENT_REVIEW") reviewed += 1;
         else settled += 1;
       } else if (payment.status === "FAILED") {
@@ -70,7 +70,7 @@ export async function reconcilePendingHostelPayments(input: { staleMinutes?: num
     try {
       const payment = await verifyPaystackTransaction(reference);
       if (payment.status === "SUCCESSFUL") {
-        await activatePluginSubscription({ reference, amount: payment.amount, source: "reconcile" });
+        await activatePluginSubscription({ reference, amount: payment.amount, currency: payment.currency, source: "reconcile" });
         settled += 1;
       } else if (payment.status === "FAILED" || payment.status === "PENDING") {
         await cancelPluginSubscription(reference);

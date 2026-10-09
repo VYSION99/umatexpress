@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Bell, Check } from "@phosphor-icons/react";
+import { ArrowRight, Bell, Check } from "@/components/ui/MaterialIcon";
 import { notificationAction } from "@/lib/notification-destinations";
 import { useNotifications } from "@/components/account/useNotifications";
 

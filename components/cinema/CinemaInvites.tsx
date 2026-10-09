@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Envelope, UserMinus, UserPlus } from "@phosphor-icons/react";
+import { Envelope, UserMinus, UserPlus } from "@/components/ui/MaterialIcon";
 import type { CinemaRoomInvite } from "@/lib/cinema-engine/rooms";
 
 export type CinemaGuest = { studentId: string; displayName: string };

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, ArrowSquareOut, CaretDown, GearSix, House, LockKey, MagnifyingGlass, ShieldCheck, SignOut, SquaresFour, UserCircle, X } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, CaretDown, GearSix, House, LockKey, MagnifyingGlass, ShieldCheck, SignOut, SquaresFour, UserCircle, X } from "@/components/ui/MaterialIcon";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { consoleGroupsForRole, consoleServicesForRole, consoleServiceById, consoleServiceNavForRole } from "@/components/admin/console-services";
 import { ConsoleAssistant } from "@/components/console/ConsoleAssistant";
 import { ConsoleNotifications } from "@/components/console/ConsoleNotifications";
 import "@/components/launcher/launcher.css";
 import "@/components/admin/console.css";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: "Administrator",
@@ -101,7 +102,7 @@ export function ConsoleShell({
     <a href="#console-main" className="launch-skip">Skip to the console</a>
     <aside className="console-sidebar">
       <Link href="/console" className="launch-brand">
-        <img src="/logo-mark.png" width="44" height="44" alt=""/>
+        <img src="/console-mark.svg" width="44" height="44" alt=""/>
         <span>UMaTe<span>XPRESS</span><small>Console</small></span>
       </Link>
       <span className="console-sidebar-label">CONSOLE</span>
@@ -117,9 +118,7 @@ export function ConsoleShell({
             const active = item.id === service;
             const subnav = consoleServiceNavForRole(item, session.account.role);
             return <div className="console-service" key={item.id}>
-              {item.href
-                ? <Link href={item.href} aria-current={active ? "page" : undefined}><Icon size={19}/>{item.title}</Link>
-                : <span className="console-service-soon"><Icon size={19}/>{item.title}<small>Soon</small></span>}
+              <Link href={item.href} aria-current={active ? "page" : undefined}><Icon size={19}/>{item.title}</Link>
               {active && subnav.length > 1 && <div className="console-subnav">
                 {subnav.map((entry) => <Link key={entry.href} href={entry.href} aria-current={pathname === entry.href ? "page" : undefined}>{entry.label}</Link>)}
               </div>}
@@ -135,7 +134,7 @@ export function ConsoleShell({
 
     <div className="console-workspace">
       <header className="console-topbar">
-        <Link href="/console" className="console-mobile-brand" aria-label="Console home"><img src="/logo-mark.png" width="40" height="40" alt=""/><span>Console</span></Link>
+        <Link href="/console" className="console-mobile-brand" aria-label="Console home"><img src="/console-mark.svg" width="40" height="40" alt=""/><span>Console</span></Link>
         <span className="console-breadcrumb">Console <span>/</span> {current ? current.title : "Home"}</span>
         <form className="launch-search" onSubmit={(event) => { event.preventDefault(); setPanel(true); }}>
           <MagnifyingGlass size={18}/>
@@ -184,6 +183,7 @@ export function ConsoleShell({
     </nav>
 
     <dialog ref={dialog} className="launch-dialog" aria-labelledby="console-switcher-title" onCancel={() => setPanel(false)} onClick={(event) => { if (event.target === event.currentTarget) setPanel(false); }}>
+      <SheetHandle onDismiss={() => setPanel(false)} />
       <div className="launch-dialog-inner">
         <div className="launch-dialog-heading">
           <h2 id="console-switcher-title">Services</h2>
@@ -191,7 +191,7 @@ export function ConsoleShell({
         </div>
         <label className="launch-search">
           <MagnifyingGlass size={18}/>
-          <input autoFocus aria-label="Filter services" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search rides, trips, payouts…"/>
+          <input aria-label="Filter services" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search rides, trips, payouts…"/>
         </label>
         <div className="launch-directory">
           {matches.map((item) => {
@@ -200,8 +200,8 @@ export function ConsoleShell({
               <Icon size={23}/>
               <div>
                 <h3>{item.title}<small className="console-directory-group">{item.group}</small></h3>
-                <p>{item.href ? item.detail : "Coming soon"}</p>
-                {item.href && <Link href={item.href}>{item.action} →</Link>}
+                <p>{item.detail}</p>
+                <Link href={item.href}>{item.action} →</Link>
               </div>
             </article>;
           })}

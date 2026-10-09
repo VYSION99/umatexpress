@@ -107,6 +107,10 @@ function handle(sql, args) {
     const profile = profiles.get(args[0]);
     return ok(profile ? table(["payout_account_number", "kyc_id_number"], [profile]) : empty);
   }
+  if (/^SELECT COALESCE\(kyc_id_type,''\) AS id_type,COALESCE\(kyc_id_number,''\) AS id_number/.test(sql)) {
+    const profile = profiles.get(args[0]);
+    return ok(profile ? table(["id_type", "id_number"], [{ id_type: profile.kyc_id_type, id_number: profile.kyc_id_number }]) : empty);
+  }
   if (/^SELECT id,COALESCE\(kyc_status/.test(sql)) {
     const profile = profiles.get(args[0]);
     return ok(profile ? table(Object.keys(profile), [profile]) : empty);

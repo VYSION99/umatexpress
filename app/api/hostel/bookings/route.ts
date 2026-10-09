@@ -1,3 +1,4 @@
+import { idempotentCheckout } from "@/lib/payments/idempotency";
 import { campusErrorPayload } from "@/lib/campus-engine/errors";
 import { startHostelBooking } from "@/lib/hostel-engine/residency";
 import { residentDashboard } from "@/lib/hostel-engine/resident";
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function startCheckout(request: Request) {
   try {
     const limited = await rateLimit(request, "hostel-booking-start", { limit: 20, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
@@ -53,5 +54,15 @@ export async function POST(request: Request) {
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await requireStudent(request);
+    return await idempotentCheckout(request, account.email, "HOSTEL", () => startCheckout(request));
+  } catch (error) {
+    const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 503;
+    return Response.json({ error: status < 500 && error instanceof Error ? error.message : "Checkout is temporarily unavailable." }, { status, headers: { "Cache-Control": "no-store" } });
   }
 }

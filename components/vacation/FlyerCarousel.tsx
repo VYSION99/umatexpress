@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CaretLeft, CaretRight, Megaphone, Phone } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, Megaphone, Phone } from "@/components/ui/MaterialIcon";
 import { composeRouteLine, noticeDestinations, type PublicNotice } from "@/lib/trip-notice";
 
 /**

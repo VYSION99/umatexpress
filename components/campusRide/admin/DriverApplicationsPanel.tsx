@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowsClockwise, Check, ShieldWarning, UserCheck, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, Check, ShieldWarning, UserCheck, X } from "@/components/ui/MaterialIcon";
 
 type DriverApplication = {
   id: string; name: string; phone: string; email: string;

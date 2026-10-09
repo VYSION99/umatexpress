@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { ShieldCheck, SignOut } from "@phosphor-icons/react";
+import { ShieldCheck, SignOut } from "@/components/ui/MaterialIcon";
 import { STUDENT_EMAIL_DOMAIN } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
 import { writeProfile } from "@/lib/passenger-profile";

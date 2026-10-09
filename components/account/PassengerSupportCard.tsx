@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChatText, Lifebuoy } from "@phosphor-icons/react";
+import { ChatText, Lifebuoy } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "./useStudentAccount";
 
 type Dispute = {

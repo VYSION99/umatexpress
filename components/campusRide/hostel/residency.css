@@ -1,7 +1,7 @@
 .resident-roster,.residency-dashboard{display:grid;gap:20px;min-width:0;color:var(--ui-ink,#17382b)}
 .residency-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .residency-stats article{display:grid;grid-template-columns:1fr auto;gap:9px;background:#f4f8f5;border:1px solid #dfe9e2;border-radius:16px;padding:17px}
-.residency-stats article>svg{grid-column:2;grid-row:1/3;color:#367957}.residency-stats span{font-size:12px;font-weight:700;color:#526b5e}.residency-stats strong{font-size:29px;line-height:1.1;letter-spacing:-.04em}
+.residency-stats article>.material-icon{grid-column:2;grid-row:1/3;color:#367957}.residency-stats span{font-size:12px;font-weight:700;color:#526b5e}.residency-stats strong{font-size:29px;line-height:1.1;letter-spacing:-.04em}
 .residency-roster-heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.residency-roster-heading p{margin:0 0 6px;font-size:10px;font-weight:800;letter-spacing:.13em;color:#5b7766}.residency-roster-heading h3{margin:0 0 7px;font-size:23px;letter-spacing:-.03em}.residency-roster-heading span{font-size:12px;color:#65776d}
 .resident-roster button,.residency-dashboard button,.residency-dialog button{min-height:44px;cursor:pointer;border:1px solid #d8e4dc;border-radius:11px;background:#fff;color:#145239;font:inherit;font-size:13px;font-weight:750;padding:10px 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px}
 .resident-roster button:disabled,.residency-dashboard button:disabled,.residency-dialog button:disabled{opacity:.5;cursor:not-allowed}
@@ -32,7 +32,7 @@
   .residency-workspace-tabs{flex-wrap:nowrap!important;overflow-x:auto;padding:2px 0 8px;scrollbar-width:thin;gap:8px}
   .residency-workspace-tabs button{flex:none;min-height:44px;white-space:nowrap}
   .residency-stats article{padding:12px;gap:6px}
-  .residency-stats article>svg{width:17px;height:17px}
+  .residency-stats article>.material-icon{width:17px;height:17px}
   .residency-stats strong{font-size:24px}
   .residency-dashboard .hostel-resident-card{padding:15px;gap:14px}
   .residency-dashboard .residency-notices{padding:10px 14px}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">UMaTeXPRESS Console</title>
+  <rect width="512" height="512" rx="112" fill="#152337"/>
+  <path d="M96 98h320" stroke="#34465e" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="116" cy="98" r="10" fill="#f4a261"/>
+  <circle cx="150" cy="98" r="10" fill="#58c8ba"/>
+  <path d="M104 166c0-16 13-29 29-29h246c16 0 29 13 29 29v213c0 16-13 29-29 29H133c-16 0-29-13-29-29V166Z" fill="#233650" stroke="#5b738e" stroke-width="6"/>
+  <rect x="138" y="177" width="111" height="87" rx="18" fill="#f4a261"/>
+  <rect x="267" y="177" width="107" height="87" rx="18" fill="#58c8ba"/>
+  <rect x="138" y="282" width="111" height="87" rx="18" fill="#58c8ba"/>
+  <path d="M285 325h70m-35-35v70" stroke="#f8f5ee" stroke-width="18" stroke-linecap="round"/>
+</svg>

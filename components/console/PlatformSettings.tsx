@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowsClockwise, CircleNotch, SlidersHorizontal } from "@phosphor-icons/react";
+import { ArrowsClockwise, CircleNotch, SlidersHorizontal } from "@/components/ui/MaterialIcon";
 
 type PlatformSetting = {
   key: string;

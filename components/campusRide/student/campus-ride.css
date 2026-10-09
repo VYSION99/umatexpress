@@ -47,7 +47,7 @@
 .campus-ride-route > div:last-child { text-align: right; }
 .campus-ride-route small { color: #62816e; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .campus-ride-route strong { overflow-wrap: anywhere; font-size: 15px; }
-.campus-ride-route > svg { flex: none; color: #0d694d; }
+.campus-ride-route > .material-icon { flex: none; color: #0d694d; }
 .campus-ride-detail-list { display: grid; gap: 0; margin: 18px 0; }
 .campus-ride-detail-list > div { display: flex; justify-content: space-between; align-items: start; gap: 15px; padding: 11px 0; border-bottom: 1px solid #e9eee9; }
 .campus-ride-detail-list dt { display: inline-flex; align-items: center; gap: 7px; color: #66786c; font-size: 12px; }

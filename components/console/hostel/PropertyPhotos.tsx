@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Camera, Check, CircleNotch, ImageSquare, Star, Trash } from "@phosphor-icons/react";
+import { Camera, Check, CircleNotch, ImageSquare, Star, Trash } from "@/components/ui/MaterialIcon";
 
 type Photo = {
   id: string; propertyId: string; roomId: string; scopeType: "PROPERTY" | "BUILDING_AREA" | "ROOM_RANGE" | "ROOM"; scopeLabel: string; roomStartId: string; roomEndId: string; mediaKind: "PHOTO" | "FLOOR_PLAN"; caption: string; sortOrder: number;

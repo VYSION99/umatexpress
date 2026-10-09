@@ -1,6 +1,6 @@
 "use client";
 
-import { MapPin } from "@phosphor-icons/react";
+import { MapPin } from "@/components/ui/MaterialIcon";
 
 export function MapStatus({ loading, error, disabled, onRetry }: { loading: boolean; error: string; disabled: boolean; onRetry: () => void }) {
   if (disabled) return <div className="real-map-disabled" role="status"><MapPin size={20} aria-hidden /><span>Map view is currently turned off.</span></div>;

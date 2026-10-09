@@ -365,6 +365,9 @@ export async function reviewHostelLandlordKyc(input: {
     throw new CampusEngineError("VALIDATION_ERROR", "Give a reason so the landlord knows what to fix.", 400);
   }
   if (input.action === "VERIFY") {
+    const { ownerReadiness } = await import("@/lib/hostel-engine/onboarding");
+    const identity = await ownerReadiness(landlord.id);
+    if (!["GHANA_CARD", "PASSPORT"].includes(identity.identityIdType) || !identity.identityIdNumberMasked) throw new CampusEngineError("INVALID_STATE", "The owner must submit a Ghana Card or passport number before KYC can be verified.", 409);
     const { identityDocuments } = await import("@/lib/hostel-engine/onboarding");
     const kinds = new Set((await identityDocuments(landlord.id)).map(document => document.kind));
     if (!kinds.has("IDENTITY") || !kinds.has("AUTHORITY")) throw new CampusEngineError("INVALID_STATE", "Review both identity and ownership or authority evidence first.", 409);

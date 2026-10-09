@@ -1,3 +1,4 @@
+import { runFinanceMaintenance } from "@/lib/payments/reconcile";
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
@@ -124,6 +125,10 @@ const worker = {
         runHostelPayoutReconcileJob({ limit: 4 }),
         runHostelRefundReconcile({ limit: 4 }),
       ]));
+      return;
+    }
+    if (new Date(controller.scheduledTime ?? Date.now()).getUTCMinutes() % 10 === 5) {
+      ctx.waitUntil(runFinanceMaintenance().catch(() => { logEvent("error", "finance_maintenance_failed", {}); }));
       return;
     }
     // Cinema cleanup rides the five-minute reconcile: bounded to four rooms

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowsClockwise, Star } from "@phosphor-icons/react";
+import { ArrowsClockwise, Star } from "@/components/ui/MaterialIcon";
 
 type Rating = {
   id: string; reference: string; driverId: string; driverName: string;

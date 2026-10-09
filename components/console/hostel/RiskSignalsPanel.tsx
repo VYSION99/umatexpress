@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Broadcast, Checks, CircleNotch, ShieldWarning, X } from "@phosphor-icons/react";
+import { Broadcast, Checks, CircleNotch, ShieldWarning, X } from "@/components/ui/MaterialIcon";
 
 type Signal = {
   id: string; signalKey: string; severity: string; entityType: string; entityId: string;

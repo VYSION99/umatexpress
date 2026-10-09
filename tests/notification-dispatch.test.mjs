@@ -13,6 +13,7 @@ process.env.CAMPUS_APP_URL = "https://example.test";
 const db = new DatabaseSync(":memory:");
 const originalFetch = globalThis.fetch;
 let providerCalls = 0;
+const providerPayloads = [];
 function execute(stmt) {
   try {
     const args = (stmt.args || []).map(arg => arg.type === "null" ? null : arg.type === "integer" ? Number(arg.value) : arg.value);
@@ -29,6 +30,7 @@ function execute(stmt) {
 globalThis.fetch = async (url, init) => {
   if (String(url) === "https://api.resend.com/emails") {
     providerCalls += 1;
+    providerPayloads.push(JSON.parse(init.body));
     return new Response("provider unavailable", { status: 503 });
   }
   assert.ok(String(url).startsWith("https://notification-dispatch-test.turso.io"));
@@ -60,6 +62,11 @@ test("provider failures stop after three actual sends and retain the failure", a
     db.prepare("UPDATE notification_outbox SET available_at=? WHERE id=?").run(now, id);
   }
   assert.equal(providerCalls, 3);
+  assert.equal(providerPayloads[0].text, "Driver arrived\n\nTrack ride: https://example.test/campus/ticket?reference=CR-1");
+  assert.match(providerPayloads[0].html, /https:\/\/example\.test\/logo-web\.png/);
+  assert.match(providerPayloads[0].html, /CAMPUSRIDE/);
+  assert.match(providerPayloads[0].html, /Driver arrived/);
+  assert.match(providerPayloads[0].html, /Track ride/);
   assert.equal((await dispatchPendingNotifications({ ids: [id] })).considered, 0);
 });
 

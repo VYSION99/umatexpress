@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Buildings, FloppyDisk, GearSix, LockKey, SignOut, UserCircle } from "@phosphor-icons/react";
+import { ArrowRight, Buildings, FloppyDisk, GearSix, LockKey, SignOut, UserCircle } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import "./account.css";

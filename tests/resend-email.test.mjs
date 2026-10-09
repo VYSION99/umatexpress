@@ -46,6 +46,13 @@ test("a reply-to is included only when it is configured", () => {
   assert.equal(JSON.parse(withReply.body).reply_to, "support@umatexpress.app");
 });
 
+test("a designed email includes HTML and retains the text alternative", () => {
+  const request = buildEmailRequest({ config, to: "ama@st.umat.edu.gh", subject: "Your ticket", text: "Ticket confirmed.", html: "<p>Ticket confirmed.</p>" });
+  const body = JSON.parse(request.body);
+  assert.equal(body.html, "<p>Ticket confirmed.</p>");
+  assert.equal(body.text, "Ticket confirmed.");
+});
+
 test("a failed send is returned rather than thrown, and reports the provider detail", async () => {
   const originalFetch = globalThis.fetch;
   try {

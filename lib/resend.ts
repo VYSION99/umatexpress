@@ -24,7 +24,7 @@ export function looksLikeEmail(value: string) {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(value || "").trim());
 }
 
-export function buildEmailRequest(input: { config: ResendConfig; to: string; subject: string; text: string }): EmailRequest {
+export function buildEmailRequest(input: { config: ResendConfig; to: string; subject: string; text: string; html?: string }): EmailRequest {
   return {
     url: RESEND_ENDPOINT,
     headers: { "content-type": "application/json", authorization: `Bearer ${String(input.config.apiKey || "").trim()}` },
@@ -33,6 +33,7 @@ export function buildEmailRequest(input: { config: ResendConfig; to: string; sub
       to: [String(input.to || "").trim()],
       subject: input.subject,
       text: input.text,
+      ...(input.html ? { html: input.html } : {}),
       ...(String(input.config.replyTo || "").trim() ? { reply_to: String(input.config.replyTo).trim() } : {}),
     }),
   };
@@ -43,7 +44,7 @@ export function buildEmailRequest(input: { config: ResendConfig; to: string; sub
  * every caller treats mail as a comfort layer: a booking or a driver action is
  * never undone because a mailbox bounced.
  */
-export async function sendEmail(input: { config: ResendConfig; to: string; subject: string; text: string }): Promise<{ ok: boolean; id?: string; error?: string }> {
+export async function sendEmail(input: { config: ResendConfig; to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; id?: string; error?: string }> {
   const request = buildEmailRequest(input);
   const response = await fetch(request.url, { method: "POST", headers: request.headers, body: request.body });
   if (!response.ok) {

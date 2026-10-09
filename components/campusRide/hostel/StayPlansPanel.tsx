@@ -1,6 +1,6 @@
 "use client";
 import { useCallback,useEffect,useRef,useState,type FormEvent } from 'react';
-import { ArrowsLeftRight,CalendarBlank,ArrowRight } from '@phosphor-icons/react';
+import { ArrowsLeftRight,CalendarBlank,ArrowRight } from '@/components/ui/MaterialIcon';
 import { ResidencyDialog } from './ResidencyDialog';
 import { STAY_REQUEST_LABELS as LABEL,type StayDestination,type StayOffer,type StayRequest,type StayRequestConfig,type StayRequestDetail,type StayRequestKind } from '@/lib/hostel-engine/stay-request-types';
 import './maintenance.css';

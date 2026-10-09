@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRinging, Car, CheckCircle, CircleNotch, Clock, MapPin } from "@phosphor-icons/react";
+import { BellRinging, Car, CheckCircle, CircleNotch, Clock, MapPin } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
 import { readProfile } from "@/lib/passenger-profile";

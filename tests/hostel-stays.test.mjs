@@ -64,7 +64,12 @@ const day=offset=>new Date(Date.now()+offset*86400000).toISOString().slice(0,10)
 function insert(table,row){const keys=Object.keys(row);db.prepare(`INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(()=>"?").join(",")})`).run(...keys.map(key=>row[key]));}
 function makeBed(id,price=120000){insert("hostel_spaces",{id,room_id:"room",label:id,status:"AVAILABLE",created_at:stamp,updated_at:stamp});insert("hostel_listings",{id:"listing-"+id,space_id:id,period_id:"year",price,status:"APPROVED",created_at:stamp,updated_at:stamp});return "listing-"+id;}
 beforeEach(()=>{
+  const financeTriggers=db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND (name LIKE 'finance_%' OR name LIKE 'ledger_%')").all();
+  for(const trigger of financeTriggers) db.exec(`DROP TRIGGER "${trigger.name}"`);
+  db.exec("PRAGMA foreign_keys=OFF");
   for(const {name} of db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) if(!["schema_passes","campus_schema_meta"].includes(name))db.exec(`DELETE FROM "${name}"`);
+  db.exec("PRAGMA foreign_keys=ON");
+  for(const trigger of financeTriggers) db.exec(trigger.sql);
   db.exec("DROP TRIGGER IF EXISTS fail_ledger; DROP TRIGGER IF EXISTS fail_stay_event;");
   insert("hostel_landlords",{id:"owner",name:"Owner",email:"owner@example.test",kyc_status:"VERIFIED",status:"ACTIVE",commission_bps:300,created_at:stamp,updated_at:stamp,payout_method:"MOMO",payout_account_last4:"1234",payout_bank_code:"MTN",payout_updated_at:stamp});
   insert("hostel_owner_onboarding",{landlord_id:"owner",profile_status:"APPROVED",payout_status:"APPROVED",payout_snapshot:JSON.stringify(["MOMO","1234","MTN",stamp]),updated_at:stamp});
@@ -98,7 +103,7 @@ test("a failed settlement rolls back the payment, bed and ledger and retry compl
  assert.equal(db.prepare("SELECT status FROM hostel_spaces WHERE id='bed-a'").get().status,"OCCUPIED");
 });
 test("retry repairs a historical paid booking with a missing ledger entry",async()=>{
- const booking=await paid();db.exec("DELETE FROM hostel_payouts;");
+ const booking=await paid();const guard=db.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='finance_hostel_payouts_no_delete'").get()?.sql;db.exec("DROP TRIGGER IF EXISTS finance_hostel_payouts_no_delete; DELETE FROM hostel_payouts;");if(guard)db.exec(guard);
  await engine.settleHostelBooking({reference:booking.reference,amount:booking.totalAmount,source:"retry"});
  assert.equal(db.prepare("SELECT COUNT(*) n FROM hostel_payouts").get().n,1);
 });
@@ -146,6 +151,19 @@ test("current dashboard includes pending checkout and uses a bounded number of r
  const held=await hold();requests=0;const dashboard=await residentDashboard(held.booking.studentEmail);
  assert.equal(dashboard.residencies[0].booking.status,"PENDING_PAYMENT");assert.equal(dashboard.historyTotal,0);
  assert.ok(requests<=4,`Expected batched reads, got ${requests}`);
+});
+test("staff resident roster starts at confirmed payment and retains paid stay history",async()=>{
+ const held=await hold();
+ assert.equal((await hostelResidentList("owner")).summary.total,0);
+ const paidBooking=(await engine.settleHostelBooking({reference:held.booking.reference,amount:held.booking.totalAmount,source:"test"})).booking;
+ assert.equal((await hostelResidentList("owner")).summary.total,1);
+ db.prepare("UPDATE hostel_bookings SET status='CANCELLED' WHERE id=?").run(paidBooking.id);
+ const cancelled=await hostelResidentList("owner",{status:"CANCELLED"});
+ assert.equal(cancelled.summary.total,1);
+ assert.equal(cancelled.residents[0].reference,paidBooking.reference);
+ const review=await hold("bed-b","review@st.umat.edu.gh");
+ db.prepare("UPDATE hostel_bookings SET status='PAYMENT_REVIEW',paid_at=? WHERE id=?").run(stamp,review.booking.id);
+ assert.equal((await hostelResidentList("owner")).summary.total,1);
 });
 test("staff pagination totals cover more than 200 records and respect academic year and property filters",async()=>{
  const original=await paid();const row=db.prepare("SELECT * FROM hostel_bookings WHERE id=?").get(original.id);

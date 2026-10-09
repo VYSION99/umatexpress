@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowsClockwise, Bed, Buildings, Bus, CircleNotch, Star, Wallet } from "@phosphor-icons/react";
+import { ArrowsClockwise, Bed, Buildings, Bus, CircleNotch, Star, Wallet } from "@/components/ui/MaterialIcon";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type Analytics = {

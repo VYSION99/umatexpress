@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { DeviceMobile, DownloadSimple, X } from "@phosphor-icons/react";
+import { DeviceMobile, DownloadSimple, X } from "@/components/ui/MaterialIcon";
 import { entrance } from "@/components/ui/motion";
 
 type BeforeInstallPromptEvent = Event & {
@@ -63,7 +63,7 @@ export function AppInstallPrompt() {
     if (canNativeInstall) {
       return {
         title: "Install UMaTeXPRESS",
-        body: "Save the platform to your home screen for quick access to campusRide, vacationRide, tickets, and driver tools.",
+        body: "Save the student app to your home screen for quick access to campusRide, vacationRide, Hostel Finder, and tickets.",
         action: "Install app",
       };
     }

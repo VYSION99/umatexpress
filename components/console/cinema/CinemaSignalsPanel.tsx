@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowsClockwise, ChatSlash, Checks, CircleNotch, Flag, Square, VideoCameraSlash, Warning, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, ChatSlash, Checks, CircleNotch, Flag, Square, VideoCameraSlash, Warning, X } from "@/components/ui/MaterialIcon";
 
 type Signal = {
   id: string;

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bed, Lightning, MapPin } from "@phosphor-icons/react/ssr";
+import { ArrowRight, Bed, Lightning, MapPin } from "@/components/ui/MaterialIcon";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import type { PublicProperty } from "@/lib/hostel-engine/listings";
 import { HostelChoiceActions } from "./HostelChoices";
@@ -29,10 +29,10 @@ export function HostelPropertyList({ properties, periodId = "", total = properti
       {properties.map((property) => <article key={property.id} className="hostel-card">
         {property.coverPhotoId ? <Link href={`/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`} className="hostel-card-cover" aria-hidden tabIndex={-1}>
           <img src={`/api/hostel/photos/${property.coverPhotoId}?width=640`} srcSet={[320, 640, 960].map(width => `/api/hostel/photos/${property.coverPhotoId}?width=${width} ${width}w`).join(", ")} sizes="(max-width: 560px) calc(100vw - 64px), (max-width: 980px) 45vw, 340px" width={640} height={360} alt="" loading="lazy" decoding="async" />
-        </Link> : <div className="hostel-card-cover hostel-photo-placeholder"><Bed size={30} aria-hidden /><span>Photos coming soon</span></div>}
+        </Link> : <div className="hostel-card-cover hostel-photo-placeholder"><Bed size={30} aria-hidden /><span>No approved photos</span></div>}
         <div className="hostel-card-top">
           <h3><Link href={`/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`}>{property.name}</Link></h3>
-          <span className={`hostel-card-beds${property.availableSpaces === 0 ? " is-preparing" : ""}`}>{property.availableSpaces ? bedsLabel(property.availableSpaces) : "Beds coming soon"}</span>
+          <span className={`hostel-card-beds${property.availableSpaces === 0 ? " is-preparing" : ""}`}>{property.availableSpaces ? bedsLabel(property.availableSpaces) : "No approved beds"}</span>
         </div>
         <p className="hostel-card-address"><MapPin size={14} aria-hidden />{property.address || "Address on the property page"}</p>
         {property.availableSpaces > 0 && !property.bookingReady && <span className="hostel-booking-paused">Booking paused while payout details are reviewed</span>}
@@ -46,7 +46,7 @@ export function HostelPropertyList({ properties, periodId = "", total = properti
         <div className="hostel-card-foot">
           <div>
             <span>{property.availableSpaces ? "From" : "Availability"}</span>
-            <strong>{property.availableSpaces ? cedis(property.minTotal) : "Preparing beds"}</strong>
+            <strong>{property.availableSpaces ? cedis(property.minTotal) : "No approved beds"}</strong>
             <small>{property.availableSpaces ? `per student bed / academic year${property.utilitiesEnabled ? ", including utilities" : ""}` : "Browse the approved property and ask about its rooms"}</small>
           </div>
           <Link href={`/hostel/${encodeURIComponent(property.id)}?periodId=${encodeURIComponent(periodId)}`} className="hostel-card-link">{property.availableSpaces ? "View rooms" : "View property"} <ArrowRight size={14} aria-hidden /></Link>

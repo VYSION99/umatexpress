@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, ShieldCheck, SignOut, Ticket, User, X } from "@phosphor-icons/react";
+import { ArrowRight, Check, ShieldCheck, SignOut, Ticket, User, X } from "@/components/ui/MaterialIcon";
 import { ticketHref, writeProfile } from "@/lib/passenger-profile";
 import type { StudentAccount } from "@/lib/student-auth";
 import { publishStudentAccount, useStudentAccount } from "@/components/account/useStudentAccount";
@@ -14,7 +14,7 @@ const formatSavedAt = (value: string) => {
   return new Date(parsed).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 };
 
-export function ProfilePanel() {
+export function ProfilePanel({ ticketsOnly = false }: { ticketsOnly?: boolean }) {
   const { tickets, forgetTicket } = usePassenger();
   const { ready, account } = useStudentAccount();
   const [form, setForm] = useState({ name: "", phone: "" });
@@ -79,8 +79,10 @@ export function ProfilePanel() {
           <Link href={ticketHref(ticket)}>Open ticket<ArrowRight size={14} aria-hidden /></Link>
           <button aria-label={`Remove ticket ${ticket.reference} from this device`} onClick={() => { forgetTicket(ticket.reference); setStatus("Ticket reference removed from this device. The ticket itself is still valid."); }}><X size={15} aria-hidden /></button>
         </li>)}</ul>
-      : <p className="profile-empty"><User size={18} aria-hidden /> Open a ticket on this device and its reference will be listed here. This is not a full booking history — the server only knows the references you still have.</p>}
+      : <p className="profile-empty"><User size={18} aria-hidden /> Ticket links you open on this device will appear here.</p>}
   </section>;
+
+  if (ticketsOnly) return <div className="profile-panel">{status && <p className="profile-status" role="status">{status}</p>}{ticketsBlock}</div>;
 
   if (ready && account) return <div className="profile-panel">
     <div className="profile-account">

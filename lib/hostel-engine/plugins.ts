@@ -1,8 +1,9 @@
+import { isProviderOutcomeUnknown } from "@/lib/payments/operations";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelResidencyTables } from "@/lib/hostel-engine/residency";
 import { incrementMetric, logEvent } from "@/lib/observability";
-import { initializePaystackTransaction, verifyPaystackTransaction } from "@/lib/paystack";
+import { calculatePaystackCharge, getPaystackFeePercentRuntime, initializePaystackTransaction, verifyPaystackTransaction } from "@/lib/paystack";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 /**
@@ -70,6 +71,7 @@ const PLUGIN_SCHEMA_STATEMENTS = [
     period_id TEXT NOT NULL,
     property_id TEXT NOT NULL DEFAULT '',
     platform_price INTEGER NOT NULL,
+    checkout_amount INTEGER NOT NULL DEFAULT 0,
     resident_price INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',
     reference TEXT NOT NULL,
@@ -93,6 +95,7 @@ const PLUGIN_SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  "ALTER TABLE hostel_plugin_subscriptions ADD COLUMN checkout_amount INTEGER NOT NULL DEFAULT 0",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_plugins_code ON hostel_plugins(code)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_subscriptions_reference ON hostel_plugin_subscriptions(reference)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_hostel_subscriptions_scope ON hostel_plugin_subscriptions(landlord_id, plugin_id, period_id, property_id)",
@@ -106,7 +109,7 @@ let pluginTablesReady: Promise<void> | null = null;
 export function ensureHostelPluginTables() {
   pluginTablesReady ??= (async () => {
     await ensureHostelResidencyTables();
-    await runSchemaPass({ id: "hostel_plugins", version: "015_hostel_plugins", statements: PLUGIN_SCHEMA_STATEMENTS });
+    await runSchemaPass({ id: "hostel_plugins", version: "016_hostel_plugins_payment_fee", statements: PLUGIN_SCHEMA_STATEMENTS });
     await seedHostelPlugins();
   })();
   return pluginTablesReady;
@@ -219,6 +222,8 @@ export type HostelPluginSubscription = {
   periodName: string;
   propertyId: string;
   platformPrice: number;
+  checkoutAmount: number;
+  processingFee: number;
   residentPrice: number;
   status: HostelSubscriptionStatus;
   reference: string;
@@ -270,6 +275,8 @@ export function subscriptionView(row: Record<string, unknown>): HostelPluginSubs
     periodName: String(row.period_name || ""),
     propertyId: String(row.property_id || ""),
     platformPrice: Number(row.platform_price || 0),
+    checkoutAmount: Number(row.checkout_amount || row.platform_price || 0),
+    processingFee: Math.max(0, Number(row.checkout_amount || row.platform_price || 0) - Number(row.platform_price || 0)),
     residentPrice: Number(row.resident_price || 0),
     status: String(row.status || "PENDING_PAYMENT") as HostelSubscriptionStatus,
     reference: String(row.reference || ""),
@@ -298,7 +305,7 @@ export function serviceView(row: Record<string, unknown>): HostelServiceRequest 
   };
 }
 
-const SUBSCRIPTION_COLUMNS = `sub.id,sub.landlord_id,sub.plugin_id,sub.period_id,sub.property_id,sub.platform_price,sub.resident_price,sub.status,sub.reference,
+const SUBSCRIPTION_COLUMNS = `sub.id,sub.landlord_id,sub.plugin_id,sub.period_id,sub.property_id,sub.platform_price,sub.checkout_amount,sub.resident_price,sub.status,sub.reference,
   sub.hold_expires_at,sub.activated_at,sub.created_at,
   COALESCE(pl.code,'') AS plugin_code,COALESCE(pl.name,'') AS plugin_name,COALESCE(pl.category,'') AS plugin_category,
   COALESCE(pe.name,'') AS period_name`;
@@ -394,6 +401,7 @@ export async function startPluginSubscription(input: {
   }
 
   const platformPrice = Math.max(0, Math.round(Number(plugin.price || 0)));
+  const charge = calculatePaystackCharge(platformPrice, await getPaystackFeePercentRuntime());
   const suggested = Math.max(0, Math.round(Number(plugin.suggested_resident_price || 0)));
   const residentPrice = input.residentPrice === undefined || !Number.isFinite(Number(input.residentPrice))
     ? suggested
@@ -405,28 +413,29 @@ export async function startPluginSubscription(input: {
 
   if (existing) {
     await turso(
-      "UPDATE hostel_plugin_subscriptions SET status = 'PENDING_PAYMENT', platform_price = ?, resident_price = ?, reference = ?, hold_expires_at = ?, updated_at = ? WHERE id = ?",
-      [platformPrice, residentPrice, reference, holdExpiresAt, stamp, id],
+      "UPDATE hostel_plugin_subscriptions SET status = 'PENDING_PAYMENT', platform_price = ?, checkout_amount = ?, resident_price = ?, reference = ?, hold_expires_at = ?, updated_at = ? WHERE id = ?",
+      [platformPrice, charge.totalAmount, residentPrice, reference, holdExpiresAt, stamp, id],
     );
   } else {
     await turso(
-      `INSERT INTO hostel_plugin_subscriptions (id,landlord_id,plugin_id,period_id,property_id,platform_price,resident_price,status,reference,hold_expires_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,'PENDING_PAYMENT',?,?,?,?)`,
-      [id, input.landlordId, String(plugin.id), String(period.id), propertyId, platformPrice, residentPrice, reference, holdExpiresAt, stamp, stamp],
+      `INSERT INTO hostel_plugin_subscriptions (id,landlord_id,plugin_id,period_id,property_id,platform_price,checkout_amount,resident_price,status,reference,hold_expires_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,'PENDING_PAYMENT',?,?,?,?)`,
+      [id, input.landlordId, String(plugin.id), String(period.id), propertyId, platformPrice, charge.totalAmount, residentPrice, reference, holdExpiresAt, stamp, stamp],
     );
   }
 
   try {
     const paystack = await initializePaystackTransaction({
       email: input.landlordEmail,
-      amount: platformPrice,
+      amount: charge.totalAmount,
       reference,
       callbackUrl: `${input.origin}/console/hostels?plugin=${encodeURIComponent(reference)}`,
-      metadata: { purpose: "HOSTEL_PLUGIN", reference, pluginCode: String(plugin.code) },
+      metadata: { purpose: "HOSTEL_PLUGIN", reference, pluginCode: String(plugin.code), baseAmount: platformPrice, paystackFee: charge.feeAmount },
     });
     await incrementMetric("hostel_plugin_started");
     return { subscription: await getPluginSubscriptionByReference(reference), authorizationUrl: paystack.authorizationUrl };
   } catch (error) {
+    if (isProviderOutcomeUnknown(error)) return { subscription: await getPluginSubscriptionByReference(reference), authorizationUrl: "" };
     await turso("UPDATE hostel_plugin_subscriptions SET status = 'CANCELLED', updated_at = ? WHERE reference = ?", [new Date().toISOString(), reference]).catch(() => undefined);
     throw error;
   }
@@ -449,10 +458,13 @@ export async function cancelPluginSubscription(reference: string) {
 }
 
 /** Idempotent activation: checkout return and webhook both land here. */
-export async function activatePluginSubscription(input: { reference: string; amount?: number; source: string }) {
+export async function activatePluginSubscription(input: { reference: string; amount?: number; currency?: string; source: string }) {
   await ensureHostelPluginTables();
   const subscription = await getPluginSubscriptionByReference(input.reference);
   if (!subscription) return { handled: false, reason: "SUBSCRIPTION_NOT_FOUND" as const };
+  if (input.amount !== undefined && (input.amount !== subscription.checkoutAmount || (input.currency && input.currency !== "GHS"))) {
+    throw new CampusEngineError("CONFLICT", "Payment amount or currency needs review before activating this service.", 409);
+  }
   if (subscription.status === "ACTIVE") return { handled: true, status: "ALREADY_ACTIVE" as const, subscription };
   if (subscription.status !== "PENDING_PAYMENT") return { handled: true, status: "NOT_PENDING" as const, subscription };
   const stamp = new Date().toISOString();
@@ -488,8 +500,8 @@ export async function verifyPluginSubscriptionPayment(landlordId: string, refere
     throw new CampusEngineError("INVALID_STATE", "That subscription window has closed. Start it again.", 409);
   }
   const payment = await verifyPaystackTransaction(reference);
-  if (payment.status === "SUCCESSFUL" && payment.amount >= subscription.platformPrice) {
-    await activatePluginSubscription({ reference, amount: payment.amount, source: "console" });
+  if (payment.status === "SUCCESSFUL" && payment.amount === subscription.checkoutAmount) {
+    await activatePluginSubscription({ reference, amount: payment.amount, currency: payment.currency, source: "console" });
     return (await getPluginSubscriptionByReference(reference)) as HostelPluginSubscription;
   }
   if (payment.status === "FAILED") {

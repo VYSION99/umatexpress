@@ -1,3 +1,4 @@
+import { isProviderOutcomeUnknown } from "@/lib/payments/operations";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelResidencyTables, type HostelBooking } from "@/lib/hostel-engine/residency";
@@ -164,7 +165,7 @@ function startOfDay(value: string) {
  * paid, and every share is rounded down so the platform cannot refund a pesewa
  * it never received.
  */
-export function hostelRefundQuote(booking: Pick<HostelBooking, "reference" | "totalAmount" | "commissionAmount" | "netAmount" | "periodStartsOn" | "status">, now = new Date()): HostelRefundQuote {
+export function hostelRefundQuote(booking: Pick<HostelBooking, "reference" | "totalAmount" | "processingFee" | "commissionAmount" | "netAmount" | "periodStartsOn" | "status">, now = new Date()): HostelRefundQuote {
   const start = startOfDay(booking.periodStartsOn);
   const daysBeforeStart = start ? Math.floor((start.getTime() - now.getTime()) / DAY_MS) : 0;
   const tier = HOSTEL_REFUND_POLICY.find((entry) => daysBeforeStart >= entry.daysBeforeStart) || HOSTEL_REFUND_POLICY[HOSTEL_REFUND_POLICY.length - 1];
@@ -172,7 +173,7 @@ export function hostelRefundQuote(booking: Pick<HostelBooking, "reference" | "to
   const percent = tier.percent;
   const amount = Math.floor((total * percent) / 100);
   const commissionAmount = Math.floor((Math.max(0, Math.round(Number(booking.commissionAmount || 0))) * percent) / 100);
-  const grossAmount = amount;
+  const grossAmount = Math.floor((Math.max(0, total - Math.max(0, Number(booking.processingFee || 0))) * percent) / 100);
   const netAmount = Math.max(0, grossAmount - commissionAmount);
   const blockedReason = booking.status === "PAID" || booking.status === "PAYMENT_REVIEW"
     ? ""
@@ -370,6 +371,7 @@ export async function approveHostelRefund(input: {
   if (amount > 0) {
     try {
       const initiation = await initiatePaystackRefund({
+        operationId: refund.id,
         transactionReference: refund.reference,
         amount,
         reason: overrideReason || refund.reason || `Hostel refund for ${refund.reference}`,
@@ -379,6 +381,10 @@ export async function approveHostelRefund(input: {
       if (initiation.status === "PROCESSED") status = "PAID";
       if (initiation.status === "FAILED") status = "FAILED";
     } catch (error) {
+      if (isProviderOutcomeUnknown(error)) {
+        await turso("UPDATE hostel_refunds SET status='APPROVED', amount=?, provider_status='OUTCOME_UNKNOWN', decided_by=?, decided_at=?, updated_at=? WHERE id=?", [amount, input.actor, new Date().toISOString(), new Date().toISOString(), refund.id]);
+        return (await getHostelRefund(refund.id)) as HostelRefund;
+      }
       // The bed stays free and the accrual reversed; the money leg is recorded
       // as failed so an administrator can retry or pay it by hand.
       const stamp = new Date().toISOString();
@@ -496,7 +502,7 @@ export async function applyHostelRefundEvent(input: { event: string; reference?:
   }
   if (event === "refund.failed" || String(input.status || "").toLowerCase() === "failed") {
     await turso(
-      "UPDATE hostel_refunds SET status = 'FAILED', provider_status = ?, updated_at = ? WHERE id = ?",
+      "UPDATE hostel_refunds SET status = 'FAILED', provider_status = ?, updated_at = ? WHERE id = ? AND status <> 'PAID'",
       [String(input.status || "failed").slice(0, 100), stamp, refund.id],
     );
     logEvent("warn", "hostel_refund_failed_by_provider", { refundId: refund.id });

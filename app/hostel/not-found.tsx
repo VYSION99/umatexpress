@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bed } from "@phosphor-icons/react/ssr";
+import { Bed } from "@/components/ui/MaterialIcon";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 
 export default function HostelNotFound() {

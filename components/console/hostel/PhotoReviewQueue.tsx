@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Check, CircleNotch, SealCheck, X } from "@phosphor-icons/react";
+import { Camera, Check, CircleNotch, SealCheck, X } from "@/components/ui/MaterialIcon";
 
 type Photo = {
   id: string; propertyId: string; landlordId: string; mediaKind: string; roomId: string; scopeType: string; scopeLabel: string; caption: string;

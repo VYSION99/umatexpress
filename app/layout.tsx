@@ -3,6 +3,8 @@ import { AppInstallPrompt } from "@/components/pwa/AppInstallPrompt";
 import "./globals.css";
 import "./ticket.css";
 import "./palette.css";
+import "./material-icons.css";
+import "./bottom-sheet.css";
 
 export const metadata: Metadata = {
   title: "UMaTeXPRESS | UMaT Student Transport",

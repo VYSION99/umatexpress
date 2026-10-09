@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowClockwise, ArrowRight, Buildings, CalendarBlank, Chat, MagnifyingGlass, Users } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowRight, Buildings, CalendarBlank, Chat, MagnifyingGlass, Users } from "@/components/ui/MaterialIcon";
 import { ResidencyDialog } from "@/components/campusRide/hostel/ResidencyDialog";
 import { cedis } from "@/components/campusRide/hostel/format";
 import type { HostelBooking } from "@/lib/hostel-engine/residency";
@@ -8,7 +8,7 @@ import type { StayAction } from "@/lib/hostel-engine/stays";
 
 type Resident = HostelBooking & { unreadMessages: number; openServices: number };
 type Option = { id: string; name: string };
-type Summary = { total: number; resident: number; expected: number; departed: number; needsReview: number; bedRevenue: number; openServices: number; unreadMessages: number };
+type Summary = { total: number; resident: number; expected: number; departed: number; bedRevenue: number; openServices: number; unreadMessages: number };
 type List = { residents: Resident[]; summary: Summary; isOwner: boolean; pagination: { page: number; pages: number; total: number; pageSize: number } };
 type Detail = { booking: HostelBooking; stay: { key_reference?: string }; destinations: { listing_id: string; room_label: string; space_label: string }[]; events: { id: string; action: string; actor: string; details: string; created_at: string }[] };
 const label: Record<string, string> = { EXPECTED: "Expected arrival", CHECKED_IN: "Checked in", CHECKED_OUT: "Checked out", NO_SHOW: "No-show", CANCELLED: "Cancelled", REFUNDED: "Refunded", PAID: "Paid", PENDING_PAYMENT: "Awaiting payment", PAYMENT_REVIEW: "Payment review", EXPIRED: "Expired", SCHEDULE: "Arrival updated", CHECK_IN: "Check-in", CHECK_OUT: "Checkout", TRANSFER: "Bed transfer" };
@@ -49,7 +49,7 @@ export function ResidentRoster({ properties, periods, refreshKey, onOwner, onMes
   const filterFields = <>
     <label>Property<select value={filters.propertyId} onChange={event => change("propertyId", event.target.value)}><option value="">All properties</option>{properties.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>Academic year<select value={filters.periodId} onChange={event => change("periodId", event.target.value)}><option value="">All academic years</option>{periods.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Status<select value={filters.status} onChange={event => change("status", event.target.value)}><option value="">All statuses</option>{["EXPECTED", "CHECKED_IN", "CHECKED_OUT", "NO_SHOW", "PENDING_PAYMENT", "PAYMENT_REVIEW", "CANCELLED", "REFUNDED", "EXPIRED"].map(value => <option key={value} value={value}>{label[value]}</option>)}</select></label>
+    <label>Status<select value={filters.status} onChange={event => change("status", event.target.value)}><option value="">All statuses</option>{["EXPECTED", "CHECKED_IN", "CHECKED_OUT", "NO_SHOW", "CANCELLED", "REFUNDED"].map(value => <option key={value} value={value}>{label[value]}</option>)}</select></label>
   </>;
   return <div className="resident-roster">
     {data && <section className="residency-stats" aria-label="Property and academic year totals">
@@ -58,13 +58,13 @@ export function ResidentRoster({ properties, periods, refreshKey, onOwner, onMes
       <article><ArrowRight size={20} aria-hidden /><span>Departed / no-show</span><strong>{data.summary.departed}</strong></article>
       <article><Chat size={20} aria-hidden /><span>Open requests</span><strong>{data.summary.openServices}</strong></article>
     </section>}
-    <div className="residency-roster-heading"><div><p>RESIDENT DIRECTORY</p><h3>People, rooms & arrivals</h3><span>{data ? `${data.summary.total} bookings · ${cedis(data.summary.bedRevenue)} paid` : "Loading your directory"} · {periods.find(item => item.id === filters.periodId)?.name || "All academic years"}</span></div><button type="button" className="residency-icon-button" aria-label="Refresh residents" disabled={loading} onClick={() => void load()}><ArrowClockwise size={20} /></button></div>
+    <div className="residency-roster-heading"><div><p>RESIDENT DIRECTORY</p><h3>People, rooms & arrivals</h3><span>{data ? `${data.summary.total} confirmed stays · ${cedis(data.summary.bedRevenue)} paid` : "Loading your directory"} · {periods.find(item => item.id === filters.periodId)?.name || "All academic years"}</span></div><button type="button" className="residency-icon-button" aria-label="Refresh residents" disabled={loading} onClick={() => void load()}><ArrowClockwise size={20} /></button></div>
     <div className="residency-search-row"><form onSubmit={event => { event.preventDefault(); setFilters(current => ({ ...current, q: search.trim(), page: 1 })); }}><label><MagnifyingGlass size={19} aria-hidden /><input aria-label="Find a resident by name, email, room or reference" placeholder="Search name, room or reference" value={search} onChange={event => setSearch(event.target.value)} maxLength={80} /></label><button type="submit">Search</button></form><button className="residency-mobile-filter" type="button" onClick={() => setFilterOpen(true)}>Filters</button></div>
     <div className="residency-filters">{filterFields}</div>
     {error && <p className="residency-alert" role="alert">{error} <button type="button" onClick={() => void load()}>Retry</button></p>}
     <div aria-busy={loading}>
       {loading && <p className="residency-loading" role="status">Updating residents…</p>}
-      {!loading && data?.residents.length === 0 && <div className="residency-empty"><Users size={28} /><h3>No residents match these filters</h3><p>Try another property, academic year or search.</p></div>}
+      {!loading && data?.residents.length === 0 && <div className="residency-empty"><Users size={28} /><h3>{data.pagination.total === 0 && !filters.propertyId && !filters.periodId && !filters.status && !filters.q ? "No confirmed residents yet" : "No residents match these filters"}</h3><p>{data.pagination.total === 0 && !filters.propertyId && !filters.periodId && !filters.status && !filters.q ? "Students appear here after their bed payment is confirmed." : "Try another property, academic year or search."}</p></div>}
       {Boolean(data?.residents.length) && <>
         <div className="residency-table-wrap"><table className="residency-table"><thead><tr><th>Resident</th><th>Room & bed</th><th>Occupancy</th><th>Payment</th><th>Action</th></tr></thead><tbody>{data!.residents.map(resident => <tr key={resident.id}>
           <td><strong>{resident.studentName || "Student"}</strong><span>{resident.studentEmail}</span></td><td><strong>{resident.roomLabel} · {resident.spaceLabel}</strong><span>{resident.propertyName} · {resident.periodName}</span></td>

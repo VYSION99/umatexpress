@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CameraSlash, Circle, Microphone, MicrophoneSlash } from "@phosphor-icons/react";
+import { Camera, CameraSlash, Circle, Microphone, MicrophoneSlash } from "@/components/ui/MaterialIcon";
 import type { ReactNode } from "react";
 import type { CinemaMedia } from "./useCinemaMedia";
 import type { CinemaRecorder } from "./useCinemaRecorder";

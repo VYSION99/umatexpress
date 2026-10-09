@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ChatCenteredText, NotePencil, Plus, Trash } from "@phosphor-icons/react";
+import { ChatCenteredText, NotePencil, Plus, Trash } from "@/components/ui/MaterialIcon";
 import "@/components/console/hostel/ai-desk.css";
 
 type Entry = { id: string; roomId: string; roomLabel: string; title: string; content: string; updatedBy: string; updatedAt: string };

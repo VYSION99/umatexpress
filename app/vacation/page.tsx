@@ -1,15 +1,19 @@
 "use client";
 
+import { checkoutFetch } from "@/lib/checkout-client";
+import { usePaymentQuote } from "@/lib/payment-quote-client";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { formatTime } from "@/lib/trips";
-import { ArrowRight, Bus, CalendarDots, Check, Clock, MapPin, Robot, ShieldCheck, Sparkle, Users, X } from "@phosphor-icons/react";
+import { ArrowRight, Bus, CalendarDots, Check, Clock, MapPin, Robot, ShieldCheck, Sparkle, Users, X } from "@/components/ui/MaterialIcon";
 import type { PublicNotice } from "@/lib/trip-notice";
 import FlyerCarousel from "@/components/vacation/FlyerCarousel";
 import "@/components/vacation/vacation.css";
 import { readProfile, writeProfile } from "@/lib/passenger-profile";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 
 type PublicTrip = {
   id: string;
@@ -74,6 +78,7 @@ export default function Home() {
     && (!dateFilter || item.travelDate === dateFilter)
   )), [visibleTrips, fromFilter, toFilter, dateFilter]);
   const trip = useMemo(() => matchingTrips.find((item) => item.id === selectedTrip) ?? matchingTrips[0], [matchingTrips, selectedTrip]);
+  const { quote: paymentQuote, error: quoteError } = usePaymentQuote(trip ? Math.round(Number(trip.price) * 100) : 0);
   const activeTripId = trip?.id || "";
   const selectedSeat = seatChoice?.tripId === activeTripId ? seatChoice.seat : null;
   const seatsReady = Boolean(trip && availabilityTripId === trip.id && !availabilityLoading);
@@ -256,13 +261,13 @@ export default function Home() {
     void beginPayment();
   };
   const beginPayment = async () => {
-    if (!trip || selectedSeat === null || paying || !account) return;
+    if (!trip || selectedSeat === null || paying || !account || !paymentQuote) return;
     setDialogMode("");
     setPaymentError("");
     setPaymentMessage("");
     setPaying(true);
     try {
-      const response = await fetch("/api/payments/initialize", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...passenger, email: bookingEmail, seat: selectedSeat, tripId: trip.id, travelDate: trip.travelDate }) });
+      const response = await checkoutFetch("/api/payments/initialize", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...passenger, email: bookingEmail, seat: selectedSeat, tripId: trip.id, travelDate: trip.travelDate }) });
       const data = await response.json();
       if (!response.ok) { if (response.status === 409) { setSeatChoice(null); void loadAvailability(); } throw new Error(data.error || "Payment could not start."); }
       const paymentReference = String(data.reference || "");
@@ -273,7 +278,7 @@ export default function Home() {
         window.location.href = String(data.authorizationUrl);
         return;
       }
-      setPaymentMessage("Payment request sent. Approve the MTN MoMo prompt on your phone. Waiting for confirmation…");
+      setPaymentMessage("Opening Paystack checkout…");
       for (let attempt = 0; attempt < 24; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 3000 : 5000));
         const check = await fetch(`/api/payments/verify?reference=${encodeURIComponent(paymentReference)}`, { cache: "no-store" });
@@ -399,10 +404,11 @@ export default function Home() {
           {paymentError && <p className="payment-error" role="alert">{paymentError}</p>}
           {paymentMessage && <p className="payment-pending" role="status">{paymentMessage}</p>}
           <div className="passenger-help-box"><button type="button" className="secondary-ai-button" disabled={passengerHelpLoading} onClick={fetchPassengerHelp}><Robot size={16} /> {passengerHelpLoading ? "Checking travel help..." : "Get travel help"}</button>{passengerHelp && <p>{passengerHelp}</p>}</div>
-          <p className="vacation-overview-assurance"><ShieldCheck size={15} aria-hidden /> Secure UMaT student booking · Paystack or MTN MoMo</p>
+          <p className="vacation-overview-assurance"><ShieldCheck size={15} aria-hidden /> Secure UMaT student booking · Paystack checkout</p>
         </div>
       </section>}
       <dialog ref={actionDialog} className="vacation-dialog" aria-labelledby="vacation-dialog-title" onClose={() => setDialogMode("")} onCancel={() => setDialogMode("")} onClick={(event) => { if (event.target === event.currentTarget) setDialogMode(""); }}>
+        <SheetHandle onDismiss={() => setDialogMode("")} />
         <div className="vacation-dialog-inner">
           <div className="vacation-dialog-head"><span>{dialogMode === "details" ? "TRIP DETAILS" : dialogMode === "seat" ? "SELECT YOUR SEAT" : dialogMode === "review" ? "BOOKING SUMMARY" : "BOOKING GUIDE"}</span><button type="button" aria-label="Close pop-up" onClick={() => setDialogMode("")}><X size={20} aria-hidden /></button></div>
           {dialogMode === "details" && detailsTrip && <>
@@ -429,11 +435,11 @@ export default function Home() {
           </>}
           {dialogMode === "review" && trip && <>
             <h2 tabIndex={-1} id="vacation-dialog-title">Confirm your journey</h2><p className="vacation-dialog-intro">Review your route, seat and fare before opening secure checkout.</p>
-            <dl className="vacation-review-list"><div><dt>Journey</dt><dd>{trip.from} → {trip.to}</dd></div><div><dt>Travel</dt><dd>{travelDay(trip.travelDate)} at {formatTime(trip.time)}</dd></div><div><dt>Coach and seat</dt><dd>{trip.coachType} · {selectedSeat === null ? "Seat not chosen" : `seat ${selectedSeat}`}</dd></div><div><dt>Receipt email</dt><dd>{account?.email || "Sign in to continue"}</dd></div><div className="vacation-review-total"><dt>Ticket price</dt><dd>GH₵ {trip.price}</dd></div></dl>
+            <dl className="vacation-review-list"><div><dt>Journey</dt><dd>{trip.from} → {trip.to}</dd></div><div><dt>Travel</dt><dd>{travelDay(trip.travelDate)} at {formatTime(trip.time)}</dd></div><div><dt>Coach and seat</dt><dd>{trip.coachType} · {selectedSeat === null ? "Seat not chosen" : `seat ${selectedSeat}`}</dd></div><div><dt>Receipt email</dt><dd>{account?.email || "Sign in to continue"}</dd></div><div><dt>Ticket price</dt><dd>GH₵ {trip.price}</dd></div><div><dt>Paystack processing ({paymentQuote?.feePercent ?? 1.95}%)</dt><dd>{paymentQuote ? `GH₵ ${(paymentQuote.feeAmount / 100).toFixed(2)}` : "Calculating…"}</dd></div><div className="vacation-review-total"><dt>Total to pay</dt><dd>{paymentQuote ? `GH₵ ${(paymentQuote.totalAmount / 100).toFixed(2)}` : "Calculating…"}</dd></div></dl>
             {accountReady && account && <div className="passenger-fields vacation-review-passenger"><label>Full name<input autoComplete="name" placeholder="Name on your ticket" value={passenger.name} onChange={(event) => setPassenger({ ...passenger, name: event.target.value })} /></label><label>Mobile Money number<input autoComplete="tel" type="tel" inputMode="tel" placeholder="e.g. 024 000 0000" value={passenger.phone} onChange={(event) => setPassenger({ ...passenger, phone: event.target.value })} /></label></div>}
-            {paymentError && <p className="vacation-dialog-error" role="alert">{paymentError}</p>}
+            {(paymentError || quoteError) && <p className="vacation-dialog-error" role="alert">{paymentError || quoteError}</p>}
             <p className="vacation-dialog-note">Your seat is confirmed only after successful payment. The checkout provider may show a processing charge before you approve payment.</p>
-            <div className="vacation-dialog-actions"><button type="button" className="vacation-dialog-primary" disabled={paying || !accountReady} onClick={confirmPayment}>{!account ? "Sign in to continue" : paying ? "Starting secure payment…" : "Continue to secure payment"} <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => { setPaymentError(""); setDialogMode("seat"); }}>Change seat</button></div>
+            <div className="vacation-dialog-actions"><button type="button" className="vacation-dialog-primary" disabled={paying || !accountReady || !paymentQuote} onClick={confirmPayment}>{!account ? "Sign in to continue" : paying ? "Starting secure payment…" : "Continue to secure payment"} <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => { setPaymentError(""); setDialogMode("seat"); }}>Change seat</button></div>
           </>}
           {dialogMode === "how" && <><h2 tabIndex={-1} id="vacation-dialog-title">A clear path home</h2><ol className="vacation-how-list"><li><strong>Choose a published trip.</strong><span>Open the details to check its route, date, coach and fare.</span></li><li><strong>Pick an available seat.</strong><span>Enter the name and phone number to use for your ticket and payment.</span></li><li><strong>Review and pay securely.</strong><span>Check your details before the payment provider opens. Your ticket follows confirmation.</span></li></ol><div className="vacation-dialog-actions"><button type="button" className="vacation-dialog-primary" onClick={() => { setDialogMode(""); window.setTimeout(() => document.getElementById("trips")?.scrollIntoView({ behavior: "smooth" }), 0); }}>Explore trips <ArrowRight size={17} aria-hidden /></button></div></>}
         </div>

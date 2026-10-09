@@ -23,10 +23,6 @@ test("every console service belongs to a declared group", () => {
 test("a service that can be opened has navigation and an internal destination", () => {
   for (const service of consoleServices) {
     assert.ok(Array.isArray(service.nav), `${service.id} must declare its navigation`);
-    if (!service.href) {
-      assert.equal(service.nav.length, 0, `${service.id} is coming soon, so it cannot have navigation`);
-      continue;
-    }
     assert.match(service.href, /^\//, `${service.id} must open an internal page`);
     assert.ok(service.nav.length >= 1, `${service.id} must offer at least one navigation entry`);
     for (const entry of service.nav) {
@@ -50,8 +46,8 @@ test("each role gets the services it may use, without repeats", () => {
   }
   assert.deepEqual(
     consoleServicesForRole("ADMIN").map((service) => service.id),
-    ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "food", "cinema", "settings", "delegates", "account", "security"],
-    "an administrator gets the platform's services and the platform switchboard, never another role's personal workspace, and still sees what is coming",
+    ["campus", "vacation", "organizers", "finance", "payouts", "disputes", "hostels", "cinema", "settings", "delegates", "account", "security"],
+    "an administrator gets the platform's services and the platform switchboard, never another role's personal workspace, without nonfunctional service cards",
   );
   assert.deepEqual(consoleServicesForRole("SOMETHING").map((service) => service.id), ["account", "security"], "an unknown role only reaches account services");
 });
@@ -72,7 +68,6 @@ test("the grouped directory is a re-grouping of exactly what the role was offere
 
 test("every openable service lives on the console origin", () => {
   for (const service of consoleServicesForRole("ADMIN")) {
-    if (!service.href) continue;
     assert.match(service.href, /^\/console(\/|$)/, `${service.id} must be served by the console`);
     for (const entry of service.nav) assert.match(entry.href, /^\/console(\/|$)/, `${service.id} navigation must stay on the console origin`);
   }
@@ -101,7 +96,7 @@ test("admin services are grouped by operational similarity", () => {
   const byGroup = Object.fromEntries(groups.map(({ group, services }) => [group, services.map((service) => service.id)]));
   assert.deepEqual(byGroup.Transport, ["campus", "vacation", "organizers"]);
   assert.deepEqual(byGroup.Accommodation, ["hostels"]);
-  assert.deepEqual(byGroup.Finance, ["payouts"]);
+  assert.deepEqual(byGroup.Finance, ["finance", "payouts"]);
   assert.deepEqual(byGroup.Administration, ["settings", "delegates"]);
 });
 

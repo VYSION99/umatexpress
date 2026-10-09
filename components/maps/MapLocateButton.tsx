@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Crosshair } from "@phosphor-icons/react";
+import { Crosshair } from "@/components/ui/MaterialIcon";
 import type { CircleMarker } from "leaflet";
 import type { OsmMapInstance } from "@/lib/osm-maps";
 
@@ -39,7 +39,7 @@ export function MapLocateButton({ instance }: { instance: OsmMapInstance | null 
     }, { enableHighAccuracy: true, timeout: 15_000, maximumAge: 30_000 });
   }
 
-  return <div className="here-map-location-action">
+  return <div className="map-location-action">
     <button type="button" disabled={!instance || busy} onClick={locate}><Crosshair size={16} aria-hidden />{busy ? "Finding you…" : "My location"}</button>
     {error && <span role="status">{error}</span>}
   </div>;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { CheckCircle, CircleNotch, Flag, Star } from "@phosphor-icons/react";
+import { CheckCircle, CircleNotch, Flag, Star } from "@/components/ui/MaterialIcon";
 
 type FeedbackState = {
   completed: boolean;

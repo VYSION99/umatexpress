@@ -1,3 +1,4 @@
+import { withFinanceFetch } from "./helpers/finance-fetch.mjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -38,6 +39,16 @@ const affected = (count) => ok({ affected_row_count: count });
 const LANDLORD_COLUMNS = ["id", "name", "phone", "email", "organization", "status", "kyc_status", "review_reason", "commission_bps", "created_at", "updated_at"];
 
 function handle(sql, args) {
+  if (/^UPDATE hostel_payout_batches SET status='REVERSED'/.test(sql)) {
+    const row = batches.find((item) => item.id === args[1] && item.status === args[2]);
+    if (row) Object.assign(row, { status: "REVERSED", reason: "PROVIDER_TRANSFER_REVERSED", updated_at: args[0] });
+    return affected(row ? 1 : 0);
+  }
+  if (/^UPDATE hostel_payouts SET status=CASE WHEN status='DEBT'/.test(sql)) {
+    const rows = payouts.filter((item) => item.batch_id === args[1] && ["RELEASED", "DEBT"].includes(item.status) && batches.some((batch) => batch.id === args[2] && batch.status === "REVERSED"));
+    rows.forEach((item) => Object.assign(item, { status: item.status === "DEBT" ? "REVERSED" : "ACCRUED", batch_id: "", transfer_reference: "", released_at: null, updated_at: args[0] }));
+    return affected(rows.length);
+  }
   if (/^SELECT version FROM campus_schema_meta/.test(sql)) return ok(table(["version"], [{ version: "test-version" }]));
   if (/^CREATE |^ALTER |^INSERT OR REPLACE INTO campus_schema_meta|^INSERT INTO admin_audit_logs/.test(sql)) return affected(1);
   if (/^INSERT INTO notification_outbox/.test(sql)) {
@@ -47,6 +58,10 @@ function handle(sql, args) {
     return affected(1);
   }
 
+  if (/FROM hostel_landlords h LEFT JOIN hostel_owner_onboarding o/.test(sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    return ok(row ? table(["id", "identity_id_type", "identity_id_last4", "kyc_status"], [{ ...row, identity_id_type: "GHANA_CARD", identity_id_last4: "0001" }]) : empty);
+  }
   if (/^SELECT id,name,phone,email,COALESCE\(organization,''\) AS organization/.test(sql) && /FROM hostel_landlords WHERE id = \? LIMIT 1/.test(sql)) {
     const row = landlords.find((item) => item.id === args[0]);
     return ok(row ? table(LANDLORD_COLUMNS, [row]) : empty);
@@ -176,10 +191,11 @@ function handle(sql, args) {
         landlord_id: id, oldest: entries.map((item) => item.release_after).sort()[0],
         entry_count: entries.length, total_amount: entries.reduce((sum, item) => sum + Number(item.net_amount), 0),
         landlord_status: landlord.status || "", kyc_status: landlord.kyc_status || "",
+        identity_id_type: "GHANA_CARD", identity_id_number: "v1:test-sealed-id",
         payout_method: landlord.payout_method || "", payout_bank_code: landlord.payout_bank_code || "",
       };
     }).filter(Boolean);
-    return ok(rows.length ? table(["landlord_id", "oldest", "entry_count", "total_amount", "landlord_status", "kyc_status", "payout_method", "payout_bank_code"], rows) : empty);
+    return ok(rows.length ? table(["landlord_id", "oldest", "entry_count", "total_amount", "landlord_status", "kyc_status", "identity_id_type", "identity_id_number", "payout_method", "payout_bank_code"], rows) : empty);
   }
   if (/^SELECT \* FROM hostel_payout_batches WHERE landlord_id = \? ORDER BY created_at DESC/.test(sql)) {
     const rows = batches.filter((item) => item.landlord_id === args[0]).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
@@ -235,7 +251,7 @@ globalThis.fetch = async (url, init) => {
     }
     if (path === "/transfer") {
       const body = JSON.parse(init.body);
-      if (paystack.refuseTransfer) return { ok: false, json: async () => ({ status: false, message: paystack.refuseTransfer }) };
+      if (paystack.refuseTransfer) return { ok: false, status: 400, json: async () => ({ status: false, message: paystack.refuseTransfer }) };
       // Paystack accepts the transfer and settles asynchronously, so every
       // initiated transfer starts `pending` and the webhook decides the rest.
       const saved = { transferCode: `TRF-${paystack.transfers.length + 1}`, reference: body.reference, amount: body.amount, status: "pending" };
@@ -252,6 +268,11 @@ globalThis.fetch = async (url, init) => {
     return { ok: false, json: async () => ({ status: false, message: `Unhandled ${path}` }) };
   }
   const body = JSON.parse(init.body);
+  const batch = body.requests.find((request) => request.type === "batch");
+  if (batch) {
+    const stepResults = batch.batch.steps.map((step) => handle(step.stmt.sql, (step.stmt.args || []).map((arg) => arg.type === "null" ? null : arg.value)).response?.result || {});
+    return { ok: true, json: async () => ({ results: [{ type: "ok", response: { result: { step_results: stepResults, step_errors: stepResults.map(() => null) } } }, { type: "ok" }] }) };
+  }
   const results = body.requests
     .filter((request) => request.type === "execute")
     .map(({ stmt }) => {
@@ -263,6 +284,10 @@ globalThis.fetch = async (url, init) => {
 };
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const productFetch = globalThis.fetch;
+const financeFetch = withFinanceFetch(productFetch);
+globalThis.fetch = financeFetch.fetch;
+
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
 

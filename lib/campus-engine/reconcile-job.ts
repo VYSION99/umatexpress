@@ -1,3 +1,4 @@
+import { drainPaymentInbox } from "@/lib/payments/inbox";
 import { reconcilePendingCampusPayments } from "@/lib/campus-engine/reconcile";
 import { reconcilePendingHostelPayments } from "@/lib/hostel-engine/reconcile";
 import { dispatchPendingNotifications } from "@/lib/notifications";
@@ -17,6 +18,7 @@ import { logEvent } from "@/lib/observability";
  */
 export async function runCampusReconcile() {
   try {
+    await drainPaymentInbox(1).catch(() => { logEvent("error", "payment_inbox_sweep_failed", {}); });
     const result = await reconcilePendingCampusPayments();
     // Hostel holds ride the same trigger: two extra statements when there is
     // nothing stale, and a paid checkout that lost its webhook is caught here.

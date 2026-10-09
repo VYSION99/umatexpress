@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Bed, CalendarBlank, Check, Plus, ShieldWarning, X } from "@phosphor-icons/react";
+import { Bed, CalendarBlank, Check, Plus, ShieldWarning, X } from "@/components/ui/MaterialIcon";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { PropertyVerificationReview } from "@/components/console/hostel/PropertyVerificationReview";
 import { PhotoReviewQueue } from "@/components/console/hostel/PhotoReviewQueue";
@@ -240,7 +241,8 @@ export function HostelReviewQueue({ session }: { session: ConsoleSessionInfo }) 
       <p className="console-note">Suspending a room hides its approved beds together. Existing booking records remain intact.</p>
     </section>
 
-    <dialog ref={approveAllDialog} className="hostel-review-bulk-dialog" aria-labelledby="hostel-approve-all-title" onCancel={event => { if (busy === "all") event.preventDefault(); }}>
+    <dialog ref={approveAllDialog} className="hostel-review-bulk-dialog" aria-labelledby="hostel-approve-all-title" onCancel={event => { if (busy === "all") event.preventDefault(); }} onClick={event => { if (event.target === event.currentTarget && busy !== "all") approveAllDialog.current?.close(); }}>
+      <SheetHandle onDismiss={() => approveAllDialog.current?.close()} disabled={busy === "all"} />
       <h2 id="hostel-approve-all-title">Approve all pending rooms?</h2>
       <p>This will publish {pendingRooms.length} room rates covering {queue?.length ?? 0} submitted beds. Review the rooms and prices above before continuing. If the queue changes, the decision will stop and ask you to refresh.</p>
       {error && <p className="hostel-review-bulk-error" role="alert">{error}</p>}

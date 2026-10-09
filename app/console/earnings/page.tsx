@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Bus, CalendarBlank, Clock, Money, TrendUp, Users, Wallet, Warning } from "@phosphor-icons/react";
+import { Bus, CalendarBlank, Clock, Money, TrendUp, Users, Wallet, Warning } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";

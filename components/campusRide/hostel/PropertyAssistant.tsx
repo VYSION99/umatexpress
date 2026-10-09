@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CircleNotch, Question, Sparkle } from "@phosphor-icons/react";
+import { CircleNotch, Question, Sparkle } from "@/components/ui/MaterialIcon";
 
 const SUGGESTIONS = [
   "How much is the cheapest bed this year?",

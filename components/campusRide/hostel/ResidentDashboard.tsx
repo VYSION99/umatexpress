@@ -3,7 +3,7 @@ import { StayPlansPanel } from "./StayPlansPanel";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowCounterClockwise, Bell, CheckCircle, CircleNotch, PaperPlaneTilt, Phone, Star, Warning, Wrench } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Bell, CheckCircle, CircleNotch, PaperPlaneTilt, Phone, Star, Warning, Wrench } from "@/components/ui/MaterialIcon";
 import { ConditionPanel } from "./ConditionPanel";
 import { MaintenancePanel } from "./MaintenancePanel";
 import { ResidencyDialog } from "./ResidencyDialog";

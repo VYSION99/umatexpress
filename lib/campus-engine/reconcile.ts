@@ -37,7 +37,7 @@ export async function reconcilePendingCampusPayments(input: { staleMinutes?: num
     try {
       const providerStatus = await verifyPaystackTransaction(reference);
       if (providerStatus.status === "SUCCESSFUL") {
-        const result = await markCampusRidePaymentSuccessful(reference, Number(providerStatus.amount || 0), providerStatus.financialTransactionId || "", "", Number(providerStatus.fees || 0));
+        const result = await markCampusRidePaymentSuccessful(reference, Number(providerStatus.amount || 0), providerStatus.financialTransactionId || "", "", Number(providerStatus.fees || 0), providerStatus.currency);
         if (result.status === "PAID_REVIEW") reviewed += 1;
         else reconciled += 1;
       } else if (providerStatus.status === "FAILED") {

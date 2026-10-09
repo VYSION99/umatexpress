@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       // paid late must never lose the bed to a clock.
       const payment = await verifyPaystackTransaction(reference);
       if (payment.status === "SUCCESSFUL") {
-        await settleHostelBooking({ reference, amount: payment.amount, transactionId: payment.financialTransactionId, provider: "PAYSTACK", source: "verify" });
+        await settleHostelBooking({ reference, amount: payment.amount, currency: payment.currency, transactionId: payment.financialTransactionId, provider: "PAYSTACK", source: "verify" });
       } else if (payment.status === "FAILED") {
         await failHostelBooking(reference);
       } else if (booking.holdExpiresAt && booking.holdExpiresAt < new Date().toISOString()) {

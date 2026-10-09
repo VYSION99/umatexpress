@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ClipboardText, Plus } from "@phosphor-icons/react";
+import { ClipboardText, Plus } from "@/components/ui/MaterialIcon";
 import { ResidencyDialog } from "./ResidencyDialog";
 import { PhotoPicker } from "./MaintenancePanel";
 import { CONDITION_LABELS as LABEL, CONDITION_VALUES, type ConditionConfig, type ConditionDetail, type ConditionItem, type ConditionList } from "@/lib/hostel-engine/condition-types";

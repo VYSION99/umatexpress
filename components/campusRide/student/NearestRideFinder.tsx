@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Crosshair } from "@phosphor-icons/react";
+import { Crosshair } from "@/components/ui/MaterialIcon";
 import type { CampusCorridor, CampusZone } from "@/lib/campus-ride";
 
 export function NearestRideFinder({ zones, corridors, initialPickupZoneId, initialDestinationZoneId }: { zones: CampusZone[]; corridors: CampusCorridor[]; initialPickupZoneId: string; initialDestinationZoneId: string }) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowsClockwise, CircleNotch, FilmSlate, Square, Users } from "@phosphor-icons/react";
+import { ArrowsClockwise, CircleNotch, FilmSlate, Square, Users } from "@/components/ui/MaterialIcon";
 
 type ConsoleRoom = {
   id: string;

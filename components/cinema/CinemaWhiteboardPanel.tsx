@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkle } from "@phosphor-icons/react";
+import { Sparkle } from "@/components/ui/MaterialIcon";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CinemaBoardPolicy, CinemaPlaybackState } from "@/lib/cinema-engine/protocol";
 import { expectedPosition } from "@/lib/cinema-engine/sync";

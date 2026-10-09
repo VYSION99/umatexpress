@@ -7,7 +7,7 @@ import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
- * The console's resident list: every booking for this landlord, each row
+ * The console's resident list: confirmed stays for this landlord, each row
  * carrying its unread count and how many services are open, plus the totals a
  * dashboard strip needs. A delegate manager sees exactly what the owner sees,
  * because both resolve to the same landlord id.

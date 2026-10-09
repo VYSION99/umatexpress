@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, CircleNotch, NotePencil, Package, X } from "@phosphor-icons/react";
+import { Check, CircleNotch, NotePencil, Package, X } from "@/components/ui/MaterialIcon";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type Plugin = {

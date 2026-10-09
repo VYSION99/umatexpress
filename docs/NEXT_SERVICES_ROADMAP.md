@@ -5,7 +5,7 @@
 
 ## Starting point
 
-The public launcher already runs CampusRide, VacationRide, Hostel Finder and OnlineCinema, plus two external partner links. **Food is its only public “Coming soon” service.** The console also lists Food as unavailable. Its vendor application is described in `lib/console-applications.ts`, but remains `COMING_SOON`; the vendor handler, menu, order and fulfilment flows do not exist. The platform has student accounts, provider review patterns, payments, notifications and private object storage that can inform a new service, but these are not a ready-made food marketplace.
+The public launcher already runs CampusRide, VacationRide, Hostel Finder and OnlineCinema, plus two external partner links. **Food is its only public “Coming soon” service.** The console does not show a Food workspace until one exists. Its vendor application is described in `lib/console-applications.ts`, but remains `COMING_SOON`; the vendor handler, menu, order and fulfilment flows do not exist. The platform has student accounts, provider review patterns, payments, notifications and private object storage that can inform a new service, but these are not a ready-made food marketplace.
 
 UMaT lists the Students Canteen, SRC Food Joint and hall snack bars as places students eat. It also describes printing and photocopy shops around campus. Its own portal and helpdesk already handle academic records, course registration, LMS help and university fee guidance. We should help students find and use local services, while linking to official academic systems instead of copying them.
 

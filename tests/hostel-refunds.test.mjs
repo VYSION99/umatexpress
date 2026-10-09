@@ -1,3 +1,4 @@
+import { withFinanceFetch } from "./helpers/finance-fetch.mjs";
 import assert from "node:assert/strict";
 import test, { after, beforeEach } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -246,6 +247,10 @@ globalThis.fetch = async (url, options = {}) => {
 };
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const productFetch = globalThis.fetch;
+const financeFetch = withFinanceFetch(productFetch);
+globalThis.fetch = financeFetch.fetch;
+
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -310,6 +315,17 @@ test("the policy prices the cancellation by the calendar", () => {
   const unpaid = hostelRefundQuote({ ...booking, status: "PENDING_PAYMENT" }, new Date("2026-08-20T09:00:00.000Z"));
   assert.equal(unpaid.canRequest, false);
   assert.match(unpaid.blockedReason, /paid/i);
+});
+
+test("a full refund returns the checkout fee without charging it back to the landlord", () => {
+  const quote = hostelRefundQuote({
+    ...PAID_BOOKING, periodStartsOn: "2026-10-01", totalAmount: 127_486,
+    processingFee: 2_486, commissionAmount: 3_750, netAmount: 121_250,
+  }, new Date("2026-08-20T09:00:00.000Z"));
+  assert.equal(quote.amount, 127_486);
+  assert.equal(quote.grossAmount, 125_000);
+  assert.equal(quote.commissionAmount, 3_750);
+  assert.equal(quote.netAmount, 121_250);
 });
 
 test("a student asks once, and only for a paid bed", async () => {

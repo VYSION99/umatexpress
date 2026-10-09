@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Bed, MapPin } from "@phosphor-icons/react";
+import { Bed, MapPin } from "@/components/ui/MaterialIcon";
 import { bedsLabel, cedis, distanceLabel } from "@/components/campusRide/hostel/format";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
 import { fitOsmMap, mapPoint, validMapPoint, osmDomMarker, openOsmPopup } from "@/lib/osm-maps";
@@ -26,13 +26,13 @@ const OPTIONS: { center: { lat: number; lng: number }; zoom: number } = {
 
 function popupContent(property: HostelMapProperty, periodId: string) {
   const container = document.createElement("div");
-  container.className = "here-map-popup";
+  container.className = "map-popup";
   const heading = document.createElement("strong");
   heading.textContent = property.name;
   const place = document.createElement("p");
   place.textContent = bedsLabel(property.availableSpaces) + " · " + distanceLabel(property.distanceM);
   const price = document.createElement("p");
-  price.textContent = property.availableSpaces ? "From " + cedis(property.minTotal) + " per bed / year" : "Bed availability coming soon";
+  price.textContent = property.availableSpaces ? "From " + cedis(property.minTotal) + " per bed / year" : "No approved beds for this year";
   const link = document.createElement("a");
   link.href = "/hostel/" + encodeURIComponent(property.id) + "?periodId=" + encodeURIComponent(periodId);
   link.textContent = property.availableSpaces ? "View rooms" : "View property";

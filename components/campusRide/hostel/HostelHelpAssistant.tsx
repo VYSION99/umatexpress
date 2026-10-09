@@ -1,6 +1,6 @@
 "use client";
 import { useState, type FormEvent } from "react";
-import { PaperPlaneTilt, Sparkle } from "@phosphor-icons/react";
+import { PaperPlaneTilt, Sparkle } from "@/components/ui/MaterialIcon";
 
 const PROMPTS = ["How do I renew or change my room?", "How do I record my room condition?", "How do I report a maintenance problem?"];
 export function HostelHelpAssistant({ staff = false }: { staff?: boolean }) {

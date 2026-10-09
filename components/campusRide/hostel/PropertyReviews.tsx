@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CircleNotch, Quotes, Star } from "@phosphor-icons/react";
+import { CircleNotch, Quotes, Star } from "@/components/ui/MaterialIcon";
 
 type Review = {
   id: string; rating: number; title: string; body: string; studentName: string;

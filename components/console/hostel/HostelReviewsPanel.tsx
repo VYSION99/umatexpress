@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowsClockwise, CircleNotch, Eye, EyeSlash, Quotes, Star } from "@phosphor-icons/react";
+import { ArrowsClockwise, CircleNotch, Eye, EyeSlash, Quotes, Star } from "@/components/ui/MaterialIcon";
 import { Stars } from "@/components/campusRide/hostel/PropertyReviews";
 
 type Review = {

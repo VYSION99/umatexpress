@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Crosshair } from "@phosphor-icons/react";
+import { Crosshair } from "@/components/ui/MaterialIcon";
 import type { Marker } from "leaflet";
 import { CAMPUS_REFERENCE } from "@/lib/hostel-engine/geo";
 import { mapPoint, osmLocationLink } from "@/lib/osm-maps";

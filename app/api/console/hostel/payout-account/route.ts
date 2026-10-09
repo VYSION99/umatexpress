@@ -4,6 +4,7 @@ import { assertHostelOwner, resolveHostelHost } from "@/lib/hostel-engine/manage
 import { getHostelPayoutAccount, revealHostelPayoutAccount, saveHostelPayoutAccount } from "@/lib/hostel-engine/payouts";
 import { listPayoutDestinations } from "@/lib/paystack-banks";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { payoutRailFee } from "@/lib/platform-settings";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -35,12 +36,14 @@ export async function GET(request: Request) {
     const host = await resolveHostelHost(account);
     // The form has to offer somewhere to send the money, so the banks and
     // networks come back with the account rather than from a second call.
-    const [saved, banks, networks] = await Promise.all([
+    const [saved, banks, networks, momoFee, bankFee] = await Promise.all([
       getHostelPayoutAccount(host.landlordId),
       listPayoutDestinations("BANK"),
       listPayoutDestinations("MOMO"),
+      payoutRailFee("MOMO"),
+      payoutRailFee("BANK"),
     ]);
-    return Response.json({ ok: true, isOwner: host.isOwner, account: saved, destinations: { BANK: banks, MOMO: networks } }, { headers: NO_STORE });
+    return Response.json({ ok: true, isOwner: host.isOwner, account: saved, destinations: { BANK: banks, MOMO: networks }, fees: { MOMO: momoFee, BANK: bankFee } }, { headers: NO_STORE });
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });

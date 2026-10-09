@@ -1,7 +1,7 @@
 import "@/components/campusRide/hostel/hostel.css";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Bed, Key, MapPinLine } from "@phosphor-icons/react/ssr";
+import { Bed, Key, MapPinLine } from "@/components/ui/MaterialIcon";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { HostelFilters } from "@/components/campusRide/hostel/HostelFilters";
 import { HostelBrowseView } from "@/components/campusRide/hostel/HostelBrowseView";

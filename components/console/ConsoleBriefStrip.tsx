@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Sparkle } from "@phosphor-icons/react";
+import { ArrowRight, Sparkle } from "@/components/ui/MaterialIcon";
 import type { ConsoleBrief, ConsoleBriefItem } from "@/lib/console-assistant";
 
 /** Action items lead; the rest keep the order the brief read them in. */

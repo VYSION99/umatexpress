@@ -1,10 +1,11 @@
+import { idempotentCheckout } from "@/lib/payments/idempotency";
 import { initializeCampusRideQueue } from "@/lib/campus-engine/rides";
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { requireStudent } from "@/lib/student-auth";
 import { requestIdFromRequest } from "@/lib/observability";
 
-export async function POST(request: Request) {
+async function startCheckout(request: Request) {
   try {
     const limited = await rateLimit(request, "campus-queue-initialize", { limit: 20, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
@@ -27,6 +28,15 @@ export async function POST(request: Request) {
     const authorizationUrl = "authorizationUrl" in result ? result.authorizationUrl : "";
     const headers: HeadersInit = cookie ? { "Set-Cookie": cookie, "Cache-Control": "no-store" } : { "Cache-Control": "no-store" };
     return ok({ queue: { ...result, cookie: undefined } }, { status: authorizationUrl ? 202 : 200, headers }, request);
+  } catch (error) {
+    return fail(error, request);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await requireStudent(request);
+    return await idempotentCheckout(request, account.email, "CAMPUS", () => startCheckout(request));
   } catch (error) {
     return fail(error, request);
   }

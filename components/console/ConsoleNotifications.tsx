@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Check } from "@phosphor-icons/react";
+import { Bell, Check } from "@/components/ui/MaterialIcon";
 import { useCallback, useEffect, useState } from "react";
 import { notificationAction } from "@/lib/notification-destinations";
 

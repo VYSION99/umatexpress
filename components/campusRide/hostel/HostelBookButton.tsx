@@ -1,7 +1,9 @@
 "use client";
 
+import { checkoutFetch } from "@/lib/checkout-client";
+
 import { useEffect, useState } from "react";
-import { CalendarBlank, CircleNotch } from "@phosphor-icons/react";
+import { CalendarBlank, CircleNotch } from "@/components/ui/MaterialIcon";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
@@ -12,7 +14,7 @@ import { useStudentAccount } from "@/components/account/useStudentAccount";
  * server re-checks anyway, so this is about sending the student somewhere
  * useful rather than about security.
  */
-export function HostelBookButton({ listingId, bedLabel }: { listingId: string; bedLabel: string }) {
+export function HostelBookButton({ listingId, bedLabel, feeReady }: { listingId: string; bedLabel: string; feeReady: boolean }) {
   const router = useRouter();
   const { ready, account } = useStudentAccount();
   const [from, setFrom] = useState("/hostel");
@@ -25,10 +27,11 @@ export function HostelBookButton({ listingId, bedLabel }: { listingId: string; b
   useEffect(() => { queueMicrotask(() => setFrom(`${window.location.pathname}${window.location.search}`)); }, []);
 
   const hold = async () => {
+    if (!feeReady) return;
     setError("");
     setBusy(true);
     try {
-      const response = await fetch("/api/hostel/bookings", {
+      const response = await checkoutFetch("/api/hostel/bookings", {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
@@ -57,7 +60,7 @@ export function HostelBookButton({ listingId, bedLabel }: { listingId: string; b
         type="button"
         className="hostel-book-button"
         onClick={hold}
-        disabled={busy || !ready}
+        disabled={busy || !ready || !feeReady}
         aria-label={`Hold ${bedLabel} for ten minutes`}
       >
         {busy ? <CircleNotch size={14} className="console-spin" aria-hidden /> : <CalendarBlank size={14} aria-hidden />}

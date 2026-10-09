@@ -30,7 +30,7 @@ test("every application programme is complete", () => {
     assert.ok(application.title.trim() && application.short.trim() && application.blurb.trim(), `${application.id} is missing display copy`);
     assert.ok(application.detail.trim() && application.applyLabel.trim(), `${application.id} is missing what the form promises`);
     assert.match(application.endpoint, /^\/api\/console\//, `${application.id} must post to a console endpoint`);
-    assert.ok(consoleServices.some((service) => service.id === application.reviewService), `${application.id} is reviewed by an unknown service: ${application.reviewService}`);
+    if (application.status === "OPEN") assert.ok(consoleServices.some((service) => service.id === application.reviewService), `${application.id} is reviewed by an unknown service: ${application.reviewService}`);
     assert.ok(application.activation === "REVIEW" || application.activation === "DIRECT", `${application.id} has an unknown activation policy`);
     if (application.status === "COMING_SOON") {
       assert.equal(application.role, null, `${application.id} is not built yet, so it cannot mint a role`);

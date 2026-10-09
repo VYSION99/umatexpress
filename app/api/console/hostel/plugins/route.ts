@@ -1,3 +1,4 @@
+import { idempotentCheckout } from "@/lib/payments/idempotency";
 import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { resolveHostelHost } from "@/lib/hostel-engine/managers";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function startCheckout(request: Request) {
   try {
     const account = await requireConsoleRole(request, ["LANDLORD"]);
     const limited = await rateLimit(request, "hostel-plugin-subscribe", { limit: 30, windowMs: 60 * 60_000 });
@@ -53,5 +54,15 @@ export async function POST(request: Request) {
   } catch (error) {
     const { status, body } = campusErrorPayload(error);
     return Response.json(body, { status, headers: NO_STORE });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await requireConsoleRole(request, ["LANDLORD"]);
+    return await idempotentCheckout(request, account.email, "HOSTEL_PLUGIN", () => startCheckout(request));
+  } catch (error) {
+    const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 503;
+    return Response.json({ error: status < 500 && error instanceof Error ? error.message : "Checkout is temporarily unavailable." }, { status, headers: { "Cache-Control": "no-store" } });
   }
 }

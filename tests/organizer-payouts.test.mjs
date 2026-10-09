@@ -1,3 +1,4 @@
+import { withFinanceFetch } from "./helpers/finance-fetch.mjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { createServer } from "vite";
@@ -290,9 +291,10 @@ function handle(sql, args) {
     const profile = profiles.get(args[0]);
     if (!organizer || !profile) return ok(empty);
     return ok(table(
-      ["id", "status", "kyc_status", "name", "email", "payout_method", "payout_account_name", "payout_account_number", "payout_bank_code", "paystack_recipient_code"],
+      ["id", "status", "kyc_status", "kyc_id_type", "kyc_id_number", "name", "email", "payout_method", "payout_account_name", "payout_account_number", "payout_bank_code", "paystack_recipient_code"],
       [{
         id: organizer.id, status: organizer.status, kyc_status: organizer.kyc_status, name: organizer.name,
+        kyc_id_type: profile.kyc_id_type, kyc_id_number: profile.kyc_id_number,
         email: organizer.email, payout_method: profile.payout_method, payout_account_name: profile.payout_account_name,
         payout_account_number: profile.payout_account_number, payout_bank_code: profile.payout_bank_code,
         paystack_recipient_code: profile.paystack_recipient_code,
@@ -315,7 +317,7 @@ function handle(sql, args) {
       .filter((id) => !inDebt.has(id) && !inFlight.has(id))
       .slice(0, limit);
     return ok(table(
-      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "payout_method", "payout_bank_code"],
+      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "kyc_id_type", "kyc_id_number", "payout_method", "payout_bank_code"],
       ids.map((id) => {
         const mine = due.filter((row) => row.organizer_id === id);
         const organizer = organizerRows.find((item) => item.id === id);
@@ -327,6 +329,8 @@ function handle(sql, args) {
           total_amount: mine.reduce((total, row) => total + row.net_amount, 0),
           organizer_status: organizer?.status || "",
           kyc_status: organizer?.kyc_status || "",
+          kyc_id_type: profile?.kyc_id_type || "",
+          kyc_id_number: profile?.kyc_id_number || "",
           payout_method: profile?.payout_method || "",
           payout_bank_code: profile?.payout_bank_code || "",
         };
@@ -422,6 +426,25 @@ function handle(sql, args) {
   }
 
   // Payments and the verify route.
+  if (/^SELECT booking_id, amount, currency, status FROM payments WHERE reference_id = \? AND provider = \? LIMIT 1/.test(sql)) {
+    const payment = payments.find((item) => item.reference_id === args[0] && item.provider === args[1]);
+    return ok(payment ? table(["booking_id", "amount", "currency", "status"], [payment]) : empty);
+  }
+  if (/^SELECT status FROM payments WHERE reference_id=\?/.test(sql)) {
+    const payment = payments.find((item) => item.reference_id === args[0]);
+    return ok(payment ? table(["status"], [payment]) : empty);
+  }
+  if (/^UPDATE payments SET status = CASE WHEN EXISTS/.test(sql)) {
+    const payment = payments.find((item) => item.reference_id === args[3]);
+    if (payment) payment.status = seatHolds.some((hold) => hold.booking_id === payment.booking_id && hold.status === "BOOKED") ? "SUCCESSFUL" : "PAID_REVIEW";
+    return okRows(payment ? 1 : 0);
+  }
+  if (/^UPDATE bookings SET payment_status='SUCCESSFUL',/.test(sql)) {
+    const booking = bookings.find((item) => item.id === args[3]);
+    const payment = payments.find((item) => item.reference_id === args[0]);
+    if (booking && payment) { booking.payment_status = "SUCCESSFUL"; booking.booking_status = payment.status === "SUCCESSFUL" ? "CONFIRMED" : "PAYMENT_RECEIVED_REVIEW"; booking.confirmed_at = args[2]; }
+    return okRows(booking ? 1 : 0);
+  }
   if (/^SELECT id, booking_id, provider, reference_id, amount,.*access_token_hash FROM payments WHERE reference_id = \? LIMIT 1/.test(sql)) {
     const payment = payments.find((item) => item.reference_id === args[0]);
     return ok(payment ? table(["id", "booking_id", "provider", "reference_id", "amount", "currency", "status", "access_token_hash"], [{ ...payment, currency: payment.currency || "GHS", access_token_hash: payment.access_token_hash || "" }]) : empty);
@@ -496,6 +519,15 @@ globalThis.fetch = async (url, init) => {
   }
   // Everything else is Turso.
   const body = JSON.parse(init.body);
+  const batch = body.requests.find((request) => request.type === "batch");
+  if (batch) {
+    const stepResults = batch.batch.steps.map((step) => {
+      const args = (step.stmt.args || []).map((arg) => arg.type === "null" ? null : arg.value);
+      statements.push({ sql: step.stmt.sql, args });
+      return handle(step.stmt.sql, args).response?.result || {};
+    });
+    return { ok: true, json: async () => ({ results: [{ type: "ok", response: { result: { step_results: stepResults, step_errors: stepResults.map(() => null) } } }, { type: "ok" }] }) };
+  }
   const results = body.requests
     .filter((request) => request.type === "execute")
     .map(({ stmt }) => {
@@ -506,6 +538,10 @@ globalThis.fetch = async (url, init) => {
   results.push({ type: "ok" });
   return { ok: true, json: async () => ({ results }) };
 };
+
+const productFetch = globalThis.fetch;
+const financeFetch = withFinanceFetch(productFetch);
+globalThis.fetch = financeFetch.fetch;
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true } });
@@ -523,6 +559,7 @@ const { isOrganizerPayoutMethod, saveOrganizerPayoutAccount } = await vite.ssrLo
 // The release tests pay org-b, and a transfer needs a real destination: the
 // account number is stored the way production stores it, sealed.
 profiles.get("org-b").payout_account_number = await sealSecret("0244000002");
+profiles.get("org-b").kyc_id_number = await sealSecret("GHA-000000001-0");
 const payoutsRoute = await vite.ssrLoadModule("/app/api/console/payouts/route.ts");
 const statementRoute = await vite.ssrLoadModule("/app/api/console/payouts/statement/route.ts");
 const backfillRoute = await vite.ssrLoadModule("/app/api/console/payouts/backfill/route.ts");

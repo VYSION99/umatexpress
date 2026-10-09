@@ -1,3 +1,4 @@
+import { idempotentCheckout } from "@/lib/payments/idempotency";
 import { initializeCampusRideQueue } from "@/lib/campus-engine/rides";
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
@@ -8,7 +9,7 @@ import { requireStudent } from "@/lib/student-auth";
  * clients keep their `{ ride }` response, but it starts a payment, so the same
  * platform account is required here as on the canonical route.
  */
-export async function POST(request: Request) {
+async function startCheckout(request: Request) {
   try {
     const limited = await rateLimit(request, "campus-student-rides", { limit: 20, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
@@ -25,6 +26,15 @@ export async function POST(request: Request) {
     const cookie = "cookie" in ride ? ride.cookie : "";
     const authorizationUrl = "authorizationUrl" in ride ? ride.authorizationUrl : "";
     return ok({ ride: { ...ride, cookie: undefined } }, { status: authorizationUrl ? 202 : 200, headers: cookie ? { "Set-Cookie": cookie, "Cache-Control": "no-store" } : { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await requireStudent(request);
+    return await idempotentCheckout(request, account.email, "CAMPUS", () => startCheckout(request));
   } catch (error) {
     return fail(error);
   }

@@ -20,7 +20,7 @@
 /* The lobby's search bar and the tray it drops: one field, then thumbnails
    big enough to recognise a lecture from. */
 .cinema-search{display:flex;align-items:center;gap:9px;padding:11px 14px;border:1px solid #d8e4dc;border-radius:14px;background:#fbfdfc}
-.cinema-search svg{flex:0 0 auto;color:#5c6d62}
+.cinema-search .material-icon{flex:0 0 auto;color:#5c6d62}
 .cinema-search input{flex:1;min-width:0;border:0;background:transparent;font:700 14px inherit;color:var(--ink);outline:none}
 .cinema-search-busy{flex:0 0 auto;color:#6b7a71;font-size:11px;font-weight:800}
 .cinema-search-results{display:grid;gap:7px;list-style:none;margin:12px 0 0;padding:0}
@@ -314,8 +314,7 @@
 .cinema-rail,.cinema-dock,.cinema-sheet-backdrop,.cinema-sheet-close{display:none}
 
 @media (max-width:900px){
-  /* The shell keeps its own mobile nav at the foot of every page, so the room
-     dock rides just above it and the sheets open above both. */
+  /* The room dock clears the shell nav; an open sheet covers both bars. */
   .cinema-room{position:relative;padding-bottom:calc(148px + env(safe-area-inset-bottom))}
 
   /* The platform's 28px gutter was sized for a marketing page; the room wants
@@ -368,11 +367,13 @@
 
   /* Bottom sheets: hidden until the rail or the dock opens one. */
   .cinema-sheet{display:none}
-  .cinema-sheet.is-open{display:block;position:fixed;left:10px;right:10px;bottom:calc(130px + env(safe-area-inset-bottom));z-index:70;max-height:68vh;max-height:min(68vh,calc(100dvh - 150px));overflow:auto;padding:16px;border-radius:20px;background:#fffefb;box-shadow:0 24px 60px rgba(12,32,24,.32);animation:cinema-sheet-in .18s ease}
+  .cinema-sheet.is-open{display:block;position:fixed;left:0;right:0;bottom:0;z-index:70;max-height:min(88dvh,calc(100dvh - env(safe-area-inset-top) - 12px));overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 18px calc(20px + env(safe-area-inset-bottom));border:1px solid #e1e9e2;border-bottom:0;border-radius:28px 28px 0 0;background:linear-gradient(165deg,#fff 0%,#fffefa 44%,#f7faf6 100%);box-shadow:0 -2px 0 #ffffffb8 inset,0 -10px 28px #10281d1f,0 -28px 72px #0e281e38}
+  .cinema-sheet.is-open>.app-sheet-handle{display:grid;place-items:center;width:100%;height:32px;border:0;background:transparent;touch-action:none}
+  .cinema-sheet.is-open>.app-sheet-handle>span{display:block;width:38px;height:5px;border-radius:99px;background:linear-gradient(180deg,#cad4ce,#9eada5);box-shadow:0 1px 0 #fff,0 2px 4px #173b2c28}
   .cinema-sheet.is-open>*{margin-top:0}
   .cinema-sheet.is-open>.cinema-card{border:0;padding:0;box-shadow:none;background:transparent}
   .cinema-sheet-backdrop{display:block;position:fixed;inset:0;z-index:68;border:0;background:rgba(12,32,24,.38);cursor:pointer}
-  .cinema-sheet-close{display:grid;place-items:center;position:absolute;top:10px;right:10px;width:34px;height:34px;border:0;border-radius:999px;background:#eef4f0;color:#2f4a3e;cursor:pointer}
+  .cinema-sheet-close{display:grid;place-items:center;position:absolute;top:38px;right:14px;width:44px;height:44px;border:0;border-radius:999px;background:#eef4f0;color:#2f4a3e;cursor:pointer}
 
   /* The rail: one action per panel, in the order a room is usually used, as a
      floating column at the top right of the room. It is pinned below the
@@ -410,11 +411,6 @@
   .cinema-dock{gap:8px;padding:8px 10px 5px}
   .cinema-dock-actions{gap:6px}
   .cinema-dock-actions button{width:36px;height:36px}
-}
-
-@keyframes cinema-sheet-in{
-  from{opacity:0;transform:translateY(14px)}
-  to{opacity:1;transform:translateY(0)}
 }
 
 @keyframes cinema-toast-in{

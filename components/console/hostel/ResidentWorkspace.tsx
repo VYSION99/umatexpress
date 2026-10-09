@@ -1,8 +1,11 @@
 "use client";
+
+import { checkoutFetch } from "@/lib/checkout-client";
+import { usePaymentQuote } from "@/lib/payment-quote-client";
 import { StayPlansPanel } from "@/components/campusRide/hostel/StayPlansPanel";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Bell, Check, CircleNotch, PaperPlaneTilt, Phone, Plus, SealCheck, UserMinus, Wallet, X } from "@phosphor-icons/react";
+import { Bell, Check, CircleNotch, PaperPlaneTilt, Phone, Plus, SealCheck, UserMinus, Wallet, X } from "@/components/ui/MaterialIcon";
 import type { ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConditionPanel } from "@/components/campusRide/hostel/ConditionPanel";
 import { MaintenancePanel } from "@/components/campusRide/hostel/MaintenancePanel";
@@ -290,7 +293,7 @@ export function ResidentWorkspace({ session }: { session: ConsoleSessionInfo }) 
         onSubscribe={(input) => run(async () => {
           setBusy("subscribe");
           try {
-            const response = await fetch("/api/console/hostel/plugins", {
+            const response = await checkoutFetch("/api/console/hostel/plugins", {
               method: "POST",
               credentials: "same-origin",
               headers: { "content-type": "application/json" },
@@ -459,10 +462,11 @@ function ServicesPanel({ catalogue, subscriptions, periods, properties, busy, on
 }) {
   const [form, setForm] = useState({ pluginId: "", periodId: "", propertyId: "", residentPrice: "" });
   const chosen = catalogue.find((plugin) => plugin.id === form.pluginId);
+  const { quote, error: quoteError } = usePaymentQuote(chosen?.price || 0);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!form.pluginId || !form.periodId) return;
+    if (!form.pluginId || !form.periodId || !quote) return;
     onSubscribe({
       pluginId: form.pluginId,
       periodId: form.periodId,
@@ -500,12 +504,13 @@ function ServicesPanel({ catalogue, subscriptions, periods, properties, busy, on
       <label>Resident pays (GH₵)
         <input type="text" inputMode="decimal" value={form.residentPrice} onChange={(event) => setForm({ ...form, residentPrice: event.target.value })} placeholder={chosen ? (chosen.suggestedResidentPrice / 100).toFixed(2) : "0.00"} />
       </label>
-      <button type="submit" disabled={busy === "subscribe" || !form.pluginId || !form.periodId}>
+      <button type="submit" disabled={busy === "subscribe" || !form.pluginId || !form.periodId || !quote}>
         {busy === "subscribe" ? <CircleNotch size={15} className="console-spin" aria-hidden /> : <Plus size={15} aria-hidden />}
-        Pay {chosen ? cedis(chosen.price) : "the fee"} and switch on
+        Pay {quote ? cedis(quote.totalAmount) : "the total"} and switch on
       </button>
     </form>
-    {chosen && <p className="console-note">{chosen.description} The platform fee is charged to you once a year; the price you set is what each resident pays you for it.</p>}
+    {chosen && <p className="console-note">{chosen.description} Platform service {cedis(chosen.price)} + Paystack processing ({quote?.feePercent ?? 1.95}%) {quote ? cedis(quote.feeAmount) : "calculating…"} = {quote ? cedis(quote.totalAmount) : "calculating…"} total. The price you set is what each resident pays you.</p>}
+    {quoteError && <p role="alert" className="console-note">{quoteError}</p>}
 
     <table className="console-table">
       <thead><tr><th>Service</th><th>Year</th><th>Scope</th><th>Platform fee</th><th>Resident pays</th><th>Status</th><th></th></tr></thead>

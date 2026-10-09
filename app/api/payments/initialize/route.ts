@@ -1,5 +1,7 @@
+import { isProviderOutcomeUnknown } from "@/lib/payments/operations";
+import { idempotentCheckout } from "@/lib/payments/idempotency";
 import { ensureBookingsTable, ensurePaymentsTable, turso } from "@/lib/turso";
-import { getMomoCurrencyRuntime, normalizeGhanaPhone, requestToPay } from "@/lib/mtn-momo";
+
 import { calculatePaystackCharge, getPaymentProviderRuntime, getPaystackCurrencyRuntime, getPaystackFeePercentRuntime, initializePaystackTransaction } from "@/lib/paystack";
 import { hashPaymentToken, paymentAccessCookie } from "@/lib/payment-access";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
@@ -16,15 +18,13 @@ function errorStatus(error: unknown) {
   if (error instanceof CampusEngineError) return error.status;
   const message = error instanceof Error ? error.message : "";
   if (message.includes("Turso") || message.includes("valid Turso credentials")) return 503;
-  if (message.includes("MTN MoMo is not configured")) return 503;
   if (message.includes("Paystack is not configured")) return 503;
-  if (message.includes("MTN token request failed") || message.includes("MTN RequestToPay failed")) return 502;
   if (message.includes("Paystack initialize failed")) return 502;
   if (message.includes("valid Ghanaian mobile number")) return 400;
   return 500;
 }
 
-export async function POST(request: Request) {
+async function startCheckout(request: Request) {
   const requestId = requestIdFromRequest(request);
   const respond = (body: unknown, init?: ResponseInit) => withRequestId(Response.json(body, init), requestId);
   let bookingId = "";
@@ -60,7 +60,8 @@ export async function POST(request: Request) {
     }
 
     const phoneText = cleanText(body.phone, 30);
-    const phone = normalizeGhanaPhone(phoneText);
+    const phone = phoneText.replace(/[^0-9+]/g, "");
+    if (!/^(?:0|\+233|233)\d{9}$/.test(phone)) return respond({error:"Enter a valid Ghanaian phone number."},{status:400});
     const ticketAmount = trip.price * 100;
     await ensureBookingsTable();
     await ensurePaymentsTable();
@@ -76,9 +77,9 @@ export async function POST(request: Request) {
     const accessTokenHash = await hashPaymentToken(accessToken);
     const holdExpiresAt = new Date(now.getTime() + 10 * 60_000).toISOString();
     const provider = await getPaymentProviderRuntime();
-    const currency = provider === "PAYSTACK" ? await getPaystackCurrencyRuntime() : await getMomoCurrencyRuntime();
-    const paystackCharge = provider === "PAYSTACK" ? calculatePaystackCharge(ticketAmount, await getPaystackFeePercentRuntime()) : null;
-    const payableAmount = paystackCharge?.totalAmount ?? ticketAmount;
+    const currency = await getPaystackCurrencyRuntime();
+    const paystackCharge = calculatePaystackCharge(ticketAmount, await getPaystackFeePercentRuntime());
+    const payableAmount = paystackCharge.totalAmount;
 
     try {
       await turso(
@@ -98,31 +99,21 @@ export async function POST(request: Request) {
       );
       await turso(
         "INSERT INTO payments (id, booking_id, provider, reference_id, external_id, payer_phone, amount, currency, status, access_token_hash, fare_amount, fee_amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [crypto.randomUUID(), bookingId, provider, paymentReference, bookingReference, phone, payableAmount, currency, "PENDING", accessTokenHash, ticketAmount, paystackCharge?.feeAmount || 0, nowIso, nowIso],
+        [crypto.randomUUID(), bookingId, provider, paymentReference, bookingReference, phone, payableAmount, currency, "PENDING", accessTokenHash, ticketAmount, paystackCharge.feeAmount, nowIso, nowIso],
       );
-      if (provider === "PAYSTACK") {
-        const paystack = await initializePaystackTransaction({
+      const paystack = await initializePaystackTransaction({
           email,
           amount: payableAmount,
           reference: paymentReference,
           callbackUrl: `${new URL(request.url).origin}/payment/callback?reference=${encodeURIComponent(paymentReference)}`,
-          metadata: { bookingReference, passengerName: name, phone, seat, tripId, travelDate, fareAmount: ticketAmount, paystackFee: paystackCharge?.feeAmount || 0 },
-        });
-        return respond({ reference: paymentReference, status: "PENDING", provider, authorizationUrl: paystack.authorizationUrl, fareAmount: ticketAmount, feeAmount: paystackCharge?.feeAmount || 0, totalAmount: payableAmount, message: "Redirecting to Paystack Checkout." }, {
+          metadata: { bookingReference, passengerName: name, phone, seat, tripId, travelDate, fareAmount: ticketAmount, paystackFee: paystackCharge.feeAmount },
+      });
+      return respond({ reference: paymentReference, status: "PENDING", provider, authorizationUrl: paystack.authorizationUrl, fareAmount: ticketAmount, feeAmount: paystackCharge.feeAmount, totalAmount: payableAmount, message: "Redirecting to Paystack Checkout." }, {
           status: 202,
           headers: { "Set-Cookie": paymentAccessCookie(paymentReference, accessToken, new URL(request.url).protocol === "https:"), "Cache-Control": "no-store" },
         });
-      } else {
-        await requestToPay({
-          referenceId: paymentReference,
-          externalId: bookingReference,
-          amount: (payableAmount / 100).toFixed(2),
-          phone,
-          payerMessage: "UMaTeXPRESS student transport payment",
-          payeeNote: `UMaTeXPRESS booking ${bookingReference}`,
-        });
-      }
     } catch (error) {
+      if (isProviderOutcomeUnknown(error)) return respond({ reference: paymentReference, status: "PENDING", provider, message: "Payment initialization is being verified. Check your booking before trying again." }, { status: 202, headers: { "Cache-Control": "no-store" } });
       const message = error instanceof Error ? error.message : "Payment initialization failed.";
       await turso("UPDATE payments SET status = 'FAILED', failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ?", [message, new Date().toISOString(), new Date().toISOString(), paymentReference]).catch(() => undefined);
       await turso("UPDATE bookings SET payment_status = 'FAILED' WHERE id = ?", [bookingId]).catch(() => undefined);
@@ -130,11 +121,17 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    return respond({ reference: paymentReference, status: "PENDING", message: "Payment request sent. Approve the MTN MoMo prompt on your phone." }, {
-      status: 202,
-      headers: { "Set-Cookie": paymentAccessCookie(paymentReference, accessToken, new URL(request.url).protocol === "https:"), "Cache-Control": "no-store" },
-    });
   } catch (error) {
     return respond({ error: error instanceof Error ? error.message : "Payment could not start." }, { status: errorStatus(error) });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await requireStudent(request);
+    return await idempotentCheckout(request, account.email, "VACATION", () => startCheckout(request));
+  } catch (error) {
+    const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 503;
+    return Response.json({ error: status < 500 && error instanceof Error ? error.message : "Checkout is temporarily unavailable." }, { status, headers: { "Cache-Control": "no-store" } });
   }
 }

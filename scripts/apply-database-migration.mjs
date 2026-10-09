@@ -119,6 +119,13 @@ export function splitStatements(sql) {
       continue;
     }
     if (char === ";") {
+      // A trigger body contains semicolons before its final END;. Keep the
+      // whole CREATE TRIGGER together for the Turso pipeline.
+      const withoutComments = current.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim();
+      if (/^CREATE\s+(?:(?:TEMP|TEMPORARY)\s+)?TRIGGER\b/i.test(withoutComments) && !/\bEND\s*$/i.test(withoutComments)) {
+        current += char;
+        continue;
+      }
       statements.push(current);
       current = "";
       continue;

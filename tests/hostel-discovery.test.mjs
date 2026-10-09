@@ -96,7 +96,7 @@ function handle(sql, args) {
       const room = rooms.find((item) => item.id === space.room_id) || {};
       const property = properties.find((item) => item.id === room.property_id) || {};
       return {
-        listing_id: listing.id, space_id: space.id, room_label: room.label || "", space_label: space.label || "",
+        listing_id: listing.id, space_id: space.id, room_id: room.id || "", room_label: room.label || "", space_label: space.label || "",
         capacity: room.capacity || 0, price: Number(listing.price), utilities_fee: room.utilities_fee || 0,
         utilities_enabled: property.utilities_enabled || 0, property_id: property.id || "",
         space_status: space.status || "AVAILABLE", room_status: room.status || "ACTIVE", property_status: property.status || "DRAFT",
@@ -104,7 +104,7 @@ function handle(sql, args) {
     }).filter((row) => row.space_status === "AVAILABLE" && row.room_status === "ACTIVE" && row.property_status !== "SUSPENDED")
       .filter((row) => !wantsProperty || row.property_id === args[1])
       .sort((left, right) => left.room_label.localeCompare(right.room_label) || left.space_label.localeCompare(right.space_label));
-    return ok(table(["listing_id", "space_id", "room_label", "space_label", "capacity", "price", "utilities_fee", "utilities_enabled"], rows));
+    return ok(table(["listing_id", "space_id", "room_id", "room_label", "space_label", "capacity", "price", "utilities_fee", "utilities_enabled"], rows));
   }
 
   if (/INSERT INTO rate_limit_windows/.test(sql) && /RETURNING count/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
@@ -357,7 +357,9 @@ test("one hostel's page lists its approved beds and 404s for a suspended buildin
   seed();
   const html = renderToStaticMarkup(await HostelPropertyPage({ params: Promise.resolve({ propertyId: "property-a" }), searchParams: Promise.resolve({}) }));
   assert.match(html, /Green Court Hostel/);
-  assert.match(html, /Choose your room and bed/);
+  assert.match(html, /Available rooms/);
+  assert.match(html, /View rooms/);
+  assert.equal((html.match(/class="hostel-room hostel-room-disclosure"/g) || []).length, 2, "each room has its own expandable card");
   assert.match(html, /Room 1/);
   assert.match(html, /Includes GH₵ 150 utilities/, "the bed shows included utilities");
   assert.match(html, /GH₵ 1,950/, "rent plus utilities renders");

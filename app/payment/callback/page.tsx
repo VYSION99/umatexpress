@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { formatTime } from "@/lib/trips";
 import { rememberTicket } from "@/lib/passenger-profile";
-import { Bus, CheckCircle, CircleNotch, DownloadSimple, ImageSquare, ShieldCheck, XCircle } from "@phosphor-icons/react";
+import { Bus, CheckCircle, CircleNotch, DownloadSimple, ImageSquare, ShieldCheck, XCircle } from "@/components/ui/MaterialIcon";
 
  type Ticket = { reference:string; passenger_name:string; seat:string; trip_id:string; travel_date:string; departure_time:string; arrival_time?:string; amount:string; route_from?:string; route_to?:string; coach_type?:string; trip_title?:string };
 

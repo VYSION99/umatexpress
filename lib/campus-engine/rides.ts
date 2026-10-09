@@ -108,14 +108,14 @@ export async function initializeCampusRideQueue(input: { passengerName?: string;
   return { ...ride, provider, paymentReference, authorizationUrl: paystack.authorizationUrl, message:"Redirecting to Paystack Checkout.", cookie: paymentAccessCookie(paymentReference, accessToken, input.secure) };
 }
 
-export async function markCampusRidePaymentSuccessful(reference: string, amount: number, transactionId: string, requestId = "", fees = 0) {
+export async function markCampusRidePaymentSuccessful(reference: string, amount: number, transactionId: string, requestId = "", fees = 0, currency = "") {
   await ensureCampusRideTables();
-  const payment = rowsToObjects(await turso("SELECT id,queue_entry_id,reference,provider,amount,fare_amount,status FROM campus_payments WHERE reference = ? AND provider = 'PAYSTACK' LIMIT 1", [reference]))[0];
+  const payment = rowsToObjects(await turso("SELECT id,queue_entry_id,reference,provider,amount,currency,fare_amount,status FROM campus_payments WHERE reference = ? AND provider = 'PAYSTACK' LIMIT 1", [reference]))[0];
   if (!payment) return { handled: false, reason: "CAMPUS_PAYMENT_NOT_FOUND" };
   const stamp = new Date().toISOString();
   const entryId = String(payment.queue_entry_id);
   const expectedAmount = Number(payment.amount || 0);
-  if (Number(amount || 0) !== expectedAmount) {
+  if (Number(amount || 0) !== expectedAmount || (currency && currency !== String(payment.currency || "GHS"))) {
     await turso("UPDATE campus_payments SET status = 'PAID_REVIEW', raw_response = ?, paid_at = ?, updated_at = ? WHERE reference = ? AND status <> 'SUCCESSFUL'", [`PAYSTACK_AMOUNT_MISMATCH:${transactionId}`, stamp, stamp, reference]);
     await turso("UPDATE campus_queue_entries SET payment_status = 'SUCCESSFUL', queue_status = 'PAYMENT_RECEIVED_REVIEW', ticket_image_ready = 1, updated_at = ? WHERE id = ? AND queue_status = 'WAITING_PAYMENT'", [stamp, entryId]);
     await incrementMetric("payment_review");
@@ -161,7 +161,7 @@ export async function markCampusRidePaymentFailed(reference: string, reason: str
   // Release the held slot exactly once; a replay finds the entry already terminal.
   const released = await applyCampusQueueTransition(turso, { entryId, from: "WAITING_PAYMENT", to: "PAYMENT_FAILED", paymentStatus: "FAILED", nowIso: stamp });
   if (released && payment.ride_id) await releaseCampusSlots(turso, { rideId: String(payment.ride_id), count: 1, nowIso: stamp });
-  await turso("UPDATE campus_payments SET status = 'FAILED', raw_response = ?, updated_at = ? WHERE reference = ? AND status <> 'SUCCESSFUL'", [transactionId || reason || "PAYSTACK_PAYMENT_FAILED", stamp, reference]);
+  await turso("UPDATE campus_payments SET status = 'FAILED', raw_response = ?, updated_at = ? WHERE reference = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')", [transactionId || reason || "PAYSTACK_PAYMENT_FAILED", stamp, reference]);
   await incrementMetric("payment_failed");
   await campusAudit({ actorType:"system", action:"PAYMENT_FAILED", targetType:"campus_payment", targetReference:reference, details:{ reason, requestId } });
   return { handled: true, status: "FAILED" };
@@ -196,12 +196,12 @@ export async function verifyCampusRidePayment(request: Request, reference: strin
     const providerStatus = await verifyPaystackTransaction(reference);
     status = String(providerStatus.status || "PENDING").toUpperCase();
     if (status === "SUCCESSFUL") {
-      const applied = await markCampusRidePaymentSuccessful(reference, Number(providerStatus.amount), providerStatus.financialTransactionId || "", requestId, Number(providerStatus.fees || 0));
+      const applied = await markCampusRidePaymentSuccessful(reference, Number(providerStatus.amount), providerStatus.financialTransactionId || "", requestId, Number(providerStatus.fees || 0), providerStatus.currency);
       status = String(applied?.status || "SUCCESSFUL").toUpperCase();
     } else if (status === "FAILED") {
       await markCampusRidePaymentFailed(reference, providerStatus.reason || "PAYMENT_FAILED", providerStatus.financialTransactionId || "", requestId);
     } else {
-      await turso("UPDATE campus_payments SET status = 'PENDING', updated_at = ? WHERE reference = ?", [stamp, reference]);
+      await turso("UPDATE campus_payments SET status = 'PENDING', updated_at = ? WHERE reference = ? AND status = 'PENDING'", [stamp, reference]);
     }
   }
   const ticket = rowsToObjects(await turso(

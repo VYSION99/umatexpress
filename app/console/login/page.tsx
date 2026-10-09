@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LockKey } from "@phosphor-icons/react";
+import { LockKey } from "@/components/ui/MaterialIcon";
 import { AuthRecoveryCard } from "@/components/account/AuthRecoveryCard";
 
 export default function ConsoleLoginPage() {
@@ -36,7 +36,7 @@ export default function ConsoleLoginPage() {
 
   return <main className="console-auth-page">
     <form className="console-auth-card" onSubmit={submit}>
-      <img src="/logo-web.png" alt="UMaTeXPRESS" />
+      <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>Sign in</h1>
       <span>One account for admin, moderator, organizer and driver services.</span>

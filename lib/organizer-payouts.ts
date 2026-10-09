@@ -1,3 +1,5 @@
+import { reverseSettledTransfer } from "@/lib/payments/reversals";
+import { isProviderOutcomeUnknown, ProviderRejected } from "@/lib/payments/operations";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { splitCommission } from "@/lib/money";
@@ -712,6 +714,8 @@ export { paystackPayoutBalance as platformPayoutBalance } from "@/lib/payout-bal
 type OrganizerPayee = {
   status: string;
   kyc_status: string;
+  kyc_id_type: string;
+  kyc_id_number: string;
   name: string;
   email: string;
   payout_method: string;
@@ -729,6 +733,7 @@ type OrganizerPayee = {
 export async function ensureOrganizerRecipient(organizerId: string, options: { actor?: string } = {}) {
   const row = rowsToObjects(await turso(
     `SELECT COALESCE(status,'PENDING') AS status,COALESCE(kyc_status,'PENDING') AS kyc_status,
+       COALESCE(kyc_id_type,'') AS kyc_id_type,COALESCE(kyc_id_number,'') AS kyc_id_number,
        COALESCE(name,'') AS name,COALESCE(email,'') AS email,COALESCE(payout_method,'') AS payout_method,
        COALESCE(payout_account_name,'') AS payout_account_name,COALESCE(payout_account_number,'') AS payout_account_number,
        COALESCE(payout_bank_code,'') AS payout_bank_code,COALESCE(paystack_recipient_code,'') AS paystack_recipient_code
@@ -741,6 +746,9 @@ export async function ensureOrganizerRecipient(organizerId: string, options: { a
   }
   if (String(row.kyc_status) !== "VERIFIED") {
     throw new CampusEngineError("INVALID_STATE", "Verify the organizer's KYC before paying them.", 409);
+  }
+  if (!["GHANA_CARD", "PASSPORT"].includes(String(row.kyc_id_type || "")) || !String(row.kyc_id_number || "")) {
+    throw new CampusEngineError("INVALID_STATE", "A Ghana Card or passport number is required before paying this organizer.", 409);
   }
   if (String(row.paystack_recipient_code)) {
     return { recipientCode: String(row.paystack_recipient_code), created: false };
@@ -809,6 +817,8 @@ async function payoutCandidates(stamp: string, limit: number) {
        COALESCE(SUM(p.net_amount),0) AS total_amount,
        COALESCE(o.status,'') AS organizer_status,
        COALESCE(o.kyc_status,'') AS kyc_status,
+       COALESCE(o.kyc_id_type,'') AS kyc_id_type,
+       COALESCE(o.kyc_id_number,'') AS kyc_id_number,
        COALESCE(o.payout_method,'') AS payout_method,
        COALESCE(o.payout_bank_code,'') AS payout_bank_code,
        COALESCE(o.name,'') AS organizer_name,
@@ -871,6 +881,7 @@ async function assessPayoutCandidate(candidate: Record<string, unknown>, minimum
   if (!String(candidate.organizer_id || "")) return refuse("NO_ORGANIZER");
   if (String(candidate.organizer_status) !== "APPROVED") return refuse("NOT_APPROVED");
   if (String(candidate.kyc_status) !== "VERIFIED") return refuse("KYC_NOT_VERIFIED");
+  if (!["GHANA_CARD", "PASSPORT"].includes(String(candidate.kyc_id_type || "")) || !String(candidate.kyc_id_number || "")) return refuse("KYC_ID_REQUIRED");
   const method = String(candidate.payout_method || "").toUpperCase();
   if (!isPayoutMethod(method) || !String(candidate.payout_bank_code || "")) return refuse("NO_DESTINATION");
   // A bank destination saved before rides moved to mobile money only is left
@@ -1087,6 +1098,7 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
     if (!balance) { skip("BALANCE_UNAVAILABLE"); continue; }
     if (amount > budget) { skip("INSUFFICIENT_BALANCE"); continue; }
 
+    let transferSubmitted = false;
     const batchId = crypto.randomUUID();
     const reference = `UMX-PAYOUT-${batchId}`;
     try {
@@ -1135,6 +1147,8 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
       // send it. The batch keeps both numbers so the statement can say where
       // the difference went rather than quietly paying less than it recorded.
       const payable = claimedAmount - fee;
+      await turso("UPDATE organizer_payout_batches SET total_amount=?,entry_count=?,transfer_fee=?,recipient_code=?,updated_at=? WHERE id=?", [claimedAmount, claimedCount, fee, recipient.recipientCode, stamp, batchId]);
+      transferSubmitted = true;
       const transfer = await initiatePaystackTransfer({
         amount: payable,
         recipientCode: recipient.recipientCode,
@@ -1167,6 +1181,12 @@ export async function runPayoutReleaseJob(options: { limit?: number; actor?: str
       budget -= claimedAmount;
     } catch (error) {
       const reason = error instanceof Error ? error.message : "unknown";
+      if (isProviderOutcomeUnknown(error) || (transferSubmitted && !(error instanceof ProviderRejected))) {
+        await turso("UPDATE organizer_payout_batches SET reason='OUTCOME_UNKNOWN',updated_at=? WHERE id=? AND status='PENDING'",[stamp,batchId]).catch(()=>undefined);
+        summary.inFlight += 1;
+        budget = 0; // Stop spending until the provider balance is re-read.
+        continue;
+      }
       await failPayoutBatch({ batchId, reason, stamp }).catch(() => undefined);
       summary.failed.push({ organizerId, reason });
       logEvent("error", "payout_transfer_failed", { organizerId, batchId, reason });
@@ -1360,6 +1380,7 @@ export async function applyPaystackTransferEvent(input: { event: string; data: R
   ))[0];
   if (!batch) return { handled: false, reason: "BATCH_NOT_FOUND" };
   const batchId = String(batch.id);
+  if (input.event === "transfer.reversed" && await reverseSettledTransfer("ORGANIZER",batchId)) return { handled:true,status:"REVERSED" };
   if (String(batch.status) !== "PENDING") return { handled: true, reason: "ALREADY_SETTLED" };
 
   const stamp = new Date().toISOString();

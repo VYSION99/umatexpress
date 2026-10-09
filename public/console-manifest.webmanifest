@@ -1,0 +1,17 @@
+{
+  "id": "/console",
+  "name": "UMaTeXPRESS Console",
+  "short_name": "UMaTe Console",
+  "description": "Staff and partner workspace for UMaTeXPRESS services.",
+  "start_url": "/console",
+  "scope": "/console",
+  "display": "standalone",
+  "background_color": "#152337",
+  "theme_color": "#152337",
+  "icons": [
+    { "src": "/console-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/console-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/console-icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/console-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

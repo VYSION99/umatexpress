@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { CurrencyCircleDollar, X } from "@phosphor-icons/react";
+import { CurrencyCircleDollar, X } from "@/components/ui/MaterialIcon";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import "@/components/console/hostel/room-batch.css";
 
 type Period = { id: string; name: string };
@@ -59,6 +60,7 @@ export function HostelRateBatch({ propertyId, periods, onComplete }: { propertyI
   return <>
     <button type="button" className="hostel-batch-launch" onClick={() => setOpen(true)}><CurrencyCircleDollar size={17}/> Price an existing room range</button>
     <dialog ref={dialog} className="hostel-batch-dialog" aria-labelledby="hostel-rate-batch-title" onCancel={event => { if (busy) event.preventDefault(); else setOpen(false); }} onClick={event => { if (event.target === event.currentTarget && !busy) setOpen(false); }}>
+      <SheetHandle onDismiss={() => setOpen(false)} disabled={busy} />
       <div className="hostel-batch-inner"><header><div><span>FAST RATE SETUP</span><h2 id="hostel-rate-batch-title">One rate for many rooms</h2><p>Existing numbered rooms · same annual rent per student bed</p></div><button type="button" aria-label="Close" disabled={busy} onClick={() => setOpen(false)}><X size={20}/></button></header>
         {done ? <div className="hostel-batch-done" role="status"><strong>{processed} rooms checked</strong><p>{changed} bed listings created or repriced. Changed offers are drafts and still need staff review.</p><button type="button" onClick={() => setOpen(false)}>Done</button></div> : <form onSubmit={event => void submit(event)}>
           <div className="hostel-batch-fields">

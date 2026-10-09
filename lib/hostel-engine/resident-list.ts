@@ -8,7 +8,12 @@ export async function hostelResidentList(landlordId: string, options: { property
   await Promise.all([ensureHostelMessageTables(), ensureHostelPluginTables()]);
   const pageSize = 20;
   const requestedPage = Math.max(1, Math.min(100_000, Math.floor(Number(options.page) || 1)));
-  const base = ["b.landlord_id=?"];
+  // A checkout hold is not a resident. Keep formerly confirmed stays visible
+  // after cancellation/refund, but exclude payment-review bookings that never
+  // reached a confirmed stay.
+  const confirmed = `(b.status='PAID' OR (b.status IN ('CANCELLED','REFUNDED') AND EXISTS
+    (SELECT 1 FROM hostel_stays confirmed_stay WHERE confirmed_stay.booking_id=b.id)))`;
+  const base = ["b.landlord_id=?", confirmed];
   const args: Array<string | number> = [landlordId];
   if (options.propertyId) { base.push("b.property_id=?"); args.push(options.propertyId); }
   if (options.periodId) { base.push("b.period_id=?"); args.push(options.periodId); }
@@ -17,7 +22,7 @@ export async function hostelResidentList(landlordId: string, options: { property
   if (search) { filters.push("instr(lower(b.student_name || ' ' || b.student_email || ' ' || b.reference || ' ' || COALESCE(r.label,'')),lower(?))>0"); filteredArgs.push(search); }
   if (["EXPECTED", "CHECKED_IN", "CHECKED_OUT", "NO_SHOW"].includes(options.status || "")) {
     filters.push("b.status='PAID' AND COALESCE(st.status,'EXPECTED')=?"); filteredArgs.push(options.status!);
-  } else if (["PENDING_PAYMENT", "PAYMENT_REVIEW", "CANCELLED", "REFUNDED", "EXPIRED"].includes(options.status || "")) {
+  } else if (["CANCELLED", "REFUNDED"].includes(options.status || "")) {
     filters.push("b.status=?"); filteredArgs.push(options.status!);
   }
   const where = filters.join(" AND "), baseWhere = base.join(" AND ");
@@ -27,8 +32,6 @@ export async function hostelResidentList(landlordId: string, options: { property
       SUM(CASE WHEN b.status='PAID' AND COALESCE(st.status,'EXPECTED')='EXPECTED' THEN 1 ELSE 0 END) AS expected,
       SUM(CASE WHEN b.status='PAID' AND st.status='CHECKED_IN' THEN 1 ELSE 0 END) AS checked_in,
       SUM(CASE WHEN b.status='PAID' AND st.status IN ('CHECKED_OUT','NO_SHOW') THEN 1 ELSE 0 END) AS departed,
-      SUM(CASE WHEN b.status='PENDING_PAYMENT' THEN 1 ELSE 0 END) AS awaiting_payment,
-      SUM(CASE WHEN b.status='PAYMENT_REVIEW' THEN 1 ELSE 0 END) AS needs_review,
       SUM(CASE WHEN b.status='PAID' THEN b.total_amount ELSE 0 END) AS bed_revenue,
       SUM(CASE WHEN b.status='PAID' THEN b.commission_amount ELSE 0 END) AS commission,
       SUM(CASE WHEN b.status='PAID' THEN b.net_amount ELSE 0 END) AS net,
@@ -47,7 +50,7 @@ export async function hostelResidentList(landlordId: string, options: { property
   return {
     residents: rows.map(row => ({ ...bookingView(row), unreadMessages: Number(row.unread_messages || 0), openServices: Number(row.open_services || 0) })),
     pagination: { page, pageSize, total, pages: Math.max(1, Math.ceil(total / pageSize)) },
-    summary: { total: n("total"), resident: n("checked_in"), expected: n("expected"), departed: n("departed"), awaitingPayment: n("awaiting_payment"), needsReview: n("needs_review"),
+    summary: { total: n("total"), resident: n("checked_in"), expected: n("expected"), departed: n("departed"),
       bedRevenue: n("bed_revenue"), commission: n("commission"), net: n("net"), openServices: n("open_services"), unreadMessages: n("unread_messages") },
   };
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Crosshair } from "@phosphor-icons/react";
+import { Crosshair } from "@/components/ui/MaterialIcon";
 import { CampusAiAssistant } from "@/components/campusRide/shared/CampusAiAssistant";
 import { CampusMap } from "@/components/campusRide/shared/CampusMap";
 import { CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";

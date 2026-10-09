@@ -1,12 +1,16 @@
 "use client";
 
+import { checkoutFetch } from "@/lib/checkout-client";
+import { usePaymentQuote } from "@/lib/payment-quote-client";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, X } from "@phosphor-icons/react";
+import { ArrowRight, X } from "@/components/ui/MaterialIcon";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CampusRideMatch } from "@/lib/campus-matching";
 import { clearProfile, readProfile, writeProfile } from "@/lib/passenger-profile";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 
 export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLatitude, pickupLongitude }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string; pickupLatitude?: number; pickupLongitude?: number }) {
   const router = useRouter();
@@ -19,6 +23,7 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
   const [loading, setLoading] = useState(false);
   const [remembered, setRemembered] = useState(false);
   const { ready: accountReady, account } = useStudentAccount();
+  const { quote, error: quoteError } = usePaymentQuote(Math.max(0, Math.round(match.fare || 0)));
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -39,11 +44,11 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
   };
 
   const beginPayment = async () => {
-    if (loading || !account) return;
+    if (loading || !account || !quote) return;
     reviewRef.current?.close();
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/campus/queue/initialize", {
+      const response = await checkoutFetch("/api/campus/queue/initialize", {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
@@ -83,13 +88,15 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
       <div className="queue-join-actions"><button type="submit" disabled={loading}>{loading ? "Starting payment..." : "Review and pay"}</button><button type="button" onClick={() => setOpen(false)}>Cancel</button></div>
     </form>
     <dialog ref={reviewRef} className="campus-ride-dialog" aria-labelledby="campus-payment-review-title" onClick={(event) => { if (event.target === event.currentTarget) reviewRef.current?.close(); }}>
+      <SheetHandle onDismiss={() => reviewRef.current?.close()} />
       <div className="campus-ride-dialog-content">
         <div className="campus-ride-dialog-head"><span>FINAL CHECK</span><button type="button" aria-label="Close payment review" onClick={() => reviewRef.current?.close()}><X size={19} aria-hidden /></button></div>
         <h2 id="campus-payment-review-title">Review your ride</h2>
         <p className="campus-ride-dialog-subtitle">Confirm these details before opening secure checkout.</p>
-        <dl className="campus-ride-detail-list"><div><dt>Route</dt><dd>{match.corridor?.name || "Campus ride"}</dd></div><div><dt>Passenger</dt><dd>{passengerName}</dd></div><div><dt>Mobile Money phone</dt><dd>{phone}</dd></div>{email && <div><dt>Email</dt><dd>{email}</dd></div>}<div><dt>Flat fare</dt><dd>{match.fare > 0 ? `GH₵ ${(match.fare / 100).toFixed(2)}` : "Fare shown at checkout"}</dd></div></dl>
+        <dl className="campus-ride-detail-list"><div><dt>Route</dt><dd>{match.corridor?.name || "Campus ride"}</dd></div><div><dt>Passenger</dt><dd>{passengerName}</dd></div><div><dt>Mobile Money phone</dt><dd>{phone}</dd></div>{email && <div><dt>Email</dt><dd>{email}</dd></div>}<div><dt>Flat fare</dt><dd>{match.fare > 0 ? `GH₵ ${(match.fare / 100).toFixed(2)}` : "Fare unavailable"}</dd></div><div><dt>Paystack processing ({quote?.feePercent ?? 1.95}%)</dt><dd>{quote ? `GH₵ ${(quote.feeAmount / 100).toFixed(2)}` : "Calculating…"}</dd></div><div><dt>Total to pay</dt><dd>{quote ? `GH₵ ${(quote.totalAmount / 100).toFixed(2)}` : "Calculating…"}</dd></div></dl>
+        {quoteError && <p role="alert" className="campus-ride-payment-error">{quoteError}</p>}
         <p className="campus-ride-dialog-note">Payment activates a place in the ride queue. The payment provider shows the final amount before you approve it.</p>
-        <div className="campus-ride-dialog-actions"><button type="button" className="campus-ride-dialog-primary" disabled={loading} onClick={() => void beginPayment()}>Continue to secure payment <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => reviewRef.current?.close()}>Edit details</button></div>
+        <div className="campus-ride-dialog-actions"><button type="button" className="campus-ride-dialog-primary" disabled={loading || !quote} onClick={() => void beginPayment()}>Continue to secure payment <ArrowRight size={17} aria-hidden /></button><button type="button" onClick={() => reviewRef.current?.close()}>Edit details</button></div>
       </div>
     </dialog>
   </>;

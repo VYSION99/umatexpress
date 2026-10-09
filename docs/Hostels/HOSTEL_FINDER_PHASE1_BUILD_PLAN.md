@@ -71,7 +71,7 @@ self-service stack landed. These are the deltas the build must respect.
 - **Console**: `lib/console-auth.ts`, `lib/console-applications.ts`, `components/admin/console-services.ts`, `ConsoleShell`, `ConsoleSessionGate`, `lib/console-audit.ts`, `app/console/register/[programme]` (one generic form for every application).
 - **Ownership pattern**: `lib/organizers.ts` — profile table + `console_accounts.profile_id`, ownership id always read from the signed session and put in every `WHERE`.
 - **Claim + expiry**: `lib/campus-engine/queue.ts` (`claimCampusQueueSlot`, `releaseExpiredCampusHolds`, guarded transitions).
-- **Payments**: `lib/paystack.ts`, `lib/payment-access.ts`, `lib/payment-events.ts`, `lib/mtn-momo.ts` (not used for hostel v1), `lib/paystack-banks.ts`, `lib/secret-box.ts` (seal/open/mask for payout accounts).
+- **Payments**: `lib/paystack.ts`, `lib/payment-access.ts`, `lib/payment-events.ts`, `lib/paystack-banks.ts`, `lib/secret-box.ts` (seal/open/mask for payout accounts).
 - **Delivery**: `lib/notifications.ts` + `lib/resend.ts` (email + in-app feed), `lib/rate-limit.ts`, `lib/observability.ts`.
 - **Schema**: `lib/turso.ts` (`runSchemaPass` self-healing columns), `sql/000_umatexpress_full_migration.sql`.
 - **UI**: `components/campusRide/shared/CampusMap.tsx`, `components/campusRide/shared/CampusAiAssistant.tsx` (Phase 4), `components/launcher/*` for the front door.

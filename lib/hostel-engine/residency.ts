@@ -1,3 +1,4 @@
+import { isProviderOutcomeUnknown } from "@/lib/payments/operations";
 import { migrateHostelInventory, bedAvailableSql } from "./inventory";
 import { migrateHostelStays } from "@/lib/hostel-engine/stay-schema";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
@@ -9,7 +10,7 @@ import { ESCROW_FLOOR_DAYS, hostelReleaseAfter } from "@/lib/hostel-engine/perio
 import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { hashPaymentToken } from "@/lib/payment-access";
-import { initializePaystackTransaction } from "@/lib/paystack";
+import { calculatePaystackCharge, getPaystackFeePercentRuntime, initializePaystackTransaction } from "@/lib/paystack";
 import { isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
@@ -138,6 +139,7 @@ export type HostelBooking = {
   price: number;
   utilitiesFee: number;
   totalAmount: number;
+  processingFee: number;
   commissionBps: number;
   commissionAmount: number;
   netAmount: number;
@@ -198,6 +200,7 @@ export function bookingView(row: Record<string, unknown>): HostelBooking {
     price: Number(row.price || 0),
     utilitiesFee: Number(row.utilities_fee || 0),
     totalAmount: Number(row.total_amount || 0),
+    processingFee: Math.max(0, Number(row.total_amount || 0) - Number(row.price || 0) - Number(row.utilities_fee || 0)),
     commissionBps: Number(row.commission_bps || HOSTEL_DEFAULT_COMMISSION_BPS),
     commissionAmount: Number(row.commission_amount || 0),
     netAmount: Number(row.net_amount || 0),
@@ -350,6 +353,7 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
   const utilitiesFee = Number(listing.utilities_enabled ?? 0) === 1 ? Math.max(0, Math.round(Number(listing.utilities_fee || 0))) : 0;
   if (input.offer && (input.offer.price !== price || input.offer.utilitiesFee !== utilitiesFee)) throw new CampusEngineError("CONFLICT", "The renewal price changed. Ask staff for a new offer before paying.", 409);
   const split = splitHostelPayment(price + utilitiesFee, Number(listing.commission_bps || HOSTEL_DEFAULT_COMMISSION_BPS));
+  const charge = calculatePaystackCharge(split.gross, await getPaystackFeePercentRuntime());
   const reference = bookingReference();
   const token = paymentToken();
   const holdExpiresAt = new Date(Date.now() + HOSTEL_HOLD_MINUTES * 60_000).toISOString();
@@ -366,7 +370,7 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
     args: [
       crypto.randomUUID(), reference, listingId, String(listing.space_id), String(listing.room_id), String(listing.property_id), String(listing.landlord_id),
       String(listing.period_id), studentEmail, String(input.student.name || "").slice(0, 100), String(input.student.phone || "").slice(0, 30),
-      price, utilitiesFee, split.gross, split.commissionBps, split.commission, split.net, holdExpiresAt, await hashPaymentToken(token),
+      price, utilitiesFee, charge.totalAmount, split.commissionBps, split.commission, split.net, holdExpiresAt, await hashPaymentToken(token),
       String(input.note || "").slice(0, 300), stamp, stamp,
     ] },
     ...(input.offer?.statements(reference,stamp)||[]),
@@ -383,16 +387,17 @@ export async function startHostelBooking(input: StartHostelBookingInput) {
   try {
     const paystack = await initializePaystackTransaction({
       email: studentEmail,
-      amount: split.gross,
+      amount: charge.totalAmount,
       reference,
       callbackUrl: `${input.origin}/hostel/resident?reference=${encodeURIComponent(reference)}`,
-      metadata: { purpose: "HOSTEL_BOOKING", reference, propertyId: String(listing.property_id), spaceId: String(listing.space_id) },
+      metadata: { purpose: "HOSTEL_BOOKING", reference, propertyId: String(listing.property_id), spaceId: String(listing.space_id), baseAmount: split.gross, paystackFee: charge.feeAmount },
     });
     await incrementMetric("hostel_booking_started");
     const booking = await getHostelBookingByReference(reference);
     return { booking, authorizationUrl: paystack.authorizationUrl, token, secure: input.secure, holdMinutes: HOSTEL_HOLD_MINUTES };
   } catch (error) {
-    // No checkout means no hold: give the bed straight back.
+    if (isProviderOutcomeUnknown(error)) return { booking: await getHostelBookingByReference(reference), authorizationUrl: "", token, secure: input.secure, holdMinutes: HOSTEL_HOLD_MINUTES };
+    // A definite refusal releases the hold.
     await failHostelBooking(reference).catch(() => undefined);
     throw error;
   }
@@ -429,7 +434,7 @@ export async function listHostelBookingsForLandlord(landlordId: string, options:
  * stays reserved and an administrator decides, because releasing it would take
  * a bed from a student whose money did arrive.
  */
-export async function settleHostelBooking(input: { reference: string; amount: number; transactionId?: string; provider?: string; source: string }) {
+export async function settleHostelBooking(input: { reference: string; amount: number; currency?: string; transactionId?: string; provider?: string; source: string }) {
   await ensureHostelResidencyTables();
   const reference = String(input.reference || "").trim();
   const booking = await getHostelBookingByReference(reference);
@@ -437,7 +442,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
   if (booking.status === "PAID") {
     await tursoTransaction([
       { sql: `INSERT INTO hostel_payouts (id,booking_id,landlord_id,gross_amount,commission_bps,commission_amount,net_amount,status,release_after,created_at,updated_at)
-        SELECT ?,id,landlord_id,total_amount,commission_bps,commission_amount,net_amount,'ACCRUED',?,?,? FROM hostel_bookings WHERE id=? AND status='PAID'
+        SELECT ?,id,landlord_id,price+utilities_fee,commission_bps,commission_amount,net_amount,'ACCRUED',?,?,? FROM hostel_bookings WHERE id=? AND status='PAID'
         ON CONFLICT(booking_id) DO NOTHING`, args: [crypto.randomUUID(), releaseAfterFor(booking.periodStartsOn, booking.paidAt), booking.paidAt || new Date().toISOString(), new Date().toISOString(), booking.id] },
       { sql: "INSERT INTO hostel_stays (booking_id,expected_arrival_on,updated_at) SELECT id,?,? FROM hostel_bookings WHERE id=? AND status='PAID' ON CONFLICT(booking_id) DO NOTHING", args: [booking.periodStartsOn, new Date().toISOString(), booking.id] },
       { sql: `UPDATE hostel_spaces SET status='OCCUPIED',updated_at=? WHERE id=? AND status='RESERVED' AND ?<=date('now')
@@ -453,7 +458,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
   // Money that arrives after the bed was given back is not silently dropped:
   // the student paid, so the booking is flagged for a person to resolve.
   if (booking.status === "EXPIRED" || booking.status === "CANCELLED") {
-    if (Math.round(Number(input.amount || 0)) >= booking.totalAmount) {
+    if (Number(input.amount || 0) > 0) {
       await turso(
         "UPDATE hostel_bookings SET status = 'PAYMENT_REVIEW', paid_at = ?, provider = ?, provider_reference = ?, updated_at = ? WHERE reference = ? AND status IN ('EXPIRED','CANCELLED')",
         [stamp, String(input.provider || ""), String(input.transactionId || ""), stamp, reference],
@@ -466,7 +471,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
   }
   if (booking.status !== "PENDING_PAYMENT") return { handled: true, status: "NOT_PENDING" as const, booking };
 
-  if (Math.round(Number(input.amount || 0)) !== booking.totalAmount) {
+  if (Math.round(Number(input.amount || 0)) !== booking.totalAmount || (input.currency && input.currency !== "GHS")) {
     await turso(
       "UPDATE hostel_bookings SET status = 'PAYMENT_REVIEW', paid_at = ?, provider = ?, provider_reference = ?, updated_at = ? WHERE reference = ? AND status='PENDING_PAYMENT'",
       [stamp, String(input.provider || ""), String(input.transactionId || ""), stamp, reference],
@@ -490,7 +495,7 @@ export async function settleHostelBooking(input: { reference: string; amount: nu
     { sql: "UPDATE hostel_spaces SET status = CASE WHEN ?<=date('now') THEN 'OCCUPIED' ELSE status END, updated_at = ? WHERE id = ? AND changes() = 1", args: [booking.periodStartsOn, stamp, booking.spaceId] },
     { sql: `INSERT INTO hostel_payouts (id,booking_id,landlord_id,gross_amount,commission_bps,commission_amount,net_amount,status,release_after,created_at,updated_at)
       SELECT ?,?,?,?,?,?,?,'ACCRUED',?,?,? WHERE changes() = 1 ON CONFLICT(booking_id) DO NOTHING`,
-      args: [crypto.randomUUID(), booking.id, booking.landlordId, booking.totalAmount, booking.commissionBps, booking.commissionAmount, booking.netAmount, releaseAfterFor(booking.periodStartsOn, stamp), stamp, stamp] },
+      args: [crypto.randomUUID(), booking.id, booking.landlordId, booking.price + booking.utilitiesFee, booking.commissionBps, booking.commissionAmount, booking.netAmount, releaseAfterFor(booking.periodStartsOn, stamp), stamp, stamp] },
     { sql: "INSERT INTO hostel_stays (booking_id,expected_arrival_on,updated_at) SELECT id,?,? FROM hostel_bookings WHERE id=? AND status='PAID' ON CONFLICT(booking_id) DO NOTHING", args: [booking.periodStartsOn, stamp, booking.id] },
   ]);
   if (Number(confirmed?.affected_row_count || 0) !== 1) {

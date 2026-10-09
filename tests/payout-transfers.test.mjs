@@ -1,3 +1,4 @@
+import { withFinanceFetch } from "./helpers/finance-fetch.mjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { createServer } from "vite";
@@ -27,6 +28,8 @@ const organizer = {
   email: "a@example.com",
   status: "APPROVED",
   kyc_status: "VERIFIED",
+  kyc_id_type: "GHANA_CARD",
+  kyc_id_number: "v1:test-sealed-id",
   payout_method: "MOMO",
   payout_account_name: "Organizer A",
   payout_account_number: "",
@@ -96,6 +99,16 @@ const ok = (result) => ({ type: "ok", response: { result: result || {} } });
 const okRows = (count) => ok({ affected_row_count: count });
 
 function handle(sql, args) {
+  if (/^UPDATE organizer_payout_batches SET status='REVERSED'/.test(sql)) {
+    const row = batches.find((item) => item.id === args[1] && item.status === args[2]);
+    if (row) Object.assign(row, { status: "REVERSED", reason: "PROVIDER_TRANSFER_REVERSED", updated_at: args[0] });
+    return okRows(row ? 1 : 0);
+  }
+  if (/^UPDATE organizer_payouts SET status=CASE WHEN status='DEBT'/.test(sql)) {
+    const rows = payouts.filter((item) => item.batch_id === args[1] && ["RELEASED", "DEBT"].includes(item.status) && batches.some((batch) => batch.id === args[2] && batch.status === "REVERSED"));
+    rows.forEach((item) => Object.assign(item, { status: item.status === "DEBT" ? "REVERSED" : "ACCRUED", batch_id: "", transfer_reference: "", released_at: null, updated_at: args[0] }));
+    return okRows(rows.length);
+  }
   if (/^CREATE |^ALTER |^INSERT OR REPLACE INTO campus_schema_meta/.test(sql)) return ok(empty);
   const version = sql.match(/SELECT version FROM campus_schema_meta WHERE id = '([^']+)'/);
   if (version) return ok(table(["version"], [{ version: SCHEMA_VERSIONS[version[1]] || "0" }]));
@@ -129,7 +142,7 @@ function handle(sql, args) {
     if (batches.some((row) => row.status === "PENDING")) return ok(empty);
     const grouped = due.slice(0, limit);
     return ok(table(
-      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "payout_method", "payout_bank_code", "organizer_name", "organizer_organization"],
+      ["organizer_id", "oldest", "entry_count", "total_amount", "organizer_status", "kyc_status", "kyc_id_type", "kyc_id_number", "payout_method", "payout_bank_code", "organizer_name", "organizer_organization"],
       [{
         organizer_name: organizer.name,
         organizer_organization: "Organizer A Travel",
@@ -139,6 +152,8 @@ function handle(sql, args) {
         total_amount: grouped.reduce((total, row) => total + row.net_amount, 0),
         organizer_status: organizer.status,
         kyc_status: organizer.kyc_status,
+        kyc_id_type: organizer.kyc_id_type,
+        kyc_id_number: organizer.kyc_id_number,
         payout_method: organizer.payout_method,
         payout_bank_code: organizer.payout_bank_code,
       }],
@@ -296,6 +311,11 @@ globalThis.fetch = async (url, init) => {
     return { ok: true, status: 200, json: async () => ({ status: true, data: { transfer_code: `TRF_test_${paystack.transfers}`, reference: body.reference, status: paystack.transferStatus, amount: body.amount, reason: "" } }) };
   }
   const payload = JSON.parse(String(init.body));
+  const batch = payload.requests.find((request) => request.type === "batch");
+  if (batch) {
+    const stepResults = batch.batch.steps.map((step) => handle(step.stmt.sql, (step.stmt.args || []).map((arg) => arg.type === "null" ? null : arg.value)).response?.result || {});
+    return { ok: true, json: async () => ({ results: [{ type: "ok", response: { result: { step_results: stepResults, step_errors: stepResults.map(() => null) } } }, { type: "ok" }] }) };
+  }
   const results = payload.requests
     .filter((request) => request.type === "execute")
     .map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value))));
@@ -304,6 +324,10 @@ globalThis.fetch = async (url, init) => {
 };
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const productFetch = globalThis.fetch;
+const financeFetch = withFinanceFetch(productFetch);
+globalThis.fetch = financeFetch.fetch;
+
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true } });
 after(async () => vite.close());
 

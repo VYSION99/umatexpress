@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { IdentificationCard, Buildings, Wallet } from "@phosphor-icons/react";
+import { IdentificationCard, Buildings, Wallet } from "@/components/ui/MaterialIcon";
 type Document = { id: string; kind: string; uploadedAt: string };
 type Owner = { landlordId: string; name: string; organization: string; email: string; ownerRole: string; profileStatus: string; profileReason: string; identityStatus: string; payoutStatus: string; payoutReason: string; payoutSummary: string; documents: Document[] };
 type Property = { id: string; name: string; address: string; latitude: number | null; longitude: number | null; roomCount: number; status: string; landlordId: string; affiliationClaim: string; affiliationStatus: string; evidenceNote: string };

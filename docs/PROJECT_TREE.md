@@ -60,7 +60,6 @@ uMATeXPRESS/
 │   ├── dynamic-trips.ts                 # vacationRide dynamic trips
 │   ├── disputes.ts                      # trip disputes: open, list, resolve, audit
 │   ├── edge-cache.ts                    # Cloudflare per-colo response cache
-│   ├── mtn-momo.ts                      # MTN MoMo provider
 │   ├── organizer-insights.ts            # route-overlap warnings and per-trip analytics
 │   ├── organizer-trips.ts               # organizer trip lifecycle and review state machine
 │   ├── organizer-payouts.ts             # commission split, payout ledger, transfers and reconcile

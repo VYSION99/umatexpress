@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Bus, DoorOpen, Megaphone, NotePencil, PaperPlaneTilt, Plus, Trash, Warning } from "@phosphor-icons/react";
+import { Bus, DoorOpen, Megaphone, NotePencil, PaperPlaneTilt, Plus, Trash, Warning } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";

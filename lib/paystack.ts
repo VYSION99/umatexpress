@@ -1,3 +1,5 @@
+import { providerOperation, ProviderRejected } from "@/lib/payments/operations";
+import { registerPaymentAttempt } from "@/lib/payments/intents";
 import { envValue } from "@/lib/runtime-env";
 
 const DEFAULT_BASE_URL = "https://api.paystack.co";
@@ -62,16 +64,8 @@ export async function verifyPaystackWebhookSignature(rawBody: string, suppliedSi
   return safeEqual(hex(signature), suppliedSignature.trim().toLowerCase());
 }
 
-export function getPaymentProvider() {
-  // Paystack is the platform default. MTN MoMo stays reachable, but only when a
-  // deployment asks for it by name: a missing variable must never silently
-  // route checkout to a provider nobody configured.
-  return (process.env.PAYMENT_PROVIDER || "PAYSTACK").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
-}
-
-export async function getPaymentProviderRuntime() {
-  return (await envValue("PAYMENT_PROVIDER") || "PAYSTACK").toUpperCase() === "PAYSTACK" ? "PAYSTACK" : "MTN_MOMO";
-}
+export function getPaymentProvider() { return "PAYSTACK" as const; }
+export async function getPaymentProviderRuntime() { return "PAYSTACK" as const; }
 
 export function getPaystackCurrency() {
   return getConfig().currency;
@@ -99,7 +93,7 @@ export function calculatePaystackCharge(baseAmount: number, feePercent = getPays
   return { baseAmount: safeBaseAmount, feeAmount: totalAmount - safeBaseAmount, totalAmount, feePercent };
 }
 
-export async function initializePaystackTransaction(input: {
+async function initializePaystackTransactionRaw(input: {
   email: string;
   amount: number;
   reference: string;
@@ -108,6 +102,7 @@ export async function initializePaystackTransaction(input: {
 }) {
   const { secretKey, baseUrl, currency } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transaction/initialize`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${secretKey}`,
@@ -124,6 +119,7 @@ export async function initializePaystackTransaction(input: {
   });
   const result = await response.json().catch(() => ({})) as PaystackInitializeResponse;
   if (!response.ok || !result.status || !result.data?.authorization_url) {
+    if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) throw new ProviderRejected(result.message || "Provider rejected the request.");
     throw new Error(result.message || `Paystack initialize failed (${response.status}).`);
   }
   return {
@@ -137,6 +133,7 @@ export async function initializePaystackTransaction(input: {
 export async function verifyPaystackTransaction(reference: string) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   const result = await response.json().catch(() => ({})) as PaystackVerifyResponse;
@@ -240,6 +237,7 @@ export async function createPaystackRecipient(input: {
 }) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transferrecipient`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${secretKey}`,
@@ -264,7 +262,7 @@ export async function createPaystackRecipient(input: {
   return { recipientCode: String(result.data.recipient_code), type: String(result.data.type || input.type) };
 }
 
-export async function initiatePaystackTransfer(input: {
+async function initiatePaystackTransferRaw(input: {
   amount: number;
   recipientCode: string;
   reference: string;
@@ -273,6 +271,7 @@ export async function initiatePaystackTransfer(input: {
 }) {
   const { secretKey, baseUrl, currency } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transfer`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${secretKey}`,
@@ -289,6 +288,7 @@ export async function initiatePaystackTransfer(input: {
   });
   const result = await response.json().catch(() => ({})) as PaystackTransferResponse;
   if (!response.ok || !result.status || !result.data) {
+    if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) throw new ProviderRejected(result.message || "Provider rejected the request.");
     throw new Error(result.message || `Paystack transfer failed (${response.status}).`);
   }
   return transferPayload(result);
@@ -309,6 +309,7 @@ export async function finalizePaystackTransfer(input: { transferCode: string; ot
   if (!otp) throw new Error("The one-time password from Paystack is required.");
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transfer/finalize_transfer`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${secretKey}`,
@@ -328,6 +329,7 @@ export async function finalizePaystackTransfer(input: { transferCode: string; ot
 export async function verifyPaystackTransfer(reference: string) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transfer/verify/${encodeURIComponent(reference)}`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   const result = await response.json().catch(() => ({})) as PaystackTransferResponse;
@@ -396,7 +398,7 @@ function refundPayload(result: PaystackRefundResponse) {
  * asynchronously, so the ledger waits for `refund.processed` (or the reconcile
  * action) before it calls the money returned.
  */
-export async function initiatePaystackRefund(input: {
+async function initiatePaystackRefundRaw(input: {
   transactionReference: string;
   amount: number;
   currency?: string;
@@ -404,6 +406,7 @@ export async function initiatePaystackRefund(input: {
 }) {
   const { secretKey, baseUrl, currency } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/refund`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${secretKey}`,
@@ -418,6 +421,7 @@ export async function initiatePaystackRefund(input: {
   });
   const result = await response.json().catch(() => ({})) as PaystackRefundResponse;
   if (!response.ok || !result.status || !result.data) {
+    if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) throw new ProviderRejected(result.message || "Provider rejected the request.");
     throw new Error(result.message || `Paystack refund failed (${response.status}).`);
   }
   return refundPayload(result);
@@ -426,6 +430,7 @@ export async function initiatePaystackRefund(input: {
 export async function verifyPaystackRefund(reference: string) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/refund/${encodeURIComponent(reference)}`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   const result = await response.json().catch(() => ({})) as PaystackRefundResponse;
@@ -449,6 +454,7 @@ type PaystackBankResponse = {
 export async function listPaystackBanks(currency: string) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/bank?currency=${encodeURIComponent(currency)}`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   const result = await response.json().catch(() => ({})) as PaystackBankResponse;
@@ -468,6 +474,7 @@ export async function listPaystackBanks(currency: string) {
 export async function fetchPaystackBalance(currency: string) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/balance`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   const result = await response.json().catch(() => ({})) as {
@@ -481,4 +488,30 @@ export async function fetchPaystackBalance(currency: string) {
   const wanted = currency.toUpperCase();
   const match = result.data.find((row) => String(row.currency || "").toUpperCase() === wanted);
   return { currency: wanted, balance: Number(match?.balance || 0), available: result.data.map((row) => ({ currency: String(row.currency || ""), balance: Number(row.balance || 0) })) };
+}
+
+export async function initializePaystackTransaction(input: Parameters<typeof initializePaystackTransactionRaw>[0]) {
+  const config = await getRuntimeConfig();
+  await registerPaymentAttempt(input, config.currency);
+  return providerOperation("INITIALIZE", input.reference, input, () => initializePaystackTransactionRaw(input));
+}
+export async function initiatePaystackTransfer(input: Parameters<typeof initiatePaystackTransferRaw>[0]) {
+  await getRuntimeConfig();
+  return providerOperation("TRANSFER", input.reference, input, () => initiatePaystackTransferRaw(input));
+}
+export async function initiatePaystackRefund(input: Parameters<typeof initiatePaystackRefundRaw>[0] & { operationId?: string }) {
+  await getRuntimeConfig();
+  const { operationId, ...payload } = input;
+  const marker = operationId ? `[UMX:${operationId}]` : '';
+  const tagged = { ...payload, reason: `${marker} ${payload.reason || ''}`.trim() };
+  return providerOperation("REFUND", operationId || input.transactionReference, tagged, () => initiatePaystackRefundRaw(tagged));
+}
+
+/** Read-only provider reconciliation; pagination is explicit and bounded. */
+export async function readPaystackPage(path: 'refund' | 'settlement' | `settlement/${string}/transactions`, query: Record<string,string> = {}) {
+  const {secretKey,baseUrl}=await getRuntimeConfig();
+  const response=await fetch(`${baseUrl}/${path}?${new URLSearchParams(query)}`,{headers:{Authorization:`Bearer ${secretKey}`},signal:AbortSignal.timeout(20_000)});
+  const result=await response.json() as {status?:boolean;data?:Array<Record<string,unknown>>;meta?:{page?:number;pageCount?:number;total?:number}};
+  if(!response.ok || !result.status || !Array.isArray(result.data)) throw new Error('Provider reconciliation unavailable.');
+  return {rows:result.data,meta:result.meta};
 }

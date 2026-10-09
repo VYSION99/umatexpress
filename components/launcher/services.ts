@@ -1,4 +1,4 @@
-import { Bed, Brain, Bus, Car, FilmSlate, Flask, ForkKnife } from "@phosphor-icons/react/ssr";
+import { Bed, Brain, Bus, Car, FilmSlate, Flask, ForkKnife } from "../ui/MaterialIcon.ts";
 
 // The launcher registry is deliberately independent of server-only business logic.
 // `accent` is the homepage card tint: the platform's three colours — green for a
@@ -16,15 +16,12 @@ export const services = [
   { id: "hostels", title: "Hostel Finder", navLabel: "Hostels", icon: Bed, accent: "gold", available: true, destination: "/hostel", action: "Explore hostels", description: "Find your own corner of campus.", detail: "Places to settle in", art: "/brand/hostelfinder-card.webp", category: "Make yourself at home" },
   { id: "food", title: "Food", icon: ForkKnife, accent: "neutral", available: false, destination: null, action: "Explore food", description: "Good food. Better study breaks.", detail: "Your next favourite bite", category: "A little refuel" },
   { id: "cinema", title: "OnlineCinema", navLabel: "Cinema", icon: FilmSlate, accent: "green", available: true, destination: "/cinema", action: "Open a room", description: "Watch together, wherever you are.", detail: "One link, one video, one conversation", art: "/brand/cinema-card.webp", category: "After the lectures" },
-  // Partner services that already run outside this app. `external` makes the
-  // card open a new tab instead of routing inside the platform, the accent
-  // rotation keeps two neighbours from sharing a hue, and the fields below the
-  // directory entry — `feature` and `banner` — build the full-width
-  // spotlight card on the homepage with the partner's own brand asset.
-  { id: "research", title: "ACMD Research", icon: Flask, accent: "gold", available: true, external: true, destination: "https://acmdresearch.com", action: "Open the hub", description: "Research, mentorship and innovation.", detail: "Projects with mentors and industry", feature: "Join research and innovation projects with mentors and industry partners across AI, biotech and cybersecurity.", banner: { kind: "image", src: "/acmd-logo.png", alt: "ACMD Research" }, category: "Research & innovation" },
-  { id: "clipad", title: "CliPad", icon: Brain, accent: "neutral", available: true, external: true, destination: "https://clipad.optavel.com", action: "Open CliPad", description: "Meetings and team memory, in one place.", detail: "Team spaces, async video and AI summaries", feature: "Team spaces, async video and AI meeting summaries: the decisions and context your team builds, kept in one place.", banner: { kind: "mark", src: "/clipad-mark.svg", word: "CliPad" }, category: "Work & collaboration" },
+  // Partners use their own logos on the same main cards as in-app services.
+  { id: "research", title: "ACMD Research", icon: Flask, accent: "gold", available: true, external: true, destination: "https://acmdresearch.com", action: "Open the hub", description: "Research, mentorship and innovation.", detail: "Projects with mentors and industry", logo: "/acmd-logo.png", category: "Research & innovation" },
+  { id: "clipad", title: "CliPad", icon: Brain, accent: "neutral", available: true, external: true, destination: "https://clipad.optavel.com", action: "Open CliPad", description: "Meetings and team memory, in one place.", detail: "Team spaces, async video and AI summaries", logo: "/clipad-logo.svg", category: "Work & collaboration" },
 ] as const;
 export type Service = typeof services[number];
+export type OpenService = Extract<Service, { available: true }>;
 export type LauncherPreference = { id: string; hidden: boolean; pinned: boolean };
 export const defaultPreferences = (): LauncherPreference[] => services.map(({ id }) => ({ id, hidden: false, pinned: false }));
 export function normalizePreferences(value: unknown): LauncherPreference[] {
@@ -39,15 +36,15 @@ export function normalizePreferences(value: unknown): LauncherPreference[] {
 }
 
 /**
- * The homepage banner/rail projection: only services that are live today and
+ * The homepage card projection: only services that are live today and
  * that the student has not switched off, in their saved order with pinned
  * cards first. Coming-soon entries stay out of the sheet and live in the
  * "On the way" strip, so the hide/show controls never reference a dead card.
  */
-export function homepageServices(preferences: LauncherPreference[]): Service[] {
+export function homepageServices(preferences: LauncherPreference[]): OpenService[] {
   return normalizePreferences(preferences)
     .map(row => ({ row, service: services.find(service => service.id === row.id) }))
-    .filter((entry): entry is { row: LauncherPreference; service: Service } => Boolean(entry.service?.available))
+    .filter((entry): entry is { row: LauncherPreference; service: OpenService } => entry.service?.available === true)
     .filter(entry => !entry.row.hidden)
     .sort((a, b) => Number(b.row.pinned) - Number(a.row.pinned))
     .map(entry => entry.service);
@@ -63,10 +60,10 @@ type NavService = Extract<Service, { destination: string }>;
 
 /**
  * The public shell's bottom bar reads this: the live services that belong
- * inside the app, in the same order as the homepage's rail and banner cards,
+ * inside the app, in the same order as the homepage cards,
  * minus anything the student switched off in the launcher's Open services
  * sheet. Partner services open on their own origin in a new tab, so the bar
- * leaves them to the homepage banners; it only moves inside the app.
+ * leaves them to the homepage cards; it only moves inside the app.
  */
 export function navServices(preferences: LauncherPreference[]): NavService[] {
   return homepageServices(preferences).filter(

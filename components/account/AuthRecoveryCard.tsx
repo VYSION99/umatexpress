@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { CircleNotch, EnvelopeSimple, Key } from "@phosphor-icons/react";
+import { CircleNotch, EnvelopeSimple, Key } from "@/components/ui/MaterialIcon";
 import "./account.css";
 
 /** The two account surfaces the recovery endpoints serve. */
@@ -96,7 +96,7 @@ export function AuthRecoveryCard(input: {
       : (step === "request" ? "Reset your password" : "Choose a new password");
 
   const body = <form className={variant === "console" ? "console-auth-card" : "campus-auth-card"} onSubmit={step === "request" ? request : verify}>
-    {variant === "console" && <img src="/logo-web.png" alt="UMaTeXPRESS" />}
+    {variant === "console" && <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />}
     {variant === "console" && <p>UMATEXPRESS CONSOLE</p>}
     <h1>{title}</h1>
 

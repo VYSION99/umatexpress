@@ -1,290 +1,44 @@
-import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "@/lib/turso";
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
-import { markCampusRidePaymentFailed, markCampusRidePaymentSuccessful } from "@/lib/campus-engine/rides";
-import { failHostelWebhookPayment, settleHostelWebhookPayment } from "@/lib/hostel-engine/settle";
-import { applyHostelPaystackTransferEvent } from "@/lib/hostel-engine/payouts";
-import { applyCampusRefundEvent } from "@/lib/campus-engine/refunds";
-import { applyHostelRefundEvent } from "@/lib/hostel-engine/refunds";
-import { claimPaymentEvent, releasePaymentEvent } from "@/lib/payment-events";
-import { accrueForBooking, applyPaystackTransferEvent } from "@/lib/organizer-payouts";
-import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
-import { incrementMetric, logEvent, requestIdFromRequest, withRequestId } from "@/lib/observability";
-
-type PaystackWebhook = {
-  event?: string;
-  data?: {
-    id?: number;
-    reference?: string;
-    amount?: number;
-    currency?: string;
-    status?: string;
-    gateway_response?: string;
-    /** What the rail charged for the charge, in pesewas. */
-    fees?: number;
-    transfer_code?: string;
-    reason?: string;
-    /** Refund payloads carry the refund's own reference and its charge. */
-    transaction?: string | { reference?: string };
-  };
-};
-
-/** Paystack sends payout results to the same endpoint as payments. */
-const TRANSFER_EVENTS = ["transfer.success", "transfer.failed", "transfer.reversed"] as const;
-/** Refunds are their own family: the payload reference belongs to the refund. */
-const REFUND_EVENTS = ["refund.processed", "refund.pending", "refund.failed"] as const;
-
-function isTransferEvent(event: string | undefined): event is (typeof TRANSFER_EVENTS)[number] {
-  return (TRANSFER_EVENTS as readonly string[]).includes(String(event || ""));
-}
-
-function isRefundEvent(event: string | undefined): event is (typeof REFUND_EVENTS)[number] {
-  return (REFUND_EVENTS as readonly string[]).includes(String(event || ""));
-}
-
-function json(message: string, status = 200, requestId = "") {
-  const response = Response.json({ message }, { status, headers: { "Cache-Control": "no-store" } });
-  return requestId ? withRequestId(response, requestId) : response;
-}
-
-async function markSuccessful(reference: string, amount: number, currency: string, transactionId: string) {
-  await ensureBookingsTable();
-  await ensurePaymentsTable();
-
-  const payment = rowsToObjects(await turso(
-    "SELECT booking_id, amount, currency, status FROM payments WHERE reference_id = ? AND provider = 'PAYSTACK' LIMIT 1",
-    [reference],
-  ))[0];
-  if (!payment) return { handled: false, reason: "PAYMENT_NOT_FOUND" };
-
-  const now = new Date().toISOString();
-  const expectedAmount = Number(payment.amount || 0);
-  // Only a reported currency can mismatch; an absent one says nothing, and
-  // treating it as wrong parks a paid booking in review.
-  const providerCurrency = String(currency || "").toUpperCase();
-  const currencyMismatch = providerCurrency !== ""
-    && providerCurrency !== String(payment.currency || "").toUpperCase();
-  if (Number(amount || 0) !== expectedAmount || currencyMismatch) {
-    await turso(
-      "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
-      [transactionId, currencyMismatch ? "PAYSTACK_CURRENCY_MISMATCH" : "PAYSTACK_AMOUNT_MISMATCH", now, now, reference],
-    );
-    await turso(
-      "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ?",
-      [String(payment.booking_id)],
-    );
-    return { handled: true, status: "PAID_REVIEW" };
-  }
-
-  const claimed = await turso(
-    "UPDATE seat_holds SET status = 'BOOKED' WHERE booking_id = ? AND status = 'HELD' AND expires_at >= ?",
-    [String(payment.booking_id), now],
-  );
-  const alreadyBooked = Number(claimed.affected_row_count || 0) === 1 || rowsToObjects(await turso(
-    "SELECT status FROM seat_holds WHERE booking_id = ? AND status = 'BOOKED' LIMIT 1",
-    [String(payment.booking_id)],
-  )).length === 1;
-
-  if (!alreadyBooked) {
-    await turso(
-      "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = 'SEAT_HOLD_EXPIRED', updated_at = ?, completed_at = ? WHERE reference_id = ?",
-      [transactionId, now, now, reference],
-    );
-    await turso(
-      "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ?",
-      [String(payment.booking_id)],
-    );
-    return { handled: true, status: "PAID_REVIEW" };
-  }
-
-  await turso(
-    "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'CONFIRMED', confirmed_at = ? WHERE id = ?",
-    [now, String(payment.booking_id)],
-  );
-  await turso(
-    "UPDATE payments SET status = 'SUCCESSFUL', financial_transaction_id = ?, failure_reason = NULL, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('FAILED','PAID_REVIEW')",
-    [transactionId, now, now, reference],
-  );
-  // Verify and the webhook can both confirm the same booking; the ledger's
-  // unique booking index makes the second accrual a no-op.
-  await accrueForBooking(String(payment.booking_id));
-  // The outbox is deduped the same way, so whichever path confirms first
-  // sends the one confirmation the passenger sees.
-  await notifyVacationBookingConfirmed(String(payment.booking_id));
-  return { handled: true, status: "SUCCESSFUL" };
-}
-
-async function markFailed(reference: string, reason: string, transactionId: string) {
-  await ensureBookingsTable();
-  await ensurePaymentsTable();
-  const payment = rowsToObjects(await turso(
-    "SELECT booking_id FROM payments WHERE reference_id = ? AND provider = 'PAYSTACK' LIMIT 1",
-    [reference],
-  ))[0];
-  if (!payment) return { handled: false, reason: "PAYMENT_NOT_FOUND" };
-
-  const now = new Date().toISOString();
-  await turso(
-    "UPDATE payments SET status = 'FAILED', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
-    [transactionId, reason || "PAYSTACK_PAYMENT_FAILED", now, now, reference],
-  );
-  await turso("UPDATE bookings SET payment_status = 'FAILED', booking_status = 'PAYMENT_FAILED' WHERE id = ? AND booking_status NOT IN ('CONFIRMED','PAYMENT_RECEIVED_REVIEW','CANCELLED')", [String(payment.booking_id)]);
-  await turso("DELETE FROM seat_holds WHERE booking_id = ? AND status = 'HELD'", [String(payment.booking_id)]);
-  return { handled: true, status: "FAILED" };
-}
+import { actionablePaystackEvent, type PaystackWebhook } from "@/lib/payments/paystack-events";
+import { receivePaymentEvent, processPaymentInboxEvent } from "@/lib/payments/inbox";
+import { requestIdFromRequest, withRequestId, logEvent } from "@/lib/observability";
 
 export async function POST(request: Request) {
   const requestId = requestIdFromRequest(request);
-  const noStore = (body: unknown, status = 200) => withRequestId(Response.json(body, { status, headers: { "Cache-Control": "no-store" } }), requestId);
+  const respond = (body: unknown, status = 200) => withRequestId(Response.json(body, {
+    status, headers: { "Cache-Control": "no-store" },
+  }), requestId);
   const rawBody = await request.text();
-  const signature = request.headers.get("x-paystack-signature");
-
   try {
-    if (!await verifyPaystackWebhookSignature(rawBody, signature)) {
-      return json("Invalid Paystack signature.", 401, requestId);
+    if (!await verifyPaystackWebhookSignature(rawBody, request.headers.get("x-paystack-signature"))) {
+      return respond({ error: "Invalid Paystack signature." }, 401);
     }
-  } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Paystack webhook is not configured." }, 503);
+  } catch {
+    return respond({ error: "Webhook verification is unavailable." }, 503);
   }
-
   let event: PaystackWebhook;
   try {
-    event = JSON.parse(rawBody) as PaystackWebhook;
+    const parsed = JSON.parse(rawBody);
+    if (!parsed || typeof parsed !== "object" || !parsed.data || typeof parsed.data !== "object") throw new Error();
+    event = parsed;
   } catch {
-    return json("Invalid webhook payload.", 400, requestId);
+    return respond({ error: "Invalid webhook payload." }, 400);
   }
-
-  // A refund carries its own reference, not the charge's, so it is settled
-  // before the payment path reads a reference it would not find.
-  if (isRefundEvent(event.event)) {
-    const refundReference = String(event.data?.reference || "").trim();
-    const refundEventId = event.data?.id ? String(event.data.id) : `${event.event}:${refundReference}`;
-    try {
-      if (!(await claimPaymentEvent("PAYSTACK", refundEventId, refundReference))) {
-        await incrementMetric("webhook_duplicate");
-        return json("Webhook ignored: event already processed.", 200, requestId);
-      }
-      // One refund reference, two ledgers. Paystack's reference is unique, so
-      // asking the hostel table first and the campus one second finds the row
-      // without either product having to know about the other.
-      const hostel = await applyHostelRefundEvent({
-        event: String(event.event),
-        reference: refundReference,
-        status: event.data?.status,
-        amount: Number(event.data?.amount || 0),
-      });
-      const result = hostel.handled
-        ? hostel
-        : await applyCampusRefundEvent({
-            event: String(event.event),
-            reference: refundReference,
-            status: event.data?.status,
-            amount: Number(event.data?.amount || 0),
-          });
-      const family = hostel.handled ? "hostel_refund" : "campus_refund";
-      await incrementMetric(`${family}_${result.status === "PAID" ? "settled" : result.status === "FAILED" ? "failed" : "pending"}`);
-      return noStore(result);
-    } catch (error) {
-      await incrementMetric("webhook_failed");
-      logEvent("error", "refund_webhook_failed", { requestId, reference: refundReference, reason: error instanceof Error ? error.message : "unknown" });
-      await releasePaymentEvent("PAYSTACK", refundEventId).catch(() => undefined);
-      return noStore({ error: error instanceof Error ? error.message : "Refund webhook could not be processed." }, 500);
-    }
-  }
-
-  const reference = String(event.data?.reference || "").trim();
-  if (!reference) return json("Webhook ignored: missing reference.", 200, requestId);
-
-  // A payout result, not a payment. It is acknowledged before anything else so
-  // a delivery that arrives mid-flight cannot be mistaken for a charge.
-  if (isTransferEvent(event.event)) {
-    const eventId = event.data?.id
-      ? String(event.data.id)
-      : `${event.event}:${event.data?.transfer_code || reference}`;
-    try {
-      if (!(await claimPaymentEvent("PAYSTACK", eventId, reference))) {
-        await incrementMetric("webhook_duplicate");
-        return json("Webhook ignored: event already processed.", 200, requestId);
-      }
-      // Two payout ledgers share this endpoint: vacation ride organizers and
-      // hostel landlords. Each handler answers for its own batches, so a
-      // transfer is settled by exactly the one it belongs to.
-      let result = await applyPaystackTransferEvent({
-        event: event.event,
-        data: (event.data || {}) as Record<string, unknown>,
-      });
-      if (!result.handled) {
-        const hostel = await applyHostelPaystackTransferEvent({
-          event: event.event,
-          data: (event.data || {}) as Record<string, unknown>,
-        });
-        if (hostel.handled) result = hostel;
-      }
-      await incrementMetric(`payout_transfer_${result.handled ? "applied" : "ignored"}`);
-      return noStore(result);
-    } catch (error) {
-      await incrementMetric("webhook_failed");
-      logEvent("error", "payout_webhook_failed", { requestId, reference, reason: error instanceof Error ? error.message : "unknown" });
-      await releasePaymentEvent("PAYSTACK", eventId).catch(() => undefined);
-      return noStore({ error: error instanceof Error ? error.message : "Webhook could not be processed." }, 500);
-    }
-  }
-
-  const successful = event.event === "charge.success" && event.data?.status === "success";
-  const failed = event.event === "charge.failed" || event.data?.status === "failed";
-  if (!successful && !failed) return json("Webhook ignored: event is not actionable.", 200, requestId);
-
-  // Record the event before acting on it. A duplicate delivery is acknowledged
-  // and ignored so a replayed webhook can never double-apply a settlement.
-  const eventId = event.data?.id ? String(event.data.id) : `${event.event || "unknown"}:${reference}`;
+  if (!actionablePaystackEvent(event)) return respond({ message: "Event is not actionable." });
+  if (!String(event.data?.reference || "").trim()) return respond({ error: "Missing payment reference." }, 400);
+  let id: string;
   try {
-    if (!(await claimPaymentEvent("PAYSTACK", eventId, reference))) {
-      await incrementMetric("webhook_duplicate");
-      return json("Webhook ignored: event already processed.", 200, requestId);
-    }
-  } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Webhook could not be recorded." }, 503);
+    id = await receivePaymentEvent(event);
+  } catch {
+    return respond({ error: "Webhook could not be persisted." }, 503);
   }
-
+  // The durable inbox is the retry authority. Inline processing preserves the
+  // existing low-latency confirmation; cron recovers failures and crashes.
   try {
-    if (successful) {
-      const amount = Number(event.data?.amount || 0);
-      const currency = String(event.data?.currency || "");
-      const transactionId = event.data?.id ? String(event.data.id) : "";
-      const result = await markSuccessful(reference, amount, currency, transactionId);
-      if (!result.handled) {
-        // The campus engine records its own settlement metric.
-        const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, requestId, Number(event.data?.fees || 0));
-        if (campus.handled) return noStore(campus);
-        // A hostel bed is the reason a student pays and closes the tab, so the
-        // webhook settles it rather than waiting for a return that never comes.
-        const hostel = await settleHostelWebhookPayment({ reference, amount, transactionId, source: "webhook" });
-        if (hostel.handled) {
-          const review = "status" in hostel && hostel.status === "PAYMENT_REVIEW";
-          await incrementMetric(review ? "payment_review" : "payment_success");
-          return noStore(hostel);
-        }
-        return noStore(campus);
-      }
-      await incrementMetric(result.status === "PAID_REVIEW" ? "payment_review" : "payment_success");
-      return noStore(result);
-    }
-
-    const reason = event.data?.gateway_response || "PAYSTACK_PAYMENT_FAILED";
-    const transactionId = event.data?.id ? String(event.data.id) : "";
-    const result = await markFailed(reference, reason, transactionId);
-    if (!result.handled) {
-      const campus = await markCampusRidePaymentFailed(reference, reason, transactionId, requestId);
-      if (campus.handled) return noStore(campus);
-      const hostel = await failHostelWebhookPayment({ reference, reason, transactionId });
-      return noStore(hostel.handled ? hostel : campus);
-    }
-    await incrementMetric("payment_failed");
-    return noStore(result);
-  } catch (error) {
-    // Let the provider retry a delivery we failed to apply.
-    await incrementMetric("webhook_failed");
-    logEvent("error", "webhook_failed", { requestId, reference, reason: error instanceof Error ? error.message : "unknown" });
-    await releasePaymentEvent("PAYSTACK", eventId).catch(() => undefined);
-    return noStore({ error: error instanceof Error ? error.message : "Webhook could not be processed." }, 500);
+    const result = await processPaymentInboxEvent(id);
+    return respond(result ?? { message: "Event already processed or queued." });
+  } catch {
+    logEvent("error", "payment_inbox_deferred", { requestId, id });
+    return respond({ message: "Event recorded for retry." });
   }
 }

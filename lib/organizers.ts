@@ -649,6 +649,9 @@ export async function saveOrganizerKyc(organizerId: string, input: { idType?: un
   await ensureOrganizerTables();
   const idType = String(input.idType || "").trim();
   const idNumber = String(input.idNumber || "").trim();
+  if (!["GHANA_CARD", "PASSPORT"].includes(idType)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose a Ghana Card or passport.", 400);
+  }
   if (!idType || !idNumber) {
     throw new CampusEngineError("VALIDATION_ERROR", "Choose an ID type and enter the ID number.", 400);
   }
@@ -775,6 +778,12 @@ export async function reviewOrganizerKyc(input: {
   const reason = String(input.reason || "").trim();
   if (input.action === "REJECT" && !reason) {
     throw new CampusEngineError("VALIDATION_ERROR", "Give a reason so the organizer knows what to fix.", 400);
+  }
+  if (input.action === "VERIFY") {
+    const identity = rowsToObjects(await turso("SELECT COALESCE(kyc_id_type,'') AS id_type,COALESCE(kyc_id_number,'') AS id_number FROM trip_organizers WHERE id=? LIMIT 1", [organizer.id]))[0];
+    if (!["GHANA_CARD", "PASSPORT"].includes(String(identity?.id_type || "")) || !String(identity?.id_number || "")) {
+      throw new CampusEngineError("INVALID_STATE", "The organizer must submit a Ghana Card or passport number before KYC can be verified.", 409);
+    }
   }
   const stamp = new Date().toISOString();
   await turso(

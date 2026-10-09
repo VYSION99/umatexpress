@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowCounterClockwise, Bed, Buildings, Check, DoorOpen, MapPin, NotePencil, PaperPlaneTilt, Plus, SealCheck, ShieldCheck, Trash, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Bed, Buildings, Check, DoorOpen, MapPin, NotePencil, PaperPlaneTilt, Plus, SealCheck, ShieldCheck, Trash, X } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -14,6 +14,7 @@ import { HostelRoomBatch } from "@/components/console/hostel/HostelRoomBatch";
 import { HostelLocationPicker } from "@/components/console/hostel/HostelLocationPicker";
 import { HostelRateBatch } from "@/components/console/hostel/HostelRateBatch";
 import { HostelSubmitBatch } from "@/components/console/hostel/HostelSubmitBatch";
+import { SheetHandle } from "@/components/ui/SheetHandle";
 import "@/components/console/hostel/workspace.css";
 
 type SetupOwner = { profileStatus: string; identityStatus: string; payoutStatus: string };
@@ -485,7 +486,8 @@ function HostelWorkspace() {
       <button type="button" className="hostel-workspace-create-button" onClick={() => setCreateOpen(true)}><Plus size={17}/> Create property</button>
     </section>}
     <dialog ref={createDialog} className="hostel-batch-dialog hostel-create-dialog" aria-labelledby="hostel-create-title" onCancel={(event) => { if (busy === "property") event.preventDefault(); else setCreateOpen(false); }} onClick={(event) => { if (event.target === event.currentTarget && busy !== "property") setCreateOpen(false); }}>
-        <div className="hostel-batch-inner"><header><div><span>NEW BUILDING</span><h2 id="hostel-create-title">Create a property draft</h2><p>Start with the essentials, then complete staff review in setup.</p></div><button type="button" aria-label="Close" disabled={busy === "property"} onClick={() => setCreateOpen(false)}><X size={20}/></button></header>
+      <SheetHandle onDismiss={() => setCreateOpen(false)} disabled={busy === "property"} />
+      <div className="hostel-batch-inner"><header><div><span>NEW BUILDING</span><h2 id="hostel-create-title">Create a property draft</h2><p>Start with the essentials, then complete staff review in setup.</p></div><button type="button" aria-label="Close" disabled={busy === "property"} onClick={() => setCreateOpen(false)}><X size={20}/></button></header>
           <form className="console-form" onSubmit={addProperty}>
             <label>Property name<input type="text" required minLength={2} maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Green View Hostel" /></label>
             <label>Address<input type="text" required minLength={3} maxLength={160} value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} placeholder="Near UMaT main gate, Tarkwa" /></label>

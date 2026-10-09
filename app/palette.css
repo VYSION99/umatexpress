@@ -307,7 +307,7 @@
   box-shadow: var(--ui-card-shadow-lg);
 }
 
-.vacation .search-ai form > svg {
+.vacation .search-ai form > .material-icon {
   color: var(--ui-green);
 }
 

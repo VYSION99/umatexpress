@@ -1,6 +1,7 @@
 import type { SqlExecutor } from "@/lib/campus-engine/queue";
 import { parseConsoleHosts } from "@/lib/console-hosts";
 import { notificationAction } from "@/lib/notification-destinations";
+import { renderNotificationEmail } from "@/lib/email-template";
 import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
 import { looksLikePhone, sailupReady, sendSms, type SailupConfig } from "@/lib/sailup";
@@ -334,13 +335,15 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
       const origin = hosts.length ? "https://" + hosts[0] : appUrl.replace(/\/$/, "");
       const url = action && origin ? origin + action.href : "";
       const cta = action?.label || "";
+      const subject = String(row.subject || "") || humanizedTemplate(template);
       const result = byText
         ? await sendSms({ config: text, to, text: smsBody(message, url) })
         : await sendEmail({
           config,
           to,
-          subject: String(row.subject || "") || humanizedTemplate(template),
+          subject,
           text: emailBody(message, url, cta),
+          html: renderNotificationEmail({ template, subject, message, appUrl, actionUrl: url, actionLabel: cta, replyTo: config.replyTo }),
         });
       if (!result.ok) throw new Error(result.error || "delivery failed");
       await turso("UPDATE notification_outbox SET status = 'SENT', sent_at = ?, last_error = '', subject = CASE WHEN ? THEN 'Authentication message' ELSE subject END, message = CASE WHEN ? THEN '' ELSE message END WHERE id = ? AND status = 'SENDING'", [new Date().toISOString(), sensitive ? 1 : 0, sensitive ? 1 : 0, id]);

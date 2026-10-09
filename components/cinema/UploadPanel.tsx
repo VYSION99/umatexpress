@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { UploadSimple } from "@phosphor-icons/react";
+import { UploadSimple } from "@/components/ui/MaterialIcon";
 
 type UploadLimits = { maxBytes: number; partBytes: number; maxParts: number; types: string[] };
 type UploadState = { id: string; status: string; filename: string; sizeBytes: number; mimeType: string; durationSeconds: number } | null;

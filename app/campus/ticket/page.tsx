@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle, Circle, CircleNotch, Clock, ImageSquare, MapPin, ShareNetwork, ShieldCheck, Trash, WifiSlash, XCircle } from "@phosphor-icons/react";
+import { CheckCircle, Circle, CircleNotch, Clock, ImageSquare, MapPin, ShareNetwork, ShieldCheck, Trash, WifiSlash, XCircle } from "@/components/ui/MaterialIcon";
 import { TripFeedback } from "@/components/campusRide/student/TripFeedback";
 import { queueProgress } from "@/lib/campus-engine/progress";
 import { forgetTicket, rememberTicket } from "@/lib/passenger-profile";

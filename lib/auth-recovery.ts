@@ -193,7 +193,7 @@ async function sendLoginCode(email: string, code: string, now: Date) {
   await ensureNotificationsTable().then(() => queueNotification(turso, {
     recipient: email,
     template: "auth_login_code",
-    subject: `Your UMaTeXPRESS sign-in code: ${code}`,
+    subject: "Your UMaTeXPRESS sign-in code",
     message: [
       `Your one-time sign-in code is ${code}.`,
       "",

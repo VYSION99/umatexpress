@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Circle, DownloadSimple, Pause, Play, Trash } from "@phosphor-icons/react";
+import { Circle, DownloadSimple, Pause, Play, Trash } from "@/components/ui/MaterialIcon";
 import type { CinemaMedia } from "./useCinemaMedia";
 import type { CinemaRecorder } from "./useCinemaRecorder";
 

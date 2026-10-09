@@ -54,6 +54,14 @@ function handle(sql, args) {
     if (row) Object.assign(row, { kyc_status: status, kyc_reason: reason, kyc_reviewed_at: reviewedAt, updated_at: updatedAt });
     return ok();
   }
+  if (/SELECT COALESCE\(kyc_id_type/.test(sql)) {
+    const row = organizers.find((item) => item.id === args[0]);
+    return ok(row ? table(["id_type", "id_number"], [{ id_type: row.kyc_id_type, id_number: row.kyc_id_number }]) : empty);
+  }
+  if (/FROM hostel_landlords h LEFT JOIN hostel_owner_onboarding o/.test(sql)) {
+    const row = landlords.find((item) => item.id === args[0]);
+    return ok(row ? table(["id", "identity_id_type", "identity_id_last4", "kyc_status"], [{ ...row, identity_id_type: "GHANA_CARD", identity_id_last4: "0001" }]) : empty);
+  }
   if (/^SELECT id,kind,content_type,bytes,uploaded_at FROM hostel_identity_documents WHERE landlord_id=\?/.test(sql)) {
     const documents = args[0] === "landlord-pending" ? [
       { id: "identity-evidence", kind: "IDENTITY", content_type: "application/pdf", bytes: 1024, uploaded_at: "2026-09-10T00:00:00.000Z" },
@@ -120,7 +128,7 @@ accounts.push(
 );
 organizers.push({
   id: "org-a", name: "Agbo Merashack Kwesi", phone: "0550000000", email: "org@example.com", organization: "All Students transport",
-  status: "APPROVED", kyc_status: "PENDING", kyc_reason: "", commission_bps: 300, created_at: "2026-09-01T00:00:00.000Z", updated_at: "2026-09-01T00:00:00.000Z",
+  status: "APPROVED", kyc_status: "PENDING", kyc_id_type: "GHANA_CARD", kyc_id_number: "v1:test-sealed-id", kyc_reason: "", commission_bps: 300, created_at: "2026-09-01T00:00:00.000Z", updated_at: "2026-09-01T00:00:00.000Z",
 });
 landlords.push(
   { id: "landlord-pending", name: "Mr. Owusu", phone: "0551234567", email: "owusu@example.com", organization: "Owusu Hostels", status: "ACTIVE", kyc_status: "PENDING", review_reason: "", commission_bps: 500, created_at: "2026-09-10T00:00:00.000Z", updated_at: "2026-09-10T00:00:00.000Z" },

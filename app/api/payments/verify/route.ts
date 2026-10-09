@@ -1,20 +1,16 @@
 import { ensureBookingsTable, ensurePaymentsTable, rowsToObjects, turso } from "@/lib/turso";
-import { getPaymentStatus } from "@/lib/mtn-momo";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { paymentTokenFromRequest, verifyPaymentToken } from "@/lib/payment-access";
 import { getDynamicTrip } from "@/lib/dynamic-trips";
-import { accrueForBooking } from "@/lib/organizer-payouts";
+import { markSuccessful, markFailed } from "@/lib/payments/vacation";
 import { studentOwnsEmail } from "@/lib/student-auth";
-import { notifyVacationBookingConfirmed } from "@/lib/vacation-notify";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 function errorStatus(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("Turso") || message.includes("valid Turso credentials")) return 503;
-  if (message.includes("MTN MoMo is not configured")) return 503;
   if (message.includes("Paystack is not configured")) return 503;
-  if (message.includes("MTN token request failed") || message.includes("MTN payment status request failed")) return 502;
   if (message.includes("Paystack verify failed")) return 502;
   return 500;
 }
@@ -56,74 +52,22 @@ export async function GET(request: Request) {
 
     let status = String(payment.status || "PENDING").toUpperCase();
     if (status !== "SUCCESSFUL" && status !== "FAILED" && status !== "PAID_REVIEW") {
-      const provider = String(payment.provider || "MTN_MOMO").toUpperCase();
-      const providerStatus = provider === "PAYSTACK" ? await verifyPaystackTransaction(reference) : await getPaymentStatus(reference);
+      const provider = String(payment.provider || "PAYSTACK").toUpperCase();
+      if (provider !== "PAYSTACK") return respond({error:"This payment provider is no longer supported. Contact support."},{status:409});
+      const providerStatus = await verifyPaystackTransaction(reference);
       status = String(providerStatus.status || "PENDING").toUpperCase();
-      const now = new Date().toISOString();
-
       if (status === "SUCCESSFUL") {
-        // Only a currency the provider actually reported can be a mismatch: an
-        // absent one says nothing, and treating it as wrong parks a paid
-        // booking in review and stops its payout from ever accruing.
-        const providerCurrency = String(providerStatus.currency || "").toUpperCase();
-        const currencyMismatch = provider === "PAYSTACK" && providerCurrency !== ""
-          && providerCurrency !== String(payment.currency || "").toUpperCase();
-        if (provider === "PAYSTACK" && (Number(providerStatus.amount || 0) !== Number(payment.amount || 0) || currencyMismatch)) {
-          status = "PAID_REVIEW";
-          await turso(
-            "UPDATE payments SET status = 'PAID_REVIEW', failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
-            [currencyMismatch ? "PAYSTACK_CURRENCY_MISMATCH" : "PAYSTACK_AMOUNT_MISMATCH", now, now, reference],
-          );
-          await turso(
-            "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ?",
-            [String(payment.booking_id)],
-          );
-        } else {
-        const claimed = await turso(
-          "UPDATE seat_holds SET status = 'BOOKED' WHERE booking_id = ? AND status = 'HELD' AND expires_at >= ?",
-          [String(payment.booking_id), now],
-        );
-        const alreadyBooked = Number(claimed.affected_row_count || 0) === 1 || rowsToObjects(await turso(
-          "SELECT status FROM seat_holds WHERE booking_id = ? AND status = 'BOOKED' LIMIT 1",
-          [String(payment.booking_id)],
-        )).length === 1;
-        if (!alreadyBooked) {
-          status = "PAID_REVIEW";
-          await turso(
-            "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = 'SEAT_HOLD_EXPIRED', updated_at = ?, completed_at = ? WHERE reference_id = ?",
-            [providerStatus.financialTransactionId || "", now, now, reference],
-          );
-          await turso(
-            "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ?",
-            [String(payment.booking_id)],
-          );
-        } else {
-          await turso(
-            "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'CONFIRMED', confirmed_at = ? WHERE id = ?",
-            [now, String(payment.booking_id)],
-          );
-          await turso(
-            "UPDATE payments SET status = 'SUCCESSFUL', financial_transaction_id = ?, failure_reason = NULL, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('FAILED','PAID_REVIEW')",
-            [providerStatus.financialTransactionId || "", now, now, reference],
-          );
-          // The ledger write must never turn a successful payment into an
-          // error, so it logs its own failure and the admin backfill catches it.
-          await accrueForBooking(String(payment.booking_id));
-          // Same rule for the passenger's confirmation: the outbox row is
-          // idempotent and failure is logged, never surfaced as a payment error.
-          await notifyVacationBookingConfirmed(String(payment.booking_id));
-        }
-        }
+        const settled = await markSuccessful(reference,
+          Number(providerStatus.amount || 0),
+          String(providerStatus.currency || ""), providerStatus.financialTransactionId || "", provider);
+        status = settled.status || status;
       } else if (status === "FAILED") {
-        await turso(
-          "UPDATE payments SET status = 'FAILED', failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
-          [providerStatus.reason || "PAYMENT_FAILED", now, now, reference],
-        );
-        await turso("UPDATE bookings SET payment_status = 'FAILED', booking_status = 'PAYMENT_FAILED' WHERE id = ? AND booking_status NOT IN ('CONFIRMED','PAYMENT_RECEIVED_REVIEW','CANCELLED')", [String(payment.booking_id)]);
-        await turso("DELETE FROM seat_holds WHERE booking_id = ? AND status = 'HELD'", [String(payment.booking_id)]);
-      } else {
-        await turso("UPDATE payments SET status = 'PENDING', updated_at = ? WHERE reference_id = ?", [now, reference]);
+        const settled = await markFailed(reference, providerStatus.reason || "PAYMENT_FAILED",
+          providerStatus.financialTransactionId || "", provider);
+        status = settled.status || status;
       }
+      // Pending observations must never overwrite a concurrent success.
+
     }
 
     let ticket;

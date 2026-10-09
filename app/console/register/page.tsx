@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bed, Bus, Car, FilmSlate, ForkKnife, Storefront, UserCheck } from "@phosphor-icons/react/ssr";
+import { Bed, Bus, Car, FilmSlate, ForkKnife, Storefront, UserCheck } from "@/components/ui/MaterialIcon";
 import { consoleApplications, consoleInvitedAccess } from "@/lib/console-applications";
 import { consoleServiceById } from "@/components/admin/console-services";
 
@@ -25,7 +25,7 @@ export default function ConsoleAccessPage() {
   return <main className="console-auth-page console-apply-page">
     <div className="console-apply-shell">
       <header className="console-apply-head">
-        <img src="/logo-web.png" alt="UMaTeXPRESS" />
+        <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
         <p>UMATEXPRESS CONSOLE</p>
         <h1>Get access</h1>
         <span>One account for every UMaTeXPRESS service. Apply for the service you want to run, or sign in if the team already set you up.</span>

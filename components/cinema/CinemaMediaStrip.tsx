@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Camera, CameraSlash, CaretRight, Circle, Microphone, MicrophoneSlash, X } from "@phosphor-icons/react";
+import { Camera, CameraSlash, CaretRight, Circle, Microphone, MicrophoneSlash, X } from "@/components/ui/MaterialIcon";
 import type { CinemaPresenceMember } from "@/lib/cinema-engine/protocol";
 import { MediaStreamVideo } from "./CinemaMediaVideo";
 import type { CinemaMedia } from "./useCinemaMedia";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, DownloadSimple, Notebook, Trash } from "@phosphor-icons/react";
+import { Check, Copy, DownloadSimple, Notebook, Trash } from "@/components/ui/MaterialIcon";
 
 /** Long enough for a lecture's worth of notes, short enough for one storage row. */
 const NOTES_MAX_CHARS = 20_000;

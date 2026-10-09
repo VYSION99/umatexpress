@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowCounterClockwise, ArrowUUpLeft, CheckCircle, CircleNotch, MagnifyingGlass, Prohibit, Wallet } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowUUpLeft, CheckCircle, CircleNotch, MagnifyingGlass, Prohibit, Wallet } from "@/components/ui/MaterialIcon";
 import { cedis } from "@/components/campusRide/hostel/format";
 
 type Refund = {

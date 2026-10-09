@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 88" role="img" aria-labelledby="title">
+  <title id="title">UMaTeXPRESS Console</title>
+  <rect width="88" height="88" rx="19" fill="#152337"/>
+  <path d="M19 28h50" stroke="#405772" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="23" cy="28" r="3" fill="#f4a261"/>
+  <circle cx="33" cy="28" r="3" fill="#58c8ba"/>
+  <rect x="19" y="36" width="50" height="37" rx="5" fill="#233650" stroke="#5b738e" stroke-width="1.5"/>
+  <rect x="25" y="42" width="17" height="11" rx="3" fill="#f4a261"/>
+  <rect x="47" y="42" width="16" height="11" rx="3" fill="#58c8ba"/>
+  <rect x="25" y="58" width="17" height="10" rx="3" fill="#58c8ba"/>
+  <path d="M52 63h7m-3.5-3.5v7" stroke="#f8f5ee" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="105" y="39" fill="#152337" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" letter-spacing="-1">UMaTe<tspan fill="#bf6435">XPRESS</tspan></text>
+  <text x="106" y="68" fill="#5d6b7b" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="4">CONSOLE</text>
+</svg>

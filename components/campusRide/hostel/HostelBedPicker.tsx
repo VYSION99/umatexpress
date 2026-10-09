@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import type { PublicSpace } from "@/lib/hostel-engine/listings";
+import { usePaymentQuote } from "@/lib/payment-quote-client";
 import { HostelBookButton } from "./HostelBookButton";
 import { cedis } from "./format";
 
 export function HostelBedPicker({ spaces, periodName, bookingReady }: { spaces: PublicSpace[]; periodName: string; bookingReady: boolean }) {
   const [selectedId, setSelectedId] = useState("");
   const selected = spaces.find(bed => bed.listingId === selectedId);
+  const { quote, error: quoteError } = usePaymentQuote(selected?.total || 0);
   const rooms = new Map<string, PublicSpace[]>();
   spaces.forEach(space => {
     const beds = rooms.get(space.roomId) || [];
@@ -45,8 +47,8 @@ export function HostelBedPicker({ spaces, periodName, bookingReady }: { spaces: 
       </div>
     </details>
     {selected && <div className="hostel-checkout-summary" role="region" aria-label="Selected bed">
-      <div aria-live="polite"><strong>{selected.spaceLabel || "Bed"} · {selected.roomLabel}</strong><span>{cedis(selected.price)} rent + {cedis(selected.utilitiesFee)} utilities</span><b>{cedis(selected.total)} <small>total / academic year</small></b></div>
-      {bookingReady ? <HostelBookButton key={selected.listingId} listingId={selected.listingId} bedLabel={(selected.spaceLabel || "bed") + " in " + selected.roomLabel} /> : <span className="hostel-booking-paused">Booking paused · check back after payout review</span>}
+      <div aria-live="polite"><strong>{selected.spaceLabel || "Bed"} · {selected.roomLabel}</strong><span>{cedis(selected.price)} rent + {cedis(selected.utilitiesFee)} utilities</span><b>{cedis(selected.total)} <small>rent + utilities</small></b><span>Paystack processing ({quote?.feePercent ?? 1.95}%): {quote ? cedis(quote.feeAmount) : "Calculating…"}</span><b>{quote ? cedis(quote.totalAmount) : "Calculating…"} <small>total to pay</small></b>{quoteError && <span role="alert">{quoteError}</span>}</div>
+      {bookingReady ? <HostelBookButton key={selected.listingId} listingId={selected.listingId} bedLabel={(selected.spaceLabel || "bed") + " in " + selected.roomLabel} feeReady={Boolean(quote)} /> : <span className="hostel-booking-paused">Booking paused · check back after payout review</span>}
     </div>}
   </section>;
 }
