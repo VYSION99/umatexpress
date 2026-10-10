@@ -1,4 +1,5 @@
 import { isProviderOutcomeUnknown } from "@/lib/payments/operations";
+import { flagPaymentReversal } from "@/lib/payments/reversal";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { consoleAudit } from "@/lib/console-audit";
 import { ensureHostelResidencyTables } from "@/lib/hostel-engine/residency";
@@ -506,6 +507,10 @@ export async function verifyPluginSubscriptionPayment(landlordId: string, refere
   }
   if (payment.status === "FAILED") {
     await turso("UPDATE hostel_plugin_subscriptions SET status = 'CANCELLED', updated_at = ? WHERE reference = ?", [new Date().toISOString(), reference]);
+  }
+  if (payment.status === "REVERSED") {
+    await flagPaymentReversal(reference, payment.financialTransactionId, payment.reason);
+    throw new CampusEngineError("INVALID_STATE", "The payment was reversed and needs staff review. Keep your reference and contact support before paying again.", 409);
   }
   return (await getPluginSubscriptionByReference(reference)) as HostelPluginSubscription;
 }

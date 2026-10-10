@@ -1,8 +1,8 @@
 {
   "id": "/console",
-  "name": "UMaTeXPRESS Console",
-  "short_name": "UMaTe Console",
-  "description": "Staff and partner workspace for UMaTeXPRESS services.",
+  "name": "UMATeXPRESS Console",
+  "short_name": "UMATe Console",
+  "description": "Staff and partner workspace for UMATeXPRESS services.",
   "start_url": "/console",
   "scope": "/console",
   "display": "standalone",

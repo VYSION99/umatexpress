@@ -53,11 +53,15 @@ export async function processPaystackEvent(event: PaystackWebhook) {
     return vacation.handled ? vacation : await applyHostelPaystackTransferEvent(input);
   }
   if (event.event === "charge.success" && event.data?.status === "success") {
-    const vacation = await markSuccessful(reference, amount, String(event.data?.currency || ""), transactionId);
+    // A successful settlement without a currency cannot safely be matched to a
+    // GHS quote. Passing an explicit sentinel sends it to the product's review
+    // state rather than treating missing data as an implicit match.
+    const currency = String(event.data?.currency || "MISSING").toUpperCase();
+    const vacation = await markSuccessful(reference, amount, currency, transactionId);
     if (vacation.handled) return vacation;
-    const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, "payment-inbox", Number(event.data?.fees || 0), String(event.data?.currency || ""));
+    const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, "payment-inbox", Number(event.data?.fees || 0), currency);
     if (campus.handled) return campus;
-    return settleHostelWebhookPayment({ reference, amount, currency: event.data?.currency, transactionId, source: "webhook" });
+    return settleHostelWebhookPayment({ reference, amount, currency, transactionId, source: "webhook" });
   }
   const reason = event.data?.gateway_response || "PAYSTACK_PAYMENT_FAILED";
   const vacation = await markFailed(reference, reason, transactionId);

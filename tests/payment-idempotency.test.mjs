@@ -66,7 +66,7 @@ test("a replayed webhook is acknowledged without settling again", async () => {
   };
 
   try {
-    const body = JSON.stringify({ event: "charge.success", data: { id: 987654, reference: "ref-dup", amount: 18358, status: "success" } });
+    const body = JSON.stringify({ event: "charge.success", data: { id: 987654, reference: "ref-dup", amount: 18358, currency: "GHS", status: "success" } });
     const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
     const signature = Array.from(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body))), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
@@ -75,7 +75,8 @@ test("a replayed webhook is acknowledged without settling again", async () => {
     const payload = await response.json();
 
     assert.equal(response.status, 200);
-    assert.match(String(payload.message || ""), /already processed/);
+    assert.equal(payload.accepted, true);
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(settlements, 0);
   } finally {
     globalThis.fetch = originalFetch;

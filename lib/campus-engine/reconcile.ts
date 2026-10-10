@@ -6,6 +6,7 @@ import { runCampusSeatWatchSweep } from "@/lib/campus-engine/watch";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 import { incrementMetric } from "@/lib/observability";
+import { flagPaymentReversal } from "@/lib/payments/reversal";
 
 const DEFAULT_STALE_MINUTES = 5;
 const MAX_LIMIT = 50;
@@ -43,6 +44,9 @@ export async function reconcilePendingCampusPayments(input: { staleMinutes?: num
       } else if (providerStatus.status === "FAILED") {
         await markCampusRidePaymentFailed(reference, providerStatus.reason || "PAYSTACK_PAYMENT_FAILED", providerStatus.financialTransactionId || "");
         reconciled += 1;
+      } else if (providerStatus.status === "REVERSED") {
+        await flagPaymentReversal(reference, providerStatus.financialTransactionId, providerStatus.reason);
+        reviewed += 1;
       }
     } catch {
       // A provider hiccup must not fail the whole sweep; the next run retries.

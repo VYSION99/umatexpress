@@ -263,13 +263,14 @@ test("a confirmed payment queues one message naming the seat, route, date and fa
   assert.equal(outbox.length, 1);
 });
 
-test("the webhook cannot send a second confirmation for a booking verify already confirmed", async () => {
+test("the webhook acknowledges immediately and cannot send a second confirmation for a booking verify already confirmed", async () => {
   const { POST } = await vite.ssrLoadModule("/app/api/payments/webhook/route.ts");
-  const payload = JSON.stringify({ event: "charge.success", data: { id: 5150, reference: "ref-vac1", amount: 18360, status: "success" } });
+  const payload = JSON.stringify({ event: "charge.success", data: { id: 5150, reference: "ref-vac1", amount: 18360, currency: "GHS", status: "success" } });
   const response = await POST(new Request(`${URL_BASE}/api/payments/webhook`, { method: "POST", headers: { "x-paystack-signature": await signWebhook(payload) }, body: payload }));
   const body = await response.json();
   assert.equal(response.status, 200, JSON.stringify(body));
-  assert.equal(body.status, "SUCCESSFUL");
+  assert.equal(body.accepted, true);
+  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(outbox.length, 1, "the outbox dedupe is the second line of defence behind the ledger's");
 });
 

@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import "./console.css";
 
 export const metadata: Metadata = {
-  title: "UMaTeXPRESS Console",
-  description: "Sign in to the UMaTeXPRESS management console.",
+  title: "UMATeXPRESS Console",
+  description: "Manage UMATeXPRESS services, operations, properties, bookings, and payments.",
   manifest: "/console-manifest.webmanifest",
-  applicationName: "UMaTeXPRESS Console",
-  appleWebApp: { capable: true, title: "UMaTe Console", statusBarStyle: "black-translucent" },
+  applicationName: "UMATeXPRESS Console",
+  appleWebApp: { capable: true, title: "UMATe Console", statusBarStyle: "black-translucent" },
   themeColor: "#152337",
   icons: {
     icon: [

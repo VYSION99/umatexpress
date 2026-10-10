@@ -2,44 +2,39 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { formatTime } from "@/lib/trips";
+import { paymentReceipt } from "@/lib/payments/receipt";
+import { pollPaymentVerification, type VerificationState } from "@/lib/payments/verification-client";
 import { rememberTicket } from "@/lib/passenger-profile";
 import { Bus, CheckCircle, CircleNotch, DownloadSimple, ImageSquare, ShieldCheck, XCircle } from "@/components/ui/MaterialIcon";
 
- type Ticket = { reference:string; passenger_name:string; seat:string; trip_id:string; travel_date:string; departure_time:string; arrival_time?:string; amount:string; route_from?:string; route_to?:string; coach_type?:string; trip_title?:string };
+ type Ticket = { reference:string; passenger_name:string; seat:string; trip_id:string; travel_date:string; departure_time:string; arrival_time?:string; amount:string; fare_amount?:number|null; fee_amount?:number|null; total_amount?:number; route_from?:string; route_to?:string; coach_type?:string; trip_title?:string };
 
 export default function PaymentCallback() {
-  const [state, setState] = useState<"checking"|"success"|"failed"|"review"|"signin">("checking");
+  const [state, setState] = useState<"checking"|VerificationState>("checking");
   const [ticket,setTicket]=useState<Ticket|null>(null);
   const [imageSaving,setImageSaving]=useState(false);
   const [signInHref,setSignInHref]=useState("/account");
   const ticketRef=useRef<HTMLElement|null>(null);
+  const [paymentReference, setPaymentReference] = useState("");
+  const [checkNumber, setCheckNumber] = useState(0);
   useEffect(() => {
-    const reference=new URLSearchParams(window.location.search).get("reference");
-    if (!reference) { queueMicrotask(() => setState("failed")); return; }
-    // After signing in, the student lands back on this exact ticket.
-    queueMicrotask(() => setSignInHref(`/account?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`));
-    let cancelled=false;
-    const verify=async()=>{
-      for(let attempt=0;attempt<12&&!cancelled;attempt++){
-        try{
-          const r=await fetch(`/api/payments/verify?reference=${encodeURIComponent(reference)}`,{cache:"no-store",credentials:"same-origin"});
-          const data=await r.json();
-          // Refused because this browser is not the ticket's owner: the fix is
-          // to sign in with the account the booking was made under, not to
-          // report a payment failure that never happened.
-          if(r.status===403){setState("signin");return;}
-          if(!r.ok) throw new Error();
-          if(data.status==="SUCCESSFUL"&&data.ticket){setTicket(data.ticket);setState("success");rememberTicket({reference,kind:"vacation"});return;}
-          if(data.status==="PAID_REVIEW"){setState("review");return;}
-          if(data.status==="FAILED"){setState("failed");return;}
-          await new Promise((resolve)=>setTimeout(resolve,4000));
-        }catch{setState("failed");return;}
-      }
-      if(!cancelled)setState("failed");
-    };
-    void verify();
-    return()=>{cancelled=true;};
-  }, []);
+    const reference = new URLSearchParams(window.location.search).get("reference") || "";
+    const controller = new AbortController();
+    queueMicrotask(async () => {
+      if (controller.signal.aborted) return;
+      setPaymentReference(reference);
+      if (!reference) { setState("unavailable"); return; }
+      setState("checking");
+      setSignInHref(`/account?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`);
+      const result = await pollPaymentVerification<Ticket>(`/api/payments/verify?reference=${encodeURIComponent(reference)}`, controller.signal);
+      if (!result || controller.signal.aborted) return;
+      setTicket(result.ticket || null);
+      setState(result.state);
+      if (result.authorized) rememberTicket({ reference, kind: "vacation" });
+    });
+    return () => controller.abort();
+  }, [checkNumber]);
+  const receipt = ticket ? paymentReceipt(ticket.total_amount ?? ticket.amount, ticket.fare_amount, ticket.fee_amount) : null;
   const arrival=ticket?.arrival_time ? formatTime(ticket.arrival_time) : "";
   const date=ticket?new Date(`${ticket.travel_date}T00:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long",year:"numeric"}):"";
   const shortReference=ticket?.reference ? ticket.reference.slice(-8).toUpperCase() : "";
@@ -99,12 +94,15 @@ export default function PaymentCallback() {
         <div className="ticket-head"><div className="ticket-brand"><img src="/logo-mark.png" alt="" /><div><strong>vacationRide</strong><small>{ticket.trip_title || "vacationRide ticket"}</small></div></div><span><ShieldCheck size={14}/> PAID</span></div>
         <div className="ticket-hero"><div><small>BOARDING PASS</small><h2>{hasRoute ? <>{routeFrom} <em>to</em> {routeTo}</> : "Route details unavailable"}</h2><p>Present this image before boarding. Arrive 30 minutes early.</p></div><div className="ticket-seat-card"><small>SEAT</small><strong>{filled(ticket.seat)}</strong></div></div>
         <div className="ticket-route"><div><small>FROM</small><strong>{routeFrom}</strong><span>Departure point</span></div><Bus/><div><small>TO</small><strong>{routeTo}</strong><span>Destination</span></div></div>
-        <div className="ticket-details"><div><small>PASSENGER</small><strong>{filled(ticket.passenger_name)}</strong></div><div><small>TRAVEL DATE</small><strong>{date||"—"}</strong></div><div><small>DEPARTURE</small><strong>{departureLabel}</strong></div>{arrival&&<div><small>ARRIVAL</small><strong>{arrival}</strong></div>}<div><small>COACH</small><strong>{filled(ticket.coach_type)}</strong></div><div><small>TICKET PRICE</small><strong>GH₵{(Number(ticket.amount)/100).toFixed(2)}</strong></div></div>
+        <div className="ticket-details"><div><small>PASSENGER</small><strong>{filled(ticket.passenger_name)}</strong></div><div><small>TRAVEL DATE</small><strong>{date||"—"}</strong></div><div><small>DEPARTURE</small><strong>{departureLabel}</strong></div>{arrival&&<div><small>ARRIVAL</small><strong>{arrival}</strong></div>}<div><small>COACH</small><strong>{filled(ticket.coach_type)}</strong></div>{receipt?.fareAmount != null && <><div><small>FARE</small><strong>GH₵{(receipt.fareAmount/100).toFixed(2)}</strong></div><div><small>PROCESSING FEE</small><strong>GH₵{(Number(receipt.feeAmount)/100).toFixed(2)}</strong></div></>}<div><small>TOTAL PAID</small><strong>GH₵{(Number(ticket.total_amount ?? ticket.amount)/100).toFixed(2)}</strong></div></div>
         <div className="ticket-code"><div><small>REFERENCE</small><span>{ticket.reference}</span></div><strong>{shortReference}</strong></div>
       </article>
       <div className="ticket-actions"><button onClick={downloadTicketImage} disabled={imageSaving}><ImageSquare size={17}/>{imageSaving ? "Saving image…" : "Save ticket image"}</button><button onClick={()=>window.print()}><DownloadSimple size={17}/> Print</button><Link href="/">Return home</Link></div>
     </>:state==="signin"?<><ShieldCheck className="status-icon success"/><h1>Sign in to open this ticket</h1><p>This ticket belongs to the UMaT account it was booked under, not to this browser. Sign in with that account and the ticket opens right here.</p><Link href={signInHref}>Sign in to view ticket</Link></>:
-    state==="review"?<><XCircle className="status-icon fail"/><h1>Payment received—seat review needed</h1><p>Your payment arrived after the seat hold expired. Support will confirm another seat or arrange a refund.</p><Link href="/">Return home</Link></>:
-    <><XCircle className="status-icon fail"/><h1>Payment not completed</h1><p>No confirmed payment was found. You can safely try again.</p><Link href="/vacation#booking">Return to booking</Link></>}
+    state==="review"?<><XCircle className="status-icon fail"/><h1>Payment review needed</h1><p>We recorded a payment issue and paused this booking for staff review. Do not pay again. Keep your payment reference and check back shortly.</p><Link href="/account">Open your account</Link></>:
+    state==="pending"?<><CircleNotch className="status-icon spin"/><h1>Payment confirmation pending</h1><p>Paystack has not returned a final result yet. Do not pay again. We will keep checking this reference in the background.</p><button type="button" onClick={() => setCheckNumber(value => value + 1)}>Check payment again</button><Link href="/account">Check your bookings</Link></>:
+    state==="unavailable"?<><XCircle className="status-icon fail"/><h1>Payment reference unavailable</h1><p>Open the original payment link or sign in to find your booking. If money was deducted, contact support before paying again.</p><Link href="/account">Open your account</Link></>:
+    <><XCircle className="status-icon fail"/><h1>Payment not completed</h1><p>Paystack reported that this payment was not completed. Return to booking to check availability.</p><Link href="/vacation#booking">Return to booking</Link></>}
+    {paymentReference && state !== "success" && <p className="payment-reference">Reference: {paymentReference}</p>}
   </div></main>;
 }

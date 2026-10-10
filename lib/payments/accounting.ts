@@ -65,8 +65,13 @@ export function sourceBalances(source: string, row: Row, previous: Balances = {}
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error('INVALID_CURRENCY');
   const customer = `customer_funds:${currency}`;
   const provider = `provider_clearing:${currency}`;
+  // A review hold does not prove a second receipt or a compensating refund.
+  if (state === 'REVERSAL_REVIEW' || (state === 'PAYMENT_REVIEW' && Object.keys(previous).length)) return previous;
   if (['payments','campus_payments','hostel_bookings','hostel_plugin_subscriptions'].includes(source)) {
-    const received = ['SUCCESSFUL','PAID_REVIEW','PAID','PAYMENT_REVIEW','ACTIVE'].includes(state) || Boolean(row.paid_at);
+    // PAYMENT_REVIEW only represents money when the provider supplied paid_at.
+    // A reversed charge also uses this operational queue, but must not create a
+    // cash receipt that no longer exists at the provider.
+    const received = ['SUCCESSFUL','PAID_REVIEW','PAID','ACTIVE'].includes(state) || Boolean(row.paid_at);
     if (!received) return previous; // Cancellation/failure does not undo a receipt.
     const amount = money(row.amount ?? row.total_amount ?? row.checkout_amount ?? row.platform_price);
     add(provider,amount); add(customer,-amount);

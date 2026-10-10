@@ -16,6 +16,12 @@ review. Vacation and campus fares, hostel commissions and landlord payouts are
 calculated from the original service price, excluding the processing charge.
 The finance journal records fee recovery separately from service revenue.
 
+The fee percentage must be finite, at least zero and below 100. An invalid
+explicit configuration stops checkout instead of silently choosing another rate.
+Amounts use safe integer minor units. Receipts show the stored base, processing
+charge and total; legacy receipts without a consistent split show only their
+recorded total. Today's rate never rewrites a historical receipt.
+
 A full hostel refund may include the original processing amount under the
 refund policy; the platform can absorb a provider fee that Paystack does not
 return. The amount actually charged by Paystack can differ from the estimate if
@@ -43,6 +49,9 @@ response can be matched to exactly one provider refund.
 
 Signed Paystack webhooks enter a durable inbox. Event identity includes the
 lifecycle event type, so a transfer reversal is distinct from its success.
+The endpoint acknowledges only after persistence, then processes the event using
+the request's background lifecycle. A persistence failure returns 503 so the
+provider can retry; the scheduled inbox sweep recovers interrupted processing.
 Conditional leases prevent concurrent processing. Expired leases, failed work
 and unmatched references are retried; exhausted events enter REVIEW. The shared
 dispatcher routes charge, transfer and refund events to existing product rules.
@@ -68,6 +77,46 @@ transactions can be reconciled page by page from the authenticated finance desk.
 Unmatched and amount/currency-mismatched references are visible there. Every
 manual replay needs an administrator session and a reason stored in an audit
 record. Replay is limited to items in REVIEW.
+
+## Confirmation and exceptions
+
+A network error, provider timeout or exhausted browser polling window leaves a
+payment pending. The student can check the same reference again. Only an
+explicit failed result shows a failed payment; authorization failures ask the
+student to sign in, and missing references have a separate unavailable state.
+Payments awaiting review do not offer another checkout. Verification is cancelled
+when the student leaves the page.
+
+Paystack's verified `reversed` status enters reversal review. Vacation and campus
+payments use `REVERSAL_REVIEW`; active hostel bookings use `PAYMENT_REVIEW` and
+affected hostel service subscriptions are cancelled. Cancelled/expired hostel
+bookings and completed campus journeys retain their terminal state. Unsent
+accrued vacation/hostel payouts are held as `FAILED`; payouts already in flight
+or paid require staff investigation. These changes and the reconciliation/audit
+record commit together. Posted accounting is preserved while staff match the
+reversal to a refund or chargeback; this does not automatically send a refund or
+post a second compensating entry. Repeated callbacks cannot restore a reversed
+ride payment. Reversals are discovered through provider verification and finance
+reconciliation; this does not continuously reverify every paid booking.
+
+The administrator's `/console/finance` page shows payment health at the displayed
+check time. Refresh after a recovery action. Counts cover the full queues even
+when the record tables show limited samples:
+
+- Webhooks, uncertain provider operations and incomplete checkouts: five minutes.
+- Pending accounting entries and product payments: fifteen minutes.
+- Approved refunds: twenty-four hours; failed refunds appear immediately.
+- Review states and reconciliation mismatches: immediately.
+
+For an uncertain payment, enter its existing reference and a reason, then use
+**Verify payment**. For a delayed stored event, **Process pending work** runs a
+bounded recovery pass; REVIEW inbox/outbox entries have individual retry actions.
+Match reversals and uncertain refunds against the provider's history before
+taking a financial action. The health panel is an administrator dashboard, not
+an email or push alert service.
+
+Provider references: [Paystack verification](https://paystack.com/docs/payments/verify-payments/)
+and [webhook acknowledgement and signatures](https://paystack.com/docs/payments/webhooks/).
 
 ## Deployment
 
@@ -95,3 +144,6 @@ unknown provider results, rollback, expiring holds, balanced immutable journals,
 trigger capture and replay protection. Existing product suites cover booking,
 notification, payout and refund behavior. The full repository build and test
 command is `npm test`.
+`tests/payment-recovery.test.mjs` additionally covers uncertain confirmation,
+abort cleanup, historical receipts, deferred webhook processing, complete health
+counts, reversal state preservation, payout holds and transaction rollback.

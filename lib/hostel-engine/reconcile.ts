@@ -1,6 +1,7 @@
 import { activatePluginSubscription, cancelPluginSubscription, ensureHostelPluginTables, releaseExpiredPluginHolds } from "@/lib/hostel-engine/plugins";
 import { expireHostelBooking, failHostelBooking, releaseExpiredHostelHolds, settleHostelBooking } from "@/lib/hostel-engine/residency";
 import { incrementMetric, logEvent } from "@/lib/observability";
+import { flagPaymentReversal } from "@/lib/payments/reversal";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
@@ -52,6 +53,9 @@ export async function reconcilePendingHostelPayments(input: { staleMinutes?: num
       } else if (payment.status === "FAILED") {
         await failHostelBooking(reference);
         released += 1;
+      } else if (payment.status === "REVERSED") {
+        await flagPaymentReversal(reference, payment.financialTransactionId, payment.reason);
+        reviewed += 1;
       } else {
         // The provider was reached and says this checkout was never paid.
         await expireHostelBooking(reference);
@@ -72,6 +76,9 @@ export async function reconcilePendingHostelPayments(input: { staleMinutes?: num
       if (payment.status === "SUCCESSFUL") {
         await activatePluginSubscription({ reference, amount: payment.amount, currency: payment.currency, source: "reconcile" });
         settled += 1;
+      } else if (payment.status === "REVERSED") {
+        await flagPaymentReversal(reference, payment.financialTransactionId, payment.reason);
+        reviewed += 1;
       } else if (payment.status === "FAILED" || payment.status === "PENDING") {
         await cancelPluginSubscription(reference);
         released += 1;

@@ -204,6 +204,11 @@ test("payment provider can switch to Paystack, validates required secret, and ca
     assert.throws(() => getPaystackCurrency(), /Paystack is not configured/);
     process.env.PAYSTACK_FEE_PERCENT = "1.95";
     assert.deepEqual(calculatePaystackCharge(18000), { baseAmount: 18000, feeAmount: 358, totalAmount: 18358, feePercent: 1.95 });
+    for (const invalid of [100, 120, -1, Number.POSITIVE_INFINITY, Number.NaN]) assert.throws(() => calculatePaystackCharge(18000, invalid), /processing fee/);
+    assert.equal(calculatePaystackCharge(18000, 0).totalAmount, 18000);
+    assert.throws(() => calculatePaystackCharge(Number.NaN), /Payment amount/);
+    process.env.PAYSTACK_FEE_PERCENT = "100";
+    assert.throws(() => calculatePaystackCharge(18000), /processing fee/);
   } finally {
     if (previousProvider === undefined) delete process.env.PAYMENT_PROVIDER; else process.env.PAYMENT_PROVIDER = previousProvider;
     if (previousSecret === undefined) delete process.env.PAYSTACK_SECRET_KEY; else process.env.PAYSTACK_SECRET_KEY = previousSecret;

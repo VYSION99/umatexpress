@@ -3,6 +3,7 @@ import { expireHostelBooking, failHostelBooking, settleHostelBooking } from "@/l
 import { authorizeStudentHostelBooking } from "@/lib/hostel-engine/resident";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { flagPaymentReversal } from "@/lib/payments/reversal";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -26,6 +27,8 @@ export async function GET(request: Request) {
         await settleHostelBooking({ reference, amount: payment.amount, currency: payment.currency, transactionId: payment.financialTransactionId, provider: "PAYSTACK", source: "verify" });
       } else if (payment.status === "FAILED") {
         await failHostelBooking(reference);
+      } else if (payment.status === "REVERSED") {
+        await flagPaymentReversal(reference, payment.financialTransactionId, payment.reason);
       } else if (booking.holdExpiresAt && booking.holdExpiresAt < new Date().toISOString()) {
         // Paystack was reached and the checkout is unpaid, so the bed goes back.
         await expireHostelBooking(reference);

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { CheckCircle, Circle, CircleNotch, Clock, ImageSquare, MapPin, ShareNetwork, ShieldCheck, Trash, WifiSlash, XCircle } from "@/components/ui/MaterialIcon";
 import { TripFeedback } from "@/components/campusRide/student/TripFeedback";
 import { queueProgress } from "@/lib/campus-engine/progress";
+import { paymentReceipt } from "@/lib/payments/receipt";
+import { verificationState } from "@/lib/payments/verification-client";
 import { forgetTicket, rememberTicket } from "@/lib/passenger-profile";
 
 /**
@@ -20,6 +22,9 @@ type Ticket = {
   email: string;
   queue_position: number;
   amount: number;
+  fare_amount?: number | null;
+  fee_amount?: number | null;
+  total_amount?: number;
   payment_status: string;
   queue_status: string;
   ride_pin: string;
@@ -97,7 +102,7 @@ function readCachedTicket(reference: string) {
 }
 
 export default function CampusTicketPage() {
-  const [state, setState] = useState<"loading" | "paid" | "pending" | "failed" | "signin">("loading");
+  const [state, setState] = useState<"loading" | "paid" | "pending" | "review" | "failed" | "unavailable" | "signin">("loading");
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [status, setStatus] = useState<QueueStatus | null>(null);
   const [offline, setOffline] = useState(false);
@@ -109,15 +114,21 @@ export default function CampusTicketPage() {
   // the second gives up the seat, so nobody loses a ride to a stray touch.
   const [cancelStep, setCancelStep] = useState<"idle" | "confirm" | "working">("idle");
   const referenceRef = useRef("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const verificationRequest = useRef<AbortController | null>(null);
+  const receipt = ticket ? paymentReceipt(ticket.total_amount ?? ticket.amount, ticket.fare_amount, ticket.fee_amount) : null;
 
   // Progress is derived from the last poll, falling back to the ticket's own
   // status so the timeline renders even before the first refresh lands.
   const progress = useMemo(() => status?.progress || queueProgress(String(ticket?.queue_status || "PAID_WAITING")), [status, ticket]);
 
   const applyVerified = useCallback((reference: string, data: { paid?: boolean; status?: string; ticket?: Ticket }) => {
-    const paid = Boolean(data.paid);
+    const nextState = verificationState(data.status, Boolean(data.paid));
+    const paid = nextState === "success";
+    setError("");
     setTicket(data.ticket || null);
-    setState(paid ? "paid" : data.status === "FAILED" ? "failed" : "pending");
+    setState(paid ? "paid" : nextState as "pending" | "review" | "failed");
+    if (!paid) clearCachedTicket(reference);
     if (paid && data.ticket) {
       try { window.localStorage.setItem(cacheKey(reference), JSON.stringify({ ticket: data.ticket, savedAt: new Date().toISOString() })); } catch { /* storage unavailable */ }
       // So the passenger can find this ticket again from the profile panel.
@@ -126,20 +137,30 @@ export default function CampusTicketPage() {
   }, []);
 
   const verify = useCallback(async (reference: string, allowCache: boolean) => {
+    if (verificationRequest.current) return;
+    const controller = new AbortController();
+    verificationRequest.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 25_000);
     try {
-      const response = await fetch(`/api/campus/queue/verify?reference=${encodeURIComponent(reference)}`, { credentials: "same-origin", cache: "no-store" });
+      const response = await fetch(`/api/campus/queue/verify?reference=${encodeURIComponent(reference)}`, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
       const data = await response.json();
+      if (verificationRequest.current !== controller) return;
       // A deep link opened by someone who is not signed in as the queue
       // entry's owner: offer the account handoff instead of a dead end.
-      if (response.status === 403) { setState("signin"); return; }
-      if (!response.ok) throw new Error(data.error || "campusRide payment verification failed.");
+      if (response.status === 401 || response.status === 403) { setState("signin"); return; }
+      if (response.status === 400 || response.status === 404) { clearCachedTicket(reference); setState("unavailable"); return; }
+      if (!response.ok) throw new Error("We could not check your payment. Please check again shortly.");
       applyVerified(reference, data);
     } catch (verifyError) {
+      if (verificationRequest.current !== controller) return;
       // No network at the gate? Show the ticket this device already saved.
       const cached = allowCache ? readCachedTicket(reference) : null;
       if (cached) { setTicket(cached.ticket); setCachedAt(cached.savedAt); setOffline(true); setState("paid"); return; }
-      setError(verifyError instanceof Error ? verifyError.message : "campusRide payment verification failed.");
-      setState("failed");
+      setError(verifyError instanceof Error ? verifyError.message : "Payment confirmation is temporarily unavailable.");
+      setState("pending");
+    } finally {
+      window.clearTimeout(timeout);
+      if (verificationRequest.current === controller) verificationRequest.current = null;
     }
   }, [applyVerified]);
 
@@ -161,14 +182,18 @@ export default function CampusTicketPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     queueMicrotask(() => {
+      if (cancelled) return;
       const reference = new URLSearchParams(window.location.search).get("reference") || "";
       referenceRef.current = reference;
-      if (!reference) { setState("failed"); setError("Missing campusRide payment reference."); return; }
+      setPaymentReference(reference);
+      if (!reference) { setState("unavailable"); setError("Missing campusRide payment reference."); return; }
       // After signing in, the student lands back on this exact ticket.
       setSignInHref(`/account?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`);
       void verify(reference, true);
     });
+    return () => { cancelled = true; verificationRequest.current?.abort(); verificationRequest.current = null; };
   }, [verify]);
 
   // The ticket goes live the moment Paystack settles, so keep checking rather
@@ -288,7 +313,9 @@ export default function CampusTicketPage() {
           <span><small>Phone</small><strong>{ticket.phone}</strong></span>
           <span><small>Queue position</small><strong>#{ticket.queue_position}</strong></span>
           <span><small>Boarding PIN</small><strong>{ticket.ride_pin}</strong></span>
-          <span><small>Amount</small><strong>GH₵ {(Number(ticket.amount || 0)/100).toFixed(2)}</strong></span>
+          {receipt?.fareAmount != null && <><span><small>Fare</small><strong>{cedisFromPesewas(receipt.fareAmount)}</strong></span>
+          <span><small>Processing fee</small><strong>{cedisFromPesewas(receipt.feeAmount || 0)}</strong></span></>}
+          <span><small>Total paid</small><strong>{cedisFromPesewas(Number(ticket.total_amount ?? ticket.amount))}</strong></span>
           <span><small>Driver</small><strong>{ticket.driver_name}</strong></span>
           <span><small>Vehicle</small><strong>{ticket.vehicle_label} {ticket.plate_number}</strong></span>
         </div>
@@ -333,7 +360,9 @@ export default function CampusTicketPage() {
         <Link href="/">Client home</Link>
       </div>
     </> :
-    state === "pending" ? <><CircleNotch className="status-icon spin"/><h1>Payment pending</h1><p>Your campusRide payment is not confirmed yet. Refresh this page after approval.</p><Link href="/campus">Return to campusRide</Link></> :
+    state === "pending" ? <><CircleNotch className="status-icon spin"/><h1>Payment confirmation pending</h1><p>{error || "Paystack has not returned a final result yet."} Do not pay again. We are still checking this payment.</p><p>Reference: {paymentReference}</p><button type="button" onClick={() => void verify(referenceRef.current, false)}>Check payment again</button><Link href="/account">Check your bookings</Link></> :
+    state === "review" ? <><ShieldCheck className="status-icon"/><h1>Payment review needed</h1><p>This payment has been paused for staff review. Your queue reference is retained; do not make another payment.</p><p>Reference: {paymentReference}</p><Link href="/account">Open your account</Link></> :
+    state === "unavailable" ? <><XCircle className="status-icon fail"/><h1>Payment reference unavailable</h1><p>Open the original payment link or check your account. If money was deducted, contact support before paying again.</p><Link href="/account">Open your account</Link></> :
     state === "signin" ? <><ShieldCheck className="status-icon"/><h1>Sign in to open this ticket</h1><p>This ticket belongs to the UMaT account its queue entry was made under, not to this browser. Sign in with that account and the ticket opens right here.</p><Link href={signInHref}>Sign in to view ticket</Link></> :
     <><XCircle className="status-icon fail"/><h1>Payment not completed</h1><p>{error || "No confirmed campusRide payment was found."}</p><Link href="/campus">Try again</Link></>}
   </main>;

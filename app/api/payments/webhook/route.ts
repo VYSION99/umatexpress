@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { actionablePaystackEvent, type PaystackWebhook } from "@/lib/payments/paystack-events";
 import { receivePaymentEvent, processPaymentInboxEvent } from "@/lib/payments/inbox";
@@ -32,13 +33,23 @@ export async function POST(request: Request) {
   } catch {
     return respond({ error: "Webhook could not be persisted." }, 503);
   }
-  // The durable inbox is the retry authority. Inline processing preserves the
-  // existing low-latency confirmation; cron recovers failures and crashes.
+  // Paystack needs a quick acknowledgement. The event is durable before this
+  // point; platform waitUntil keeps the fast path alive after the response and
+  // the scheduled inbox sweep remains the recovery authority.
+  const processRecordedEvent = async () => {
+    try {
+      await processPaymentInboxEvent(id);
+    } catch {
+      logEvent("error", "payment_inbox_deferred", { requestId, id });
+    }
+  };
   try {
-    const result = await processPaymentInboxEvent(id);
-    return respond(result ?? { message: "Event already processed or queued." });
+    after(processRecordedEvent);
   } catch {
-    logEvent("error", "payment_inbox_deferred", { requestId, id });
-    return respond({ message: "Event recorded for retry." });
+    // Direct route tests and a plain Node development server do not provide a
+    // request lifecycle. Production Workers use `after`/waitUntil; locally the
+    // durable inbox still makes this best-effort microtask safe.
+    void Promise.resolve().then(processRecordedEvent);
   }
+  return respond({ accepted: true, message: "Event recorded." });
 }

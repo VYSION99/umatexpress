@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "UMaTeXPRESS",
-  "short_name": "UMaTeXPRESS",
+  "name": "UMATeXPRESS",
+  "short_name": "UMATeXPRESS",
   "description": "Student services platform for rides, bookings, and campus support.",
   "start_url": "/",
   "scope": "/",

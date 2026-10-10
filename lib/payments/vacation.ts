@@ -17,7 +17,7 @@ export async function markSuccessful(reference: string, amount: number, currency
     await notifyVacationBookingConfirmed(String(payment.booking_id));
     return { handled: true, status: "SUCCESSFUL" };
   }
-  if (payment.status === "PAID_REVIEW") return { handled: true, status: "PAID_REVIEW" };
+  if (["PAID_REVIEW", "REVERSAL_REVIEW"].includes(String(payment.status))) return { handled: true, status: String(payment.status) };
   const now = new Date().toISOString();
   const expectedAmount = Number(payment.amount || 0);
   // Only a reported currency can mismatch; an absent one says nothing, and
@@ -27,9 +27,9 @@ export async function markSuccessful(reference: string, amount: number, currency
     && providerCurrency !== String(payment.currency || "").toUpperCase();
   if (Number(amount || 0) !== expectedAmount || currencyMismatch) {
     await tursoTransaction([
-      { sql: "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
+      { sql: "UPDATE payments SET status = 'PAID_REVIEW', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW','REVERSAL_REVIEW')",
         args: [transactionId, currencyMismatch ? "PAYSTACK_CURRENCY_MISMATCH" : "PAYSTACK_AMOUNT_MISMATCH", now, now, reference] },
-      { sql: "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ? AND booking_status NOT IN ('CANCELLED','CONFIRMED')",
+      { sql: "UPDATE bookings SET payment_status = 'SUCCESSFUL', booking_status = 'PAYMENT_RECEIVED_REVIEW' WHERE id = ? AND booking_status NOT IN ('CANCELLED','CONFIRMED') AND payment_status!='REVERSAL_REVIEW'",
         args: [String(payment.booking_id)] },
     ]);
     return { handled: true, status: "PAID_REVIEW" };
@@ -43,15 +43,15 @@ export async function markSuccessful(reference: string, amount: number, currency
         WHERE h.booking_id=payments.booking_id AND h.status='BOOKED' AND b.booking_status!='CANCELLED'
       ) THEN 'SUCCESSFUL' ELSE 'PAID_REVIEW' END,
       financial_transaction_id=?, updated_at=?, completed_at=?
-      WHERE reference_id=? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')`,
+      WHERE reference_id=? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW','REVERSAL_REVIEW')`,
       args: [transactionId, now, now, reference] },
-    { sql: "UPDATE payments SET failure_reason = CASE WHEN status='PAID_REVIEW' THEN 'SEAT_HOLD_EXPIRED_OR_CANCELLED' ELSE NULL END WHERE reference_id=?",
+    { sql: "UPDATE payments SET failure_reason = CASE WHEN status='PAID_REVIEW' THEN 'SEAT_HOLD_EXPIRED_OR_CANCELLED' ELSE NULL END WHERE reference_id=? AND status!='REVERSAL_REVIEW'",
       args: [reference] },
     { sql: `UPDATE bookings SET payment_status='SUCCESSFUL',
       booking_status=CASE WHEN (SELECT status FROM payments WHERE reference_id=?)='SUCCESSFUL'
         THEN 'CONFIRMED' ELSE 'PAYMENT_RECEIVED_REVIEW' END,
       confirmed_at=CASE WHEN (SELECT status FROM payments WHERE reference_id=?)='SUCCESSFUL' THEN ? ELSE confirmed_at END
-      WHERE id=? AND booking_status!='CANCELLED'`, args: [reference, reference, now, String(payment.booking_id)] },
+      WHERE id=? AND booking_status!='CANCELLED' AND payment_status!='REVERSAL_REVIEW'`, args: [reference, reference, now, String(payment.booking_id)] },
   ]);
   const settled = rowsToObjects(await turso("SELECT status FROM payments WHERE reference_id=?", [reference]))[0];
   if (settled?.status !== "SUCCESSFUL") return { handled: true, status: String(settled?.status || "PAID_REVIEW") };
@@ -72,10 +72,10 @@ export async function markFailed(reference: string, reason: string, transactionI
   ))[0];
   if (!payment) return { handled: false, reason: "PAYMENT_NOT_FOUND" };
 
-  if (["SUCCESSFUL", "PAID_REVIEW"].includes(String(payment.status))) return { handled: true, status: String(payment.status) };
+  if (["SUCCESSFUL", "PAID_REVIEW", "REVERSAL_REVIEW"].includes(String(payment.status))) return { handled: true, status: String(payment.status) };
   const now = new Date().toISOString();
   await tursoTransaction([
-    { sql: "UPDATE payments SET status = 'FAILED', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW')",
+    { sql: "UPDATE payments SET status = 'FAILED', financial_transaction_id = ?, failure_reason = ?, updated_at = ?, completed_at = ? WHERE reference_id = ? AND status NOT IN ('SUCCESSFUL','PAID_REVIEW','REVERSAL_REVIEW')",
       args: [transactionId, reason || "PAYMENT_FAILED", now, now, reference] },
     { sql: "UPDATE bookings SET payment_status='FAILED', booking_status='PAYMENT_FAILED' WHERE id=? AND booking_status NOT IN ('CONFIRMED','PAYMENT_RECEIVED_REVIEW','CANCELLED') AND EXISTS (SELECT 1 FROM payments WHERE reference_id=? AND status='FAILED')",
       args: [String(payment.booking_id), reference] },

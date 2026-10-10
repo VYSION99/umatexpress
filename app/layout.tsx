@@ -10,13 +10,14 @@ import "./bottom-sheet.css";
 const splashReloadGuard = `try{var n=performance.getEntriesByType('navigation')[0];var r=(n&&n.type==='reload')||(performance.navigation&&performance.navigation.type===1);var s=sessionStorage.getItem('umatexpress:intro-played:v1')==='1';if(r)document.documentElement.classList.add('page-is-reloading');if(r||s)document.documentElement.classList.add('splash-already-seen')}catch(e){}`;
 
 export const metadata: Metadata = {
-  title: "UMaTeXPRESS | UMaT Student Transport",
-  description: "Choose vacationRide for long-distance trips or campusRide for live campus transport.",
+  title: "UMATeXPRESS | Your Campus Companion",
+  description:
+    "Campus rides, vacation travel, verified student housing, shared cinema, and everyday services for UMaT students.",
   manifest: "/manifest.webmanifest",
-  applicationName: "UMaTeXPRESS",
+  applicationName: "UMATeXPRESS",
   appleWebApp: {
     capable: true,
-    title: "UMaTeXPRESS",
+    title: "UMATeXPRESS",
     statusBarStyle: "default",
   },
   themeColor: "#0d694d",

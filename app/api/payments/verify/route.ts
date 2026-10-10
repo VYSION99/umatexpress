@@ -6,6 +6,8 @@ import { markSuccessful, markFailed } from "@/lib/payments/vacation";
 import { studentOwnsEmail } from "@/lib/student-auth";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { paymentReceipt } from "@/lib/payments/receipt";
+import { flagPaymentReversal } from "@/lib/payments/reversal";
 
 function errorStatus(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -30,7 +32,7 @@ export async function GET(request: Request) {
     await ensurePaymentsTable();
 
     const payment = rowsToObjects(await turso(
-      "SELECT id, booking_id, provider, reference_id, amount, currency, status, access_token_hash FROM payments WHERE reference_id = ? LIMIT 1",
+      "SELECT id, booking_id, provider, reference_id, amount, currency, status, fare_amount, fee_amount, access_token_hash FROM payments WHERE reference_id = ? LIMIT 1",
       [reference],
     ))[0];
     if (!payment) return respond({ error: "Payment was not found." }, { status: 404 });
@@ -51,7 +53,7 @@ export async function GET(request: Request) {
     }
 
     let status = String(payment.status || "PENDING").toUpperCase();
-    if (status !== "SUCCESSFUL" && status !== "FAILED" && status !== "PAID_REVIEW") {
+    if (status !== "SUCCESSFUL" && status !== "FAILED" && status !== "PAID_REVIEW" && status !== "REVERSAL_REVIEW") {
       const provider = String(payment.provider || "PAYSTACK").toUpperCase();
       if (provider !== "PAYSTACK") return respond({error:"This payment provider is no longer supported. Contact support."},{status:409});
       const providerStatus = await verifyPaystackTransaction(reference);
@@ -65,6 +67,8 @@ export async function GET(request: Request) {
         const settled = await markFailed(reference, providerStatus.reason || "PAYMENT_FAILED",
           providerStatus.financialTransactionId || "", provider);
         status = settled.status || status;
+      } else if (status === "REVERSED") {
+        status = (await flagPaymentReversal(reference, providerStatus.financialTransactionId, providerStatus.reason)).status;
       }
       // Pending observations must never overwrite a concurrent success.
 
@@ -80,8 +84,12 @@ export async function GET(request: Request) {
         // A ticket that was already sold must still resolve even if the trip has
         // since been archived or pulled from sale.
         const trip = await getDynamicTrip(String(ticket.trip_id), { includeArchived: true, approvedOnly: false });
+        const receipt = paymentReceipt(payment.amount, payment.fare_amount, payment.fee_amount);
         ticket = {
           ...ticket,
+          fare_amount: receipt.fareAmount,
+          fee_amount: receipt.feeAmount,
+          total_amount: Number(payment.amount || ticket.amount || 0),
           route_from: trip?.from || "",
           route_to: trip?.to || "",
           arrival_time: trip?.arrival || "",

@@ -33,6 +33,7 @@ const finance=await vite.ssrLoadModule('/lib/payments/schema.ts');
 const accounting=await vite.ssrLoadModule('/lib/payments/accounting.ts');
 const operations=await vite.ssrLoadModule('/lib/payments/operations.ts');
 const idempotency=await vite.ssrLoadModule('/lib/payments/idempotency.ts');
+const reversal=await vite.ssrLoadModule('/lib/payments/reversal.ts');
 await finance.ensureFinanceSchema();
 
 function booking(ref, status = 'AWAITING_PAYMENT', expires = '2099-01-01') {
@@ -67,6 +68,28 @@ test('amount and currency mismatches cannot confirm a booking', async () => {
   await vacation.markSuccessful('currency', 1000, 'USD', '5');
   assert.equal(state('amount').status, 'PAID_REVIEW');
   assert.equal(state('currency').status, 'PAID_REVIEW');
+});
+
+test('a provider reversal suspends fulfilment and creates a finance review', async () => {
+  booking('reversed');
+  await vacation.markSuccessful('reversed', 1000, 'GHS', 'reverse-tx');
+  const result = await reversal.flagPaymentReversal('reversed', 'reverse-tx');
+  assert.equal(result.status, 'REVERSAL_REVIEW');
+  assert.deepEqual({ ...state('reversed') }, { status: 'REVERSAL_REVIEW', booking_status: 'PAYMENT_RECEIVED_REVIEW' });
+  assert.equal(sql.db.prepare("SELECT status FROM finance_reconciliation WHERE reference='reversed'").get().status, 'REVIEW');
+  await vacation.markSuccessful('reversed', 1000, 'GHS', 'late-success');
+  await vacation.markFailed('reversed', 'late-failure', 'late-failure');
+  assert.equal(state('reversed').status, 'REVERSAL_REVIEW');
+  assert.equal(sql.db.prepare("SELECT payment_status FROM bookings WHERE id='reversed'").get().payment_status, 'REVERSAL_REVIEW');
+  await reversal.flagPaymentReversal('reversed', 'reverse-tx');
+  assert.equal(sql.db.prepare("SELECT COUNT(*) n FROM finance_audit WHERE target='reversed'").get().n, 1);
+});
+
+test('reversal racing a late success cannot resume fulfilment', async () => {
+  booking('reversal-race');
+  await Promise.all([reversal.flagPaymentReversal('reversal-race', 'reverse'), vacation.markSuccessful('reversal-race', 1000, 'GHS', 'success')]);
+  assert.equal(state('reversal-race').status, 'REVERSAL_REVIEW');
+  assert.equal(sql.db.prepare("SELECT payment_status FROM bookings WHERE id='reversal-race'").get().payment_status, 'REVERSAL_REVIEW');
 });
 
 test('transaction failure rolls back the seat claim and payment', async () => {

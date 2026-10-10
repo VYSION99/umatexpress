@@ -16,7 +16,7 @@ type Booking = {
   id: string; reference: string; propertyName: string; propertyAddress: string;
   roomLabel: string; spaceLabel: string; periodName: string;
   landlordName: string; landlordPhone: string; landlordEmail: string;
-  price: number; utilitiesFee: number; totalAmount: number;
+  price: number; utilitiesFee: number; processingFee: number; totalAmount: number;
   status: string; paidAt: string; holdExpiresAt: string; note: string; createdAt: string;
   stayStatus: string; expectedArrivalOn: string; checkedInAt: string; checkedOutAt: string; periodStartsOn: string; periodEndsOn: string;
 };
@@ -305,9 +305,10 @@ function ResidencyCard({ residency, busy, onRequest, onRefresh, onVerify, verify
     <div role="tabpanel" id={`${booking.id}-${activeTab}`} aria-labelledby={`${booking.id}-${activeTab}-tab`}>
     {activeTab === "overview" && <section className="residency-stay-summary"><h3>{booking.status === "PAID" ? statusLabel[booking.stayStatus] || "Arrival details" : statusLabel[booking.status]}</h3><dl className="residency-details"><div><dt>Academic year</dt><dd>{when(booking.periodStartsOn)} – {when(booking.periodEndsOn)}</dd></div><div><dt>Expected arrival</dt><dd>{when(booking.expectedArrivalOn) || "Arrange with your host"}</dd></div>{booking.checkedInAt && <div><dt>Checked in</dt><dd>{when(booking.checkedInAt)}</dd></div>}{booking.checkedOutAt && <div><dt>Departed</dt><dd>{when(booking.checkedOutAt)}</dd></div>}</dl>{booking.status === "PENDING_PAYMENT" && <p>Your bed is held until {booking.holdExpiresAt ? new Date(booking.holdExpiresAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "checkout expires"}. <button type="button" disabled={verifyBusy} onClick={onVerify}>{verifyBusy ? "Checking…" : "Check payment"}</button></p>}</section>}
     {activeTab === "payments" && <ul className="hostel-resident-facts">
-      <li><span>Booking total</span><strong>{cedis(booking.totalAmount)}</strong></li>
       <li><span>Rent</span><strong>{cedis(booking.price)}</strong></li>
       {booking.utilitiesFee > 0 && <li><span>Utilities</span><strong>{cedis(booking.utilitiesFee)}</strong></li>}
+      <li><span>Paystack processing</span><strong>{cedis(booking.processingFee)}</strong></li>
+      <li><span>{booking.paidAt ? "Total charged" : "Booking total"}</span><strong>{cedis(booking.totalAmount)}</strong></li>
       <li><span>Confirmed</span><strong>{when(booking.paidAt) || "Being reviewed"}</strong></li>
       <li><span>Reference</span><strong>{booking.reference}</strong></li>
     </ul>}

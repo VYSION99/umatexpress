@@ -6,6 +6,8 @@ import { replayFinanceItem, reconcilePaymentReference, reconcileSettlementPage, 
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { consoleAudit } from "@/lib/console-audit";
 
+import { paymentHealth } from "@/lib/payments/health";
+
 const headers={'Cache-Control':'no-store'};
 export async function GET(request:Request) {
   try {
@@ -25,7 +27,9 @@ export async function GET(request:Request) {
     // The inbox is independently migrated; a fresh finance desk should still load.
     const exists=rowsToObjects(await turso("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_inbox'"));
     const inbox=exists.length?rowsToObjects(await turso("SELECT id,event_type,reference,status,attempts,last_error,received_at FROM payment_inbox WHERE status!='PROCESSED' ORDER BY received_at LIMIT 100")):[];
-    return Response.json({balances:rowsToObjects(balances),events:rowsToObjects(events),operations:rowsToObjects(operations),reconciliation:rowsToObjects(reconciliation),audit:rowsToObjects(audit),backlog:rowsToObjects(backlog),checkouts:rowsToObjects(checkouts),inbox},{headers});
+    const eventRows=rowsToObjects(events),operationRows=rowsToObjects(operations),reconciliationRows=rowsToObjects(reconciliation),checkoutRows=rowsToObjects(checkouts);
+    const health = await paymentHealth();
+    return Response.json({balances:rowsToObjects(balances),events:eventRows,operations:operationRows,reconciliation:reconciliationRows,audit:rowsToObjects(audit),backlog:rowsToObjects(backlog),checkouts:checkoutRows,inbox,...health},{headers});
   } catch(error) {const result=campusErrorPayload(error);return Response.json({error:result.status<500?result.body.error:'Finance data is unavailable.'},{status:result.status,headers});}
 }
 export async function POST(request:Request) {

@@ -4,6 +4,7 @@ import { ensureFinanceSchema } from "@/lib/payments/schema";
 import { installFinancialCapture, drainFinancialOutbox } from "@/lib/payments/accounting";
 import { processPaystackEvent } from "@/lib/payments/paystack-events";
 import { drainPaymentInbox } from "@/lib/payments/inbox";
+import { flagPaymentReversal } from "@/lib/payments/reversal";
 
 export async function recordReconciliation(input:{id:string;reference:string;kind:string;expected:number|null;observed:number|null;currency:string;status:string;details:string}) {
   const now=new Date().toISOString();
@@ -22,9 +23,15 @@ export async function reconcilePaymentReference(reference:string) {
   await recordReconciliation({id:`charge:${reference}`,reference,kind:'CHARGE',expected:attempt?Number(attempt.amount):null,
     observed:payment.amount,currency:payment.currency,status:mismatch?'MISMATCH':success?'VERIFIED':payment.status,
     details:JSON.stringify({providerStatus:payment.status,fees:payment.fees,transactionId:payment.financialTransactionId})});
+  if(payment.status==='REVERSED') {
+    return flagPaymentReversal(reference,payment.financialTransactionId,payment.reason || 'PAYSTACK_PAYMENT_REVERSED');
+  }
   if(success || payment.status==='FAILED') {
-    const result=await processPaystackEvent({event:success?'charge.success':'charge.failed',data:{reference,amount:payment.amount,currency:payment.currency,status:success?'success':'failed',fees:payment.fees}});
-    await turso("UPDATE payment_attempts SET state=?,updated_at=? WHERE reference=? AND state!='SUCCESSFUL'",[mismatch?'REVIEW':payment.status,new Date().toISOString(),reference]);
+    const result=await processPaystackEvent({event:success?'charge.success':'charge.failed',data:{id:Number(payment.financialTransactionId)||undefined,reference,amount:payment.amount,currency:payment.currency,status:success?'success':'failed',fees:payment.fees}});
+    const review=mismatch || !result.handled || ('status' in result && ['PAID_REVIEW','PAYMENT_REVIEW','REVERSAL_REVIEW','NOT_PENDING'].includes(String(result.status)));
+    const state=review?'REVIEW':payment.status;
+    await turso("UPDATE payment_attempts SET state=?,updated_at=? WHERE reference=? AND (state NOT IN ('SUCCESSFUL','REVIEW') OR ?='REVIEW')",[state,new Date().toISOString(),reference,state]);
+    if(review) await turso("UPDATE finance_reconciliation SET status='REVIEW' WHERE id=?",[`charge:${reference}`]);
     return result;
   }
   return {handled:true,status:'PENDING'};

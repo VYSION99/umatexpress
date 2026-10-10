@@ -128,7 +128,7 @@ export async function applyCampusQueueTransition(exec: SqlExecutor, input: {
   if (input.ticketReady) assignments.push("ticket_image_ready = 1");
   values.push(input.entryId, input.from);
   const result = await exec(
-    `UPDATE campus_queue_entries SET ${assignments.join(", ")} WHERE id = ? AND queue_status = ?`,
+    `UPDATE campus_queue_entries SET ${assignments.join(", ")} WHERE id = ? AND queue_status = ?${input.paymentStatus ? " AND payment_status!='REVERSAL_REVIEW'" : ""}`,
     values,
   );
   return changed(result) === 1;

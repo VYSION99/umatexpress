@@ -77,20 +77,28 @@ export async function getPaystackCurrencyRuntime() {
 
 export function getPaystackFeePercent() {
   const value = Number(process.env.PAYSTACK_FEE_PERCENT || DEFAULT_PAYSTACK_FEE_PERCENT);
-  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_PAYSTACK_FEE_PERCENT;
+  return validateFeePercent(value);
 }
 
 export async function getPaystackFeePercentRuntime() {
   const value = Number(await envValue("PAYSTACK_FEE_PERCENT") || DEFAULT_PAYSTACK_FEE_PERCENT);
-  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_PAYSTACK_FEE_PERCENT;
+  return validateFeePercent(value);
+}
+
+function validateFeePercent(value: number) {
+  if (!Number.isFinite(value) || value < 0 || value >= 100) throw new Error("Paystack processing fee must be between 0 and less than 100 percent.");
+  return value;
 }
 
 export function calculatePaystackCharge(baseAmount: number, feePercent = getPaystackFeePercent()) {
-  const safeBaseAmount = Math.max(0, Math.round(baseAmount));
-  const rate = Math.max(0, feePercent) / 100;
-  if (!safeBaseAmount || !rate) return { baseAmount: safeBaseAmount, feeAmount: 0, totalAmount: safeBaseAmount, feePercent };
+  if (!Number.isSafeInteger(baseAmount) || baseAmount < 0) throw new Error("Payment amount must be a non-negative integer in minor units.");
+  const safeBaseAmount = baseAmount;
+  const safeFeePercent = validateFeePercent(feePercent);
+  const rate = safeFeePercent / 100;
+  if (!safeBaseAmount || !rate) return { baseAmount: safeBaseAmount, feeAmount: 0, totalAmount: safeBaseAmount, feePercent: safeFeePercent };
   const totalAmount = Math.ceil(safeBaseAmount / (1 - rate));
-  return { baseAmount: safeBaseAmount, feeAmount: totalAmount - safeBaseAmount, totalAmount, feePercent };
+  if (!Number.isSafeInteger(totalAmount)) throw new Error("Payment total exceeds the supported amount.");
+  return { baseAmount: safeBaseAmount, feeAmount: totalAmount - safeBaseAmount, totalAmount, feePercent: safeFeePercent };
 }
 
 async function initializePaystackTransactionRaw(input: {
@@ -141,10 +149,13 @@ export async function verifyPaystackTransaction(reference: string) {
     throw new Error(result.message || `Paystack verify failed (${response.status}).`);
   }
   return {
-    status: result.data.status === "success" ? "SUCCESSFUL" : result.data.status === "failed" || result.data.status === "abandoned" ? "FAILED" : "PENDING",
+    status: result.data.status === "success" ? "SUCCESSFUL"
+      : result.data.status === "failed" || result.data.status === "abandoned" ? "FAILED"
+      : result.data.status === "reversed" ? "REVERSED"
+      : "PENDING",
     financialTransactionId: result.data.id ? String(result.data.id) : "",
     amount: Number(result.data.amount || 0),
-    currency: result.data.currency || "",
+    currency: String(result.data.currency || "MISSING").toUpperCase(),
     // The configured percentage is an estimate; this is what the rail took. The
     // two are stored separately so a drift between them is visible rather than
     // silently paid for by the platform.
