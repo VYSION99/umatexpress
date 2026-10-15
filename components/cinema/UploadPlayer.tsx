@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PictureInPicture } from "@/components/ui/MaterialIcon";
 import type { CinemaClientMessage, CinemaPlaybackAction, CinemaPlaybackState } from "@/lib/cinema-engine/protocol";
 import { CINEMA_DRIFT_THRESHOLD_SECONDS, CINEMA_HOST_DRIFT_SECONDS, expectedPosition, reconcilePlayback } from "@/lib/cinema-engine/sync";
+import { CinemaFullscreenButton } from "./CinemaFullscreenButton";
 
 /**
  * The room's uploaded video, driven by the room.
@@ -23,6 +24,7 @@ export function UploadPlayer(input: {
   onAction: (message: CinemaClientMessage) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playerShellRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [needsTap, setNeedsTap] = useState(false);
   const [lease, setLease] = useState("");
@@ -149,7 +151,7 @@ export function UploadPlayer(input: {
     return () => window.clearInterval(timer);
   }, [status, apply, sendNow]);
 
-  return <div className="cinema-player">
+  return <div className="cinema-player" ref={playerShellRef}>
     <video
       ref={videoRef}
       className={`cinema-upload-video${input.isHost ? "" : " is-passive"}`}
@@ -181,6 +183,7 @@ export function UploadPlayer(input: {
         setStatus("failed");
       }}
     />
+    {status === "ready" && <CinemaFullscreenButton playerRef={playerShellRef} videoRef={videoRef} />}
     {status === "ready" && typeof document !== "undefined" && document.pictureInPictureEnabled && <button
       type="button"
       className="cinema-pip-button"

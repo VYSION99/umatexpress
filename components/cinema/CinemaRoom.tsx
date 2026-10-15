@@ -62,6 +62,7 @@ export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
 
 function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const { ready, account } = useStudentAccount();
+  const needsEmailVerification = Boolean(ready && account && !account.emailVerified);
   const [room, setRoom] = useState<Room>(initialRoom);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -529,8 +530,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
                 ? !account ? "Sign in to join this room." : room.waitingState === "WAITING" ? "You are in the waiting room. The host or a co-host will admit you." : room.waitingState === "REJECTED" ? "The host could not admit this request." : !room.isMember ? "Joining the room…" : live.state !== "live" ? "Connecting to the room…" : room.isHost
                   ? "No video is attached yet. Add one from the Cinema lobby — the room picks it up as soon as it is ready."
                   : "No video is attached yet. The host adds it from the Cinema lobby."
-                : live.closedReason || "This room has ended."}
+                : roomActive ? live.closedReason || "The room connection has closed." : "This room has ended."}
             </p>}
+        {roomActive && needsEmailVerification && <Link className="cinema-verify-link" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}><Envelope size={18} aria-hidden /> Verify your email</Link>}
         {currentCaption && <div className="cinema-live-caption" aria-live="polite"><strong>{currentCaption.source === "CALL" ? currentCaption.speakerName : "Captions"}</strong> {currentCaption.text}</div>}
         {!active && <Link className="cinema-cta" href="/cinema/rooms">Back to your rooms</Link>}
         {active && account && room.waitingState === "REJECTED" && <button type="button" className="cinema-cta" onClick={() => void requestAdmissionAgain()}>Request admission again</button>}
@@ -587,8 +589,8 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
         Voice and camera are switched off on this deployment. Chat and the video still work.
       </p>}
 
-      {error && <p className="cinema-error" role="alert">{error}</p>}
-      {live.socketError && <p className="cinema-error" role="status">{live.socketError}</p>}
+      {error && !((needsEmailVerification || !roomActive) && error === "Verify your email before joining a Cinema event.") && <p className="cinema-error" role="alert">{error}</p>}
+      {roomActive && live.socketError && <p className="cinema-error" role="status">{live.socketError}</p>}
       {recorder.recoveryUrl && selected !== "record" && <button className="cinema-recovery" onClick={() => openSheet("record")}>Your recording is ready to download — open Recorder</button>}
       {active && room.isMember && live.state !== "live" && <p role="status" className="cinema-note">Reconnecting. Playback is paused and devices are off.</p>}
     </div>

@@ -197,6 +197,12 @@ export function CinemaLobby() {
     </div>
   </section>;
 
+  if (!account.emailVerified) return <section className="cinema-card">
+    <h2>Verify your email to use Cinema</h2>
+    <p className="cinema-note">You are signed in as {account.email}. Confirm your email to open or join rooms.</p>
+    <Link className="cinema-cta cinema-sub" href="/account?next=%2Fcinema%2Frooms">Verify your email</Link>
+  </section>;
+
   return <div className="cinema-lobby">
     <section className="cinema-lobby-head">
       <div><span className="cinema-eyebrow">LIVE VIDEO · PANELS · DEBATES</span><h2>Watch the event.<br />Join the conversation.</h2><p>Stream campus events, follow a moderated panel, ask questions and vote. Create a smaller room when your group needs its own space.</p></div>
@@ -351,30 +357,41 @@ export function CinemaLobby() {
       {loading ? <p className="cinema-note" role="status">Loading your rooms…</p> : listError ? <div className="cinema-error" role="alert">{listError} <button onClick={() => void load()}>Retry</button></div> : rooms.length === 0
         ? <p className="cinema-note">Rooms you host or join appear here, newest first.</p>
         : <ul className="cinema-rooms">
-          {rooms.map((room) => <li className="cinema-room-row" key={room.id}>
-            <div>
-              <Link href={`/cinema/${room.id}`}>{room.title}</Link>
-              <small>{room.isHost ? "You host this" : room.isMember ? "You are in this room" : room.invited ? "You are invited" : `Hosted by ${room.hostName}`} · {room.verifiedCount} {room.verifiedCount === 1 ? "person" : "people"}</small>
-            </div>
-            <div className="cinema-room-tags">
-              {room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Private</span>}
-              <span className={`cinema-chip${room.status === "LIVE" ? " is-live" : room.status === "ENDED" ? " is-ended" : ""}`}>
-                {room.status === "CREATED" && room.startsAt ? `Starts ${clockCopy(room.startsAt)}` : room.status}
-              </span>
-              {room.isHost && room.sourceType !== "UPLOAD" && isActive(room) && <button
-                type="button"
-                className="cinema-chip is-button"
-                disabled={roomBusy === room.id}
-                title={room.isPrivate ? "Make this room public" : "Make this room invite-only"}
-                onClick={() => room.isPrivate ? setPublicRoom(room) : void flipDoor(room)}
-              >{room.isPrivate ? <Globe size={11} aria-hidden /> : <Lock size={11} aria-hidden />}{room.isPrivate ? "Make it public" : "Make it private"}</button>}
-              {room.isHost && isActive(room) && !room.videoId && <button
-                type="button"
-                className="cinema-chip is-button is-upload"
-                onClick={() => { setError(""); setUploadRoom(room); }}
-              ><UploadSimple size={11} aria-hidden /> Add the file</button>}
-            </div>
-          </li>)}
+          {rooms.map((room) => {
+            const thumbnail = room.sourceType === "YOUTUBE" && /^[A-Za-z0-9_-]{11}$/.test(room.videoId)
+              ? `https://i.ytimg.com/vi/${room.videoId}/hqdefault.jpg` : "";
+            const status = room.status === "CREATED" ? "Scheduled" : room.status === "LIVE" ? "Live now" : "Ended";
+            return <li className="cinema-room-row" key={room.id}>
+              <Link className="cinema-room-poster" href={`/cinema/${room.id}`} aria-label={`Open ${room.title}`}>
+                <FilmSlate size={28} aria-hidden />
+                {thumbnail && <img src={thumbnail} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true; }} />}
+              </Link>
+              <div className="cinema-room-info">
+                <div className="cinema-room-tags">
+                  <span className={`cinema-chip${room.status === "LIVE" ? " is-live" : room.status !== "CREATED" ? " is-ended" : " is-scheduled"}`}>{status}</span>
+                  {room.isPrivate && <span className="cinema-chip is-private"><Lock size={11} aria-hidden /> Invite only</span>}
+                </div>
+                <h3><Link href={`/cinema/${room.id}`}>{room.title}</Link></h3>
+                <p>{room.isHost ? "Hosted by you" : `Hosted by ${room.hostName}`} · {room.verifiedCount} {room.verifiedCount === 1 ? "participant" : "participants"}</p>
+                {room.status === "CREATED" && room.startsAt && <time dateTime={room.startsAt}>Starts {sessionDateCopy(room.startsAt)}</time>}
+              </div>
+              <div className="cinema-room-actions">
+                <Link className="cinema-room-open" href={`/cinema/${room.id}`}>{isActive(room) ? "Open room" : "View room"}</Link>
+                {room.isHost && room.sourceType !== "UPLOAD" && isActive(room) && <button
+                  type="button"
+                  className="cinema-chip is-button"
+                  disabled={roomBusy === room.id}
+                  title={room.isPrivate ? "Make this room public" : "Make this room invite-only"}
+                  onClick={() => room.isPrivate ? setPublicRoom(room) : void flipDoor(room)}
+                >{room.isPrivate ? <Globe size={11} aria-hidden /> : <Lock size={11} aria-hidden />}{room.isPrivate ? "Make public" : "Make private"}</button>}
+                {room.isHost && isActive(room) && !room.videoId && <button
+                  type="button"
+                  className="cinema-chip is-button is-upload"
+                  onClick={() => { setError(""); setUploadRoom(room); }}
+                ><UploadSimple size={11} aria-hidden /> Add video</button>}
+              </div>
+            </li>;
+          })}
         </ul>}
       <nav className="cinema-pagination" aria-label="Room pages"><button disabled={!offset || loading} onClick={() => setOffset(value => Math.max(0, value - 20))}>Previous</button><span>Page {Math.floor(offset / 20) + 1}</span><button disabled={!hasMore || loading} onClick={() => setOffset(value => value + 20)}>Next</button></nav>
     </section>
@@ -388,9 +405,8 @@ function roomIdFrom(value: string) {
   return /^[A-Za-z0-9-]{8,64}$/.test(candidate) ? candidate : "";
 }
 
-/** A schedule instant on the reader's own clock, e.g. "19:05"; '' when absent. */
-function clockCopy(iso: string) {
+function sessionDateCopy(iso: string) {
   const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (Number.isNaN(at.getTime())) return "Time to be confirmed";
+  return at.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }

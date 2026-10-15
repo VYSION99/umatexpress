@@ -49,7 +49,8 @@ export function StudentAuthCard({ next }: { next?: string }) {
       // Mirror the account into the device profile so booking forms fill instantly.
       writeProfile({ name: data.account.name, email: data.account.email, phone: data.account.phone });
       publishStudentAccount(data.account);
-      window.location.assign(mode === "signup" ? "/account?next=" + encodeURIComponent(destination) : destination);
+      const verifyFirst = !data.account.emailVerified && (data.account.verificationRequired || cinemaAudience);
+      window.location.assign(mode === "signup" || verifyFirst ? "/account?next=" + encodeURIComponent(destination) : destination);
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "That did not work. Please try again.");
       setLoading(false);
@@ -89,10 +90,10 @@ export function StudentAuthCard({ next }: { next?: string }) {
     finally { setVerificationBusy(false); }
   };
 
-  if (ready && account?.verificationRequired && !account.emailVerified) {
+  if (ready && account && !account.emailVerified && (account.verificationRequired || cinemaAudience)) {
     return <form className="campus-auth-card student-auth-signed-in" onSubmit={verifyEmail}>
       <h2>Verify your email</h2>
-      <p>Enter the six-digit code sent to {account.email}. This confirms you own the address before you book or join a service.</p>
+      <p>You are signed in as {account.email}. Enter the latest six-digit email code, or select <strong>Send a new code</strong> below. Cinema requires this separate email check before you join.</p>
       <label>Verification code<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={verificationCode} onChange={event => setVerificationCode(event.target.value)} /></label>
       {verificationError && <p role="status">{verificationError}</p>}
       <div className="student-auth-actions">

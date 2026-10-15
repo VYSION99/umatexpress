@@ -130,7 +130,7 @@ async function storedAccount(email: string) {
   if (!(await isTursoConfiguredRuntime())) return null;
   await ensureStudentAccountsTable();
   return rowsToObjects(await turso(
-    "SELECT id,email,name,phone,password_hash,password_salt,password_iterations,COALESCE(token_version,0) AS token_version,COALESCE(active,1) AS active FROM student_accounts WHERE email = ? LIMIT 1",
+    `SELECT ${ACCOUNT_COLUMNS},password_hash,password_salt,password_iterations,COALESCE(token_version,0) AS token_version,COALESCE(active,1) AS active FROM student_accounts WHERE email = ? LIMIT 1`,
     [email],
   ))[0] || null;
 }

@@ -75,7 +75,7 @@ export function CinemaDiscussionAudience({ initialRoom, onStageRole }: { initial
   };
 
   if (!ready) return <section className="cinema-card">Checking your account…</section>;
-  if (!account || !account.emailVerified) return <section className="cinema-card"><h2>Sign in to attend</h2><p>Any verified account may join this public discussion.</p><Link className="cinema-cta" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}>{account ? "Verify your email" : "Sign in or create an account"}</Link></section>;
+  if (!account || !account.emailVerified) return <section className="cinema-card"><h2>{account ? "Verify your email" : "Sign in to attend"}</h2><p>{account ? "You are signed in. Confirm your email before joining this discussion." : "Any verified account may join this public discussion."}</p><Link className="cinema-cta" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}>{account ? "Verify your email" : "Sign in or create an account"}</Link></section>;
   if (error && !room.isMember) return <section className="cinema-card"><h2>Could not join</h2><p className="cinema-error" role="alert">{error}</p><Link href="/cinema/events">Browse events</Link></section>;
   return <section className="cinema-discussion-audience" aria-label="Discussion audience">
     <div className="cinema-discussion-broadcast">

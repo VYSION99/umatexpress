@@ -75,7 +75,7 @@ export function CinemaEvents() {
   return <div className="cinema-events-page">
     <section className="cinema-events-hero">
       <div><span className="cinema-eyebrow">CINEMA LIVE</span><h2>Live video, real conversations.</h2><p>Watch campus streams, debates and panels. Join the audience, ask questions, vote and request the speaking stage.</p></div>
-      <div className="cinema-controls">{account && validStudentEmail(account.email) ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">UMaT student organizers can publish events.</span>}{account && validStudentEmail(account.email) && <Link className="secondary" href="/cinema/rooms">Your rooms</Link>}</div>
+      <div className="cinema-controls">{account && validStudentEmail(account.email) ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">UMaT student organizers can publish events.</span>}{account && validStudentEmail(account.email) && <Link className="cinema-rooms-link" href="/cinema/rooms"><FilmSlate size={18} /> Open your rooms</Link>}</div>
     </section>
     <div className="cinema-event-tools">
       <nav className="cinema-filters" aria-label="Event sections">{SECTIONS.map((value) => <button key={value} aria-pressed={section === value} onClick={() => setSection(value)}>{value === "REPLAY" ? "Replays" : value === "LIVE" ? "Live now" : "Upcoming"}</button>)}</nav>

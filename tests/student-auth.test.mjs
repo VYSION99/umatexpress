@@ -30,7 +30,9 @@ const {
   studentAccountFromRequest,
   studentSessionFromRequest,
   clearStudentSessionCookie,
+  verifyStudentCredentials,
 } = await vite.ssrLoadModule("/lib/student-auth.ts");
+const { hashPassword } = await vite.ssrLoadModule("/lib/campus-engine/crypto.ts");
 
 const request = (cookie) => new Request("https://umatexpress.test/api/auth/student", { headers: cookie ? { cookie } : {} });
 
@@ -185,6 +187,36 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
     assert.match(lookup[0], /WHERE id = \? LIMIT 1$/);
     verificationRequired = 1;
     await assert.rejects(() => requireStudent(request(cookie)), /Verify your UMaT email/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previous.url === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previous.url;
+    if (previous.token === undefined) delete process.env.TURSO_AUTH_TOKEN; else process.env.TURSO_AUTH_TOKEN = previous.token;
+  }
+});
+
+test("password sign-in returns the stored email verification state", async () => {
+  const previous = { url: process.env.TURSO_DATABASE_URL, token: process.env.TURSO_AUTH_TOKEN };
+  process.env.TURSO_DATABASE_URL = "libsql://example.test";
+  process.env.TURSO_AUTH_TOKEN = "test-token";
+  const originalFetch = globalThis.fetch;
+  const hashed = await hashPassword("Campus!2026ride");
+  let lookupSql = "";
+  globalThis.fetch = async (_url, init) => {
+    const sql = JSON.parse(String(init?.body)).requests[0].stmt.sql;
+    if (sql.includes("FROM student_accounts WHERE email = ?")) {
+      lookupSql = sql;
+      const columns = ["id", "email", "name", "phone", "created_at", "last_login_at", "email_verified", "verification_required", "password_hash", "password_salt", "password_iterations", "active"];
+      const values = ["acc-verified", "ama@st.umat.edu.gh", "Ama", "", "2026-01-01T00:00:00.000Z", "", 1, 1, hashed.hash, hashed.salt, hashed.iterations, 1];
+      return Response.json({ results: [{ type: "ok", response: { result: { rows: [values.map((value) => ({ value }))], cols: columns.map((name) => ({ name })) } } }] });
+    }
+    return Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [] } } }] });
+  };
+  try {
+    const account = await verifyStudentCredentials("ama@st.umat.edu.gh", "Campus!2026ride");
+    assert.equal(account?.emailVerified, true);
+    assert.equal(account?.verificationRequired, true);
+    assert.match(lookupSql, /COALESCE\(email_verified,0\) AS email_verified/);
+    assert.match(lookupSql, /COALESCE\(verification_required,0\) AS verification_required/);
   } finally {
     globalThis.fetch = originalFetch;
     if (previous.url === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previous.url;
