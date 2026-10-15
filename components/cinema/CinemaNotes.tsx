@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, DownloadSimple, Notebook, Trash } from "@/components/ui/MaterialIcon";
+import { downloadTextPdf } from "./pdf";
 
 /** Long enough for a lecture's worth of notes, short enough for one storage row. */
 const NOTES_MAX_CHARS = 20_000;
@@ -76,14 +77,8 @@ export function CinemaNotes({ roomId }: { roomId: string }) {
   };
 
   const download = () => {
-    const blob = new Blob([text || ""], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `umatexpress-notes-${roomId.slice(0, 8)}.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
-    setNotice("Downloaded as a text file.");
+    downloadTextPdf(`umatexpress-notes-${roomId.slice(0, 8)}.pdf`, "UMATeXPRESS Session Notes", text.split("\n"));
+    setNotice("Downloaded as a PDF.");
   };
 
   return <section className="cinema-card cinema-notes">
@@ -101,7 +96,7 @@ export function CinemaNotes({ roomId }: { roomId: string }) {
     />
     <div className="cinema-notes-actions">
       <button type="button" className="secondary" disabled={!text} onClick={() => void copy()}><Copy size={13} aria-hidden /> Copy</button>
-      <button type="button" className="secondary" disabled={!text} onClick={download}><DownloadSimple size={13} aria-hidden /> Download</button>
+      <button type="button" className="secondary" disabled={!text} onClick={download}><DownloadSimple size={13} aria-hidden /> PDF</button>
       <button type="button" className="secondary" disabled={!text} onClick={() => { change(""); try { window.localStorage.removeItem(key); } catch { /* nothing to clear */ } }}><Trash size={13} aria-hidden /> Clear</button>
       <span className="cinema-notes-count">{text.length}/{NOTES_MAX_CHARS}</span>
     </div>

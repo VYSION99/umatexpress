@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { completeCinemaRecording, publicCinemaRecording } from "@/lib/cinema-engine/recordings";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -11,7 +11,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string; recordingId: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-recording-finish", student.id, { limit: 60, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { recordingId } = await context.params;

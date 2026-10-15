@@ -1,9 +1,12 @@
 "use client";
 
-import { type CSSProperties, useCallback, useEffect, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import "./brand-splash.css";
 
-export const SPLASH_DURATION_MS = 6000;
+export const SPLASH_DURATION_MS = 11000;
+const SPLASH_FADE_MS = 450;
+// Stretch the nine-second choreography together while keeping dismissal quick.
+const SPLASH_MOTION_SCALE = (SPLASH_DURATION_MS - SPLASH_FADE_MS) / (9000 - SPLASH_FADE_MS);
 export const SPLASH_WORDMARK = "UMATeXPRESS";
 export const SPLASH_STAGES = [
   "darkness",
@@ -28,7 +31,7 @@ const WORDMARK_SLICES = [
 const PARTICLES = Array.from({ length: 30 }, (_, index) => ({
   angle: (index * 137.5) % 360,
   distance: 22 + ((index * 29) % 48),
-  delay: (index % 10) * 28,
+  delay: (index % 10) * 40,
   size: 1 + (index % 4) * 0.65,
 }));
 
@@ -43,10 +46,16 @@ export function BrandSplash() {
   const [visible, setVisible] = useState(true);
   const [leaving, setLeaving] = useState(false);
   const [assetFailed, setAssetFailed] = useState(false);
+  const dismissTimer = useRef<number | null>(null);
 
   const dismiss = useCallback(() => {
+    if (dismissTimer.current !== null) window.clearTimeout(dismissTimer.current);
     setLeaving(true);
-    window.setTimeout(() => setVisible(false), 300);
+    dismissTimer.current = window.setTimeout(() => setVisible(false), SPLASH_FADE_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (dismissTimer.current !== null) window.clearTimeout(dismissTimer.current);
   }, []);
 
   useEffect(() => {
@@ -62,7 +71,7 @@ export function BrandSplash() {
 
     try { sessionStorage.setItem(STORAGE_KEY, "1"); } catch { /* the animation still works */ }
     document.documentElement.classList.add("brand-splash-active");
-    const leaveTimer = window.setTimeout(() => setLeaving(true), 5700);
+    const leaveTimer = window.setTimeout(() => setLeaving(true), SPLASH_DURATION_MS - SPLASH_FADE_MS);
     const removeTimer = window.setTimeout(() => setVisible(false), SPLASH_DURATION_MS + 40);
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") dismiss(); };
     window.addEventListener("keydown", onKeyDown);
@@ -83,13 +92,13 @@ export function BrandSplash() {
 
   if (!visible) return null;
 
-  return <div className={`brand-splash${leaving ? " is-leaving" : ""}${assetFailed ? " has-asset-fallback" : ""}`} data-duration={SPLASH_DURATION_MS} data-stages={SPLASH_STAGES.length}>
+  return <div className={`brand-splash${leaving ? " is-leaving" : ""}${assetFailed ? " has-asset-fallback" : ""}`} style={{ "--splash-motion-scale": SPLASH_MOTION_SCALE, "--splash-fade-duration": `${SPLASH_FADE_MS}ms`, "--splash-exit-delay": `${SPLASH_DURATION_MS - SPLASH_FADE_MS}ms` } as SplashStyle} data-duration={SPLASH_DURATION_MS} data-stages={SPLASH_STAGES.length}>
     <div className="brand-splash-atmosphere" aria-hidden="true" />
     <div className="brand-splash-particles" aria-hidden="true">
       {PARTICLES.map((particle, index) => <i key={index} style={{
         "--particle-angle": `${particle.angle}deg`,
         "--particle-distance": `${particle.distance}vmin`,
-        "--particle-delay": `${particle.delay}ms`,
+        "--particle-delay": `${particle.delay * SPLASH_MOTION_SCALE}ms`,
         "--particle-size": `${particle.size}px`,
       } as SplashStyle} />)}
     </div>
@@ -104,7 +113,7 @@ export function BrandSplash() {
       <OriginalFragment className="is-main-leaf" />
       <OriginalFragment className="is-lower-leaf" />
       <div className="brand-splash-wordmark">
-        {WORDMARK_SLICES.map(([left, width], index) => <span className="brand-splash-letter" key={`${left}-${width}`} style={{ "--letter-left": `${left}%`, "--letter-width": `${width}%`, "--letter-offset": `${(5 - index) * 7}px`, "--letter-delay": `${4050 + index * 58}ms` } as SplashStyle}><img src="/logo-web.png" alt="" draggable={false} /></span>)}
+        {WORDMARK_SLICES.map(([left, width], index) => <span className="brand-splash-letter" key={`${left}-${width}`} style={{ "--letter-left": `${left}%`, "--letter-width": `${width}%`, "--letter-offset": `${(5 - index) * 7}px`, "--letter-delay": `${(5500 + index * 90) * SPLASH_MOTION_SCALE}ms` } as SplashStyle}><img src="/logo-web.png" alt="" draggable={false} /></span>)}
       </div>
       <span className="brand-splash-pulse" />
       <span className="brand-splash-sweep" />

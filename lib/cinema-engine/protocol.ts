@@ -1,4 +1,5 @@
 import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
+import type { CinemaMemberRole } from "@/lib/cinema-engine/rooms";
 
 /**
  * The Cinema socket protocol.
@@ -14,12 +15,16 @@ export type CinemaPresenceMember = {
   studentId: string;
   displayName: string;
   isHost: boolean;
+  role: CinemaMemberRole;
+  handRaised: boolean;
   /** Epoch milliseconds of this connection, not of the first time they joined. */
   since: number;
   /** Microphone on. The socket attachment is the record, never the sender's frame. */
   mic: boolean;
   /** Camera on. Off by default: a study room should not open with a camera prompt. */
   camera: boolean;
+  /** This member is publishing a display or presentation instead of a camera. */
+  screen: boolean;
   /** Recording, announced so the room always knows when one is running. */
   recording: boolean;
 };
@@ -53,6 +58,8 @@ export type CinemaChatMessage = {
 
 /** Long enough for a study question, short enough that a socket cannot flood. */
 export const CINEMA_CHAT_MAX_LENGTH = 500;
+/** Bound the peer mesh; additional viewers still have video, chat, notes and boards. */
+export const CINEMA_CALL_MEMBER_LIMIT = 6;
 
 /**
  * The largest frame the socket speaks. A chat line is a few hundred bytes; an
@@ -75,7 +82,8 @@ export const CINEMA_PLAYBACK_START: CinemaPlaybackState = {
 
 export type CinemaServerMessage =
   | { type: "presence"; members: CinemaPresenceMember[] }
-  | { type: "state"; playback: CinemaPlaybackState }
+  | { type: "state"; playback: CinemaPlaybackState; serverAt?: number }
+  | { type: "chat_ack"; requestId: string; message: CinemaChatMessage }
   | { type: "chat"; message: CinemaChatMessage }
   | { type: "chat_removed"; id: string }
   | { type: "source"; sourceType: string; videoId: string }
@@ -87,9 +95,10 @@ export type CinemaServerMessage =
   | { type: "mute_all"; by: string }
   /** Who may ask the room's whiteboard, as the host last set it. */
   | { type: "board_policy"; policy: CinemaBoardPolicy }
-  | { type: "pong"; at: number }
+  | { type: "reaction"; id: string; from: string; name: string; emoji: CinemaReaction; at: number }
+  | { type: "pong"; at: number; sentAt?: number }
   | { type: "closed"; reason: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; requestId?: string };
 
 export type CinemaPlaybackActionType = "play" | "pause" | "seek";
 
@@ -109,6 +118,7 @@ export type CinemaChatMessageInput = {
   message: string;
   /** The video position the sender wants the chip to seek to. */
   timestamp?: number;
+  requestId?: string;
 };
 
 /**
@@ -132,6 +142,7 @@ export type CinemaMediaStateInput = {
   type: "media_state";
   mic: boolean;
   camera: boolean;
+  screen?: boolean;
 };
 
 /**
@@ -143,6 +154,11 @@ export type CinemaRecordingStateInput = {
   type: "recording_state";
   active: boolean;
 };
+
+export const CINEMA_REACTIONS = ["👏", "❤️", "😂", "💡", "✅"] as const;
+export type CinemaReaction = (typeof CINEMA_REACTIONS)[number];
+export type CinemaReactionInput = { type: "reaction"; emoji: CinemaReaction };
+export type CinemaHandStateInput = { type: "hand_state"; raised: boolean };
 
 /**
  * The host asking the room to mute. The object checks that the sender is the
@@ -172,14 +188,16 @@ export type CinemaBoardPolicyInput = {
 };
 
 export type CinemaClientMessage =
-  | { type: "ping" }
+  | { type: "ping"; sentAt?: number }
   | CinemaChatMessageInput
   | CinemaPlaybackAction
   | CinemaSignalInput
   | CinemaMediaStateInput
   | CinemaRecordingStateInput
   | CinemaMuteAllInput
-  | CinemaBoardPolicyInput;
+  | CinemaBoardPolicyInput
+  | CinemaReactionInput
+  | CinemaHandStateInput;
 
 const PLAYBACK_TYPES = new Set<CinemaPlaybackActionType>(["play", "pause", "seek"]);
 const SIGNAL_KINDS = new Set<CinemaSignalPayload["kind"]>(["offer", "answer", "candidate"]);
@@ -218,8 +236,16 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
   }
   if (!value || typeof value !== "object") return null;
   const type = (value as { type?: unknown }).type;
-  if (type === "ping") return { type };
+  if (type === "ping") {
+    const sentAt = Number((value as { sentAt?: unknown }).sentAt);
+    return { type, ...(Number.isFinite(sentAt) && sentAt > 0 ? { sentAt } : {}) };
+  }
   if (type === "mute_all") return { type: "mute_all" };
+  if (type === "hand_state") return { type: "hand_state", raised: (value as { raised?: unknown }).raised === true };
+  if (type === "reaction") {
+    const emoji = String((value as { emoji?: unknown }).emoji) as CinemaReaction;
+    return CINEMA_REACTIONS.includes(emoji) ? { type: "reaction", emoji } : null;
+  }
   if (type === "board_policy") {
     const policy = String((value as { policy?: unknown }).policy || "").toUpperCase();
     return (CINEMA_BOARD_POLICIES as readonly string[]).includes(policy)
@@ -227,13 +253,16 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
       : null;
   }
   if (type === "chat_message") {
-    const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown };
+    const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown; requestId?: unknown };
     const content = String(source.message ?? source.content ?? "").trim();
     if (!content || content.length > CINEMA_CHAT_MAX_LENGTH) return null;
+    const requestId = typeof source.requestId === "string" ? source.requestId : "";
+    if (requestId && !/^[A-Za-z0-9-]{8,64}$/.test(requestId)) return null;
     const rawTimestamp = Number(source.timestamp ?? source.atSeconds);
     return {
       type: "chat_message",
       message: content,
+      ...(requestId ? { requestId } : {}),
       ...(Number.isFinite(rawTimestamp) && rawTimestamp >= 0 ? { timestamp: rawTimestamp } : {}),
     };
   }
@@ -259,9 +288,10 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
     return { type: "signal", to, payload };
   }
   if (type === "media_state") {
-    const source = value as { mic?: unknown; camera?: unknown };
+    const source = value as { mic?: unknown; camera?: unknown; screen?: unknown };
     if (typeof source.mic !== "boolean" || typeof source.camera !== "boolean") return null;
-    return { type: "media_state", mic: source.mic, camera: source.camera };
+    if (source.screen !== undefined && typeof source.screen !== "boolean") return null;
+    return { type: "media_state", mic: source.mic, camera: source.camera, screen: source.screen === true };
   }
   if (type === "recording_state") {
     const source = value as { active?: unknown };

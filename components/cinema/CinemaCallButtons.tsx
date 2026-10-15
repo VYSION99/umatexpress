@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CameraSlash, Circle, Microphone, MicrophoneSlash } from "@/components/ui/MaterialIcon";
+import { Camera, CameraSlash, Circle, Microphone, MicrophoneSlash, ScreenShare } from "@/components/ui/MaterialIcon";
 import type { ReactNode } from "react";
 import type { CinemaMedia } from "./useCinemaMedia";
 import type { CinemaRecorder } from "./useCinemaRecorder";
@@ -23,6 +23,8 @@ export function CinemaCallButtons(input: {
   onToggleRecord: () => void;
   /** Name each button under its icon, for the desktop control bar. */
   labels?: boolean;
+  hideRecorder?: boolean;
+  canShare?: boolean;
 }) {
   const { media, recorder } = input;
   const recording = recorder.phase === "recording" || recorder.phase === "paused";
@@ -50,7 +52,15 @@ export function CinemaCallButtons(input: {
       data-tip={media.policy.camera ? (media.cameraOn ? "Camera on — tap to turn it off" : "Camera off — tap to appear") : "Camera is switched off on this deployment"}
       onClick={() => void media.toggleCamera()}
     >{face("Camera", media.cameraOn ? <Camera size={18} aria-hidden /> : <CameraSlash size={18} aria-hidden />)}</button>
-    <button
+    {input.canShare && media.policy.camera && <button
+      type="button"
+      className={media.screenOn ? "is-active" : ""}
+      aria-pressed={media.screenOn}
+      aria-label={media.screenOn ? "Stop sharing my screen" : "Share my screen or presentation"}
+      data-tip={media.screenOn ? "Stop presenting" : "Share screen or slides"}
+      onClick={() => void media.toggleScreen()}
+    >{face("Present", <ScreenShare size={18} aria-hidden />)}</button>}
+    {!input.hideRecorder && <button
       type="button"
       className={recording ? "is-recording" : input.recordOpen ? "is-active" : ""}
       disabled={!media.policyLoaded}
@@ -58,6 +68,6 @@ export function CinemaCallButtons(input: {
       aria-label="Recorder"
       data-tip="Record my mic and camera"
       onClick={input.onToggleRecord}
-    >{face("Record", <Circle size={18} aria-hidden />)}</button>
+    >{face("Record", <Circle size={18} aria-hidden />)}</button>}
   </>;
 }

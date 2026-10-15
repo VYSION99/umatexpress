@@ -30,7 +30,7 @@ const empty = { cols: [], rows: [] };
 const affected = (count) => ok({ affected_row_count: count });
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at", "discussion_mode", "stage_limit"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 const MESSAGE_COLUMNS = ["id", "session_id", "sender_id", "sender_name", "content", "metadata", "created_at"];
 /** The aliases the engine's SELECT produces, not the table's column names. */
@@ -58,9 +58,13 @@ function handle(sql, args) {
     state.metrics.set(key, (state.metrics.get(key) || 0) + Number(amount));
     return ok(table(["count"], [{ count: state.metrics.get(key) }]));
   }
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1$/.test(query)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at,discussion_mode,stage_limit FROM cinema_sessions WHERE id = \? LIMIT 1$/.test(query)) {
     const room = state.rooms.find((row) => likeRoom(row, args, query));
     return ok(room ? table(ROOM_COLUMNS, [room]) : empty);
+  }
+  if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at,COALESCE\(role,'VIEWER'\) AS role FROM cinema_participants/.test(query)) {
+    const rows = state.members.filter((row) => args.includes(row.session_id)).map((row) => ({ ...row, role: row.role || "VIEWER" }));
+    return ok(rows.length ? table([...MEMBER_COLUMNS, "role"], rows) : empty);
   }
   if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at FROM cinema_participants WHERE session_id IN/.test(query)) {
     const rows = state.members.filter((row) => args.includes(row.session_id));

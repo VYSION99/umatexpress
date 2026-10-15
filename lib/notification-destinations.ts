@@ -10,6 +10,10 @@ export function notificationAction(template: string, reference: string, message 
   if (template === "cinema_invite" && /^[A-Za-z0-9_-]+$/.test(reference)) {
     return { href: "/cinema/" + encodeURIComponent(reference), label: "Open cinema room" };
   }
+  if (template === "cinema_session_reminder") {
+    const roomId = reference.match(/^cinema:([A-Za-z0-9_-]+):[A-Za-z0-9_-]+$/)?.[1];
+    return roomId ? { href: "/cinema/" + encodeURIComponent(roomId), label: "Join the Cinema room" } : null;
+  }
   if (template.startsWith("vacation_")) {
     return reference ? { href: "/payment/callback?reference=" + encodeURIComponent(reference), label: "View ticket" } : null;
   }

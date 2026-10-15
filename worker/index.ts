@@ -2,12 +2,13 @@ import { runFinanceMaintenance } from "@/lib/payments/reconcile";
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, notificationCronRunsReminder, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
+import { HOSTEL_AVAILABILITY_CRON, NOTIFICATION_SWEEP_CRON, notificationCronRunsReminder, notificationReminderKind, PAYOUT_RECONCILE_CRON, PAYOUT_RELEASE_CRON } from "@/lib/campus-engine/crons";
 import { runCampusReconcile, runNotificationSweep } from "@/lib/campus-engine/reconcile-job";
 import { runCinemaCleanup } from "@/lib/cinema-engine/cleanup";
 import { consoleBoundaryResponse } from "@/lib/console-hosts";
 import { dispatchPendingNotifications, type NotificationQueueMessage } from "@/lib/notifications";
 import { scanVacationDepartures } from "@/lib/vacation-notify";
+import { scanCinemaReminders } from "@/lib/cinema-engine/reminders";
 import { logEvent } from "@/lib/observability";
 import { runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payouts";
 import { runHostelPayoutReconcileJob, runHostelPayoutReleaseJob } from "@/lib/hostel-engine/payouts";
@@ -97,7 +98,9 @@ const worker = {
       // both jobs. Its four extra minutes run reminders only, so delivery and
       // reminder scans still have separate subrequest budgets.
       if (notificationCronRunsReminder(controller.scheduledTime ?? Date.now())) {
-        ctx.waitUntil(scanVacationDepartures().catch(error => { logEvent("error", "vacation_reminder_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+        const scheduledTime = controller.scheduledTime ?? Date.now();
+        const job = notificationReminderKind(scheduledTime) === "VACATION" ? scanVacationDepartures() : scanCinemaReminders();
+        ctx.waitUntil(job.catch(error => { logEvent("error", "scheduled_reminder_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
       } else {
         // Ten at a time: each row costs a claim, a send and a status write.
         ctx.waitUntil(runNotificationSweep({ limit: 10 }));

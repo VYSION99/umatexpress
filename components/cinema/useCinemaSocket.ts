@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CinemaBoardPolicy, CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaServerMessage, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
+import type { CinemaBoardPolicy, CinemaChatMessage, CinemaClientMessage, CinemaPlaybackState, CinemaPresenceMember, CinemaReaction, CinemaServerMessage, CinemaSignalPayload } from "@/lib/cinema-engine/protocol";
+import { createCinemaClock } from "@/lib/cinema-engine/clock";
 import type { CinemaWhiteboardView } from "@/lib/cinema-engine/whiteboard-scene";
 
 export type CinemaSignalHandler = (from: string, payload: CinemaSignalPayload) => void;
 export type CinemaBoardHandler = (board: CinemaWhiteboardView) => void;
 
 export type CinemaConnectionState = "connecting" | "live" | "offline" | "closed";
+export type CinemaReactionEvent = { id: string; from: string; name: string; emoji: CinemaReaction; at: number };
 
 /** How often the client proves the socket is still answered, in milliseconds. */
-const PING_MS = 45_000;
+const PING_MS = 15_000;
 const RETRY_BASE_MS = 800;
 const RETRY_MAX_MS = 15_000;
 /** The window keeps the last hundred; the server replays fifty. */
@@ -50,7 +52,15 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [muteAllSignal, setMuteAllSignal] = useState(0);
   /** Who may ask the board, as the host last set it; MEMBERS until the room says otherwise. */
   const [boardPolicy, setBoardPolicy] = useState<CinemaBoardPolicy>("MEMBERS");
+  const [reactions, setReactions] = useState<CinemaReactionEvent[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
+  const [clock] = useState(() => createCinemaClock());
+  const [socketError, setSocketError] = useState("");
+  const pendingChat = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>());
+  const failPending = useCallback((reason: string) => {
+    for (const request of pendingChat.current.values()) { clearTimeout(request.timer); request.reject(new Error(reason)); }
+    pendingChat.current.clear();
+  }, []);
   /**
    * Signaling consumers register here rather than in the socket's state: a
    * handshake leg is an event, not something to re-render, and the mesh hook
@@ -77,22 +87,24 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
     return () => { handlers.delete(handler); };
   }, []);
 
-  /** Sends one frame if the room is listening; a closed socket drops it. */
   const send = useCallback((message: CinemaClientMessage) => {
     const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    try { socket.send(JSON.stringify(message)); return true; } catch { return false; }
   }, []);
 
-  /** Chat travels the same socket as playback; a closed one drops it. */
-  const sendChat = useCallback((message: string, atSeconds?: number | null) => {
-    const content = message.trim();
-    if (!content) return;
-    send({
-      type: "chat_message",
-      message: content,
-      ...(Number.isFinite(Number(atSeconds)) && Number(atSeconds) >= 0 ? { timestamp: Number(atSeconds) } : {}),
-    });
-  }, [send]);
+  const sendChat = useCallback((message: string, atSeconds: number | null, requestId: string) => new Promise<void>((resolve, reject) => {
+    if (!message.trim()) { reject(new Error("Write a message first.")); return; }
+    const timer = setTimeout(() => {
+      pendingChat.current.delete(requestId);
+      reject(new Error("Delivery was not confirmed. Retry to check or send this message."));
+    }, 12_000);
+    pendingChat.current.set(requestId, { resolve, reject, timer });
+    if (!send({ type: "chat_message", message: message.trim(), requestId, ...(atSeconds !== null ? { timestamp: atSeconds } : {}) })) {
+      clearTimeout(timer); pendingChat.current.delete(requestId);
+      reject(new Error("You are offline. Your message is kept here; retry when connected."));
+    }
+  }), [send]);
 
   useEffect(() => {
     // Disabled is not a state the effect writes; it is derived at the return.
@@ -105,6 +117,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
     let attempts = 0;
+    let lastPong = performance.now();
     // Set when the server says the room is over: a room that ended must not be
     // reconnected to, however the socket went down.
     let ended = false;
@@ -131,8 +144,12 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (socket !== instance) return;
         attempts = 0;
         setState("live");
+        setSocketError("");
+        lastPong = performance.now();
+        instance.send(JSON.stringify({ type: "ping", sentAt: performance.now() }));
         pingTimer = setInterval(() => {
-          if (instance.readyState === WebSocket.OPEN) instance.send(JSON.stringify({ type: "ping" }));
+          if (performance.now() - lastPong > 35_000) { instance.close(); return; }
+          if (instance.readyState === WebSocket.OPEN) instance.send(JSON.stringify({ type: "ping", sentAt: performance.now() }));
         }, PING_MS);
       };
 
@@ -146,7 +163,20 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
           return;
         }
         if (message.type === "presence") setMembers(message.members || []);
-        if (message.type === "state") setPlayback(message.playback);
+        if (message.type === "state") {
+          if (message.serverAt) clock.sample(message.serverAt);
+          setPlayback(message.playback);
+        }
+        if (message.type === "pong") { lastPong = performance.now(); clock.sample(message.at, message.sentAt); }
+        if (message.type === "chat_ack") {
+          const pending = pendingChat.current.get(message.requestId);
+          if (pending) { clearTimeout(pending.timer); pendingChat.current.delete(message.requestId); pending.resolve(); }
+        }
+        if (message.type === "error") {
+          setSocketError(message.message);
+          const pending = message.requestId ? pendingChat.current.get(message.requestId) : null;
+          if (pending && message.requestId) { clearTimeout(pending.timer); pendingChat.current.delete(message.requestId); pending.reject(new Error(message.message)); }
+        }
         // The host finished an upload: the room switches players without a reload.
         if (message.type === "source") setSource({ sourceType: message.sourceType, videoId: message.videoId });
         // A WebRTC leg for one peer: handed straight to the media hook, which
@@ -154,7 +184,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (message.type === "signal" && message.from) {
           for (const handler of signalHandlersRef.current) handler(message.from, message.payload);
         }
-        if (message.type === "chat") setMessages((current) => {
+        if (message.type === "chat" || message.type === "chat_ack") setMessages((current) => {
           const incoming = message.message;
           // A reconnect replays the last fifty, and the page may already have
           // shown some of them; an id the window holds is not a new message.
@@ -181,10 +211,17 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         }
         if (message.type === "mute_all") setMuteAllSignal((current) => current + 1);
         if (message.type === "board_policy") setBoardPolicy(message.policy);
+        if (message.type === "reaction") {
+          setReactions((current) => [...current, { id: message.id, from: message.from, name: message.name, emoji: message.emoji, at: message.at }].slice(-8));
+          setTimeout(() => setReactions((current) => current.filter((item) => item.id !== message.id)), 4_000);
+        }
         if (message.type === "closed") {
           ended = true;
           setState("closed");
           setMembers([]);
+          setPlayback(null);
+          setSource(null);
+          failPending("This room is closed. Your message has not been confirmed.");
           setClosedReason(String(message.reason || "").slice(0, 160));
           instance.close();
         }
@@ -196,6 +233,16 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (socket !== instance || disposed || ended) return;
         if (socketRef.current === instance) socketRef.current = null;
         setState("offline");
+        failPending("Connection lost. Retry your message when connected.");
+        // A refused handshake may mean removal, an ended room, or an expired login.
+        void fetch(`/api/cinema/sessions/${encodeURIComponent(roomId)}`, { cache: "no-store", credentials: "same-origin" }).then(async response => {
+          if (disposed || ended || socket !== instance) return;
+          const data = await response.json() as { room?: { status: string; isMember: boolean }; error?: string };
+          if ([401, 403, 404, 409].includes(response.status) || (response.ok && data.room && (!data.room.isMember || !["LIVE", "CREATED"].includes(data.room.status)))) {
+            ended = true; clearTimers(); setPlayback(null); setMembers([]); setState("closed");
+            setClosedReason(data.error || "This room is no longer available to you.");
+          }
+        }).catch(() => undefined);
         const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** attempts) + Math.floor(Math.random() * 250);
         attempts += 1;
         retryTimer = setTimeout(connect, delay);
@@ -207,14 +254,15 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
     connect();
     return () => {
       disposed = true;
+      failPending("You left the room.");
       clearTimers();
       socket?.close();
       socketRef.current = null;
       socket = null;
     };
-  }, [roomId, enabled]);
+  }, [roomId, enabled, clock, failPending]);
 
   return enabled
-    ? { state, closedReason, muteAllSignal, boardPolicy, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
-    : { state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
+    ? { clock, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
+    : { clock, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
 }

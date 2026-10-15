@@ -16,7 +16,7 @@ process.env.TURSO_DATABASE_URL = "https://cinema-rooms-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const state = { rooms: [], members: [], invites: [], notifications: [], metrics: new Map(), failMembershipOnce: false };
+const state = { rooms: [], members: [], invites: [], waiting: [], eventRooms: new Map(), notifications: [], metrics: new Map(), failMembershipOnce: false };
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -28,7 +28,7 @@ const empty = { cols: [], rows: [] };
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 const affected = (count) => ok({ affected_row_count: count });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at", "discussion_mode", "stage_limit"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 
 function handle(sql, args) {
@@ -61,8 +61,8 @@ function handle(sql, args) {
   if (/FROM student_accounts WHERE id = \? LIMIT 1/.test(sql)) {
     const account = STUDENT_ACCOUNTS.get(args[0]);
     return ok(account ? table(
-      ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"],
-      [{ ...account, email: account.email, name: account.name, phone: "", created_at: "2026-09-01T00:00:00.000Z", last_login_at: "", token_version: 0 }],
+      ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active", "email_verified"],
+      [{ ...account, email: account.email, name: account.name, phone: "", created_at: "2026-09-01T00:00:00.000Z", last_login_at: "", token_version: 0, email_verified: 1 }],
     ) : empty);
   }
 
@@ -80,7 +80,7 @@ function handle(sql, args) {
       id, host_student_id: hostStudentId, title, video_source_type: sourceType, video_id: videoId,
       status: status || "CREATED", join_locked: 0, visibility: visibility || "PUBLIC",
       starts_at: startsAt || "", ends_at: endsAt || "", duration_minutes: Number(durationMinutes || 0),
-      started_at: startedAt || "", ended_at: "", created_at: createdAt, updated_at: updatedAt,
+      started_at: startedAt || "", ended_at: "", created_at: createdAt, updated_at: updatedAt, discussion_mode: 0, stage_limit: 6,
     });
     return affected(1);
   }
@@ -89,11 +89,15 @@ function handle(sql, args) {
     if (index >= 0) state.rooms.splice(index, 1);
     return affected(index >= 0 ? 1 : 0);
   }
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at,discussion_mode,stage_limit FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
     return ok(row ? table(ROOM_COLUMNS, [row]) : empty);
   }
-  if (/^INSERT OR IGNORE INTO cinema_participants/.test(sql)) {
+  if (/^SELECT COALESCE\(waiting_room,0\) AS waiting_room FROM cinema_sessions/.test(sql)) {
+    const row = state.rooms.find((room) => room.id === args[0]);
+    return ok(row ? table(["waiting_room"], [{ waiting_room: row.waiting_room || 0 }]) : empty);
+  }
+  if (/^INSERT OR IGNORE INTO cinema_participants .* VALUES/.test(sql)) {
     if (state.failMembershipOnce) {
       state.failMembershipOnce = false;
       return { type: "error", error: { message: "the membership write failed" } };
@@ -111,6 +115,19 @@ function handle(sql, args) {
       .slice(0, 200);
     return ok(rows.length ? table(MEMBER_COLUMNS, rows) : empty);
   }
+  if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at,COALESCE\(role,'VIEWER'\) AS role FROM cinema_participants/.test(sql)) {
+    const ids = args;
+    const rows = state.members.filter((member) => ids.includes(member.session_id)).map((member) => ({ ...member, role: member.role || "VIEWER" })).slice(0, 200);
+    return ok(rows.length ? table([...MEMBER_COLUMNS, "role"], rows) : empty);
+  }
+  if (/^SELECT student_id FROM cinema_participants WHERE session_id = \? AND student_id = \? LIMIT 1/.test(sql)) {
+    const member = state.members.find(row => row.session_id === args[0] && row.student_id === args[1]);
+    return ok(member ? table(["student_id"], [member]) : empty);
+  }
+  if (/^SELECT e.status,o.status AS organizer_status/.test(sql.replace(/\s+/g, " "))) {
+    const event = state.eventRooms.get(args[1]);
+    return ok(event ? table(["status", "organizer_status", "organizer_type", "verified_at", "rsvp_status"], [{ status: event.status || "PUBLISHED", organizer_status: event.organizerStatus || "ACTIVE", organizer_type: event.organizerType || "STUDENT_GROUP", verified_at: event.verifiedAt || "", rsvp_status: event.rsvps.has(args[0]) ? "GOING" : "" }]) : empty);
+  }
   if (/^SELECT session_id, COUNT\(\*\) AS members FROM cinema_participants/.test(sql)) {
     const ids = args;
     const counts = new Map();
@@ -121,8 +138,8 @@ function handle(sql, args) {
     const rows = [...counts.entries()].map(([session_id, members]) => ({ session_id, members }));
     return ok(rows.length ? table(["session_id", "members"], rows) : empty);
   }
-  if (/^UPDATE cinema_participants SET last_seen_at = \?, left_at = '' WHERE session_id = \? AND student_id = \?/.test(sql)) {
-    const [lastSeenAt, sessionId, studentId] = args;
+  if (/^UPDATE cinema_participants SET attendance_seconds=attendance_seconds\+/.test(sql)) {
+    const [,,,, lastSeenAt, sessionId, studentId] = args;
     const member = state.members.find((row) => row.session_id === sessionId && row.student_id === studentId);
     if (member) Object.assign(member, { last_seen_at: lastSeenAt, left_at: "" });
     return affected(member ? 1 : 0);
@@ -162,6 +179,61 @@ function handle(sql, args) {
     const room = state.rooms.find((row) => row.id === id);
     if (room) Object.assign(room, { join_locked: Number(locked), updated_at: updatedAt });
     return affected(room ? 1 : 0);
+  }
+  if (/^UPDATE cinema_sessions SET waiting_room = \?/.test(sql)) {
+    const [waitingRoom, updatedAt, id] = args;
+    const room = state.rooms.find((row) => row.id === id);
+    if (room) Object.assign(room, { waiting_room: Number(waitingRoom), updated_at: updatedAt });
+    return affected(room ? 1 : 0);
+  }
+  if (/^INSERT INTO cinema_waiting_members/.test(sql)) {
+    const [sessionId, studentId, displayName, requestedAt] = args;
+    const existing = state.waiting.find((row) => row.session_id === sessionId && row.student_id === studentId);
+    if (existing) Object.assign(existing, { display_name: displayName, status: "WAITING", requested_at: requestedAt, decided_at: "", decided_by: "" });
+    else state.waiting.push({ session_id: sessionId, student_id: studentId, display_name: displayName, status: "WAITING", requested_at: requestedAt, decided_at: "", decided_by: "" });
+    return affected(1);
+  }
+  if (/^SELECT status FROM cinema_waiting_members/.test(sql)) {
+    const row = state.waiting.find((item) => item.session_id === args[0] && item.student_id === args[1]);
+    return ok(row ? table(["status"], [row]) : empty);
+  }
+  if (/^SELECT student_id,display_name,requested_at FROM cinema_waiting_members/.test(sql)) {
+    const rows = state.waiting.filter((item) => item.session_id === args[0] && item.status === "WAITING");
+    return ok(rows.length ? table(["student_id", "display_name", "requested_at"], rows) : empty);
+  }
+  if (/^SELECT display_name FROM cinema_waiting_members/.test(sql)) {
+    const row = state.waiting.find((item) => item.session_id === args[0] && item.student_id === args[1] && item.status === "WAITING");
+    return ok(row ? table(["display_name"], [row]) : empty);
+  }
+  if (/^UPDATE cinema_waiting_members SET status = \?/.test(sql)) {
+    const [status, decidedAt, decidedBy, sessionId, studentId] = args;
+    const row = state.waiting.find((item) => item.session_id === sessionId && item.student_id === studentId && item.status === "WAITING");
+    if (row) Object.assign(row, { status, decided_at: decidedAt, decided_by: decidedBy });
+    return affected(row ? 1 : 0);
+  }
+  if (/^UPDATE cinema_waiting_members SET status='ADMITTED'/.test(sql)) {
+    const [decidedAt, decidedBy, sessionId, studentId] = args;
+    const row = state.waiting.find((item) => item.session_id === sessionId && item.student_id === studentId && item.status === "WAITING");
+    if (row) Object.assign(row, { status: "ADMITTED", decided_at: decidedAt, decided_by: decidedBy });
+    return affected(row ? 1 : 0);
+  }
+  if (/^INSERT OR IGNORE INTO cinema_participants .* SELECT \?,\?,\?,\?,\?,'','VIEWER' WHERE changes\(\)=1$/.test(sql)) {
+    const [sessionId, studentId, displayName, joinedAt, lastSeenAt] = args;
+    const alreadyMember = state.members.some((member) => member.session_id === sessionId && member.student_id === studentId);
+    const admitted = state.waiting.some((item) => item.session_id === sessionId && item.student_id === studentId && item.status === "ADMITTED");
+    if (!admitted || alreadyMember) return affected(0);
+    state.members.push({ session_id: sessionId, student_id: studentId, display_name: displayName, joined_at: joinedAt, last_seen_at: lastSeenAt, left_at: "", role: "VIEWER" });
+    return affected(1);
+  }
+  if (/^UPDATE cinema_participants SET role = \?/.test(sql)) {
+    const [role, sessionId, studentId] = args;
+    const row = state.members.find((item) => item.session_id === sessionId && item.student_id === studentId);
+    if (row) row.role = role;
+    return affected(row ? 1 : 0);
+  }
+  if (/^SELECT COALESCE\(role,'VIEWER'\) AS role FROM cinema_participants/.test(sql)) {
+    const row = state.members.find((item) => item.session_id === args[0] && item.student_id === args[1]);
+    return ok(row ? table(["role"], [{ role: row.role || "VIEWER" }]) : empty);
   }
   if (/^UPDATE cinema_sessions SET visibility = \?/.test(sql)) {
     const [visibility, updatedAt, id] = args;
@@ -211,9 +283,9 @@ function handle(sql, args) {
     const rows = state.rooms
       .filter((room) => room.status !== "DELETED" && (joined.has(room.id) || invited.has(room.id)))
       .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
-      .slice(0, 20)
-      .map((room) => ({ ...room, invited: invited.has(room.id) ? 1 : 0 }));
-    return ok(rows.length ? table([...ROOM_COLUMNS, "invited"], rows) : empty);
+      .slice(Number(sql.match(/OFFSET (\d+)/)?.[1] || 0), Number(sql.match(/OFFSET (\d+)/)?.[1] || 0) + Number(sql.match(/LIMIT (\d+)/)?.[1] || 20))
+      .map((room) => ({ ...room, member: joined.has(room.id) ? 1 : 0, host_name: state.members.find(member => member.session_id === room.id && member.student_id === room.host_student_id)?.display_name || "", invited: invited.has(room.id) ? 1 : 0 }));
+    return ok(rows.length ? table([...ROOM_COLUMNS, "invited", "member", "host_name"], rows) : empty);
   }
 
   throw new Error(`Unhandled SQL in the cinema test: ${sql}`);
@@ -221,13 +293,33 @@ function handle(sql, args) {
 
 globalThis.fetch = async (_url, init) => {
   const body = JSON.parse(init.body);
-  const results = body.requests
-    .filter((request) => request.type === "execute")
-    .map(({ stmt }) => {
+  const run = ({ stmt }) => {
+    if (["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"].includes(stmt.sql)) return ok(empty);
       const args = (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value));
       return handle(stmt.sql, args);
-    });
-  results.push({ type: "ok" });
+  };
+  const results = body.requests.map((request) => {
+    if (request.type === "close") return { type: "ok" };
+    if (request.type === "execute") return run(request);
+    if (request.type === "batch") {
+      const step_results = [];
+      const step_errors = [];
+      const passes = (condition) => {
+        if (!condition) return true;
+        if (condition.type === "ok") return step_errors[condition.step] === null;
+        if (condition.type === "not") return !passes(condition.cond);
+        if (condition.type === "and") return condition.conds.every(passes);
+        return false;
+      };
+      for (const step of request.batch.steps) {
+        const response = passes(step.condition) ? run(step) : null;
+        step_results.push(response?.response?.result || null);
+        step_errors.push(response?.error || null);
+      }
+      return { type: "ok", response: { result: { step_results, step_errors } } };
+    }
+    return { type: "error", error: { message: "Unsupported fake request" } };
+  });
   return { ok: true, json: async () => ({ results }) };
 };
 
@@ -245,8 +337,8 @@ after(async () => vite.close());
 
 const { parseYouTubeId } = await vite.ssrLoadModule("/lib/cinema-engine/youtube.ts");
 const {
-  CINEMA_TITLE_MAX, createRoom, inviteToRoom, joinRoom, listMyRooms, listRoomInvites,
-  patchRoom, readRoom, removeRoomGuest, removeRoomInvite,
+  CINEMA_TITLE_MAX, createRoom, decideWaitingMember, inviteToRoom, joinRoom, listMyRooms, listRoomInvites, listWaitingMembers,
+  patchRoom, readRoom, removeRoomGuest, removeRoomInvite, setRoomMemberRole,
 } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
 const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
 const sessionsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/route.ts");
@@ -270,6 +362,8 @@ beforeEach(() => {
   state.rooms.length = 0;
   state.members.length = 0;
   state.invites.length = 0;
+  state.eventRooms.clear();
+  state.waiting.length = 0;
   state.notifications.length = 0;
   state.metrics.clear();
 });
@@ -395,6 +489,24 @@ test("a second student joins once: a reload does not move the join time or dupli
   assert.equal(again.participants.length, 2, "joining twice is one membership");
   assert.equal(state.members.filter((member) => member.student_id === guest.id).length, 1);
   assert.equal(state.members.find((member) => member.student_id === guest.id).joined_at, firstJoin, "a reload is not a second join");
+});
+
+test("a waiting room holds a guest until admission, then the host can assign a presenter role", async () => {
+  const created = await createRoom({ student: host, title: "Controlled entry", video: VIDEO });
+  const configured = await patchRoom({ id: created.id, studentId: host.id, action: "WAITING_ON" });
+  assert.equal(configured.waitingRoomEnabled, true);
+
+  const pending = await joinRoom({ id: created.id, student: guest });
+  assert.equal(pending.isMember, false);
+  assert.equal(pending.waitingState, "WAITING");
+  assert.deepEqual((await listWaitingMembers({ id: created.id, studentId: host.id })).map((item) => item.studentId), [guest.id]);
+
+  await decideWaitingMember({ id: created.id, studentId: host.id, guestId: guest.id, action: "ADMIT" });
+  const admitted = await readRoom({ id: created.id, studentId: guest.id });
+  assert.equal(admitted.isMember, true);
+  await setRoomMemberRole({ id: created.id, studentId: host.id, guestId: guest.id, role: "PRESENTER" });
+  const promoted = await readRoom({ id: created.id, studentId: guest.id });
+  assert.equal(promoted.currentRole, "PRESENTER");
 });
 
 test("a locked room refuses a stranger and still admits its members", async () => {
@@ -750,4 +862,53 @@ test("an active room without the realtime binding is a 503, not a crash", async 
   const payload = await response.json();
   assert.equal(response.status, 503);
   assert.match(payload.error, /Live rooms are not available/);
+});
+
+test("uploaded-video rooms cannot be made public, including legacy public rows", async () => {
+  const room = await createRoom({ student: host, source: "UPLOAD", title: "Private file" });
+  await expectRefusal(patchRoom({ id: room.id, studentId: host.id, action: "PUBLIC" }), "VALIDATION_ERROR", 400);
+  state.rooms.find(row => row.id === room.id).visibility = "PUBLIC";
+  await expectRefusal(readRoom({ id: room.id, studentId: guest.id }), "FORBIDDEN", 403);
+  await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
+});
+
+test("public previews omit the roster, identities and playback source", async () => {
+  const room = await createRoom({ student: host, video: VIDEO });
+  await joinRoom({ id: room.id, student: guest });
+  for (const studentId of [undefined, "outsider"]) {
+    const preview = await readRoom({ id: room.id, studentId });
+    assert.deepEqual(preview.participants, []);
+    assert.equal(preview.hostStudentId, "");
+    assert.equal(preview.videoId, "");
+    assert.equal(preview.isMember, false);
+  }
+  const member = await readRoom({ id: room.id, studentId: guest.id });
+  assert.equal(member.participants.length, 2);
+  assert.ok(member.videoId);
+});
+
+test("a public event room still requires an RSVP at the server join boundary", async () => {
+  const room = await createRoom({ student: host, video: VIDEO, startInMinutes: 0, durationMinutes: 60 });
+  state.eventRooms.set(room.id, { id: "event-1", rsvps: new Set() });
+  await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
+  state.eventRooms.get(room.id).rsvps.add(guest.id);
+  assert.equal((await joinRoom({ id: room.id, student: guest })).isMember, true);
+});
+
+test("lobby retains guest membership and host names without fetching every participant", async () => {
+  const room = await createRoom({ student: host, video: VIDEO });
+  await joinRoom({ id: room.id, student: guest });
+  const [listed] = await listMyRooms(guest.id);
+  assert.equal(listed.isMember, true);
+  assert.equal(listed.hostName, host.name);
+  assert.deepEqual(listed.participants, []);
+  assert.deepEqual(await listMyRooms(guest.id, { offset: 1 }), []);
+});
+
+test("membership beyond the displayed 200 participants remains authorized", async () => {
+  const room = await createRoom({ student: host, video: VIDEO });
+  for (let index = 0; index < 200; index++) state.members.push({ session_id: room.id, student_id: `filler-${index}`, display_name: "Student", joined_at: "2026-01-01", left_at: "" });
+  const joined = await joinRoom({ id: room.id, student: guest });
+  assert.equal(joined.isMember, true);
+  assert.equal((await readRoom({ id: room.id, studentId: guest.id })).isMember, true);
 });

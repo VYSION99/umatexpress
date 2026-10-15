@@ -11,6 +11,12 @@ export function normalizeStudentEmail(value: unknown) {
   return typeof value === "string" ? value.trim().toLowerCase().slice(0, 254) : "";
 }
 
+/** An ordinary mailbox for verified public Cinema audience accounts. */
+export function validPlatformEmail(email: string) {
+  return email.length <= 254 && /^[a-z0-9][a-z0-9._%+-]*@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(email)
+    && !email.includes("..") && email.split("@")[0].length <= 64;
+}
+
 /**
  * True only for an address on STUDENT_EMAIL_DOMAIN. The local part still has to
  * look like a mailbox, so "ama@st.umat.edu.gh" passes while

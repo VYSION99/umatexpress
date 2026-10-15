@@ -99,6 +99,22 @@ export async function removeCinemaMemberFromRoom(roomId: string, studentId: stri
   }
 }
 
+/** Refreshes a connected member's operational role without dropping their call. */
+export async function setCinemaMemberRoleInRoom(roomId: string, studentId: string, role: string) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/member-role", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ studentId: String(studentId), role: String(role) }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_member_role_sync_failed", { roomId: String(roomId), reason: error instanceof Error ? error.message : "unknown" });
+  }
+}
+
 /**
  * Tells a live room that a new board is on the whiteboard. Best-effort for the
  * same reason as every other announcement: the row is the truth and a missing

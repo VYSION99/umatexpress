@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { putCinemaPart } from "./transfer";
 import type { CinemaClientMessage } from "@/lib/cinema-engine/protocol";
 
 /**
@@ -64,6 +65,13 @@ export function useCinemaRecorder(input: {
   const [recordings, setRecordings] = useState<CinemaRecordingView[]>([]);
   const [limits, setLimits] = useState<RecordingLimits | null>(null);
 
+  const [recoveryUrl, setRecoveryUrl] = useState("");
+  const recovery = useRef<{ blob: Blob; mime: string; duration: number } | null>(null);
+  const urlRef = useRef("");
+  const captureRef = useRef<MediaStream | null>(null);
+  const byteCount = useRef(0);
+  const transferRef = useRef<AbortController | null>(null);
+  const enabledRef = useRef(enabled);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef(0);
@@ -80,7 +88,27 @@ export function useCinemaRecorder(input: {
   useEffect(() => { sendRef.current = send; }, [send]);
   useEffect(() => { elapsedRef.current = elapsedSeconds; }, [elapsedSeconds]);
   useEffect(() => { maxSecondsRef.current = Math.max(1, Math.floor(maxMinutes)) * 60; }, [maxMinutes]);
-  useEffect(() => () => { disposedRef.current = true; }, []);
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => {
+      disposedRef.current = true;
+      stopReasonRef.current = "unmount";
+      transferRef.current?.abort();
+      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+      captureRef.current?.getTracks().forEach(track => track.stop());
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    };
+  }, []);
+  useEffect(() => {
+    enabledRef.current = enabled;
+    if (!enabled && recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+  }, [enabled]);
+  useEffect(() => {
+    if (!recoveryUrl && phase !== "recording" && phase !== "paused" && phase !== "uploading") return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recoveryUrl, phase]);
 
   const refresh = useCallback(async () => {
     if (!roomId) return;
@@ -128,13 +156,13 @@ export function useCinemaRecorder(input: {
     return () => clearInterval(timer);
   }, [phase]);
 
-  const upload = useCallback(async (mimeType: string) => {
-    const chunks = chunksRef.current;
-    chunksRef.current = [];
-    const blob = new Blob(chunks, { type: mimeType });
-    sendRef.current({ type: "recording_state", active: false });
-    if (disposedRef.current || stopReasonRef.current === "unmount") { setPhase("idle"); return; }
-    if (!blob.size) { setError("The recorder produced no audio."); setPhase("error"); return; }
+  const upload = useCallback(async () => {
+    const saved = recovery.current;
+    if (!saved || disposedRef.current || transferRef.current) return;
+    const { blob, mime: mimeType, duration } = saved;
+    if (!enabledRef.current) { setPhase("error"); setError("The session is closed. Download your recording below."); return; }
+    const controller = new AbortController();
+    transferRef.current = controller;
     setPhase("uploading");
     setProgress(null);
     setError("");
@@ -144,7 +172,8 @@ export function useCinemaRecorder(input: {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mimeType, sizeBytes: blob.size, durationSeconds: elapsedRef.current }),
+        body: JSON.stringify({ mimeType, sizeBytes: blob.size, durationSeconds: duration }),
+        signal: controller.signal,
       });
       const opening = await opened.json() as { recording?: CinemaRecordingView; partBytes?: number; parts?: number; error?: string };
       if (!opened.ok || !opening.recording || !opening.partBytes || !opening.parts) throw new Error(opening.error || "The recording could not be started.");
@@ -154,12 +183,7 @@ export function useCinemaRecorder(input: {
       for (let index = 0; index < opening.parts; index += 1) {
         const offset = index * opening.partBytes;
         const chunk = blob.slice(offset, Math.min(blob.size, offset + opening.partBytes));
-        const response = await fetch(`/api/cinema/sessions/${encodeURIComponent(roomId)}/recordings/${encodeURIComponent(recordingId)}/part?n=${index + 1}`, {
-          method: "PUT",
-          credentials: "same-origin",
-          headers: { "content-type": "application/octet-stream" },
-          body: chunk,
-        });
+        const response = await putCinemaPart(`/api/cinema/sessions/${encodeURIComponent(roomId)}/recordings/${encodeURIComponent(recordingId)}/part?n=${index + 1}`, chunk, controller.signal);
         const data = await response.json() as { part?: { partNumber: number; etag: string }; error?: string };
         if (!response.ok || !data.part) throw new Error(data.error || `Part ${index + 1} did not arrive.`);
         parts.push(data.part);
@@ -170,40 +194,71 @@ export function useCinemaRecorder(input: {
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ parts }),
+        signal: controller.signal,
       });
       const completion = await finished.json() as { recording?: CinemaRecordingView; error?: string };
       if (!finished.ok || !completion.recording) throw new Error(completion.error || "The recording could not be finished.");
+      recovery.current = null;
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = "";
+      setRecoveryUrl("");
       setPhase("ready");
       setProgress(null);
       onReady?.();
       await refresh();
     } catch (uploadError) {
+      if (disposedRef.current) return;
       setError(uploadError instanceof Error ? uploadError.message : "The recording could not be uploaded.");
       setPhase("error");
       setProgress(null);
       if (recordingId) {
         await fetch(`/api/cinema/sessions/${encodeURIComponent(roomId)}/recordings?recordingId=${encodeURIComponent(recordingId)}`, { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
       }
-    }
+    } finally { transferRef.current = null; }
   }, [onReady, refresh, roomId]);
 
   const start = useCallback(() => {
     const activeStream = streamRef.current;
-    if (!activeStream || recorderRef.current || !enabled) return;
+    if (!activeStream || recorderRef.current || !enabled || recovery.current || transferRef.current || !limits) return;
     const mimeType = chooseRecordingMimeType(activeStream.getVideoTracks().length > 0);
     if (!mimeType) { setError("This browser cannot record audio."); setPhase("error"); return; }
     try {
-      const recorder = new MediaRecorder(activeStream, {
+      const recordingStream = new MediaStream(activeStream.getTracks().map(track => track.clone()));
+      captureRef.current = recordingStream;
+      const recorder = new MediaRecorder(recordingStream, {
         mimeType,
         ...(activeStream.getVideoTracks().length > 0 ? { videoBitsPerSecond: 1_200_000 } : {}),
         audioBitsPerSecond: 96_000,
       });
       chunksRef.current = [];
-      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+      byteCount.current = 0;
+      // Bound mobile memory and stop before the server's file-size ceiling.
+      const maxBytes = Math.min(limits.maxBytes, 64 * 1024 * 1024);
+      recorder.ondataavailable = (event) => {
+        if (!event.data.size) return;
+        chunksRef.current.push(event.data);
+        byteCount.current += event.data.size;
+        if (byteCount.current >= maxBytes * 0.9 && recorder.state !== "inactive") {
+          stopReasonRef.current = "limit";
+          recorder.stop();
+        }
+      };
       recorder.onstop = () => {
         recorderRef.current = null;
-        void upload(mimeType);
+        recordingStream.getTracks().forEach(track => track.stop());
+        captureRef.current = null;
+        sendRef.current({ type: "recording_state", active: false });
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        chunksRef.current = [];
+        if (disposedRef.current) return;
+        if (!blob.size) { setPhase("error"); setError("No audio was captured. Please try again."); return; }
+        const paused = pausedTotalRef.current + (pausedAtRef.current ? Date.now() - pausedAtRef.current : 0);
+        recovery.current = { blob, mime: mimeType.split(";")[0], duration: Math.max(0, Math.floor((Date.now() - startedAtRef.current - paused) / 1000)) };
+        urlRef.current = URL.createObjectURL(blob);
+        setRecoveryUrl(urlRef.current);
+        void upload();
       };
+      recorder.onerror = () => { setError("Recording stopped unexpectedly. Any captured audio will be kept for download."); if (recorder.state !== "inactive") recorder.stop(); };
       stopReasonRef.current = "manual";
       startedAtRef.current = Date.now();
       pausedAtRef.current = 0;
@@ -217,10 +272,11 @@ export function useCinemaRecorder(input: {
       // The room hears about it before the first chunk exists.
       sendRef.current({ type: "recording_state", active: true });
     } catch {
+      captureRef.current?.getTracks().forEach(track => track.stop());
       setError("This browser refused to start the recorder.");
       setPhase("error");
     }
-  }, [enabled, upload]);
+  }, [enabled, upload, limits]);
 
   const stop = useCallback(() => {
     const recorder = recorderRef.current;
@@ -255,13 +311,27 @@ export function useCinemaRecorder(input: {
     }
   }, []);
 
+  const discardRecovery = useCallback(() => {
+    if (transferRef.current || recorderRef.current) return;
+    recovery.current = null;
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = "";
+    setRecoveryUrl(""); setPhase("idle"); setError("");
+  }, []);
+
   const reset = useCallback(() => {
+    if (recovery.current) return;
     setPhase("idle");
     setError("");
     setElapsedSeconds(0);
   }, []);
 
   return {
+    recoveryUrl,
+
+    retry: upload,
+    discardRecovery,
+    canStart: Boolean(limits) && !recoveryUrl,
     phase,
     elapsedSeconds,
     progress,

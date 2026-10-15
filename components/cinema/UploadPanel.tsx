@@ -1,5 +1,7 @@
 "use client";
 
+import { putCinemaPart } from "./transfer";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadSimple } from "@/components/ui/MaterialIcon";
 
@@ -45,7 +47,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
   useEffect(() => {
     let disposed = false;
     void requestState().then((data) => { if (!disposed) acceptState(data); });
-    return () => { disposed = true; };
+    return () => { disposed = true; abortRef.current?.abort(); };
   }, [requestState, acceptState]);
 
   const humanSize = (bytes: number) => bytes >= 1024 ** 3
@@ -84,13 +86,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
       for (let index = 0; index < opening.parts; index += 1) {
         const offset = index * opening.partBytes;
         const chunk = file.slice(offset, Math.min(file.size, offset + opening.partBytes));
-        const response = await fetch(`/api/cinema/sessions/${input.roomId}/upload/part?n=${index + 1}`, {
-          method: "PUT",
-          credentials: "same-origin",
-          headers: { "content-type": "application/octet-stream" },
-          body: chunk,
-          signal: controller.signal,
-        });
+        const response = await putCinemaPart(`/api/cinema/sessions/${input.roomId}/upload/part?n=${index + 1}`, chunk, controller.signal);
         const data = await response.json() as { part?: { partNumber: number; etag: string }; error?: string };
         if (!response.ok || !data.part) throw new Error(data.error || `Part ${index + 1} did not arrive.`);
         parts.push(data.part);
@@ -114,7 +110,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
       input.onUploaded();
     } catch (uploadError) {
       const aborted = controller.signal.aborted;
-      setError(aborted ? "Upload cancelled. Nothing of it was kept." : uploadError instanceof Error ? uploadError.message : "The upload failed.");
+      setError(aborted ? "Upload cancelled. Temporary parts are queued for cleanup." : uploadError instanceof Error ? uploadError.message : "The upload failed.");
       // A cancelled upload is given up on the server too, so the room is clean.
       if (aborted) await fetch(`/api/cinema/sessions/${input.roomId}/upload`, { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
       acceptState(await requestState());

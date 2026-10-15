@@ -11,9 +11,9 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 const { BrandSplash, SPLASH_DURATION_MS, SPLASH_STAGES, SPLASH_WORDMARK } = await vite.ssrLoadModule("/components/launcher/BrandSplash.tsx");
 
-test("the opening sequence uses the exact source artwork and six-second timeline", () => {
+test("the opening sequence uses the exact source artwork and eleven-second timeline", () => {
   const html = renderToStaticMarkup(createElement(BrandSplash));
-  assert.equal(SPLASH_DURATION_MS, 6000);
+  assert.equal(SPLASH_DURATION_MS, 11000);
   assert.equal(SPLASH_STAGES.length, 12);
   assert.deepEqual(SPLASH_STAGES, [
     "darkness", "particle-emergence", "particle-convergence", "left-circuit", "right-circuit", "orbital-draw",
@@ -23,7 +23,7 @@ test("the opening sequence uses the exact source artwork and six-second timeline
   assert.equal((html.match(/src="\/logo-watermark\.png"/g) || []).length, 4, "the emblem uses the transparent original mark");
   assert.equal((html.match(/src="\/logo-web\.png"/g) || []).length, 12, "the eleven wordmark slices and final lock-up use the original logo");
   for (const part of ["is-left-circuit", "is-right-circuit", "is-main-leaf", "is-lower-leaf"]) assert.ok(html.includes(part));
-  assert.match(html, /data-duration="6000"/);
+  assert.match(html, /data-duration="11000"/);
   assert.match(html, /data-stages="12"/);
 });
 
@@ -39,6 +39,6 @@ test("the sequence is one-shot, dismissible, and reduced-motion safe", async () 
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css, /splash-already-seen \.brand-splash\{display:none\}/);
   assert.match(layout, /performance\.getEntriesByType\('navigation'\)/);
-  assert.match(css, /splash-final-lock 260ms ease-out 5450ms/);
-  assert.match(css, /splash-overlay-out 300ms ease 5700ms/);
+  assert.match(css, /splash-final-lock calc\(350ms \* var\(--splash-motion-scale\)\) ease-out calc\(7200ms \* var\(--splash-motion-scale\)\)/);
+  assert.match(css, /splash-overlay-out var\(--splash-fade-duration\) ease var\(--splash-exit-delay\)/);
 });

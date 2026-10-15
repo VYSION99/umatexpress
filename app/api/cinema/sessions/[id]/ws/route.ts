@@ -3,7 +3,7 @@ import { fail } from "@/lib/campus-engine/responses";
 import { isRoomActive, readRoom } from "@/lib/cinema-engine/rooms";
 import { cinemaRoomNamespace } from "@/lib/cloudflare-bindings";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 /**
  * The live connection to one room.
@@ -23,7 +23,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const limited = await rateLimit(request, "cinema-socket", { limit: 60, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new CampusEngineError("VALIDATION_ERROR", "This endpoint speaks WebSocket, not HTTP.", 426);
     }
@@ -51,6 +51,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     forwarded.headers.set("x-cinema-attachment", encodeURIComponent(JSON.stringify({
       studentId: student.id,
       displayName: String(student.name || "").slice(0, 80),
+      role: room.currentRole || "VIEWER",
     })));
     forwarded.headers.set("x-cinema-room", encodeURIComponent(JSON.stringify({
       roomId: room.id,
@@ -62,6 +63,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       // the same row the route just read, even if the create-time nudge was lost.
       startsAt: room.startsAt,
       endsAt: room.endsAt,
+      discussionMode: room.discussionMode,
+      stageLimit: room.stageLimit,
     })));
 
     const stub = namespace.get(namespace.idFromName(room.id));

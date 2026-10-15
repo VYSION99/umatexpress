@@ -53,8 +53,13 @@ function handle(sql, args) {
     return ok(table(["count"], [{ count }]));
   }
 
+  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE id =/.test(sql)) {
+    const row = state.messages.find(row => row.id === args[0]);
+    return ok(row ? table(MESSAGE_COLUMNS, [row]) : empty);
+  }
   if (/^INSERT INTO cinema_messages/.test(sql)) {
     const [id, session_id, sender_id, sender_name, content, metadata, created_at] = args;
+    if (state.messages.some(row => row.id === id)) return affected(0);
     state.messages.push({ id, session_id, sender_id, sender_name, content, metadata, created_at, seq: state.messages.length });
     return affected(1);
   }
@@ -141,13 +146,13 @@ class UpgradeableResponse extends NodeResponse {
 globalThis.Response = UpgradeableResponse;
 
 const SNAPSHOT = { roomId: "room-chat", hostStudentId: "host-1", title: "Signals", sourceType: "YOUTUBE", videoId: "M7lc1UVf-VE" };
-const identity = (studentId, displayName) => encodeURIComponent(JSON.stringify({ studentId, displayName }));
+const identity = (studentId, displayName, role) => encodeURIComponent(JSON.stringify({ studentId, displayName, ...(role ? { role } : {}) }));
 
-function upgrade(studentId = "host-1", displayName = "Ama Host") {
+function upgrade(studentId = "host-1", displayName = "Ama Host", role) {
   return new Request("https://cinema-room/socket", {
     headers: {
       upgrade: "websocket",
-      "x-cinema-attachment": identity(studentId, displayName),
+      "x-cinema-attachment": identity(studentId, displayName, role),
       "x-cinema-room": encodeURIComponent(JSON.stringify(SNAPSHOT)),
     },
   });
@@ -212,6 +217,45 @@ test("a wire frame must be a real message, and a timestamp must be a position", 
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: "board_policy", policy: "auto" })), { type: "board_policy", policy: "AUTO" });
   assert.equal(parseClientMessage(JSON.stringify({ type: "board_policy", policy: "ANYONE" })), null);
   assert.equal(parseClientMessage(JSON.stringify({ type: "board_policy" })), null);
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "hand_state", raised: true })), { type: "hand_state", raised: true });
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "reaction", emoji: "👏" })), { type: "reaction", emoji: "👏" });
+  assert.equal(parseClientMessage(JSON.stringify({ type: "reaction", emoji: "🔥" })), null);
+});
+
+test("hands update presence and reactions are stamped by the room", async () => {
+  const { room, state: roomState } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade("guest-2", "Kwesi Guest", "VIEWER"));
+  const [hostSocket, guestSocket] = roomState.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "hand_state", raised: true }));
+  const presence = hostSocket.sent.at(-1);
+  assert.equal(presence.type, "presence");
+  assert.equal(presence.members.find((member) => member.studentId === "guest-2").handRaised, true);
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "reaction", emoji: "💡" }));
+  const reaction = hostSocket.sent.at(-1);
+  assert.equal(reaction.type, "reaction");
+  assert.equal(reaction.from, "guest-2");
+  assert.equal(reaction.name, "Kwesi Guest");
+  assert.equal(reaction.emoji, "💡");
+  assert.ok(reaction.id);
+});
+
+test("co-hosts moderate and presenters control playback without receiving host identity", async () => {
+  const { room, state: roomState } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade("cohost-2", "Esi Co-host", "COHOST"));
+  await room.fetch(upgrade("presenter-3", "Kojo Presenter", "PRESENTER"));
+  const [, cohostSocket, presenterSocket] = roomState.sockets;
+
+  await room.webSocketMessage(cohostSocket, JSON.stringify({ type: "mute_all" }));
+  assert.equal(cohostSocket.sent.at(-1).type, "mute_all");
+  await room.webSocketMessage(presenterSocket, JSON.stringify({ type: "play", time: 3, duration: 60, stateAt: 0 }));
+  assert.equal(presenterSocket.sent.at(-1).type, "state");
+  const members = await room.presence();
+  assert.equal(members.find((member) => member.studentId === "cohost-2").role, "COHOST");
+  assert.equal(members.find((member) => member.studentId === "presenter-3").isHost, false);
 });
 
 test("the replay window is the newest fifty, in the order they were said", async () => {
@@ -264,7 +308,6 @@ test("a newcomer is replayed the conversation without retelling it to the room",
 });
 
 test("a flood of chat frames is limited per student, not per address", async () => {
-  delete process.env.TURSO_DATABASE_URL;
   const { room, state: roomState } = await newRoom();
   await room.fetch(upgrade("flood-student", "Flooder"));
   const [socket] = roomState.sockets;
@@ -321,4 +364,39 @@ test("only the host sets who may ask the board, and the room remembers it", asyn
   await room.fetch(upgrade("guest-3", "Esi"));
   const newcomer = roomState.sockets[2];
   assert.deepEqual(newcomer.sent.find((frame) => frame.type === "board_policy"), { type: "board_policy", policy: "AUTO" }, "a screen that joins later is told the same rule");
+});
+
+test("chat retry IDs are deduplicated per room and authenticated sender", async () => {
+  const input = { sessionId: "retry-room", sender: { id: "student-1" }, content: "Keep my question", requestId: "retry-message-123" };
+  const first = await writeCinemaMessage(input);
+  const retry = await writeCinemaMessage(input);
+  assert.equal(first.id, retry.id);
+  assert.equal(state.messages.length, 1);
+  const other = await writeCinemaMessage({ ...input, sender: { id: "student-2" } });
+  assert.notEqual(other.id, first.id);
+  assert.equal(state.messages.length, 2);
+});
+
+test("socket confirms persisted messages, and retries do not add a second row", async () => {
+  const { room, state: roomState } = await newRoom();
+  await room.fetch(upgrade("student-1", "Ama"));
+  const [socket] = roomState.sockets;
+  const frame = JSON.stringify({ type: "chat_message", message: "Question", requestId: "delivery-12345" });
+  await room.webSocketMessage(socket, frame);
+  await room.webSocketMessage(socket, frame);
+  assert.equal(state.messages.length, 1);
+  const acknowledgements = socket.sent.filter(frame => frame.type === "chat_ack");
+  assert.equal(acknowledgements.length, 2);
+  assert.equal(acknowledgements[0].message.id, acknowledgements[1].message.id);
+});
+
+test("a storage outage is reported instead of pretending the message was delivered", async () => {
+  delete process.env.TURSO_DATABASE_URL;
+  const { room, state: roomState } = await newRoom();
+  await room.fetch(upgrade("student-1", "Ama"));
+  const [socket] = roomState.sockets;
+  await room.webSocketMessage(socket, JSON.stringify({ type: "chat_message", message: "Keep this draft", requestId: "failed-delivery-123" }));
+  assert.equal(socket.sent.filter(frame => frame.type === "chat_ack" || frame.type === "chat").length, 0);
+  assert.equal(socket.sent.at(-1).requestId, "failed-delivery-123");
+  assert.match(socket.sent.at(-1).message, /retry/i);
 });

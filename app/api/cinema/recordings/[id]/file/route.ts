@@ -1,7 +1,7 @@
 import { fail } from "@/lib/campus-engine/responses";
 import { cinemaRecordingForRecorder, cinemaRecordingObject } from "@/lib/cinema-engine/recordings";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 /**
  * The recorder's own bytes.
@@ -13,7 +13,7 @@ import { requireStudent } from "@/lib/student-auth";
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-recording-file", student.id, { limit: 60, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;

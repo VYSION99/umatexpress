@@ -40,8 +40,10 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const student = await requireStudent(request);
-    const rooms = await listMyRooms(student.id);
-    return ok({ rooms }, { headers: NO_STORE }, request);
+    const params = new URL(request.url).searchParams;
+    const offset = Math.max(0, Math.min(100_000, Math.floor(Number(params.get("offset")) || 0)));
+    const rooms = await listMyRooms(student.id, { offset, limit: 21, status: params.get("status") || "" });
+    return ok({ rooms: rooms.slice(0, 20), hasMore: rooms.length > 20, offset }, { headers: NO_STORE }, request);
   } catch (error) {
     return fail(error, request);
   }

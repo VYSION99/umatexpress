@@ -3,7 +3,7 @@ import { fail, ok } from "@/lib/campus-engine/responses";
 import { readRoom } from "@/lib/cinema-engine/rooms";
 import { fileCinemaReport } from "@/lib/cinema-engine/signals";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const limited = await rateLimit(request, "cinema-report", { limit: 10, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const { id } = await context.params;
     const room = await readRoom({ id, studentId: student.id });
     if (!room.isMember) throw new CampusEngineError("FORBIDDEN", "Only someone in the room can report it.", 403);

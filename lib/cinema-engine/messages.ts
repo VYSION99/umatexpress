@@ -89,6 +89,7 @@ export async function writeCinemaMessage(input: {
   sender: CinemaChatSender;
   content: unknown;
   atSeconds?: unknown;
+  requestId?: string;
 }): Promise<CinemaChatMessage> {
   await requireTurso();
   await ensureCinemaMessageTables();
@@ -103,8 +104,16 @@ export async function writeCinemaMessage(input: {
   }
   const numericAt = Number(input.atSeconds);
   const atSeconds = Number.isFinite(numericAt) && numericAt >= 0 ? numericAt : null;
+  let id = crypto.randomUUID() as string;
+  if (input.requestId) {
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(input.requestId)) throw new CampusEngineError("VALIDATION_ERROR", "Invalid message identifier.", 400);
+    const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([sessionId, senderId, input.requestId])));
+    id = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
+    const existing = await readCinemaMessage(id);
+    if (existing) return existing;
+  }
   const row = {
-    id: crypto.randomUUID(),
+    id,
     session_id: sessionId,
     sender_id: senderId,
     sender_name: String(input.sender?.name || "").slice(0, 80),
@@ -113,10 +122,10 @@ export async function writeCinemaMessage(input: {
     created_at: new Date().toISOString(),
   };
   await turso(
-    "INSERT INTO cinema_messages (id,session_id,sender_id,sender_name,content,metadata,created_at) VALUES (?,?,?,?,?,?,?)",
+    "INSERT INTO cinema_messages (id,session_id,sender_id,sender_name,content,metadata,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
     [row.id, row.session_id, row.sender_id, row.sender_name, row.content, row.metadata, row.created_at],
   );
-  return messageView(row);
+  return input.requestId ? (await readCinemaMessage(id)) || messageView(row) : messageView(row);
 }
 
 /**

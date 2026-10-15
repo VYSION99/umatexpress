@@ -9,7 +9,7 @@ import {
   publicCinemaRecording,
 } from "@/lib/cinema-engine/recordings";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -23,7 +23,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-recordings-list", student.id, { limit: 240, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
@@ -41,7 +41,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-recording-start", student.id, { limit: 30, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
@@ -65,7 +65,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
 export async function DELETE(request: Request) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const recordingId = new URL(request.url).searchParams.get("recordingId") || "";
     if (!recordingId) throw new CampusEngineError("VALIDATION_ERROR", "A recording id is required.", 400);
     const result = await abortCinemaRecording({ recordingId, studentId: student.id });

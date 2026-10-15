@@ -26,7 +26,7 @@ import { queueNotification } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
 import { envValue } from "@/lib/runtime-env";
 import { assertStudentPassword, ensureStudentAccountsTable } from "@/lib/student-auth";
-import { normalizeStudentEmail, validStudentEmail } from "@/lib/student-email";
+import { normalizeStudentEmail, validPlatformEmail } from "@/lib/student-email";
 import { ensureNotificationsTable, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 export const AUTH_RECOVERY_SCOPES = ["STUDENT", "CONSOLE"] as const;
@@ -121,7 +121,7 @@ function timingSafeMatch(left: string, right: string) {
 /** The account a recovery may act on, or null. Inactive accounts are not recoverable. */
 async function recoveryAccount(scope: AuthRecoveryScope, email: string) {
   if (scope === "STUDENT") {
-    if (!validStudentEmail(email)) return null;
+    if (!validPlatformEmail(email)) return null;
     const row = rowsToObjects(await turso(
       "SELECT id,email,COALESCE(name,'') AS name FROM student_accounts WHERE email = ? AND COALESCE(active,1) = 1 LIMIT 1",
       [email],

@@ -1,5 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { closeCinemaRoom, removeCinemaMemberFromRoom, scheduleCinemaRoom } from "@/lib/cinema-engine/realtime";
+import { closeCinemaRoom, removeCinemaMemberFromRoom, scheduleCinemaRoom, setCinemaMemberRoleInRoom } from "@/lib/cinema-engine/realtime";
 import {
   CINEMA_DURATION_MAX_MINUTES,
   CINEMA_DURATION_MIN_MINUTES,
@@ -15,7 +15,7 @@ import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { consoleAudit } from "@/lib/console-audit";
 import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
-import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
  * Cinema rooms: the phase-one half of docs/Cinema.
@@ -31,7 +31,7 @@ import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runS
  * membership row rather than being joined in from the account on every read.
  */
 
-export const CINEMA_SCHEMA_VERSION = "034_cinema_scheduled_rooms";
+export const CINEMA_SCHEMA_VERSION = "042_cinema_attendance_seconds";
 
 export const CINEMA_ROOM_STATUSES = ["CREATED", "LIVE", "ENDED", "EXPIRED", "DELETED"] as const;
 export type CinemaRoomStatus = (typeof CINEMA_ROOM_STATUSES)[number];
@@ -41,6 +41,9 @@ export type CinemaSourceType = (typeof CINEMA_SOURCE_TYPES)[number];
 
 export const CINEMA_ROOM_VISIBILITIES = ["PUBLIC", "PRIVATE"] as const;
 export type CinemaRoomVisibility = (typeof CINEMA_ROOM_VISIBILITIES)[number];
+
+export const CINEMA_MEMBER_ROLES = ["HOST", "COHOST", "PRESENTER", "VIEWER"] as const;
+export type CinemaMemberRole = (typeof CINEMA_MEMBER_ROLES)[number];
 
 /** Long enough for a topic, short enough for a card and a share message. */
 export const CINEMA_TITLE_MAX = 80;
@@ -75,6 +78,7 @@ const CINEMA_SCHEMA_STATEMENTS = [
     joined_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL DEFAULT '',
     left_at TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'VIEWER',
     PRIMARY KEY (session_id, student_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cinema_participants_session ON cinema_participants(session_id, joined_at)`,
@@ -87,6 +91,27 @@ const CINEMA_SCHEMA_STATEMENTS = [
     PRIMARY KEY (session_id, student_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cinema_room_invites_student ON cinema_room_invites(student_id, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS cinema_waiting_members (
+    session_id TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'WAITING',
+    requested_at TEXT NOT NULL,
+    decided_at TEXT NOT NULL DEFAULT '',
+    decided_by TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (session_id, student_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cinema_waiting_session ON cinema_waiting_members(session_id, status, requested_at)`,
+  `CREATE TABLE IF NOT EXISTS cinema_bookmarks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL,
+    at_seconds INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cinema_bookmarks_session ON cinema_bookmarks(session_id, at_seconds, created_at)`,
   // Last, because a database created from the statement above already has the
   // column and `runSchemaPass` tolerates exactly this duplicate-column reply.
   `ALTER TABLE cinema_sessions ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC'`,
@@ -96,6 +121,11 @@ const CINEMA_SCHEMA_STATEMENTS = [
   `ALTER TABLE cinema_sessions ADD COLUMN starts_at TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE cinema_sessions ADD COLUMN ends_at TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE cinema_sessions ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE cinema_sessions ADD COLUMN waiting_room INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE cinema_participants ADD COLUMN role TEXT NOT NULL DEFAULT 'VIEWER'`,
+  `ALTER TABLE cinema_sessions ADD COLUMN discussion_mode INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE cinema_sessions ADD COLUMN stage_limit INTEGER NOT NULL DEFAULT 6`,
+  `ALTER TABLE cinema_participants ADD COLUMN attendance_seconds INTEGER NOT NULL DEFAULT 0`,
 ];
 
 let cinemaTablesReady: Promise<void> | null = null;
@@ -122,6 +152,7 @@ export type CinemaParticipant = {
   joinedAt: string;
   lastSeenAt: string;
   leftAt: string;
+  role: CinemaMemberRole;
 };
 
 export type CinemaRoom = {
@@ -137,6 +168,11 @@ export type CinemaRoom = {
   isPrivate: boolean;
   isHost: boolean;
   isMember: boolean;
+  currentRole: CinemaMemberRole | "";
+  waitingRoomEnabled: boolean;
+  discussionMode: boolean;
+  stageLimit: number;
+  waitingState: "" | "WAITING" | "REJECTED";
   /** When the host scheduled the room to go live, or '' for a room with no clock. */
   startsAt: string;
   /** When the host's run time ends the room, or '' when only the host ends it. */
@@ -179,6 +215,9 @@ function participantView(row: CinemaRoomRow): CinemaParticipant {
     joinedAt: String(row.joined_at || ""),
     lastSeenAt: String(row.last_seen_at || ""),
     leftAt: String(row.left_at || ""),
+    role: (CINEMA_MEMBER_ROLES.includes(String(row.role || "VIEWER").toUpperCase() as CinemaMemberRole)
+      ? String(row.role || "VIEWER").toUpperCase()
+      : "VIEWER") as CinemaMemberRole,
   };
 }
 
@@ -186,33 +225,38 @@ function participantView(row: CinemaRoomRow): CinemaParticipant {
  * One room as a student sees it. Membership is an argument rather than a second
  * query, because every caller already had to know it to get here.
  */
-export function roomView(row: CinemaRoomRow, input: { studentId?: string; participants?: CinemaRoomRow[]; memberCount?: number; invited?: boolean } = {}): CinemaRoom {
-  const participants = (input.participants || []).map(participantView);
+export function roomView(row: CinemaRoomRow, input: { studentId?: string; participants?: CinemaRoomRow[]; memberCount?: number; invited?: boolean; member?: boolean; waitingState?: "" | "WAITING" | "REJECTED" } = {}): CinemaRoom {
   const studentId = String(input.studentId || "");
   const hostStudentId = String(row.host_student_id || "");
+  const participants = (input.participants || []).map(participantView).map((member) => member.studentId === hostStudentId ? { ...member, role: "HOST" as const } : member);
   // The host is a member of their own room even if a membership row is somehow
   // missing: refusing them their own controls would be the worse failure.
   const isMember = Boolean(studentId)
-    && (studentId === hostStudentId || participants.some((member) => member.studentId === studentId));
+    && (studentId === hostStudentId || input.member === true || participants.some((member) => member.studentId === studentId));
   const host = participants.find((member) => member.studentId === hostStudentId);
   const status = String(row.status || "CREATED") as CinemaRoomStatus;
   const joinLocked = Number(row.join_locked || 0) === 1;
-  const visibility = (String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE" ? "PRIVATE" : "PUBLIC") as CinemaRoomVisibility;
+  const visibility: CinemaRoomVisibility = isPrivateRow(row) ? "PRIVATE" : "PUBLIC";
   const isPrivate = visibility === "PRIVATE";
   const invited = input.invited === true;
   return {
     id: String(row.id || ""),
     hostStudentId,
-    hostName: host?.displayName || "The host",
+    hostName: host?.displayName || String(row.host_name || "") || "The host",
     title: String(row.title || "") || "Study room",
     sourceType: (String(row.video_source_type || "YOUTUBE") as CinemaSourceType),
-    videoId: String(row.video_id || ""),
+    videoId: Number(row.discussion_mode || 0) === 1 && !isMember ? "" : String(row.video_id || ""),
     status,
     joinLocked,
     visibility,
     isPrivate,
     isHost: Boolean(studentId) && studentId === hostStudentId,
     isMember,
+    currentRole: isMember ? (studentId === hostStudentId ? "HOST" : participants.find((member) => member.studentId === studentId)?.role || "VIEWER") : "",
+    waitingRoomEnabled: Number(row.waiting_room || 0) === 1,
+    discussionMode: Number(row.discussion_mode || 0) === 1,
+    stageLimit: Number(row.stage_limit || 6),
+    waitingState: input.waitingState || "",
     invited,
     // Two doors, and a guest has to open both: the host's lock is a door in
     // its own right, so an invitation never walks past it.
@@ -229,17 +273,27 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
   };
 }
 
-const ROOM_COLUMNS = "id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at";
+const ROOM_COLUMNS = "id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at,discussion_mode,stage_limit";
 
 async function membersOf(sessionIds: string[]): Promise<Map<string, CinemaRoomRow[]>> {
   const grouped = new Map<string, CinemaRoomRow[]>();
   if (!sessionIds.length) return grouped;
   const placeholders = sessionIds.map(() => "?").join(",");
-  const rows = rowsToObjects(await turso(
-    `SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at FROM cinema_participants
-      WHERE session_id IN (${placeholders}) ORDER BY joined_at ASC LIMIT ${PARTICIPANT_LIMIT}`,
-    sessionIds,
-  ));
+  let rows: CinemaRoomRow[];
+  try {
+    rows = rowsToObjects(await turso(
+      `SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at,COALESCE(role,'VIEWER') AS role FROM cinema_participants
+        WHERE session_id IN (${placeholders}) ORDER BY joined_at ASC LIMIT ${PARTICIPANT_LIMIT}`,
+      sessionIds,
+    ));
+  } catch {
+    // Test doubles and a rolling deployment may briefly expose the pre-M13 shape.
+    rows = rowsToObjects(await turso(
+      `SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at FROM cinema_participants
+        WHERE session_id IN (${placeholders}) ORDER BY joined_at ASC LIMIT ${PARTICIPANT_LIMIT}`,
+      sessionIds,
+    ));
+  }
   for (const row of rows) {
     const key = String(row.session_id || "");
     grouped.set(key, [...(grouped.get(key) || []), row]);
@@ -267,7 +321,7 @@ async function memberCounts(sessionIds: string[]): Promise<Map<string, number>> 
 
 /** A private room, without a second read: the column is on every room row. */
 function isPrivateRow(row: CinemaRoomRow): boolean {
-  return String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE";
+  return row.video_source_type === "UPLOAD" || String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE";
 }
 
 /** Whether one student holds an invitation to one room. */
@@ -286,6 +340,15 @@ async function roomRow(sessionId: string): Promise<CinemaRoomRow | undefined> {
     `SELECT ${ROOM_COLUMNS} FROM cinema_sessions WHERE id = ? LIMIT 1`,
     [sessionId],
   ))[0];
+}
+
+async function waitingRoomEnabled(sessionId: string): Promise<boolean> {
+  try {
+    const row = rowsToObjects(await turso("SELECT COALESCE(waiting_room,0) AS waiting_room FROM cinema_sessions WHERE id = ? LIMIT 1", [sessionId]))[0];
+    return Number(row?.waiting_room || 0) === 1;
+  } catch {
+    return false;
+  }
 }
 
 /** A room that must exist and still resolve for the caller, or a 404. */
@@ -340,6 +403,8 @@ export async function createRoom(input: {
   startInMinutes?: unknown;
   /** The host's run time in minutes; 0 or absent means "until I end it". */
   durationMinutes?: unknown;
+  /** Internal event-series horizon. Public room creation keeps the seven-day ceiling. */
+  scheduleHorizonMinutes?: unknown;
 }) {
   await requireTurso();
   await ensureCinemaTables();
@@ -374,11 +439,15 @@ export async function createRoom(input: {
     );
   }
   const clocked = hasSchedule(input.startInMinutes) || duration > 0;
-  const startIn = clocked ? parseStartInMinutes(input.startInMinutes ?? 0) : 0;
+  const requestedStart = Math.round(Number(input.startInMinutes ?? 0));
+  const eventHorizon = Math.max(CINEMA_START_MAX_MINUTES, Math.min(60 * 24 * 60, Math.round(Number(input.scheduleHorizonMinutes) || CINEMA_START_MAX_MINUTES)));
+  const startIn = clocked
+    ? (eventHorizon === CINEMA_START_MAX_MINUTES ? parseStartInMinutes(requestedStart) : Number.isFinite(requestedStart) && requestedStart >= 0 && requestedStart <= eventHorizon ? requestedStart : null)
+    : 0;
   if (startIn === null) {
     throw new CampusEngineError(
       "VALIDATION_ERROR",
-      `A room can start now or up to ${CINEMA_START_MAX_MINUTES / (24 * 60)} days from now.`,
+      `A room can start now or up to ${eventHorizon / (24 * 60)} days from now.`,
       400,
     );
   }
@@ -396,7 +465,7 @@ export async function createRoom(input: {
   );
   try {
     await turso(
-      "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at) VALUES (?,?,?,?,?,'')",
+      "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at,role) VALUES (?,?,?,?,?,'','HOST')",
       [id, String(input.student.id), String(input.student.name || "").slice(0, 80), stamp, stamp],
     );
   } catch (error) {
@@ -426,39 +495,99 @@ export async function createRoom(input: {
   );
 }
 
+/** Membership authorization is never inferred from a truncated participant page. */
+async function membershipBeyondPage(roomId: string, studentId: string, members: CinemaRoomRow[]) {
+  if (!studentId) return false;
+  if (members.some(member => String(member.student_id) === studentId)) return true;
+  if (members.length < PARTICIPANT_LIMIT) return false;
+  return rowsToObjects(await turso("SELECT student_id FROM cinema_participants WHERE session_id = ? AND student_id = ? LIMIT 1", [roomId, studentId])).length > 0;
+}
+
+async function memberRole(roomId: string, studentId: string): Promise<CinemaMemberRole> {
+  const row = rowsToObjects(await turso(
+    "SELECT COALESCE(role,'VIEWER') AS role FROM cinema_participants WHERE session_id = ? AND student_id = ? LIMIT 1",
+    [roomId, studentId],
+  ))[0];
+  const role = String(row?.role || "VIEWER").toUpperCase() as CinemaMemberRole;
+  return CINEMA_MEMBER_ROLES.includes(role) ? role : "VIEWER";
+}
+
 export async function readRoom(input: { id: string; studentId?: string }) {
   await requireTurso();
   await ensureCinemaTables();
   const row = await requireVisibleRoom(input.id);
+  row.waiting_room = await waitingRoomEnabled(String(row.id));
   const members = (await membersOf([String(row.id)])).get(String(row.id)) || [];
   const studentId = String(input.studentId || "");
+  if (studentId !== String(row.host_student_id || "")) await assertCinemaEventAccess(String(row.id), studentId, false);
   const isMember = Boolean(studentId) && (studentId === String(row.host_student_id || "")
-    || members.some((member) => String(member.student_id || "") === studentId));
+    || await membershipBeyondPage(String(row.id), studentId, members));
   const invited = isPrivateRow(row) && !isMember
     ? await isInvited(String(row.id), studentId)
     : false;
+  let waitingState: "" | "WAITING" | "REJECTED" = "";
+  if (!isMember && studentId && Number(row.waiting_room || 0) === 1) {
+    const waiting = rowsToObjects(await turso(
+      "SELECT status FROM cinema_waiting_members WHERE session_id = ? AND student_id = ? LIMIT 1",
+      [String(row.id), studentId],
+    ))[0];
+    const state = String(waiting?.status || "").toUpperCase();
+    waitingState = state === "WAITING" || state === "REJECTED" ? state : "";
+  }
   // A private room is readable only by its members and its guest list. The
   // refusal is a 403 rather than the usual 404, because the host shared the
   // link before the door closed and "private" is the honest answer.
   if (isPrivateRow(row) && !isMember && !invited) {
     throw new CampusEngineError("FORBIDDEN", "This room is private. Ask the host for an invite.", 403);
   }
-  return roomView(row, { studentId: input.studentId, participants: members, invited });
+  const view = roomView(row, { studentId: input.studentId, participants: members, invited, member: isMember, waitingState });
+  if (isMember && studentId !== String(row.host_student_id || "") && !members.some((member) => String(member.student_id || "") === studentId)) {
+    view.currentRole = await memberRole(String(row.id), studentId);
+  }
+  // A shared-link preview must not serialize the roster or playback source.
+  return isMember ? view : { ...view, participants: [], hostStudentId: "", hostName: "The host", videoId: "" };
+}
+
+async function assertCinemaEventAccess(roomId: string, studentId: string, requireRsvp: boolean) {
+  try {
+    const event = rowsToObjects(await turso(
+      `SELECT e.status,o.status AS organizer_status,o.organizer_type,o.verified_at,COALESCE(r.status,'') AS rsvp_status
+         FROM cinema_events e JOIN cinema_organizers o ON o.id=e.organizer_id
+         LEFT JOIN cinema_event_rsvps r ON r.event_id=e.id AND r.student_id=?
+        WHERE e.session_id=? LIMIT 1`, [studentId, roomId],
+    ))[0];
+    if (!event) return;
+    if (String(event.status) !== "PUBLISHED" || String(event.organizer_status) !== "ACTIVE" ||
+      (String(event.organizer_type) !== "STUDENT_GROUP" && !event.verified_at)) {
+      throw new CampusEngineError("FORBIDDEN", "This event is not currently published.", 403);
+    }
+    if (requireRsvp && String(event.rsvp_status) !== "GOING") {
+      throw new CampusEngineError("FORBIDDEN", "Reserve a place on the event page before joining this room.", 403);
+    }
+  } catch (error) {
+    // Older deployments can still serve ordinary rooms before event tables exist.
+    if (!(error instanceof Error && /no such table: cinema_events/i.test(error.message))) throw error;
+  }
 }
 
 /** The lobby: rooms this student hosts or has joined, newest first. */
-export async function listMyRooms(studentId: string) {
+export async function listMyRooms(studentId: string, options: { offset?: number; limit?: number; status?: string } = {}) {
   await requireTurso();
   await ensureCinemaTables();
+  const offset = Math.max(0, Math.min(100_000, Math.floor(Number(options.offset) || 0)));
+  const limit = Math.max(1, Math.min(21, Math.floor(Number(options.limit) || LIST_LIMIT)));
+  const status = options.status === "LIVE" ? " AND s.status = 'LIVE'" : options.status === "SCHEDULED" ? " AND s.status = 'CREATED'" : options.status === "RECENT" ? " AND s.status IN ('ENDED','EXPIRED')" : "";
   const rows = rowsToObjects(await turso(
     `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.visibility,
             CASE WHEN i.student_id IS NULL THEN 0 ELSE 1 END AS invited,
+            CASE WHEN p.student_id IS NULL THEN 0 ELSE 1 END AS member,
+            (SELECT display_name FROM cinema_participants h WHERE h.session_id = s.id AND h.student_id = s.host_student_id) AS host_name,
             s.starts_at,s.ends_at,s.duration_minutes,s.started_at,s.ended_at,s.created_at,s.updated_at
        FROM cinema_sessions s
        LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = ?
        LEFT JOIN cinema_room_invites i ON i.session_id = s.id AND i.student_id = ?
-      WHERE s.status <> 'DELETED' AND (p.student_id IS NOT NULL OR i.student_id IS NOT NULL)
-      ORDER BY s.created_at DESC LIMIT ${LIST_LIMIT}`,
+      WHERE s.status <> 'DELETED' AND (p.student_id IS NOT NULL OR i.student_id IS NOT NULL)${status}
+      ORDER BY s.created_at DESC, s.id DESC LIMIT ${limit} OFFSET ${offset}`,
     [String(studentId), String(studentId)],
   ));
   const counts = await memberCounts(rows.map((row) => String(row.id || "")));
@@ -467,6 +596,7 @@ export async function listMyRooms(studentId: string) {
   // count, which the grouped query already returned.
   return rows.map((row) => roomView(row, {
     studentId,
+    member: Number(row.member || 0) === 1,
     participants: [],
     memberCount: counts.get(String(row.id || "")) ?? 0,
     invited: Number(row.invited || 0) === 1,
@@ -483,14 +613,19 @@ export async function joinRoom(input: { id: string; student: { id: string; name?
   await ensureCinemaTables();
   const studentId = String(input.student.id);
   const row = await requireVisibleRoom(input.id);
+  row.waiting_room = await waitingRoomEnabled(String(row.id));
   const members = (await membersOf([String(row.id)])).get(String(row.id)) || [];
-  const isMember = members.some((member) => String(member.student_id || "") === studentId);
+  const isMember = await membershipBeyondPage(String(row.id), studentId, members);
   let invited = false;
 
   // An ended room admits nobody, member or not: the page says the room has
   // ended, and a join that quietly succeeded would contradict it.
   if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+  if (studentId !== String(row.host_student_id || "")) await assertCinemaEventAccess(String(row.id), studentId, true);
   if (!isMember) {
+    // Public event links are discoverable, but entering an event requires the
+    // attendee's reserved place. This is enforced here as every join path,
+    // including direct room links, passes through this function.
     // Two doors, both of which a guest has to open: the lock the host set and
     // the guest list of a private room. Neither replaces the other.
     if (Number(row.join_locked || 0) === 1) throw new CampusEngineError("FORBIDDEN", "The host has locked this room.", 403);
@@ -499,24 +634,46 @@ export async function joinRoom(input: { id: string; student: { id: string; name?
       if (!invited) throw new CampusEngineError("FORBIDDEN", "This room is private. Ask the host for an invite.", 403);
     }
     const stamp = new Date().toISOString();
+    if (Number(row.waiting_room || 0) === 1 && studentId !== String(row.host_student_id || "")) {
+      await turso(
+        `INSERT INTO cinema_waiting_members (session_id,student_id,display_name,status,requested_at,decided_at,decided_by)
+         VALUES (?,?,?,'WAITING',?,'','')
+         ON CONFLICT(session_id,student_id) DO UPDATE SET display_name=excluded.display_name,status='WAITING',requested_at=excluded.requested_at,decided_at='',decided_by=''`,
+        [String(row.id), studentId, String(input.student.name || "").slice(0, 80), stamp],
+      );
+      return roomView(row, { studentId, participants: members, invited, member: false, waitingState: "WAITING" });
+    }
+    if (studentId !== String(row.host_student_id || "")) {
+      await turso(
+        "UPDATE cinema_waiting_members SET status='ADMITTED',decided_at=?,decided_by='' WHERE session_id=? AND student_id=? AND status='WAITING'",
+        [stamp, String(row.id), studentId],
+      ).catch(() => undefined);
+    }
     await turso(
-      "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at) VALUES (?,?,?,?,?,'')",
+      "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at,role) VALUES (?,?,?,?,?,'','VIEWER')",
       [String(row.id), studentId, String(input.student.name || "").slice(0, 80), stamp, stamp],
     );
     logEvent("info", "cinema_room_joined", { roomId: String(row.id) });
     await incrementMetric("cinema_rooms_joined");
   } else {
+    const stamp = new Date().toISOString();
     await turso(
-      "UPDATE cinema_participants SET last_seen_at = ?, left_at = '' WHERE session_id = ? AND student_id = ?",
-      [new Date().toISOString(), String(row.id), studentId],
+      `UPDATE cinema_participants SET attendance_seconds=attendance_seconds+
+        CASE WHEN ?='LIVE' AND last_seen_at>=? AND last_seen_at<? THEN MIN(90,MAX(0,CAST((julianday(?) - julianday(last_seen_at))*86400 AS INTEGER))) ELSE 0 END,
+        last_seen_at=?,left_at='' WHERE session_id=? AND student_id=?`,
+      [String(row.status), new Date(Date.now() - 90_000).toISOString(), stamp, stamp, stamp, String(row.id), studentId],
     );
   }
 
   const fresh = (await membersOf([String(row.id)])).get(String(row.id)) || [];
-  return roomView((await roomRow(String(row.id))) || row, { studentId, participants: fresh, invited });
+  const view = roomView((await roomRow(String(row.id))) || row, { studentId, participants: fresh, invited, member: true });
+  if (studentId !== String(row.host_student_id || "") && !fresh.some((member) => String(member.student_id || "") === studentId)) {
+    view.currentRole = await memberRole(String(row.id), studentId);
+  }
+  return view;
 }
 
-export const CINEMA_ROOM_ACTIONS = ["OPEN", "END", "LOCK", "UNLOCK", "RETITLE", "PRIVATE", "PUBLIC"] as const;
+export const CINEMA_ROOM_ACTIONS = ["OPEN", "END", "LOCK", "UNLOCK", "RETITLE", "PRIVATE", "PUBLIC", "WAITING_ON", "WAITING_OFF"] as const;
 export type CinemaRoomAction = (typeof CINEMA_ROOM_ACTIONS)[number];
 
 /**
@@ -531,6 +688,7 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
     throw new CampusEngineError("VALIDATION_ERROR", "That action is not one a room understands.", 400);
   }
   const row = await requireVisibleRoom(input.id);
+  row.waiting_room = await waitingRoomEnabled(String(row.id));
   if (String(row.host_student_id || "") !== String(input.studentId || "")) {
     throw new CampusEngineError("FORBIDDEN", "Only the host can change this room.", 403);
   }
@@ -576,7 +734,16 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
       "UPDATE cinema_sessions SET join_locked = ?, updated_at = ? WHERE id = ?",
       [action === "LOCK" ? 1 : 0, stamp, id],
     );
+  } else if (action === "WAITING_ON" || action === "WAITING_OFF") {
+    await turso(
+      "UPDATE cinema_sessions SET waiting_room = ?, updated_at = ? WHERE id = ?",
+      [action === "WAITING_ON" ? 1 : 0, stamp, id],
+    );
+    row.waiting_room = action === "WAITING_ON" ? 1 : 0;
   } else if (action === "PRIVATE" || action === "PUBLIC") {
+    if (action === "PUBLIC" && row.video_source_type === "UPLOAD") {
+      throw new CampusEngineError("VALIDATION_ERROR", "Uploaded videos are invite-only. Manage access from the guest list.", 400);
+    }
     // Changing the door does not move anyone already inside: a member keeps
     // their seat, and only the people outside it changes.
     await turso(
@@ -592,7 +759,9 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
   }
 
   const fresh = (await membersOf([id])).get(id) || [];
-  return roomView((await roomRow(id)) || row, { studentId: input.studentId, participants: fresh });
+  const updated = (await roomRow(id)) || row;
+  updated.waiting_room = await waitingRoomEnabled(id);
+  return roomView(updated, { studentId: input.studentId, participants: fresh });
 }
 
 /** The guest list is bounded like every other list in the room. */
@@ -744,6 +913,178 @@ export async function removeRoomGuest(input: { id: string; studentId: string; gu
   return { removed: removedInvitation || removedMembership, invites: await inviteRows(String(row.id)) };
 }
 
+export type CinemaWaitingMember = {
+  studentId: string;
+  displayName: string;
+  requestedAt: string;
+};
+
+/** The host and co-hosts may run the door; role assignment itself stays host-only. */
+async function requireRoomManager(sessionId: string, studentId: string) {
+  const row = await requireVisibleRoom(sessionId);
+  if (String(row.host_student_id || "") === studentId) return row;
+  const member = rowsToObjects(await turso(
+    "SELECT COALESCE(role,'VIEWER') AS role FROM cinema_participants WHERE session_id = ? AND student_id = ? LIMIT 1",
+    [String(row.id), studentId],
+  ))[0];
+  if (String(member?.role || "").toUpperCase() !== "COHOST") {
+    throw new CampusEngineError("FORBIDDEN", "Only the host or a co-host can manage the waiting room.", 403);
+  }
+  return row;
+}
+
+export async function listWaitingMembers(input: { id: string; studentId: string }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  await requireRoomManager(input.id, input.studentId);
+  return rowsToObjects(await turso(
+    `SELECT student_id,display_name,requested_at FROM cinema_waiting_members
+     WHERE session_id = ? AND status = 'WAITING' ORDER BY requested_at ASC LIMIT 100`,
+    [input.id],
+  )).map((row): CinemaWaitingMember => ({
+    studentId: String(row.student_id || ""),
+    displayName: String(row.display_name || "") || "Student",
+    requestedAt: String(row.requested_at || ""),
+  }));
+}
+
+export async function decideWaitingMember(input: { id: string; studentId: string; guestId: unknown; action: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireRoomManager(input.id, input.studentId);
+  if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+  const guestId = String(input.guestId || "").trim();
+  const action = String(input.action || "").trim().toUpperCase();
+  if (!guestId || !["ADMIT", "REJECT"].includes(action)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose a waiting student and an admission decision.", 400);
+  }
+  const waiting = rowsToObjects(await turso(
+    "SELECT display_name FROM cinema_waiting_members WHERE session_id = ? AND student_id = ? AND status = 'WAITING' LIMIT 1",
+    [String(row.id), guestId],
+  ))[0];
+  if (!waiting) throw new CampusEngineError("NOT_FOUND", "That student is no longer waiting.", 404);
+  const stamp = new Date().toISOString();
+  if (action === "ADMIT") {
+    // The admission decision and membership row are one durable operation:
+    // a crash cannot leave a student marked admitted outside the room.
+    const [decided] = await tursoTransaction([
+      { sql: "UPDATE cinema_waiting_members SET status='ADMITTED',decided_at=?,decided_by=? WHERE session_id=? AND student_id=? AND status='WAITING'", args: [stamp, input.studentId, String(row.id), guestId] },
+      { sql: "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at,role) SELECT ?,?,?,?,?,'','VIEWER' WHERE changes()=1", args: [String(row.id), guestId, String(waiting.display_name || "").slice(0, 80), stamp, stamp] },
+    ]);
+    if (Number(decided?.affected_row_count ?? 0) !== 1) {
+      throw new CampusEngineError("CONFLICT", "That student has already received a decision.", 409);
+    }
+  } else {
+    const decided = await turso(
+      "UPDATE cinema_waiting_members SET status='REJECTED',decided_at=?,decided_by=? WHERE session_id=? AND student_id=? AND status='WAITING'",
+      [stamp, input.studentId, String(row.id), guestId],
+    );
+    if (Number(decided?.affected_row_count ?? 0) !== 1) {
+      throw new CampusEngineError("CONFLICT", "That student has already received a decision.", 409);
+    }
+  }
+  logEvent("info", action === "ADMIT" ? "cinema_waiting_admitted" : "cinema_waiting_rejected", { roomId: String(row.id) });
+  return { decided: true, action };
+}
+
+export async function setRoomMemberRole(input: { id: string; studentId: string; guestId: unknown; role: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireVisibleRoom(input.id);
+  const guestId = String(input.guestId || "").trim();
+  const role = String(input.role || "").trim().toUpperCase() as CinemaMemberRole;
+  const isHost = String(row.host_student_id || "") === input.studentId;
+  const isDiscussionCohost = Number(row.discussion_mode || 0) === 1 && await memberRole(String(row.id), input.studentId) === "COHOST";
+  if (!isHost && !(isDiscussionCohost && ["PRESENTER", "VIEWER"].includes(role))) throw new CampusEngineError("FORBIDDEN", "Only the host can assign room roles.", 403);
+  if (!guestId || guestId === String(row.host_student_id || "")) {
+    throw new CampusEngineError("VALIDATION_ERROR", "The host role cannot be reassigned.", 400);
+  }
+  if (!["COHOST", "PRESENTER", "VIEWER"].includes(role)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Choose co-host, presenter, or viewer.", 400);
+  }
+  const result = await turso(
+    `UPDATE cinema_participants SET role = ? WHERE session_id = ? AND student_id = ? AND
+      (?='VIEWER' OR ?=0 OR role IN ('HOST','COHOST','PRESENTER') OR
+       (SELECT COUNT(*) FROM cinema_participants WHERE session_id=? AND role IN ('HOST','COHOST','PRESENTER')) < ?)`,
+    [role, String(row.id), guestId, role, Number(row.discussion_mode || 0), String(row.id), Math.max(2, Math.min(6, Number(row.stage_limit || 6)))],
+  );
+  if (Number(result?.affected_row_count ?? 0) !== 1) {
+    const member = rowsToObjects(await turso("SELECT student_id FROM cinema_participants WHERE session_id=? AND student_id=? LIMIT 1", [String(row.id), guestId]))[0];
+    throw new CampusEngineError(member ? "CONFLICT" : "NOT_FOUND", member ? "The discussion stage is full. Move someone back to the audience first." : "That student is not in this room.", member ? 409 : 404);
+  }
+  await setCinemaMemberRoleInRoom(String(row.id), guestId, role);
+  logEvent("info", "cinema_member_role_changed", { roomId: String(row.id), role });
+  return { updated: true, studentId: guestId, role };
+}
+
+export type CinemaBookmark = { id: string; studentId: string; displayName: string; label: string; atSeconds: number; createdAt: string };
+
+async function requireRoomMember(sessionId: string, studentId: string) {
+  const room = await requireVisibleRoom(sessionId);
+  const members = (await membersOf([String(room.id)])).get(String(room.id)) || [];
+  if (String(room.host_student_id || "") !== studentId && !(await membershipBeyondPage(String(room.id), studentId, members))) {
+    throw new CampusEngineError("FORBIDDEN", "Join this room to view its shared bookmarks.", 403);
+  }
+  return room;
+}
+
+export async function listCinemaBookmarks(input: { id: string; studentId: string }): Promise<CinemaBookmark[]> {
+  await requireTurso();
+  await ensureCinemaTables();
+  const room = await requireRoomMember(input.id, input.studentId);
+  return rowsToObjects(await turso(
+    `SELECT id,student_id,display_name,label,at_seconds,created_at FROM cinema_bookmarks
+     WHERE session_id=? ORDER BY at_seconds ASC,created_at ASC LIMIT 200`,
+    [String(room.id)],
+  )).map((row) => ({
+    id: String(row.id || ""),
+    studentId: String(row.student_id || ""),
+    displayName: String(row.display_name || "") || "Student",
+    label: String(row.label || ""),
+    atSeconds: Math.max(0, Math.floor(Number(row.at_seconds || 0))),
+    createdAt: String(row.created_at || ""),
+  }));
+}
+
+export async function addCinemaBookmark(input: { id: string; studentId: string; displayName?: string; label: unknown; atSeconds: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const room = await requireRoomMember(input.id, input.studentId);
+  if (!isRoomActive(room.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+  const label = String(input.label || "").replace(/\s+/g, " ").trim().slice(0, 100);
+  const atSeconds = Number(input.atSeconds);
+  if (!label || !Number.isInteger(atSeconds) || atSeconds < 0 || atSeconds > 86_400) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Add a short label and a valid video time.", 400);
+  }
+  const bookmark = {
+    id: crypto.randomUUID(), studentId: input.studentId,
+    displayName: String(input.displayName || "Student").trim().slice(0, 80) || "Student",
+    label, atSeconds, createdAt: new Date().toISOString(),
+  };
+  const inserted = await turso(
+    `INSERT INTO cinema_bookmarks (id,session_id,student_id,display_name,label,at_seconds,created_at)
+     SELECT ?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM cinema_bookmarks WHERE session_id=?) < 200`,
+    [bookmark.id, String(room.id), bookmark.studentId, bookmark.displayName, label, atSeconds, bookmark.createdAt, String(room.id)],
+  );
+  if (Number(inserted?.affected_row_count || 0) !== 1) throw new CampusEngineError("VALIDATION_ERROR", "This room has reached its bookmark limit.", 400);
+  return bookmark;
+}
+
+export async function deleteCinemaBookmark(input: { id: string; studentId: string; bookmarkId: unknown }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const room = await requireRoomMember(input.id, input.studentId);
+  const bookmarkId = String(input.bookmarkId || "").trim();
+  if (!bookmarkId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a bookmark to remove.", 400);
+  const elevated = String(room.host_student_id || "") === input.studentId || await memberRole(String(room.id), input.studentId) === "COHOST";
+  const result = await turso(
+    `DELETE FROM cinema_bookmarks WHERE id=? AND session_id=?${elevated ? "" : " AND student_id=?"}`,
+    elevated ? [bookmarkId, String(room.id)] : [bookmarkId, String(room.id), input.studentId],
+  );
+  if (Number(result?.affected_row_count || 0) !== 1) throw new CampusEngineError("NOT_FOUND", "That bookmark could not be removed.", 404);
+  return { removed: true };
+}
+
 export type ConsoleCinemaRoom = {
   id: string;
   title: string;
@@ -767,7 +1108,7 @@ const CONSOLE_ROOM_LIMIT = 100;
  * the host's name so a moderator knows who to talk to. The filter is a closed
  * set, never a caller-supplied SQL fragment.
  */
-export async function listRoomsForConsole(input: { status?: unknown; q?: unknown; limit?: number } = {}): Promise<ConsoleCinemaRoom[]> {
+export async function listRoomsForConsole(input: { status?: unknown; q?: unknown; limit?: number; offset?: number } = {}): Promise<ConsoleCinemaRoom[]> {
   await requireTurso();
   await ensureCinemaTables();
   const wanted = String(input.status || "ACTIVE").trim().toUpperCase();
@@ -778,6 +1119,7 @@ export async function listRoomsForConsole(input: { status?: unknown; q?: unknown
       : "s.status IN ('CREATED','LIVE')";
   const search = String(input.q || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const limit = Math.min(Math.max(Math.round(Number(input.limit) || CONSOLE_ROOM_LIMIT), 1), 200);
+  const offset = Math.max(0, Math.min(100_000, Math.floor(Number(input.offset) || 0)));
   const args: string[] = [];
   let where = filter;
   if (search) {
@@ -789,8 +1131,8 @@ export async function listRoomsForConsole(input: { status?: unknown; q?: unknown
        FROM cinema_sessions s
        LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = s.host_student_id
       WHERE ${where}
-      ORDER BY CASE WHEN s.status IN ('CREATED','LIVE') THEN 0 ELSE 1 END, s.created_at DESC
-      LIMIT ${limit}`,
+      ORDER BY CASE WHEN s.status IN ('CREATED','LIVE') THEN 0 ELSE 1 END, s.created_at DESC, s.id DESC
+      LIMIT ${limit} OFFSET ${offset}`,
     args,
   ));
   const counts = await memberCounts(rows.map((row) => String(row.id || "")));

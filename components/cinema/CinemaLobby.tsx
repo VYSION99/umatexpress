@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
+import { CinemaDialog } from "./CinemaDialog";
 import { UploadPanel } from "./UploadPanel";
 import "./cinema.css";
 
@@ -33,6 +34,13 @@ type CinemaDoor = "PUBLIC" | "PRIVATE";
 export function CinemaLobby() {
   const router = useRouter();
   const { ready, account } = useStudentAccount();
+  const [dialog, setDialog] = useState<"" | "create" | "join">("");
+  const [filter, setFilter] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [publicRoom, setPublicRoom] = useState<CinemaRoom | null>(null);
+  const loadSequence = useRef(0);
   const [title, setTitle] = useState("");
   const [video, setVideo] = useState("");
   const [source, setSource] = useState<CinemaSource>("YOUTUBE");
@@ -57,13 +65,18 @@ export function CinemaLobby() {
   const [search, setSearch] = useState<{ busy: boolean; error: string; done: boolean }>({ busy: false, error: "", done: false });
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    setLoading(true); setListError("");
     try {
-      const response = await fetch("/api/cinema/sessions", { credentials: "same-origin", cache: "no-store" });
-      if (!response.ok) return;
-      const data = await response.json() as { rooms?: CinemaRoom[] };
-      setRooms(data.rooms || []);
-    } catch { /* the list is a convenience, not a gate: a failure leaves it empty */ }
-  }, []);
+      const response = await fetch(`/api/cinema/sessions?offset=${offset}&status=${filter}`, { credentials: "same-origin", cache: "no-store" });
+      const data = await response.json() as { rooms?: CinemaRoom[]; hasMore?: boolean; error?: string };
+      if (!response.ok) throw new Error(data.error || "Your rooms could not be loaded.");
+      if (sequence !== loadSequence.current) return;
+      setRooms(data.rooms || []); setHasMore(data.hasMore === true);
+    } catch (error) {
+      if (sequence === loadSequence.current) setListError(error instanceof Error ? error.message : "Your rooms could not be loaded.");
+    } finally { if (sequence === loadSequence.current) setLoading(false); }
+  }, [offset, filter]);
 
   useEffect(() => { if (account) queueMicrotask(load); }, [account, load]);
 
@@ -79,7 +92,7 @@ export function CinemaLobby() {
   // half-typed words can never land on top of a faster one for the real ones.
   useEffect(() => {
     const text = query.trim();
-    if (!account || text.length < 2) return;
+    if (!account || dialog !== "create" || source !== "YOUTUBE" || text.length < 2) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearch({ busy: true, error: "", done: false });
@@ -97,7 +110,7 @@ export function CinemaLobby() {
         });
     }, 400);
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [account, query]);
+  }, [account, query, dialog, source]);
 
   /** The tray's one job: put the video in the form below and let the host name the room. */
   const pick = (result: YouTubeSearchResult) => {
@@ -177,19 +190,29 @@ export function CinemaLobby() {
 
   if (!account) return <section className="cinema-card">
     <h2>Sign in to open a room</h2>
-    <p className="cinema-note">Cinema rooms are for UMaT students. Sign in with your <strong>@st.umat.edu.gh</strong> account and the room you were sent is waiting.</p>
+    <p className="cinema-note">Watch public video events and panel discussions with any verified account. UMaT students can also create private rooms.</p>
     <div className="cinema-controls cinema-sub">
-      <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in <FilmSlate size={16} /></Link>
+      <Link className="cinema-cta" href="/account?next=%2Fcinema%2Frooms">Sign in <FilmSlate size={16} /></Link>
+      <Link className="cinema-cta" href="/cinema/events">Browse video events</Link>
     </div>
   </section>;
 
   return <div className="cinema-lobby">
+    <section className="cinema-lobby-head">
+      <div><span className="cinema-eyebrow">LIVE VIDEO · PANELS · DEBATES</span><h2>Watch the event.<br />Join the conversation.</h2><p>Stream campus events, follow a moderated panel, ask questions and vote. Create a smaller room when your group needs its own space.</p></div>
+      <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Explore video events</Link><button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create room</button><button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join room</button></div>
+    </section>
+    <CinemaDialog open={Boolean(publicRoom)} title="Make this room public?" busy={Boolean(roomBusy)} onClose={() => setPublicRoom(null)}>
+      <p>Any signed-in UMaT student with the link will be able to join {publicRoom?.title}.</p>
+      <div className="cinema-controls"><button disabled={Boolean(roomBusy)} onClick={() => { if (publicRoom) void flipDoor(publicRoom).then(() => setPublicRoom(null)); }}>Make public</button><button className="secondary" onClick={() => setPublicRoom(null)}>Keep private</button></div>
+    </CinemaDialog>
+    <CinemaDialog open={dialog === "create" || Boolean(uploadRoom)} title={uploadRoom ? "Upload your video" : "Create a room"} busy={busy} onClose={() => { setDialog(""); setUploadRoom(null); void load(); }}>
+
     {uploadRoom
       ? <section className="cinema-card">
         <h2>Add the file</h2>
         <p className="cinema-note">
-          <strong>{uploadRoom.title}</strong> is created and invite-only. Uploads live in the private bucket, so the share link alone can never open it;
-          the moment the file is ready the room starts playing it.
+          <strong>{uploadRoom.title}</strong> is invite-only. Add a video, then invite your group.
         </p>
         <UploadPanel
           roomId={uploadRoom.id}
@@ -203,9 +226,9 @@ export function CinemaLobby() {
         </p>
       </section>
       : <>
-      <section className="cinema-card cinema-search-card">
+      {source === "YOUTUBE" && <section className="cinema-card cinema-search-card">
         <h2>Find a video</h2>
-        <p className="cinema-note">Search YouTube and pick what the room plays — a lecture, a documentary, a film. Your choice lands in the form below.</p>
+        <p className="cinema-note">Search YouTube or paste a video link below.</p>
         <label className="cinema-search">
           <MagnifyingGlass size={16} aria-hidden />
           <input
@@ -234,7 +257,7 @@ export function CinemaLobby() {
           Nothing came back for &ldquo;{query.trim()}&rdquo;. Try other words, or paste a link in the form below.
         </p>}
         {picked && <p className="cinema-note cinema-sub">Picked <strong>{picked.title}</strong>. Give the room a name below and open it.</p>}
-      </section>
+      </section>}
       <section className="cinema-card">
         <h2>Start a room</h2>
         <p className="cinema-note">
@@ -256,7 +279,7 @@ export function CinemaLobby() {
             ? <label>YouTube link
               <input value={video} placeholder="https://youtu.be/…" onChange={(event) => setVideo(event.target.value)} />
             </label>
-            : <p className="cinema-note">Choose the file on the next step: MP4, MOV or WebM, up to the size this deployment accepts. It uploads here while the room waits.</p>}
+            : <p className="cinema-note">Upload an MP4, MOV or WebM file in the next step.</p>}
           <div className="cinema-choice" role="radiogroup" aria-label="Who can join">
             <button
               type="button"
@@ -274,7 +297,7 @@ export function CinemaLobby() {
               onClick={() => setDoor("PRIVATE")}
             ><Lock size={15} aria-hidden /> Invite only</button>
           </div>
-          {source === "UPLOAD" && <p className="cinema-note">A file makes the room private automatically: an upload is the host&apos;s own copy, and the guest list is the only door.</p>}
+          {source === "UPLOAD" && <p className="cinema-note">Uploaded videos stay invite-only.</p>}
           <div className="cinema-clock">
             <label>Starts
               <select value={startIn} onChange={(event) => setStartIn(event.target.value)}>
@@ -310,8 +333,9 @@ export function CinemaLobby() {
       </section>
       </>}
 
-    <aside className="cinema-card">
-      <h2>Join a room</h2>
+    </CinemaDialog>
+    <CinemaDialog open={dialog === "join"} title="Join a room" onClose={() => setDialog("")}>
+      <p className="cinema-note">Paste the invitation link your host shared.</p>
       <div className="cinema-create">
         <label>Room link
           <input value={link} placeholder="/cinema/… or the full link" onChange={(event) => setLink(event.target.value)} />
@@ -319,8 +343,12 @@ export function CinemaLobby() {
         <button disabled={!link.trim()} onClick={open}>Go to the room</button>
       </div>
 
-      <h2 className="cinema-heading">Your rooms</h2>
-      {rooms.length === 0
+      {error && <p className="cinema-error" role="alert">{error}</p>}
+    </CinemaDialog>
+    <section className="cinema-card cinema-room-list">
+      <div className="cinema-list-heading"><h2>Your rooms</h2><button className="cinema-text-button" disabled={loading} onClick={() => void load()}>Refresh</button></div>
+      <nav className="cinema-filters" aria-label="Filter your rooms">{[['', 'All'], ['LIVE', 'Live'], ['SCHEDULED', 'Scheduled'], ['RECENT', 'Recent']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setOffset(0); setFilter(value); }}>{label}</button>)}</nav>
+      {loading ? <p className="cinema-note" role="status">Loading your rooms…</p> : listError ? <div className="cinema-error" role="alert">{listError} <button onClick={() => void load()}>Retry</button></div> : rooms.length === 0
         ? <p className="cinema-note">Rooms you host or join appear here, newest first.</p>
         : <ul className="cinema-rooms">
           {rooms.map((room) => <li className="cinema-room-row" key={room.id}>
@@ -333,12 +361,12 @@ export function CinemaLobby() {
               <span className={`cinema-chip${room.status === "LIVE" ? " is-live" : room.status === "ENDED" ? " is-ended" : ""}`}>
                 {room.status === "CREATED" && room.startsAt ? `Starts ${clockCopy(room.startsAt)}` : room.status}
               </span>
-              {room.isHost && isActive(room) && <button
+              {room.isHost && room.sourceType !== "UPLOAD" && isActive(room) && <button
                 type="button"
                 className="cinema-chip is-button"
                 disabled={roomBusy === room.id}
                 title={room.isPrivate ? "Make this room public" : "Make this room invite-only"}
-                onClick={() => void flipDoor(room)}
+                onClick={() => room.isPrivate ? setPublicRoom(room) : void flipDoor(room)}
               >{room.isPrivate ? <Globe size={11} aria-hidden /> : <Lock size={11} aria-hidden />}{room.isPrivate ? "Make it public" : "Make it private"}</button>}
               {room.isHost && isActive(room) && !room.videoId && <button
                 type="button"
@@ -348,8 +376,8 @@ export function CinemaLobby() {
             </div>
           </li>)}
         </ul>}
-      {listError && <p className="cinema-error cinema-sub">{listError}</p>}
-    </aside>
+      <nav className="cinema-pagination" aria-label="Room pages"><button disabled={!offset || loading} onClick={() => setOffset(value => Math.max(0, value - 20))}>Previous</button><span>Page {Math.floor(offset / 20) + 1}</span><button disabled={!hasMore || loading} onClick={() => setOffset(value => value + 20)}>Next</button></nav>
+    </section>
   </div>;
 }
 

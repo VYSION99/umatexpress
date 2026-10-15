@@ -16,7 +16,7 @@ import { hashPassword, validPasswordRecord, verifyPassword, bytesToBase64 } from
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { envValue } from "@/lib/runtime-env";
 import { notifyPasswordChanged } from "@/lib/notifications";
-import { STUDENT_EMAIL_DOMAIN, normalizeStudentEmail, validStudentEmail } from "@/lib/student-email";
+import { STUDENT_EMAIL_DOMAIN, normalizeStudentEmail, validPlatformEmail, validStudentEmail } from "@/lib/student-email";
 import { hasColumn, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 export const STUDENT_SESSION_COOKIE = "umx_student_session";
@@ -269,9 +269,19 @@ export async function requireStudent(request: Request): Promise<StudentAccount> 
   const session = await studentSessionFromRequest(request);
   const account = session ? await accountFromSession(session) : null;
   if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to your UMaTeXPRESS account to continue.", 401);
+  if (!validStudentEmail(account.email)) throw new CampusEngineError("FORBIDDEN", "This service requires a UMaT student account.", 403);
   if (account.verificationRequired && !account.emailVerified) {
     throw new CampusEngineError("FORBIDDEN", "Verify your UMaT email on the account page before continuing.", 403);
   }
+  return account;
+}
+
+/** Public Cinema accepts any account that has proved control of its email. */
+export async function requireCinemaAccount(request: Request): Promise<StudentAccount> {
+  const session = await studentSessionFromRequest(request);
+  const account = session ? await accountFromSession(session) : null;
+  if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to join this Cinema event.", 401);
+  if (!account.emailVerified) throw new CampusEngineError("FORBIDDEN", "Verify your email before joining a Cinema event.", 403);
   return account;
 }
 
@@ -302,6 +312,26 @@ export async function registerStudent(input: { email?: unknown; password?: unkno
   return row ? studentAccountView(row) : { id, email, name, phone, createdAt: stamp, lastLoginAt: stamp, emailVerified: false, verificationRequired: true };
 }
 
+/** Public audience registration shares the session, but never grants student-only access. */
+export async function registerCinemaAudience(input: { email?: unknown; password?: unknown; name?: unknown }) {
+  const email = normalizeStudentEmail(input.email);
+  const password = typeof input.password === "string" ? input.password : "";
+  const name = typeof input.name === "string" ? input.name.trim().slice(0, 100) : "";
+  if (!validPlatformEmail(email)) throw new CampusEngineError("VALIDATION_ERROR", "Enter a valid email address.", 400);
+  if (!name) throw new CampusEngineError("VALIDATION_ERROR", "Enter your name.", 400);
+  assertStudentPassword(password);
+  await requireTurso();
+  if (await storedAccount(email)) throw new CampusEngineError("CONFLICT", "An account already exists for that email. Sign in instead.", 409);
+  const hashed = await hashPassword(password);
+  const stamp = new Date().toISOString();
+  const id = crypto.randomUUID();
+  try {
+    await turso("INSERT INTO student_accounts (id,email,name,phone,password_hash,password_salt,password_iterations,verification_required,created_at,updated_at,last_login_at) VALUES (?,?,?,?,?,?,?,1,?,?,?)",
+      [id, email, name, "", hashed.hash, hashed.salt, hashed.iterations, stamp, stamp, stamp]);
+  } catch { throw new CampusEngineError("CONFLICT", "An account already exists for that email. Sign in instead.", 409); }
+  return studentAccountView((await storedAccountById(id)) || { id, email, name, email_verified: 0, verification_required: 1 });
+}
+
 /**
  * Returns the account, or null for every failure mode. Unknown emails still pay
  * one password derivation so the response time does not reveal which addresses
@@ -309,7 +339,7 @@ export async function registerStudent(input: { email?: unknown; password?: unkno
  */
 export async function verifyStudentCredentials(emailInput: unknown, password: string) {
   const email = normalizeStudentEmail(emailInput);
-  const row = validStudentEmail(email) ? await storedAccount(email) : null;
+  const row = validPlatformEmail(email) ? await storedAccount(email) : null;
   if (!row || Number(row.active) !== 1 || !validPasswordRecord(row.password_hash, row.password_salt, row.password_iterations)) {
     await verifyPassword(password, bytesToBase64(new Uint8Array(32)), bytesToBase64(new Uint8Array(16)));
     return null;
@@ -320,7 +350,8 @@ export async function verifyStudentCredentials(emailInput: unknown, password: st
 }
 
 export async function updateStudentProfile(request: Request, input: { name?: unknown; phone?: unknown }) {
-  const account = await requireStudent(request);
+  const account = await studentAccountFromRequest(request);
+  if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to your UMaTeXPRESS account to continue.", 401);
   const name = typeof input.name === "string" ? input.name.trim().slice(0, 100) : account.name;
   const phone = typeof input.phone === "string" ? input.phone.trim().slice(0, 30) : account.phone;
   await turso("UPDATE student_accounts SET name = ?, phone = ?, updated_at = ? WHERE id = ?", [name, phone, new Date().toISOString(), account.id]);

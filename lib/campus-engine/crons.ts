@@ -22,12 +22,19 @@ export const CAMPUS_RECONCILE_CRON = "*/5 * * * *";
  * keep the fallback within six minutes while giving it a separate budget.
  */
 /** Four reminder minutes share this trigger, but run a different job. */
-export const VACATION_REMINDER_MINUTES = [4, 19, 34, 49] as const;
+export const REMINDER_SCAN_MINUTES = [4, 19, 34, 49] as const;
+/** Kept as an alias for existing schedule checks. */
+export const VACATION_REMINDER_MINUTES = REMINDER_SCAN_MINUTES;
 export const NOTIFICATION_SWEEP_CRON = "2,4,7,13,18,19,23,28,33,34,38,43,48,49,53,58 * * * *";
 
 /** Route each scheduled invocation using Cloudflare's scheduled timestamp. */
 export function notificationCronRunsReminder(scheduledTime: number) {
-  return (VACATION_REMINDER_MINUTES as readonly number[]).includes(new Date(scheduledTime).getUTCMinutes());
+  return (REMINDER_SCAN_MINUTES as readonly number[]).includes(new Date(scheduledTime).getUTCMinutes());
+}
+
+/** Vacation and Cinema alternate, retaining a thirty-minute scan cadence each. */
+export function notificationReminderKind(scheduledTime: number): "VACATION" | "CINEMA" {
+  return new Date(scheduledTime).getUTCMinutes() % 30 === 4 ? "VACATION" : "CINEMA";
 }
 
 /** Saved hostel transitions get a separate budget every fifteen minutes. */

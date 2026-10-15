@@ -1,5 +1,6 @@
 "use client";
 
+import { CinemaDialog } from "./CinemaDialog";
 import { useState } from "react";
 import { Circle, DownloadSimple, Pause, Play, Trash } from "@/components/ui/MaterialIcon";
 import type { CinemaMedia } from "./useCinemaMedia";
@@ -25,6 +26,9 @@ function clockTime(seconds: number) {
  * only draws the state the room owns.
  */
 export function CinemaRecorderPanel({ media, recorder, connected }: { media: CinemaMedia; recorder: CinemaRecorder; connected: boolean }) {
+  const [discardLocal, setDiscardLocal] = useState(false);
+  const [deleteId, setDeleteId] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [consent, setConsent] = useState(false);
   const running = recorder.phase === "recording" || recorder.phase === "paused";
 
@@ -33,6 +37,13 @@ export function CinemaRecorderPanel({ media, recorder, connected }: { media: Cin
   };
 
   return <section className="cinema-card cinema-recorder-panel">
+    <CinemaDialog open={discardLocal || Boolean(deleteId)} title="Delete this recording?" busy={deleting} onClose={() => { setDiscardLocal(false); setDeleteId(""); }}>
+      <p>Download a copy first if you want to keep it. This action cannot be undone.</p>
+      <div className="cinema-controls"><button disabled={deleting} onClick={() => {
+        if (discardLocal) { recorder.discardRecovery(); setDiscardLocal(false); }
+        else { setDeleting(true); void recorder.discard(deleteId).finally(() => { setDeleteId(""); setDeleting(false); }); }
+      }}>Delete recording</button><button className="secondary" onClick={() => { setDiscardLocal(false); setDeleteId(""); }}>Keep recording</button></div>
+    </CinemaDialog>
     <div className="cinema-presence-head">
       <h2>Recorder</h2>
       <span className={`cinema-link${running ? " is-live" : ""}`}>
@@ -65,12 +76,12 @@ export function CinemaRecorderPanel({ media, recorder, connected }: { media: Cin
             : <>
               <button
                 type="button"
-                disabled={!connected || !consent || (!media.micOn && !media.cameraOn) || recorder.phase === "uploading"}
+                disabled={!recorder.canStart || !connected || !consent || (!media.micOn && !media.cameraOn) || recorder.phase === "uploading"}
                 onClick={startRecording}
               >
                 <Circle size={13} aria-hidden /> {recorder.phase === "uploading" ? "Saving…" : "Start recording"}
               </button>
-              {(recorder.phase === "ready" || recorder.phase === "error") && <button type="button" className="secondary" onClick={recorder.reset}>Record another</button>}
+              {(!recorder.recoveryUrl && (recorder.phase === "ready" || recorder.phase === "error")) && <button type="button" className="secondary" onClick={recorder.reset}>Record another</button>}
             </>}
         </div>
         {!media.micOn && !media.cameraOn && recorder.phase !== "uploading" && <p className="cinema-note cinema-sub">
@@ -81,6 +92,16 @@ export function CinemaRecorderPanel({ media, recorder, connected }: { media: Cin
         </p>}
       </>}
 
+    {recorder.recoveryUrl && <div className="cinema-recovery" role="status">
+      <strong>Your recording is safe in this tab</strong>
+      <p>Keep this page open until it is saved or downloaded.</p>
+      <div className="cinema-controls">
+        <a className="cinema-cta" href={recorder.recoveryUrl} download="cinema-recording">Download recording</a>
+        <button type="button" disabled={!connected || recorder.phase === "uploading"} onClick={() => void recorder.retry()}>Retry upload</button>
+        <button type="button" disabled={recorder.phase === "uploading"} onClick={() => setDiscardLocal(true)}>Discard local copy</button>
+      </div>
+    </div>}
+    <p className="cinema-note">Long recordings stop and save automatically to limit device memory use.</p>
     {recorder.progress && <div className="cinema-upload-progress">
       <div className="cinema-upload-bar" style={{ width: `${Math.round((recorder.progress.sent / Math.max(1, recorder.progress.total)) * 100)}%` }} />
       <span>{Math.round((recorder.progress.sent / Math.max(1, recorder.progress.total)) * 100)}% — part {recorder.progress.sent} of {recorder.progress.total}</span>
@@ -95,7 +116,7 @@ export function CinemaRecorderPanel({ media, recorder, connected }: { media: Cin
         <a className="cinema-record-download" href={`/api/cinema/recordings/${recording.id}/file`} download>
           <DownloadSimple size={13} aria-hidden /> Download
         </a>
-        <button type="button" className="cinema-record-delete" aria-label="Delete this recording" onClick={() => void recorder.discard(recording.id)}>
+        <button type="button" className="cinema-record-delete" aria-label="Delete this recording" onClick={() => setDeleteId(recording.id)}>
           <Trash size={13} aria-hidden />
         </button>
       </li>)}

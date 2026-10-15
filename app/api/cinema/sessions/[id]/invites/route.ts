@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { inviteToRoom, listRoomInvites, removeRoomInvite } from "@/lib/cinema-engine/rooms";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -16,7 +16,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-room-invites", student.id, { limit: 240, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-room-invites", student.id, { limit: 240, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
@@ -43,7 +43,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-room-invites", student.id, { limit: 240, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;

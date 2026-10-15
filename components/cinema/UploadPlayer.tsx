@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PictureInPicture } from "@/components/ui/MaterialIcon";
 import type { CinemaClientMessage, CinemaPlaybackAction, CinemaPlaybackState } from "@/lib/cinema-engine/protocol";
 import { CINEMA_DRIFT_THRESHOLD_SECONDS, CINEMA_HOST_DRIFT_SECONDS, expectedPosition, reconcilePlayback } from "@/lib/cinema-engine/sync";
 
@@ -18,6 +19,7 @@ export function UploadPlayer(input: {
   roomId: string;
   isHost: boolean;
   playback: CinemaPlaybackState | null;
+  now?: () => number;
   onAction: (message: CinemaClientMessage) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -30,16 +32,19 @@ export function UploadPlayer(input: {
   // it: the element is created once per lease, and an effect that read a stale
   // prop would drive playback with yesterday's room state.
   const playbackRef = useRef(input.playback);
+  const nowRef = useRef(input.now ?? Date.now);
   const isHostRef = useRef(input.isHost);
   const onActionRef = useRef(input.onAction);
   useEffect(() => {
     playbackRef.current = input.playback;
+    nowRef.current = input.now ?? Date.now;
     isHostRef.current = input.isHost;
     onActionRef.current = input.onAction;
   });
   const readyRef = useRef(false);
   const applyingUntilRef = useRef(0);
   const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (pendingRef.current) clearTimeout(pendingRef.current); }, []);
   /** Where to land after a lease is replaced mid-playback. */
   const pendingSeekRef = useRef(0);
 
@@ -66,7 +71,7 @@ export function UploadPlayer(input: {
       playerTime: Number(video.currentTime || 0),
       playerPlaying: !video.paused && !video.ended,
       playerReady: readyRef.current,
-      now,
+      now: nowRef.current(),
       buffering: video.readyState < 3 && !options.force,
       threshold: CINEMA_DRIFT_THRESHOLD_SECONDS,
     });
@@ -136,7 +141,7 @@ export function UploadPlayer(input: {
       if (!video || !state || Date.now() < applyingUntilRef.current) return;
       if (video.readyState < 3) return;
       if (!isHostRef.current) { apply(); return; }
-      const drift = Number(video.currentTime || 0) - expectedPosition(state, Date.now());
+      const drift = Number(video.currentTime || 0) - expectedPosition(state, nowRef.current());
       if (Math.abs(drift) > CINEMA_HOST_DRIFT_SECONDS) {
         sendNow({ type: "seek", time: Number(video.currentTime || 0), duration: Number.isFinite(video.duration) ? video.duration : undefined, stateAt: state.updatedAt });
       }
@@ -176,6 +181,12 @@ export function UploadPlayer(input: {
         setStatus("failed");
       }}
     />
+    {status === "ready" && typeof document !== "undefined" && document.pictureInPictureEnabled && <button
+      type="button"
+      className="cinema-pip-button"
+      aria-label="Watch this video in picture in picture"
+      onClick={() => { const video = videoRef.current; if (!video) return; if (document.pictureInPictureElement) void document.exitPictureInPicture(); else void video.requestPictureInPicture().catch(() => undefined); }}
+    ><PictureInPicture size={17} /> Picture in picture</button>}
     {status === "loading" && <p className="cinema-player-note">Loading the room&apos;s video…</p>}
     {status === "failed" && <p className="cinema-player-note">
       The video could not play here. Ask the host to check the upload, or try again in a moment.

@@ -28,8 +28,8 @@ const ACCOUNTS = new Map([
   ["console-organizer", { id: "console-organizer", email: "organizer@example.com", name: "Organizer", phone: "", role: "ORGANIZER", status: "ACTIVE", profile_id: "" }],
 ]);
 const STUDENTS = new Map([
-  ["student-a", { id: "student-a", email: "a@st.umat.edu.gh", name: "Ama", phone: "", created_at: "2026-01-01T00:00:00.000Z", last_login_at: "", token_version: 0, active: 1 }],
-  ["student-b", { id: "student-b", email: "b@st.umat.edu.gh", name: "Kwesi", phone: "", created_at: "2026-01-01T00:00:00.000Z", last_login_at: "", token_version: 0, active: 1 }],
+  ["student-a", { id: "student-a", email: "a@st.umat.edu.gh", name: "Ama", phone: "", created_at: "2026-01-01T00:00:00.000Z", last_login_at: "", token_version: 0, active: 1, email_verified: 1 }],
+  ["student-b", { id: "student-b", email: "b@st.umat.edu.gh", name: "Kwesi", phone: "", created_at: "2026-01-01T00:00:00.000Z", last_login_at: "", token_version: 0, active: 1, email_verified: 1 }],
 ]);
 
 function cell(value) {
@@ -42,7 +42,7 @@ const empty = { cols: [], rows: [] };
 const affected = (count) => ok({ affected_row_count: count });
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 
-const SESSION_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at"];
+const SESSION_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at", "discussion_mode", "stage_limit"];
 const MESSAGE_COLUMNS = ["id", "session_id", "sender_id", "sender_name", "content", "metadata", "created_at"];
 const SIGNAL_COLUMNS = ["id", "signal_key", "severity", "entity_type", "entity_id", "session_id", "reporter_id", "reporter_name", "report_count", "title", "detail", "evidence", "status", "reviewed_by", "reviewed_at", "review_note", "created_at", "updated_at"];
 const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
@@ -81,7 +81,7 @@ function handle(sql, args) {
   }
   if (/^SELECT id,email,COALESCE\(name,''\) AS name/.test(sql)) {
     const row = STUDENTS.get(args[0]);
-    return ok(row ? table(["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active"], [row]) : empty);
+    return ok(row ? table(["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active", "email_verified"], [row]) : empty);
   }
   if (/^SELECT id,email,name,COALESCE\(phone,''\) AS phone,role,status/.test(sql)) {
     const row = ACCOUNTS.get(args[0]);
@@ -94,7 +94,7 @@ function handle(sql, args) {
   }
   if (/^INSERT INTO metrics_counters/.test(sql)) { state.metrics.push(args[0]); return ok(table(["count"], [{ count: 1 }])); }
 
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \?/.test(sql)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at,discussion_mode,stage_limit FROM cinema_sessions WHERE id = \?/.test(sql)) {
     const row = state.sessions.find((session) => session.id === args[0]);
     return ok(row ? table(SESSION_COLUMNS, [row]) : empty);
   }

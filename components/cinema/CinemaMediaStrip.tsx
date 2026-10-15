@@ -45,7 +45,7 @@ export function CinemaMediaStrip(input: {
   const overflow = others.slice(INLINE_TILES - 1);
   const remoteWithCamera = media.remote.filter((peer) => {
     const member = memberFor(peer.studentId);
-    return member?.camera === true || peer.stream.getVideoTracks().length > 0;
+    return member?.camera === true || member?.screen === true || peer.stream.getVideoTracks().length > 0;
   });
   const remoteAudioOnly = media.remote.filter((peer) => !remoteWithCamera.includes(peer));
 
@@ -79,10 +79,10 @@ export function CinemaMediaStrip(input: {
   const selfTile = tile({
     key: selfId || "self",
     name: "You",
-    stream: media.cameraOn ? media.localStream : null,
+    stream: media.cameraOn || media.screenOn ? media.localStream : null,
     muted: true,
     mic: media.micOn,
-    camera: media.cameraOn,
+    camera: media.cameraOn || media.screenOn,
     level: media.localLevel,
   });
 
@@ -91,10 +91,10 @@ export function CinemaMediaStrip(input: {
     return tile({
       key: member.studentId,
       name: member.displayName || "Member",
-      stream: member.camera && peer ? peer.stream : null,
+      stream: (member.camera || member.screen) && peer ? peer.stream : null,
       muted: false,
       mic: member.mic,
-      camera: member.camera,
+      camera: member.camera || member.screen,
       recording: member.recording,
       level: media.levels[member.studentId] ?? 0,
     });

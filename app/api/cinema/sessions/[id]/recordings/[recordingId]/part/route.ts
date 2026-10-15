@@ -3,7 +3,7 @@ import { fail, ok } from "@/lib/campus-engine/responses";
 import { CINEMA_UPLOAD_PART_BYTES } from "@/lib/cinema-engine/uploads";
 import { putCinemaRecordingPart } from "@/lib/cinema-engine/recordings";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -13,7 +13,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function PUT(request: Request, context: { params: Promise<{ id: string; recordingId: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const claimed = Number(request.headers.get("content-length") || 0);
     if (claimed > CINEMA_UPLOAD_PART_BYTES) {
       throw new CampusEngineError("VALIDATION_ERROR", "That part is larger than this recording sends.", 413);

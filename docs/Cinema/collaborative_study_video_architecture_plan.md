@@ -1011,6 +1011,7 @@ room that simply expired from counting as a strike against its host.
 | GET | `/api/cinema/recordings/:id/file` | Download the take, streamed by the Worker (M8) |
 | GET/POST/DELETE | `/api/cinema/sessions/:id/whiteboard` | List the room's AI boards, ask for one, or clear one (M9) |
 | GET/POST/DELETE | `/api/cinema/sessions/:id/invites` | The private room's guest list: read it, invite a UMaT address, take an invitation back (M10) |
+| GET/POST/DELETE | `/api/cinema/sessions/:id/bookmarks` | Read, add, or remove shared timestamped study moments (M14) |
 | DELETE | `/api/cinema/sessions/:id/guests` | Remove a guest from the room itself: invitation, membership and sockets together (M10) |
 
 There is no `/api/auth/login`: the account cookie the rest of the client uses is the
@@ -1621,6 +1622,9 @@ the same shape the Hostel Finder rollout used.
 | **M10 — the room closes, and the board gets graphs** ✅ | `visibility` and `cinema_room_invites`, the host's private/public control, the guest list and its route, the upload flipping its room private, plus `chart` blocks drawn by Plotly and `geo` blocks run by a GeoGebra allow-list | a host makes a room private and a stranger with the link is refused while an invited address walks in; a finished upload closes the room; a chart and a graph both survive the parser, the row and a reload |
 | **M11 — the choices move to the lobby** ✅ | a create form that takes the video source (YouTube link or file) and the door up front, the upload as a lobby step against a room created private and empty, a resume-upload action and a door toggle on the room list, and a room page with neither upload nor door switch | a host picks "Play a file" and walks away before the upload finishes; the room waits, the lobby offers to finish it, and the room itself never grows an upload button or a private/public control |
 | **M12 — the room runs itself** ✅ | `starts_at`, `ends_at` and `duration_minutes` on the room row, the lobby's Starts/Runs-for choices, a Durable Object alarm that goes live and presses play at the promised minute, auto-end when the run time is up, and lazy clock reconciliation for any read that arrives before the alarm | a host schedules a room for fifteen minutes out and leaves; the room goes live and plays on the screens that are waiting, a reader who arrives after the minute lands at the elapsed position, and the room ends itself at the host's run time |
+| **M13 — better live sessions** ✅ | screen and presentation sharing for presenters; reactions and raised hands; host/co-host polls and quick quizzes; picture-in-picture for uploaded video; host, co-host, presenter and viewer roles; waiting-room admission; scheduled email and in-app reminders | a presenter shares a display without exposing a second camera feed; a host runs and closes a quiz; roles gate playback and moderation; waiting guests require admission; reminders link directly to the scheduled room |
+| **M14 — captions and study intelligence** ✅ | opt-in browser live captions, host-imported WebVTT captions for uploaded video, searchable retention-bound transcripts, shared timestamps, AI chapters and key moments, “Explain this moment,” generated notes, flashcards and revision questions, PDF exports, and per-session transcript/AI privacy controls | captions remain off until the host enables storage; members can search and jump through a transcript; ended sessions can generate a structured study pack from transcript and bookmarks; private notes and generated packs export as PDF; transcript retention is purged automatically |
+| **M15 — events and community** ✅ | a public upcoming/live/replay catalogue; clubs, departments and student groups as organizers; poster-backed shareable invitation pages; capacity-safe RSVP; weekly series of up to eight sessions; attendance-gated PDF certificates; and one verified rating per attendee | a signed-out visitor can discover and share an event; concurrent RSVP requests cannot exceed its limit; a weekly tutorial publishes linked room dates; only a student recorded in the room can rate it or download its enabled certificate |
 
 M1 through M5 are Phase 1 and are the gate for asking anyone outside the team to
 use it. M6 opens Phase 2 with the decision made and the upload path built end to
@@ -1650,6 +1654,16 @@ and recorder are buttons — in the phone's rail, and in the desktop's control
 bar — with the host's mute-all and a board button in the dock's host bar. The
 recorder hook lives in the room rather than the card, so closing the card
 cannot end a take.
+
+M15 turns rooms into public campus programming without weakening their live-session
+rules. Discovery and invitation pages are public; RSVP, feedback, publishing and
+certificates use the verified student account. Organizers remain attributable to
+the student who created them, capacity is enforced by the database write, and an
+attendance certificate is derived from the room's participant record rather than
+an organizer-editable claim. Recurring tutorials create separate scheduled rooms,
+so every occurrence keeps its own attendance, transcript and feedback. The
+replay section can show the original YouTube video; it does not imply that a
+live call or discussion was recorded.
 
 The desktop room is one stage and one sidebar, the shape a meeting app uses:
 the video, the camera strip, and then a control bar of named round buttons at

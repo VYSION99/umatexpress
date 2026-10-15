@@ -29,7 +29,7 @@ const empty = { cols: [], rows: [] };
 const affected = (count) => ok({ affected_row_count: count });
 const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
 
-const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at"];
+const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at", "discussion_mode", "stage_limit"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
 
@@ -55,7 +55,7 @@ function handle(sql, args) {
     return ok(row ? table(["id", "host_student_id", "status", "title"], [row]) : empty);
   }
   // The room read the playback lease makes.
-  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
+  if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at,discussion_mode,stage_limit FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
     return ok(row ? table(ROOM_COLUMNS, [row]) : empty);
   }
@@ -72,6 +72,10 @@ function handle(sql, args) {
       room_host_student_id: room.host_student_id,
       member_id: member ? member.student_id : "",
     }]));
+  }
+  if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at,COALESCE\(role,'VIEWER'\) AS role FROM cinema_participants/.test(sql)) {
+    const rows = state.members.filter((member) => args.includes(member.session_id)).map((member) => ({ ...member, role: member.role || "VIEWER" }));
+    return ok(rows.length ? table([...MEMBER_COLUMNS, "role"], rows) : empty);
   }
   if (/^SELECT session_id,student_id,display_name,joined_at,last_seen_at,left_at FROM cinema_participants/.test(sql)) {
     const rows = state.members.filter((member) => args.includes(member.session_id));

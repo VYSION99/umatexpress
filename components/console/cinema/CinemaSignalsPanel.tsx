@@ -1,5 +1,8 @@
 "use client";
 
+import { CinemaDialog } from "@/components/cinema/CinemaDialog";
+import "@/components/cinema/cinema.css";
+
 import { useCallback, useEffect, useState } from "react";
 import { ArrowsClockwise, ChatSlash, Checks, CircleNotch, Flag, Square, VideoCameraSlash, Warning, X } from "@/components/ui/MaterialIcon";
 
@@ -43,6 +46,7 @@ const fileSize = (value: unknown) => {
  * actions beside it are the takedowns the platform already understands.
  */
 export function CinemaSignalsPanel() {
+  const [confirmation, setConfirmation] = useState<{ signal: Signal; action: "REMOVE_MESSAGE" | "REMOVE_VIDEO" | "END_ROOM" } | null>(null);
   const [signals, setSignals] = useState<Signal[] | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("OPEN");
@@ -122,6 +126,10 @@ export function CinemaSignalsPanel() {
   if (!signals) return <p className="console-empty"><CircleNotch size={15} className="console-spin" aria-hidden /> Reading the reports…</p>;
 
   return <section className="console-panel">
+    <CinemaDialog open={Boolean(confirmation)} title="Confirm moderation action" busy={Boolean(busy)} onClose={() => setConfirmation(null)}>
+      <p>{confirmation?.action === "END_ROOM" ? "End this room and stop playback and calls for everyone?" : confirmation?.action === "REMOVE_VIDEO" ? "Remove the uploaded video from this room?" : "Remove this message from the room and its history?"}</p>
+      <div className="cinema-controls"><button disabled={Boolean(busy)} onClick={() => { if (confirmation) void act(confirmation.signal, confirmation.action).then(() => setConfirmation(null)); }}>Confirm</button><button className="secondary" onClick={() => setConfirmation(null)}>Cancel</button></div>
+    </CinemaDialog>
     <h2><Flag size={18} aria-hidden />Watch reports
       {summary && summary.open > 0 && <span className="console-badge console-badge-rejected">{summary.open} open</span>}
       <button type="button" className="console-panel-close" onClick={() => void load()}><ArrowsClockwise size={14} aria-hidden />Refresh</button>
@@ -169,13 +177,13 @@ export function CinemaSignalsPanel() {
             </div>
             : <p className="console-note">{signal.reviewNote ? `${signal.reviewedBy}: ${signal.reviewNote}` : `Closed by ${signal.reviewedBy}.`}</p>}
           {signal.status === "OPEN" && <div className="console-row-actions">
-            {signal.entityType === "MESSAGE" && <button type="button" disabled={busy === signal.id} onClick={() => void act(signal, "REMOVE_MESSAGE")}>
+            {signal.entityType === "MESSAGE" && <button type="button" disabled={busy === signal.id} onClick={() => setConfirmation({ signal, action: "REMOVE_MESSAGE" })}>
               <ChatSlash size={14} aria-hidden /> Remove message
             </button>}
-            {signal.entityType === "UPLOAD" && <button type="button" className="console-danger" disabled={busy === signal.id} onClick={() => void act(signal, "REMOVE_VIDEO")}>
+            {signal.entityType === "UPLOAD" && <button type="button" className="console-danger" disabled={busy === signal.id} onClick={() => setConfirmation({ signal, action: "REMOVE_VIDEO" })}>
               <VideoCameraSlash size={14} aria-hidden /> Remove video
             </button>}
-            <button type="button" disabled={busy === signal.id} onClick={() => void act(signal, "END_ROOM")}>
+            <button type="button" disabled={busy === signal.id} onClick={() => setConfirmation({ signal, action: "END_ROOM" })}>
               <Square size={14} aria-hidden /> End room
             </button>
           </div>}

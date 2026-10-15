@@ -59,8 +59,11 @@ export function CinemaWhiteboardPanel(input: {
   removedIds: string[];
   /** The room's playback, so a question can say where the video was. */
   playback: CinemaPlaybackState | null;
+  now?: () => number;
+  initialQuestion?: string;
+  onInitialQuestionUsed?: () => void;
 }) {
-  const { roomId, selfId, isHost, active, connected, boardPolicy, onBoardPolicy, board, removedIds, playback } = input;
+  const { roomId, selfId, isHost, active, connected, boardPolicy, onBoardPolicy, board, removedIds, playback, initialQuestion, onInitialQuestionUsed } = input;
   const [history, setHistory] = useState<CinemaWhiteboardView[]>([]);
   const [limits, setLimits] = useState<WhiteboardLimits | null>(null);
   const [question, setQuestion] = useState("");
@@ -70,6 +73,14 @@ export function CinemaWhiteboardPanel(input: {
   const [clearing, setClearing] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (!initialQuestion) return;
+    queueMicrotask(() => {
+      setQuestion(initialQuestion);
+      onInitialQuestionUsed?.();
+    });
+  }, [initialQuestion, onInitialQuestionUsed]);
 
   useEffect(() => {
     let disposed = false;
@@ -97,7 +108,7 @@ export function CinemaWhiteboardPanel(input: {
     try {
       // Read the playhead here rather than during render: a clock is read at
       // the moment the question is asked, not on every repaint.
-      const at = playback ? Math.round(expectedPosition(playback, Date.now())) : 0;
+      const at = playback ? Math.round(expectedPosition(playback, (input.now ?? Date.now)())) : 0;
       const response = await fetch(`/api/cinema/sessions/${encodeURIComponent(roomId)}/whiteboard`, {
         method: "POST",
         credentials: "same-origin",
@@ -118,7 +129,7 @@ export function CinemaWhiteboardPanel(input: {
     } finally {
       setBusy(false);
     }
-  }, [question, mode, roomId, playback]);
+  }, [question, mode, roomId, playback, input.now]);
 
   // The playhead is read when a pass fires, not when the timer was armed; a ref
   // keeps the callback stable, so re-arming never resets the cadence.
@@ -132,7 +143,7 @@ export function CinemaWhiteboardPanel(input: {
    * a missed summary is not something the room should be shown an error about.
    */
   const runAutoSummary = useCallback(async () => {
-    const at = playbackRef.current ? Math.round(expectedPosition(playbackRef.current, Date.now())) : 0;
+    const at = playbackRef.current ? Math.round(expectedPosition(playbackRef.current, (input.now ?? Date.now)())) : 0;
     try {
       await fetch(`/api/cinema/sessions/${encodeURIComponent(roomId)}/whiteboard`, {
         method: "POST",
@@ -141,7 +152,7 @@ export function CinemaWhiteboardPanel(input: {
         body: JSON.stringify({ auto: true, ...(at > 0 ? { atSeconds: at } : {}) }),
       });
     } catch { /* the next pass tries again */ }
-  }, [roomId]);
+  }, [roomId, input.now]);
 
   const autoMinutes = limits?.autoMinutes ?? 10;
   const autoOn = isHost && active && connected && boardPolicy === "AUTO" && Boolean(limits?.enabled);

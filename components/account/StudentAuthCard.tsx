@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { ShieldCheck, SignOut } from "@/components/ui/MaterialIcon";
-import { STUDENT_EMAIL_DOMAIN } from "@/lib/student-email";
+import { STUDENT_EMAIL_DOMAIN, validStudentEmail } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
 import { writeProfile } from "@/lib/passenger-profile";
 import { loadStudentAccount, publishStudentAccount, useStudentAccount } from "./useStudentAccount";
@@ -22,6 +22,7 @@ export function safeNext(value?: string) {
 
 export function StudentAuthCard({ next }: { next?: string }) {
   const destination = safeNext(next);
+  const cinemaAudience = destination.startsWith("/cinema/") || destination === "/cinema";
   const { ready, account } = useStudentAccount();
   const [mode, setMode] = useState<Mode>("signin");
   const [form, setForm] = useState({ email: "", password: "", name: "", phone: "" });
@@ -35,7 +36,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
     event.preventDefault();
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/auth/student", {
+      const response = await fetch(mode === "signup" && cinemaAudience ? "/api/auth/cinema-audience" : "/api/auth/student", {
         method: mode === "signin" ? "POST" : "PUT",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
@@ -83,14 +84,14 @@ export function StudentAuthCard({ next }: { next?: string }) {
     try {
       const response = await fetch("/api/auth/recovery", { method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "STUDENT", email: account.email }) });
       if (!response.ok) throw new Error("Could not send a code. Try again shortly.");
-      setVerificationError("A new code is on its way to your UMaT email.");
+      setVerificationError("A new code is on its way to your email.");
     } catch (error) { setVerificationError(error instanceof Error ? error.message : "Could not send a code."); }
     finally { setVerificationBusy(false); }
   };
 
   if (ready && account?.verificationRequired && !account.emailVerified) {
     return <form className="campus-auth-card student-auth-signed-in" onSubmit={verifyEmail}>
-      <h2>Verify your UMaT email</h2>
+      <h2>Verify your email</h2>
       <p>Enter the six-digit code sent to {account.email}. This confirms you own the address before you book or join a service.</p>
       <label>Verification code<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={verificationCode} onChange={event => setVerificationCode(event.target.value)} /></label>
       {verificationError && <p role="status">{verificationError}</p>}
@@ -105,7 +106,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
   if (ready && account) {
     return <div className="campus-auth-card student-auth-signed-in">
       <strong>Signed in as {account.email}</strong>
-      <small>{account.name ? `Booking as ${account.name}.` : "Add your name when you book."} This account covers campusRide and vacationRide.</small>
+      <small>{validStudentEmail(account.email) ? "Your UMaT account covers student services and Cinema." : "Your verified account can attend Cinema events."}</small>
       <div className="student-auth-actions">
         <Link className="is-primary" href={destination}>Continue</Link>
         <button type="button" onClick={signOut} disabled={loading}><SignOut size={15} aria-hidden /> Sign out</button>
@@ -118,16 +119,17 @@ export function StudentAuthCard({ next }: { next?: string }) {
       <button type="button" aria-pressed={mode === "signin"} onClick={() => { setMode("signin"); setError(""); }}>Sign in</button>
       <button type="button" aria-pressed={mode === "signup"} onClick={() => { setMode("signup"); setError(""); }}>Create account</button>
     </div>
-    <label>UMaT student email<input required type="email" autoComplete="username" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder={`your.name@${STUDENT_EMAIL_DOMAIN}`} /></label>
+    <label>{cinemaAudience ? "Email address" : "UMaT student email"}<input required type="email" autoComplete="username" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder={cinemaAudience ? "you@example.com" : `your.name@${STUDENT_EMAIL_DOMAIN}`} /></label>
     {mode === "signup" && <>
       <label>Full name<input required autoComplete="name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Ama Mensah" /></label>
-      <label>Mobile Money number<input inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="05X XXX XXXX" /></label>
+      {!cinemaAudience && <label>Mobile Money number<input inputMode="tel" autoComplete="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="05X XXX XXXX" /></label>}
     </>}
     <label>Password<input required type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={mode === "signin" ? "Your password" : "At least 10 characters"} /></label>
     {error && <p className="campus-ai-error" role="alert">{error}</p>}
-    <p className="student-auth-hint"><ShieldCheck size={14} aria-hidden /> {mode === "signin"
-      ? "Only UMaT student addresses ending in @st.umat.edu.gh can hold an account."
-      : `Accounts are limited to @${STUDENT_EMAIL_DOMAIN}. Use uppercase, lowercase, a number and a symbol in the password.`}</p>
+    <p className="student-auth-hint"><ShieldCheck size={14} aria-hidden /> {cinemaAudience
+      ? "Any email address can join Cinema after verification. Student services still require a UMaT student account."
+      : mode === "signin" ? "Student services require a UMaT student address."
+      : `Student accounts are limited to @${STUDENT_EMAIL_DOMAIN}. Use uppercase, lowercase, a number and a symbol in the password.`}</p>
     <button disabled={loading}>{loading ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}</button>
     {mode === "signin" && <>
       <Link className="student-auth-forgot" href="/reset-password">Forgot your password?</Link>

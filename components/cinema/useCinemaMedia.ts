@@ -67,11 +67,14 @@ export function useCinemaMedia(input: {
   const [policyLoaded, setPolicyLoaded] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
+  const [screenOn, setScreenOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remote, setRemote] = useState<Record<string, MediaStream>>({});
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [error, setError] = useState("");
 
+  const captureEpoch = useRef(0);
+  const connectedRef = useRef(false);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const negotiatingRef = useRef(new Set<string>());
@@ -88,19 +91,31 @@ export function useCinemaMedia(input: {
   useEffect(() => { selfIdRef.current = selfId; }, [selfId]);
   useEffect(() => { membersRef.current = members; }, [members]);
   useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
-  useEffect(() => () => {
+  useEffect(() => {
+    connectedRef.current = enabled;
+    const peers = peersRef.current;
+    return () => {
+    connectedRef.current = false;
+    captureEpoch.current += 1;
     // A room that unmounts must release every device it opened and every
     // connection it half-built; a leaked peer would keep a camera light on.
-    for (const socket of [...peersRef.current.keys()]) {
-      const pc = peersRef.current.get(socket);
+    for (const socket of [...peers.keys()]) {
+      const pc = peers.get(socket);
       if (pc) { pc.onicecandidate = null; pc.ontrack = null; pc.close(); }
     }
-    peersRef.current.clear();
+    peers.clear();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     const context = audioContextRef.current;
     if (context) void context.close().catch(() => undefined);
     audioContextRef.current = null;
-  }, []);
+    localStreamRef.current = null;
+    setLocalStream(null);
+    setMicOn(false);
+    setCameraOn(false);
+    setScreenOn(false);
+    setRemote({});
+    };
+  }, [enabled]);
 
   /** The room's switches and relay credentials; asked once per open room. */
   useEffect(() => {
@@ -289,13 +304,13 @@ export function useCinemaMedia(input: {
     if (!enabled) return;
     const present = new Set(members.map((member) => member.studentId));
     for (const peerId of [...peersRef.current.keys()]) if (!present.has(peerId)) closePeer(peerId);
-    if ((!micOn && !cameraOn) || !selfId) return;
+    if ((!micOn && !cameraOn && !screenOn) || !selfId) return;
     for (const member of members) {
       if (member.studentId === selfId) continue;
       const pc = peersRef.current.get(member.studentId) ?? ensurePeer(member.studentId);
       if (!pc.localDescription && !negotiatingRef.current.has(member.studentId)) void negotiate(member.studentId);
     }
-  }, [enabled, members, micOn, cameraOn, selfId, closePeer, ensurePeer, negotiate]);
+  }, [enabled, members, micOn, cameraOn, screenOn, selfId, closePeer, ensurePeer, negotiate]);
 
   /** Pushes one local track to every connection, or null when it stops. */
   const publishTrack = useCallback((kind: "audio" | "video", track: MediaStreamTrack | null) => {
@@ -322,6 +337,8 @@ export function useCinemaMedia(input: {
       }
       return true;
     }
+    if (!connectedRef.current) { setError("Reconnect to the room before opening a device."); return false; }
+    const epoch = captureEpoch.current;
     const active = policyRef.current;
     if (kind === "audio" && !active.voice) { setError("Voice is switched off in this room."); return false; }
     if (kind === "video" && !active.camera) { setError("Camera is switched off in this room."); return false; }
@@ -332,6 +349,10 @@ export function useCinemaMedia(input: {
           ? { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }
           : { video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24, max: 30 } } },
       );
+      if (!connectedRef.current || captureEpoch.current !== epoch) {
+        captured.getTracks().forEach(track => track.stop());
+        return false;
+      }
       for (const track of captured.getTracks()) {
         stream.addTrack(track);
         publishTrack(kind, track);
@@ -352,16 +373,52 @@ export function useCinemaMedia(input: {
     const ok = await setTrack("audio", next);
     if (!ok) return;
     setMicOn(next);
-    sendFrame({ type: "media_state", mic: next, camera: cameraOn });
-  }, [cameraOn, micOn, sendFrame, setTrack]);
+    sendFrame({ type: "media_state", mic: next, camera: cameraOn, screen: screenOn });
+  }, [cameraOn, micOn, screenOn, sendFrame, setTrack]);
 
   const toggleCamera = useCallback(async () => {
+    if (screenOn) { setError("Stop presenting before turning your camera on."); return; }
     const next = !cameraOn;
     const ok = await setTrack("video", next);
     if (!ok) return;
     setCameraOn(next);
-    sendFrame({ type: "media_state", mic: micOn, camera: next });
-  }, [cameraOn, micOn, sendFrame, setTrack]);
+    sendFrame({ type: "media_state", mic: micOn, camera: next, screen: false });
+  }, [cameraOn, micOn, screenOn, sendFrame, setTrack]);
+
+  const stopScreen = useCallback(() => {
+    const stream = localStreamRef.current;
+    for (const track of stream?.getVideoTracks() || []) {
+      publishTrack("video", null);
+      track.onended = null;
+      track.stop();
+      stream?.removeTrack(track);
+    }
+    setScreenOn(false);
+    setLocalStream(stream || null);
+    sendFrame({ type: "media_state", mic: micOn, camera: false, screen: false });
+  }, [micOn, publishTrack, sendFrame]);
+
+  const toggleScreen = useCallback(async () => {
+    if (screenOn) { stopScreen(); return; }
+    setError("");
+    if (!connectedRef.current) { setError("Reconnect to the room before sharing your screen."); return; }
+    if (!navigator.mediaDevices?.getDisplayMedia) { setError("This browser does not support screen sharing."); return; }
+    // One outgoing video slot is intentional in this small peer mesh. Stop the
+    // camera first so the presentation has one clear source and no hidden feed.
+    if (cameraOn) { await setTrack("video", false); setCameraOn(false); }
+    try {
+      const captured = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 24 } }, audio: false });
+      const track = captured.getVideoTracks()[0];
+      if (!track) throw new Error("No display track");
+      const stream = localStreamRef.current ?? new MediaStream();
+      stream.addTrack(track); localStreamRef.current = stream; setLocalStream(stream);
+      publishTrack("video", track); setScreenOn(true);
+      sendFrame({ type: "media_state", mic: micOn, camera: false, screen: true });
+      track.onended = stopScreen;
+    } catch (captureError) {
+      if (!(captureError instanceof DOMException && captureError.name === "NotAllowedError")) setError("The presentation could not be shared.");
+    }
+  }, [cameraOn, micOn, publishTrack, screenOn, sendFrame, setTrack, stopScreen]);
 
   /**
    * Turns this browser's own microphone off. The host's mute-all is a request,
@@ -376,8 +433,8 @@ export function useCinemaMedia(input: {
       if (!ok) return;
     }
     setMicOn(false);
-    sendFrame({ type: "media_state", mic: false, camera: cameraOn });
-  }, [cameraOn, sendFrame, setTrack]);
+    sendFrame({ type: "media_state", mic: false, camera: cameraOn, screen: screenOn });
+  }, [cameraOn, screenOn, sendFrame, setTrack]);
 
   /** One mute-all per signal: a re-render must not turn a gesture into a loop. */
   useEffect(() => {
@@ -404,7 +461,8 @@ export function useCinemaMedia(input: {
     }
     if (hadAudio) setMicOn(false);
     if (hadVideo) setCameraOn(false);
-  }, [publishTrack]);
+    if (screenOn) setScreenOn(false);
+  }, [publishTrack, screenOn]);
 
   /**
    * The speaking meter. One analyser per audible stream, sampled on animation
@@ -466,6 +524,7 @@ export function useCinemaMedia(input: {
     policyLoaded,
     micOn,
     cameraOn,
+    screenOn,
     localStream,
     localLevel: levels.self ?? 0,
     levels,
@@ -473,6 +532,8 @@ export function useCinemaMedia(input: {
     error,
     toggleMic,
     toggleCamera,
+    toggleScreen,
+    stopScreen,
     muteSelf,
     releaseDevices,
   };

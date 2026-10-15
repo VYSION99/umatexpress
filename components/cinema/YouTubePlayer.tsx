@@ -79,6 +79,7 @@ export function YouTubePlayer(input: {
   videoId: string;
   isHost: boolean;
   playback: CinemaPlaybackState | null;
+  now?: () => number;
   onAction: (message: CinemaClientMessage) => void;
 }) {
   const { videoId } = input;
@@ -92,10 +93,12 @@ export function YouTubePlayer(input: {
   // mirror is written in an effect (never during render) and is declared
   // before the effects that read it, so a commit never sees yesterday's props.
   const playbackRef = useRef(input.playback);
+  const nowRef = useRef(input.now ?? Date.now);
   const isHostRef = useRef(input.isHost);
   const onActionRef = useRef(input.onAction);
   useEffect(() => {
     playbackRef.current = input.playback;
+    nowRef.current = input.now ?? Date.now;
     isHostRef.current = input.isHost;
     onActionRef.current = input.onAction;
   });
@@ -134,7 +137,7 @@ export function YouTubePlayer(input: {
       playerTime: numberOr(player.getCurrentTime()),
       playerPlaying: playerStatus === PLAYING,
       playerReady: true,
-      now,
+      now: nowRef.current(),
       buffering: playerStatus === BUFFERING && !options.force,
       threshold: CINEMA_DRIFT_THRESHOLD_SECONDS,
     });
@@ -244,7 +247,7 @@ export function YouTubePlayer(input: {
       const playerStatus = numberOr(player.getPlayerState(), -1);
       if (playerStatus === BUFFERING) return;
       if (!isHostRef.current) { apply(); return; }
-      const drift = numberOr(player.getCurrentTime()) - expectedPosition(state, Date.now());
+      const drift = numberOr(player.getCurrentTime()) - expectedPosition(state, nowRef.current());
       if (Math.abs(drift) > CINEMA_HOST_DRIFT_SECONDS) {
         sendNow({ type: "seek", time: numberOr(player.getCurrentTime()), duration: numberOr(player.getDuration()) || undefined, stateAt: state.updatedAt });
       }

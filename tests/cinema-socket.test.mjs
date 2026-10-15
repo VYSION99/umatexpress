@@ -504,19 +504,46 @@ test("a payload that overflows the signal allowance is refused, not relayed", as
   assert.equal(last(hostSocket, "error").message, "That is not a message this room understands.");
 });
 
-test("mic and camera switches are written to the attachment and shown in presence", async () => {
+test("mic, camera, and presentation switches are written to the attachment and shown in presence", async () => {
   const { room, state } = await newRoom();
   await room.fetch(upgrade());
   await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
   const [hostSocket, guestSocket] = state.sockets;
 
-  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "media_state", mic: true, camera: false }));
-  const seen = last(hostSocket, "presence").members.find((member) => member.studentId === "guest-2");
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "media_state", mic: true, camera: false, screen: true }));
+  const seen = last(guestSocket, "presence").members.find((member) => member.studentId === "host-1");
   assert.equal(seen.mic, true);
   assert.equal(seen.camera, false);
+  assert.equal(seen.screen, true);
   // The attachment is the record: presence reads it back after a hibernation.
-  assert.equal(state.sockets[1].attachment.mic, true);
-  assert.equal(state.sockets[1].attachment.camera, false);
+  assert.equal(state.sockets[0].attachment.mic, true);
+  assert.equal(state.sockets[0].attachment.camera, false);
+  assert.equal(state.sockets[0].attachment.screen, true);
+});
+
+test("a viewer cannot claim the presentation stage", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [, guestSocket] = state.sockets;
+
+  await room.webSocketMessage(guestSocket, JSON.stringify({ type: "media_state", mic: false, camera: false, screen: true }));
+  assert.equal(guestSocket.attachment.screen, false);
+  assert.equal(last(guestSocket, "error").message, "Only a host, co-host, or presenter can share a screen.");
+});
+
+test("discussion viewers cannot publish mic, camera or WebRTC signals", async () => {
+  const { room, state } = await newRoom();
+  const discussion = snapshotHeader({ discussionMode: true, stageLimit: 2 });
+  await room.fetch(upgrade({ "x-cinema-room": discussion }));
+  await room.fetch(upgrade({ "x-cinema-room": discussion, "x-cinema-attachment": identity("viewer-1", "Audience") }));
+  const viewer = state.sockets[1];
+  await room.webSocketMessage(viewer, JSON.stringify({ type: "media_state", mic: true, camera: true, screen: false }));
+  assert.equal(viewer.attachment.mic, false);
+  assert.equal(viewer.attachment.camera, false);
+  assert.match(last(viewer, "error").message, /invite you onto the discussion stage/);
+  await room.webSocketMessage(viewer, JSON.stringify({ type: "signal", to: "host-1", payload: { kind: "candidate", candidate: "candidate:1" } }));
+  assert.match(last(viewer, "error").message, /Calls support/);
 });
 
 test("a recording announcement is broadcast while it runs and cleared when it stops", async () => {
@@ -557,9 +584,11 @@ test("a malformed media or recording switch is dropped rather than half-applied"
   const hostSocket = state.sockets[0];
 
   await room.webSocketMessage(hostSocket, JSON.stringify({ type: "media_state", mic: "yes", camera: false }));
+  await room.webSocketMessage(hostSocket, JSON.stringify({ type: "media_state", mic: false, camera: false, screen: "yes" }));
   await room.webSocketMessage(hostSocket, JSON.stringify({ type: "recording_state", active: "on" }));
 
   assert.equal(state.sockets[0].attachment.mic, false);
+  assert.equal(state.sockets[0].attachment.screen, false);
   assert.equal(state.sockets[0].attachment.recording, false);
   assert.equal(last(hostSocket, "presence").members[0].mic, false);
 });

@@ -10,7 +10,7 @@ import { studentAccountFromRequest } from "@/lib/student-auth";
 
 export const metadata: Metadata = {
   title: "Cinema room | UMaTeXPRESS",
-  description: "A shared Cinema room for UMaT students.",
+  description: "A shared Cinema room for verified attendees.",
 };
 
 /** The session cookie as a request the account helper already understands. */
@@ -35,27 +35,18 @@ export default async function CinemaRoomPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   let room: Room | null = null;
   let restricted = false;
+  const studentId = await signedInStudentId();
   try {
-    room = await readRoom({ id });
+    room = await readRoom({ id, studentId });
   } catch (error) {
     // A private room is a 403 from the engine rather than a 404, so the page
     // can tell a student with the link what is actually happening.
     restricted = error instanceof CampusEngineError && error.code === "FORBIDDEN";
+    if (!restricted && !(error instanceof CampusEngineError && error.code === "NOT_FOUND")) throw error;
     room = null;
   }
   // The anonymous read cannot tell the host from a stranger, so a refused room
   // gets one more look with the signed-in account before the door is shown.
-  if (restricted) {
-    const studentId = await signedInStudentId();
-    if (studentId) {
-      try {
-        room = await readRoom({ id, studentId });
-      } catch {
-        room = null;
-      }
-    }
-    restricted = !room;
-  }
   if (restricted) return <CampusShell
     area="CINEMA"
     title="A private room"
@@ -64,10 +55,11 @@ export default async function CinemaRoomPage({ params }: { params: Promise<{ id:
     <section className="cinema-card">
       <h2>This room is private</h2>
       <p className="cinema-note">
-        The host keeps the guest list. If you were expecting to be on it, ask them to add your <strong>@st.umat.edu.gh</strong> address, then open the link again.
+        The host keeps the guest list. If you were expecting to be on it, ask them to add your verified account email, then open the link again.
       </p>
       <div className="cinema-controls cinema-sub">
-        <Link className="cinema-cta" href="/cinema">Back to the cinema lobby</Link>
+        {!studentId && <Link className="cinema-cta" href={`/account?next=${encodeURIComponent(`/cinema/${id}`)}`}>Sign in to check your invitation</Link>}
+        <Link className="cinema-cta" href="/cinema/rooms">Back to your rooms</Link>
       </div>
     </section>
   </CampusShell>;

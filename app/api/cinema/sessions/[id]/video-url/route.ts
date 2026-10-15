@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { issueCinemaPlayback } from "@/lib/cinema-engine/media";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -12,7 +12,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-video-url", student.id, { limit: 60, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;

@@ -16,11 +16,15 @@ export async function GET(request: Request) {
     const limited = await rateLimit(request, "cinema-console-rooms", { limit: 240, windowMs: 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const url = new URL(request.url);
-    const rooms = await listRoomsForConsole({
+    const offset = Math.max(0, Math.min(100_000, Math.floor(Number(url.searchParams.get("offset")) || 0)));
+    const page = await listRoomsForConsole({
+      limit: 26, offset,
       status: url.searchParams.get("status"),
       q: url.searchParams.get("q"),
     });
+    const rooms = page.slice(0, 25);
     return Response.json({
+      hasMore: page.length > 25, offset,
       ok: true,
       rooms,
       summary: {

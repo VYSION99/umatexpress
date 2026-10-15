@@ -14,7 +14,7 @@ import { turso } from "@/lib/turso";
  * opened it early, the cleanup job ended it — is never moved twice.
  */
 
-/** A start more than a week out is a typo, not a plan. */
+/** A standalone room more than a week out is usually a typo. Event series opt into a longer horizon. */
 export const CINEMA_START_MAX_MINUTES = 7 * 24 * 60;
 /** A room shorter than a quarter hour is a meet-up; longer than four hours is a vigil. */
 export const CINEMA_DURATION_MIN_MINUTES = 15;

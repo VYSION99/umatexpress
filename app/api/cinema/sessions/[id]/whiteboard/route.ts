@@ -11,7 +11,7 @@ import {
 } from "@/lib/cinema-engine/whiteboard";
 import { platformSettingNumber } from "@/lib/platform-settings";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -32,7 +32,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-whiteboard-read", student.id, { limit: 240, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
@@ -55,7 +55,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const pace = Math.max(1, Math.floor(await platformSettingNumber("cinema_whiteboard_generations_per_hour")));
     const limited = await rateLimitSubject("cinema-whiteboard-ask", student.id, { limit: pace, windowMs: 60 * 60_000 });
     if (!limited.ok) {
@@ -82,7 +82,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-whiteboard-clear", student.id, { limit: 120, windowMs: 10 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;

@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
-import { removeRoomGuest } from "@/lib/cinema-engine/rooms";
+import { removeRoomGuest, setRoomMemberRole } from "@/lib/cinema-engine/rooms";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -17,13 +17,27 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const limited = await rateLimitSubject("cinema-room-guests", student.id, { limit: 120, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
     const guestId = new URL(request.url).searchParams.get("studentId") || "";
     const result = await removeRoomGuest({ id, studentId: student.id, guestId });
     return ok(result, { headers: NO_STORE }, request);
+  } catch (error) {
+    return fail(error, request);
+  }
+}
+
+/** The host assigns operational roles without changing account permissions. */
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const student = await requireCinemaAccount(request);
+    const limited = await rateLimitSubject("cinema-room-roles", student.id, { limit: 120, windowMs: 60 * 60_000 });
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+    const { id } = await context.params;
+    const body = await request.json() as { studentId?: string; role?: string };
+    return ok(await setRoomMemberRole({ id, studentId: student.id, guestId: body.studentId, role: body.role }), { headers: NO_STORE }, request);
   } catch (error) {
     return fail(error, request);
   }

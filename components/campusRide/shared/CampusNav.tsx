@@ -23,6 +23,7 @@ export function campusNavState(area: string): { activeHref: string } {
   if (area.includes("ACCOUNT")) return { activeHref: "" };
   if (area.includes("HOSTEL")) return { activeHref: "/hostel" };
   if (area.includes("CINEMA")) return { activeHref: "/cinema" };
+  if (area.includes("FOOD")) return { activeHref: "/food" };
   if (area.includes("VACATION")) return { activeHref: "/vacation" };
   return { activeHref: "/campus" };
 }

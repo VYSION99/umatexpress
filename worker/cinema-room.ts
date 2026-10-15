@@ -12,6 +12,7 @@
  * imports so the class can be unit-tested with plain doubles.
  */
 import {
+  CINEMA_CALL_MEMBER_LIMIT,
   CINEMA_BOARD_POLICIES,
   CINEMA_FRAME_MAX_BYTES,
   CINEMA_PLAYBACK_START,
@@ -25,6 +26,8 @@ import {
   type CinemaPlaybackState,
   type CinemaPresenceMember,
   type CinemaRecordingStateInput,
+  type CinemaReactionInput,
+  type CinemaHandStateInput,
   type CinemaServerMessage,
   type CinemaSignalInput,
 } from "@/lib/cinema-engine/protocol";
@@ -34,6 +37,7 @@ import { markCinemaRoomEnded, markCinemaRoomLive } from "@/lib/cinema-engine/sch
 import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
 import { logEvent } from "@/lib/observability";
 import { rateLimitSubject } from "@/lib/rate-limit";
+import type { CinemaMemberRole } from "@/lib/cinema-engine/rooms";
 
 /** What the Worker route learned from the database before it forwarded here. */
 export type CinemaRoomSnapshot = {
@@ -46,6 +50,8 @@ export type CinemaRoomSnapshot = {
   startsAt: string;
   /** When the host's run time ends the room, or '' when only the host does. */
   endsAt: string;
+  discussionMode?: boolean;
+  stageLimit?: number;
 };
 
 /** What is written onto each accepted socket, and read back after a wake. */
@@ -56,7 +62,10 @@ export type CinemaSocketAttachment = {
   /** Media switches live on the attachment so they survive hibernation. */
   mic: boolean;
   camera: boolean;
+  screen: boolean;
   recording: boolean;
+  role: CinemaMemberRole;
+  handRaised: boolean;
 };
 
 export type CinemaRoomSocket = {
@@ -115,6 +124,8 @@ const STATE_WINDOW_MS = 10_000;
 /** Muting the room is a host's gesture, not a loop. */
 const MUTE_LIMIT = 12;
 const MUTE_WINDOW_MS = 60_000;
+const REACTION_LIMIT = 8;
+const REACTION_WINDOW_MS = 10_000;
 
 function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null {
   const raw = socket.deserializeAttachment();
@@ -127,7 +138,12 @@ function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null
     since: Number.isFinite(Number(value.since)) ? Number(value.since) : Date.now(),
     mic: value.mic === true,
     camera: value.camera === true,
+    screen: value.screen === true,
     recording: value.recording === true,
+    role: (["HOST", "COHOST", "PRESENTER", "VIEWER"].includes(String(value.role || "").toUpperCase())
+      ? String(value.role).toUpperCase()
+      : "VIEWER") as CinemaMemberRole,
+    handRaised: value.handRaised === true,
   };
 }
 
@@ -157,6 +173,7 @@ export class CinemaRoom {
     if (url.pathname === "/presence") return this.presenceResponse();
     if (url.pathname === "/policy") return this.policyResponse();
     if (url.pathname === "/remove-member") return this.removeMember(request);
+    if (url.pathname === "/member-role") return this.updateMemberRole(request);
     return new Response("Not found", { status: 404 });
   }
 
@@ -197,7 +214,7 @@ export class CinemaRoom {
     const client = pair[0];
     const server = pair[1];
     this.state.acceptWebSocket(server);
-    server.serializeAttachment(attachment);
+    server.serializeAttachment(attachment.studentId === snapshot.hostStudentId ? { ...attachment, role: "HOST" } : attachment);
 
     // Somebody is here, so the room is not idle. The marker is what the
     // cleanup job reads: the database cannot see sockets, and the object
@@ -210,7 +227,7 @@ export class CinemaRoom {
     this.broadcast({ type: "presence", members: await this.presence() });
     // Only the newcomer needs the current playback: everyone else already has
     // it, and a page that just loaded is exactly what M3 has to catch up.
-    this.send(server, { type: "state", playback: await this.playbackState() });
+    this.send(server, { type: "state", playback: await this.playbackState(), serverAt: Date.now() });
     // The room's board rule, so a screen that just loaded renders the right
     // affordance before anybody asks anything.
     this.send(server, { type: "board_policy", policy: await this.boardPolicy() });
@@ -413,7 +430,7 @@ export class CinemaRoom {
     };
     this.playback = next;
     await this.state.storage.put(PLAYBACK_KEY, next);
-    this.broadcast({ type: "state", playback: next });
+    this.broadcast({ type: "state", playback: next, serverAt: Date.now() });
     logEvent("info", "cinema_room_auto_play", { roomId: snapshot.roomId, positionSeconds: Math.round(positionSeconds) });
   }
 
@@ -491,6 +508,30 @@ export class CinemaRoom {
     return jsonResponse({ ok: true, closed }, 200);
   }
 
+  private async updateMemberRole(request: Request): Promise<Response> {
+    let studentId = "";
+    let role: CinemaMemberRole = "VIEWER";
+    try {
+      const body = await request.json() as { studentId?: unknown; role?: unknown };
+      studentId = String(body.studentId || "").trim();
+      const requested = String(body.role || "").toUpperCase();
+      if (["COHOST", "PRESENTER", "VIEWER"].includes(requested)) role = requested as CinemaMemberRole;
+    } catch { return jsonResponse({ error: "That role update is not valid." }, 400); }
+    if (!studentId || studentId === await this.hostId()) return jsonResponse({ error: "That member role cannot be changed." }, 400);
+    let updated = 0;
+    for (const socket of this.state.getWebSockets()) {
+      const attachment = readAttachment(socket);
+      if (!attachment || attachment.studentId !== studentId) continue;
+      socket.serializeAttachment({ ...attachment, role,
+        mic: role === "VIEWER" ? false : attachment.mic,
+        camera: role === "VIEWER" ? false : attachment.camera,
+        screen: role === "VIEWER" ? false : attachment.screen });
+      updated += 1;
+    }
+    if (updated) this.broadcast({ type: "presence", members: await this.presence() });
+    return jsonResponse({ ok: true, updated }, 200);
+  }
+
   async webSocketMessage(socket: CinemaRoomSocket, message: unknown): Promise<void> {
     const raw = typeof message === "string" ? message : "";
     if (raw.length > MAX_MESSAGE_BYTES) {
@@ -503,7 +544,7 @@ export class CinemaRoom {
       return;
     }
     if (parsed.type === "ping") {
-      this.send(socket, { type: "pong", at: Date.now() });
+      this.send(socket, { type: "pong", at: Date.now(), ...(parsed.sentAt ? { sentAt: parsed.sentAt } : {}) });
       return;
     }
     if (parsed.type === "chat_message") {
@@ -530,7 +571,32 @@ export class CinemaRoom {
       await this.applyBoardPolicy(socket, parsed);
       return;
     }
+    if (parsed.type === "reaction") {
+      await this.applyReaction(socket, parsed);
+      return;
+    }
+    if (parsed.type === "hand_state") {
+      await this.applyHandState(socket, parsed);
+      return;
+    }
     await this.applyPlayback(socket, parsed);
+  }
+
+  private async applyReaction(socket: CinemaRoomSocket, frame: CinemaReactionInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment) return;
+    const limited = await rateLimitSubject("cinema-reaction", attachment.studentId, { limit: REACTION_LIMIT, windowMs: REACTION_WINDOW_MS });
+    if (!limited.ok) return;
+    this.broadcast({ type: "reaction", id: crypto.randomUUID(), from: attachment.studentId, name: attachment.displayName || "Student", emoji: frame.emoji, at: Date.now() });
+  }
+
+  private async applyHandState(socket: CinemaRoomSocket, frame: CinemaHandStateInput): Promise<void> {
+    const attachment = readAttachment(socket);
+    if (!attachment || attachment.handRaised === frame.raised) return;
+    const limited = await rateLimitSubject("cinema-hand", attachment.studentId, { limit: STATE_LIMIT, windowMs: STATE_WINDOW_MS });
+    if (!limited.ok) return;
+    socket.serializeAttachment({ ...attachment, handRaised: frame.raised });
+    this.broadcast({ type: "presence", members: await this.presence() });
   }
 
   /**
@@ -549,14 +615,23 @@ export class CinemaRoom {
       this.send(socket, { type: "error", message: "That socket is not attached to a student." });
       return;
     }
+    if (frame.to === attachment.studentId) return;
+    const target = this.findSocket(frame.to);
+    if (!target) return;
+    const snapshot = await this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
+    const members = await this.presence();
+    const eligible = new Set((snapshot?.discussionMode
+      ? members.filter(member => ["HOST", "COHOST", "PRESENTER"].includes(member.role)).slice(0, Math.min(CINEMA_CALL_MEMBER_LIMIT, snapshot.stageLimit || 6))
+      : members.slice(0, CINEMA_CALL_MEMBER_LIMIT)).map(member => member.studentId));
+    if (!eligible.has(attachment.studentId) || !eligible.has(frame.to)) {
+      this.send(socket, { type: "error", message: `Calls support up to ${CINEMA_CALL_MEMBER_LIMIT} people. Video and chat remain available.` });
+      return;
+    }
     const limited = await rateLimitSubject("cinema-signal", attachment.studentId, { limit: SIGNAL_LIMIT, windowMs: SIGNAL_WINDOW_MS });
     if (!limited.ok) {
       this.send(socket, { type: "error", message: "Too many connection frames. Try again in a moment." });
       return;
     }
-    if (frame.to === attachment.studentId) return;
-    const target = this.findSocket(frame.to);
-    if (!target) return;
     this.send(target, { type: "signal", from: attachment.studentId, payload: frame.payload });
   }
 
@@ -569,8 +644,22 @@ export class CinemaRoom {
     }
     const limited = await rateLimitSubject("cinema-media-state", attachment.studentId, { limit: STATE_LIMIT, windowMs: STATE_WINDOW_MS });
     if (!limited.ok) return;
-    if (attachment.mic === frame.mic && attachment.camera === frame.camera) return;
-    socket.serializeAttachment({ ...attachment, mic: frame.mic, camera: frame.camera });
+    const mayPresent = attachment.studentId === await this.hostId() || ["HOST", "COHOST", "PRESENTER"].includes(attachment.role);
+    const snapshot = await this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
+    if (snapshot?.discussionMode && !mayPresent && (frame.mic || frame.camera || frame.screen)) {
+      this.send(socket, { type: "error", message: "The host must invite you onto the discussion stage before you can speak or share video." });
+      return;
+    }
+    if (frame.screen && !mayPresent) {
+      this.send(socket, { type: "error", message: "Only a host, co-host, or presenter can share a screen." });
+      return;
+    }
+    if (frame.screen && (await this.presence(socket)).some((member) => member.screen)) {
+      this.send(socket, { type: "error", message: "Another presenter is already sharing a screen." });
+      return;
+    }
+    if (attachment.mic === frame.mic && attachment.camera === frame.camera && attachment.screen === (frame.screen === true)) return;
+    socket.serializeAttachment({ ...attachment, mic: frame.mic, camera: frame.camera, screen: frame.screen === true });
     this.broadcast({ type: "presence", members: await this.presence() });
   }
 
@@ -597,8 +686,8 @@ export class CinemaRoom {
    */
   private async applyMuteAll(socket: CinemaRoomSocket): Promise<void> {
     const attachment = readAttachment(socket);
-    if (!attachment || attachment.studentId !== await this.hostId()) {
-      this.send(socket, { type: "error", message: "Only the host can mute the room." });
+    if (!attachment || !["HOST", "COHOST"].includes(attachment.role)) {
+      this.send(socket, { type: "error", message: "Only the host or a co-host can mute the room." });
       return;
     }
     const limited = await rateLimitSubject("cinema-mute-all", attachment.studentId, { limit: MUTE_LIMIT, windowMs: MUTE_WINDOW_MS });
@@ -646,10 +735,9 @@ export class CinemaRoom {
    * A message is stored before it is broadcast, so the live wire and the
    * reconnect replay cannot disagree about what was said. The rate limit is
    * per student, not per IP: a whole campus hall shares one address, and one
-   * flooder must not silence their neighbours. If the store is unreachable the
-   * room still shows the message live — losing it from the replay is a smaller
-   * failure than closing the conversation for everyone — but the failure is
-   * logged rather than hidden.
+   * flooder must not silence their neighbours. Persistence is the delivery
+   * boundary: if storage is unavailable, the sender receives an error and keeps
+   * the draft rather than seeing a message that reconnecting members cannot.
    */
   private async applyChat(socket: CinemaRoomSocket, frame: CinemaChatMessageInput): Promise<void> {
     const attachment = readAttachment(socket);
@@ -659,7 +747,7 @@ export class CinemaRoom {
     }
     const limited = await rateLimitSubject("cinema-chat", attachment.studentId, { limit: CHAT_LIMIT, windowMs: CHAT_WINDOW_MS });
     if (!limited.ok) {
-      this.send(socket, { type: "error", message: `You are sending messages too fast. Try again in ${Math.max(1, limited.retryAfter)} seconds.` });
+      this.send(socket, { type: "error", message: `You are sending messages too fast. Try again in ${Math.max(1, limited.retryAfter)} seconds.`, requestId: frame.requestId });
       return;
     }
     const sessionId = String((await this.roomSnapshot())?.roomId || "");
@@ -674,6 +762,7 @@ export class CinemaRoom {
         sessionId,
         sender: { id: attachment.studentId, name: attachment.displayName },
         content: frame.message,
+        requestId: frame.requestId,
         atSeconds,
       });
     } catch (error) {
@@ -681,16 +770,10 @@ export class CinemaRoom {
         roomId: sessionId,
         reason: error instanceof Error ? error.message : "unknown",
       });
-      message = {
-        id: crypto.randomUUID(),
-        sessionId,
-        senderId: attachment.studentId,
-        senderName: attachment.displayName,
-        content: frame.message,
-        atSeconds,
-        createdAt: new Date().toISOString(),
-      };
+      this.send(socket, { type: "error", requestId: frame.requestId, message: "Your message could not be saved. Please retry." });
+      return;
     }
+    if (frame.requestId) this.send(socket, { type: "chat_ack", requestId: frame.requestId, message });
     this.broadcast({ type: "chat", message });
   }
 
@@ -704,7 +787,7 @@ export class CinemaRoom {
    */
   private async applyPlayback(socket: CinemaRoomSocket, action: CinemaPlaybackAction): Promise<void> {
     const attachment = readAttachment(socket);
-    if (!attachment || attachment.studentId !== await this.hostId()) {
+    if (!attachment || !["HOST", "COHOST", "PRESENTER"].includes(attachment.role)) {
       console.warn(JSON.stringify({
         ts: new Date().toISOString(),
         level: "warn",
@@ -712,13 +795,13 @@ export class CinemaRoom {
         roomId: (await this.roomSnapshot())?.roomId || "",
         reason: "not-host",
       }));
-      this.send(socket, { type: "error", message: "Only the host controls playback." });
+      this.send(socket, { type: "error", message: "Only the host, a co-host, or a presenter controls playback." });
       return;
     }
 
     const current = await this.playbackState();
     if (isStaleAction(action.stateAt, current.updatedAt)) {
-      this.send(socket, { type: "state", playback: current });
+      this.send(socket, { type: "state", playback: current, serverAt: Date.now() });
       return;
     }
 
@@ -741,7 +824,7 @@ export class CinemaRoom {
     await this.state.storage.put(PLAYBACK_KEY, next);
     // Back to everyone, the sender included: its echo is how it learns the
     // instant the room accepted, which is the anchor every client derives from.
-    this.broadcast({ type: "state", playback: next });
+    this.broadcast({ type: "state", playback: next, serverAt: Date.now() });
   }
 
   /** A closed tab is not a message, but it changes presence just the same. */
@@ -773,9 +856,12 @@ export class CinemaRoom {
         studentId: attachment.studentId,
         displayName: attachment.displayName,
         isHost: Boolean(hostStudentId) && attachment.studentId === hostStudentId,
+        role: attachment.studentId === hostStudentId ? "HOST" : attachment.role,
+        handRaised: attachment.handRaised,
         since: attachment.since,
         mic: attachment.mic,
         camera: attachment.camera,
+        screen: attachment.screen,
         recording: attachment.recording,
       });
     }
@@ -821,6 +907,7 @@ export class CinemaRoom {
       videoId: String(parsed.videoId || ""),
       startsAt: String(parsed.startsAt || ""),
       endsAt: String(parsed.endsAt || ""),
+      ...(parsed.discussionMode === true ? { discussionMode: true, stageLimit: Math.max(2, Math.min(CINEMA_CALL_MEMBER_LIMIT, Number(parsed.stageLimit || CINEMA_CALL_MEMBER_LIMIT))) } : {}),
     };
   }
 
@@ -835,7 +922,12 @@ export class CinemaRoom {
       since: Date.now(),
       mic: false,
       camera: false,
+      screen: false,
       recording: false,
+      role: (["HOST", "COHOST", "PRESENTER", "VIEWER"].includes(String(parsed.role || "").toUpperCase())
+        ? String(parsed.role).toUpperCase()
+        : "VIEWER") as CinemaMemberRole,
+      handRaised: false,
     };
   }
 

@@ -12,6 +12,91 @@
   gap: 14px;
 }
 
+.student-auth-interface--cinema {
+  width: min(1120px, 100%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  align-items: start;
+  gap: 24px;
+}
+
+.cinema-auth-intro {
+  display: grid;
+  align-content: center;
+  gap: 20px;
+  min-height: 520px;
+  padding: clamp(26px, 4vw, 50px);
+  border: 1px solid var(--ui-green-line);
+  border-radius: 28px;
+  background: radial-gradient(circle at 85% 10%, rgba(180, 235, 194, .65), transparent 34%), linear-gradient(145deg, #f4fbf5, #e6f3e8);
+  box-shadow: 0 18px 44px rgba(18, 38, 31, .08);
+  color: var(--ui-ink);
+}
+
+.cinema-auth-eyebrow {
+  color: var(--ui-green);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .14em;
+}
+
+.cinema-auth-intro h2 {
+  margin: 0;
+  font-size: clamp(34px, 3.5vw, 54px);
+  line-height: 1.08;
+  letter-spacing: -.045em;
+}
+
+.cinema-auth-intro p {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.cinema-auth-paths {
+  display: grid;
+  gap: 10px;
+}
+
+.cinema-auth-paths > div {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(13, 105, 77, .15);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .67);
+}
+
+.cinema-auth-paths strong { font-size: 14px; }
+.cinema-auth-paths span { color: var(--ui-muted); font-size: 13px; line-height: 1.45; }
+
+.cinema-auth-browse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-height: 46px;
+  padding: 0 18px;
+  border: 1px solid var(--ui-green);
+  border-radius: 13px;
+  color: var(--ui-green);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.cinema-auth-browse:hover { background: rgba(255, 255, 255, .75); }
+
+@media (max-width: 820px) {
+  .student-auth-interface--cinema { grid-template-columns: 1fr; width: min(520px, 100%); gap: 14px; }
+  .cinema-auth-intro { min-height: 0; padding: 24px; border-radius: 20px; gap: 13px; }
+  .cinema-auth-intro h2 { font-size: 30px; }
+  .cinema-auth-intro h2 br { display: none; }
+  .cinema-auth-intro p { font-size: 14px; }
+  .cinema-auth-paths { display: none; }
+  .cinema-auth-browse { width: 100%; }
+}
+
 .student-auth-interface > .campus-status-banner {
   width: 100%;
   max-width: none;

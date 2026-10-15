@@ -63,7 +63,7 @@
 .cinema-chip.is-button.is-upload{background:var(--ui-yellow);color:#3a2c05}
 
 .cinema-room{width:min(1220px,100%);margin:0 auto;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:18px;align-items:start}
-.cinema-stage{display:grid;gap:14px}
+.cinema-stage{position:relative;display:grid;gap:14px}
 .cinema-video{border:1px solid #d8e4dc;border-radius:20px;background:#0f2b21;color:#e9f5ef;padding:16px;box-shadow:var(--ui-depth-sm)}
 .cinema-video-head{display:grid;gap:5px;padding:4px 6px 14px}
 .cinema-video-head strong{display:block;font:500 20px Georgia,serif}
@@ -94,6 +94,21 @@
 .cinema-people{display:grid;gap:9px;list-style:none;margin:0;padding:0}
 .cinema-people li{display:flex;align-items:center;gap:10px;border:1px solid #d8e4dc;border-radius:14px;background:white;padding:11px 13px;font-weight:800;font-size:13px}
 .cinema-people li span{margin-left:auto;color:#6b7a71;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.cinema-people li .cinema-person-name{margin:0;display:flex;align-items:center;gap:7px;color:var(--ink);font-size:13px;text-transform:none;letter-spacing:0}
+.cinema-people li select{margin-left:auto;max-width:118px;border:1px solid #cfddd4;border-radius:10px;background:#f8fbf9;padding:7px 9px;color:var(--ink);font-family:inherit;font-size:11px;font-weight:800}
+.cinema-waiting-list{display:grid;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #dce6df}
+.cinema-waiting-list h3{display:flex;align-items:center;justify-content:space-between;margin:0;font-size:13px}
+.cinema-waiting-list h3 span{display:grid;place-items:center;min-width:24px;height:24px;border-radius:999px;background:#e8f7ee;color:var(--green);font-size:11px}
+.cinema-waiting-list>div{display:flex;align-items:center;gap:8px;border:1px solid #dbe6df;border-radius:12px;padding:9px 10px}
+.cinema-waiting-list>div>span{display:flex;gap:5px;margin-left:auto}
+.cinema-waiting-list button{border:0;border-radius:9px;background:var(--green);color:white;padding:7px 9px;font-family:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.cinema-waiting-list button.secondary{background:#eef3ef;color:var(--ink)}
+.cinema-reaction-picker{position:absolute;z-index:8;left:50%;bottom:78px;transform:translateX(-50%);display:flex;gap:5px;padding:7px;border:1px solid #d9e5dd;border-radius:999px;background:rgba(255,255,255,.96);box-shadow:0 16px 45px rgba(9,34,23,.2);backdrop-filter:blur(14px)}
+.cinema-reaction-picker button{display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:50%;background:transparent;font-size:23px;cursor:pointer;transition:transform .16s ease,background .16s ease}
+.cinema-reaction-picker button:hover,.cinema-reaction-picker button:focus-visible{transform:translateY(-3px) scale(1.08);background:#eef8f1}
+.cinema-live-reactions{pointer-events:none;position:absolute;z-index:7;right:18px;bottom:92px;display:grid;gap:7px}
+.cinema-live-reactions span{display:flex;align-items:center;gap:7px;justify-self:end;padding:7px 10px;border-radius:999px;background:rgba(16,33,25,.85);color:white;font-size:22px;box-shadow:0 10px 30px rgba(0,0,0,.2);animation:cinema-toast-in .2s ease}
+.cinema-live-reactions small{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:800}
 .cinema-presence-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .cinema-presence-head h2{margin-right:auto}
 .cinema-link{padding:6px 10px;border-radius:999px;background:#eef1ef;color:#61706a;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
@@ -305,123 +320,103 @@
 .cinema-notes-actions button:disabled{opacity:.5;cursor:not-allowed}
 .cinema-notes-count{margin-left:auto;color:#8a978f;font-size:11px;font-weight:800}
 
-/* Mobile room chrome. Above 900px every one of these is display:none and the
-   room is the desktop grid it always was; below it the room becomes the video,
-   a floating column of action circles at its top right and a Zoom-shaped dock
-   at the foot, with one panel open at a time as a bottom sheet. The panels
-   themselves are the same components, mounted either way — the media panel
-   must never unmount, because the call it holds would go with it. */
-.cinema-rail,.cinema-dock,.cinema-sheet-backdrop,.cinema-sheet-close{display:none}
-
+/* Cinema workspace: one viewing stage, one tool at a time. */
+.cinema-lobby{display:flex;flex-direction:column;gap:24px;max-width:1180px}
+.cinema-lobby-head{width:100%;padding:30px;border-radius:26px;background:radial-gradient(ellipse at top right,#266248,transparent 65%),#10291f;color:#f1fff6;display:flex;align-items:center;justify-content:space-between;gap:24px;box-shadow:0 18px 40px #10291f1a}
+.cinema-lobby-head h2{font:700 clamp(28px,4vw,44px)/1.1 Inter,system-ui,sans-serif;letter-spacing:-.04em;margin:12px 0}
+.cinema-lobby-head p{max-width:48ch;line-height:1.6;color:#c1d8cc}
+.cinema-eyebrow{font-size:11px;font-weight:800;letter-spacing:.15em;color:#ade3b9}
+.cinema-lobby-head .cinema-cta{background:#c5edaa;color:#193326;border:0}
+.cinema-room-list{width:100%}.cinema-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.cinema-filters,.cinema-pagination,.cinema-panel-tabs{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 18px}
+.cinema-filters button,.cinema-pagination button,.cinema-panel-tabs button{border:1px solid #d6e3da;border-radius:12px;min-height:44px;padding:9px 14px;background:#fff;color:#234733;font:700 13px Inter,system-ui,sans-serif;cursor:pointer}
+.cinema-filters button[aria-pressed=true],.cinema-panel-tabs button[aria-pressed=true]{background:#163e2c;color:#fff;border-color:#163e2c}
+.cinema-pagination{justify-content:flex-end;margin:20px 0 0}.cinema-pagination span{font-size:12px;color:#526a5a}.cinema-pagination button:disabled{opacity:.45;cursor:default}
+.cinema-room{grid-template-columns:minmax(0,1fr) 350px;gap:20px;max-width:1440px}
+.cinema-room .cinema-video{background:#0b1913;padding:14px;box-shadow:0 14px 40px #0b191322}
+.cinema-video-head strong{font-family:Inter,system-ui,sans-serif;font-weight:700}
+.cinema-side{position:sticky;top:18px;max-height:calc(100dvh - 100px);overflow:auto;padding:14px;min-width:0}
+.cinema-panel-tabs{position:sticky;top:-14px;background:#fffefa;z-index:2;padding:8px 0;border-bottom:1px solid #e1e8e3;gap:4px}
+.cinema-panel-tabs button{font-size:12px;padding:8px 10px}
+.cinema-tab-panel[hidden]{display:none}.cinema-tab-panel>.cinema-card{padding:0;border:0;box-shadow:none}
+.cinema-tab-panel h2{font:700 18px Inter,system-ui,sans-serif}
+.cinema-action-list{display:grid;gap:10px}.cinema-action-list button{display:flex;align-items:center;gap:12px;min-height:48px;border:1px solid #d7e3dc;border-radius:12px;padding:12px;background:#fff;color:#244936;cursor:pointer;text-align:left}
+.cinema-action-list .danger{color:#9e2e28;background:#fff1ef;border-color:#f0cac6}
+.cinema-toolbar{position:sticky;bottom:16px;flex-wrap:wrap;border-radius:20px}
+.cinema-toolbar .cinema-tool-label{font-size:11px}.cinema-toolbar button{min-width:48px;min-height:48px}
+.cinema-dialog{border:1px solid #d9e5dd;border-radius:24px;width:min(680px,calc(100vw - 32px));max-height:88dvh;padding:0;color:#193326;background:#fffefa;box-shadow:0 30px 100px #081b284d}
+.cinema-dialog::backdrop{background:#071a15a8;backdrop-filter:blur(5px)}
+.cinema-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;border-bottom:1px solid #e2eae4;position:sticky;top:0;background:#fffefa;z-index:3}
+.cinema-dialog>header h2{font:700 20px Inter,system-ui,sans-serif;margin:0}.cinema-dialog>header button{width:44px;height:44px;border:0;border-radius:50%;background:#edf3ee;color:#264b37;cursor:pointer}
+.cinema-dialog-body{padding:22px;overflow:auto}.cinema-dialog-body>.cinema-card{border:0;box-shadow:none;padding:0;margin-bottom:20px}
+.cinema-dialog>.app-sheet-handle{display:none}.cinema-dialog input,.cinema-dialog textarea,.cinema-dialog select{font-size:16px}
+.cinema-recovery{display:block;border:1px solid #c1dba9;border-radius:16px;background:#f0f7e9;color:#234221;padding:16px;text-align:left;line-height:1.5;margin:12px 0}
+.cinema-chat-form{position:sticky;bottom:0;background:#fffefa;padding:12px 0}.cinema-messages{max-height:48dvh;overflow:auto;overscroll-behavior:contain}
+.cinema-room button:focus-visible,.cinema-dialog button:focus-visible,.cinema-lobby button:focus-visible{outline:3px solid #68943c;outline-offset:3px}
+.cinema-bookmarks>form{display:grid;gap:8px;padding:16px;border:1px solid #dfe9df;border-radius:16px;background:#f8fbf7}.cinema-bookmarks>form label{font-weight:700}.cinema-bookmarks>form>div{display:flex;gap:8px}.cinema-bookmarks input{flex:1;min-width:0;border:1px solid #ccd9ce;border-radius:10px;padding:12px;font:inherit}.cinema-bookmarks>form button{border:0;border-radius:10px;padding:10px 14px;background:#176b50;color:white;font:inherit;font-weight:600;font-size:14px;cursor:pointer}.cinema-bookmarks>form button:disabled{opacity:.5;cursor:not-allowed}.cinema-bookmarks>form small{color:#607366}.cinema-bookmarks ol{display:grid;gap:8px;padding:0;list-style:none}.cinema-bookmarks li{display:flex;align-items:stretch;gap:6px;border:1px solid #e1e9e2;border-radius:14px;padding:6px}.cinema-bookmark-jump{display:grid;flex:1;grid-template-columns:70px minmax(0,1fr);align-items:center;gap:4px 10px;text-align:left;border:0;border-radius:10px;padding:10px;background:transparent;color:#1d3025;cursor:pointer}.cinema-bookmark-jump:disabled{cursor:default}.cinema-bookmark-jump strong{grid-row:span 2;color:#176b50;font-variant-numeric:tabular-nums}.cinema-bookmark-jump span{font-weight:700;overflow-wrap:anywhere}.cinema-bookmark-jump small{color:#687a6e}.cinema-bookmark-remove{align-self:center;width:40px;height:40px;border:0;border-radius:50%;background:#f3e9e7;color:#8a3628;cursor:pointer}
+@media (min-width:901px) and (max-width:1150px){.cinema-room{grid-template-columns:minmax(0,1fr) 300px}.cinema-toolbar .cinema-tools{flex-wrap:wrap;justify-content:center}.cinema-side{padding:12px}}
 @media (max-width:900px){
-  /* The room dock clears the shell nav; an open sheet covers both bars. */
-  .cinema-room{position:relative;padding-bottom:calc(148px + env(safe-area-inset-bottom))}
-
-  /* The platform's 28px gutter was sized for a marketing page; the room wants
-     the width, and the shell's own bottom padding still clears the mobile nav. */
+  .cinema-lobby-head{flex-direction:column;align-items:flex-start;padding:24px}.cinema-lobby-head .cinema-controls{width:100%}.cinema-lobby-head .cinema-controls>*{flex:1;text-align:center;justify-content:center}
   .campus-shell:has(.cinema-room){padding:12px 12px calc(86px + env(safe-area-inset-bottom))}
-
-  /* The letterhead is the platform's, but on this page it only has to name the
-     room: the logo and the title share one row, the subtitle goes, and the
-     room's own controls live on the video card below it. The phone then spends
-     its height on the video instead. */
-  .campus-shell:has(.cinema-room) .campus-hero{grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:center;padding:9px 11px;margin-bottom:10px;border-radius:18px}
-  .campus-shell:has(.cinema-room) .campus-logo{width:52px;height:44px;border-radius:13px}
-  .campus-shell:has(.cinema-room) .campus-logo img{max-width:43px;max-height:37px}
-  .campus-shell:has(.cinema-room) .campus-hero p{font-size:9px;letter-spacing:.12em}
-  .campus-shell:has(.cinema-room) .campus-hero h1{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:2px 0 0;font-size:19px;line-height:1.2;overflow-wrap:anywhere}
-  .campus-shell:has(.cinema-room) .campus-hero span{display:none}
-
-  /* The room head keeps only the state chips: the letterhead above already
-     names the room, and the hint is desktop prose. Its right edge stays clear
-     of the floating rail, and so do the camera tiles below the video. */
-  .cinema-video{padding:12px}
-  .cinema-video-head{gap:3px;padding:0 52px 10px 2px}
-  .cinema-video-head .cinema-video-title strong{display:none}
-  .cinema-video-title{flex-wrap:nowrap;gap:7px}
-  .cinema-video-head .cinema-video-hint{display:none}
-
-  /* Three cameras to a row on a phone: five inline would be stamps, and the
-     strip is under the video now rather than floating over the header. */
+  .campus-shell:has(.cinema-room) .campus-hero{padding:12px;margin-bottom:12px}.campus-shell:has(.cinema-room) .campus-hero span{display:none}
   .cinema-strip-rail{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-  .cinema-strip-rail.is-pop{grid-template-columns:repeat(2,minmax(0,1fr))}
-  /* Two faces to a row, so a face is a face and not a stamp: three to a row
-     made the pictures too small to read. Fewer faces than a row are centred,
-     not left-aligned — one person should not look like the first cell of a
-     table. */
-  .cinema-strip-rail:not(.is-pop){display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
-  .cinema-strip-rail:not(.is-pop) .cinema-strip-tile{flex:0 1 47%}
-  .cinema-strip{padding-right:44px}
-  .cinema-strip-tile{padding:5px}
-  .cinema-strip-placeholder{font-size:12.5px}
-  .cinema-strip-tile footer{font-size:11px}
-  .cinema-strip-more{width:44px}
-  .cinema-strip-pop{width:min(320px,calc(100vw - 20px));max-height:56vh}
-  /* The control bar is the desktop's; a phone gets the same actions from the
-     rail row on the video card and the dock at the foot of the screen. */
-  .cinema-toolbar{display:none}
-  .cinema-toasts{width:min(320px,calc(100vw - 76px))}
-
-  .cinema-host-card{display:none}
-  aside.cinema-card.cinema-side{display:contents}
-
-  /* Bottom sheets: hidden until the rail or the dock opens one. */
-  .cinema-sheet{display:none}
-  .cinema-sheet.is-open{display:block;position:fixed;left:0;right:0;bottom:0;z-index:70;max-height:min(88dvh,calc(100dvh - env(safe-area-inset-top) - 12px));overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 18px calc(20px + env(safe-area-inset-bottom));border:1px solid #e1e9e2;border-bottom:0;border-radius:28px 28px 0 0;background:linear-gradient(165deg,#fff 0%,#fffefa 44%,#f7faf6 100%);box-shadow:0 -2px 0 #ffffffb8 inset,0 -10px 28px #10281d1f,0 -28px 72px #0e281e38}
-  .cinema-sheet.is-open>.app-sheet-handle{display:grid;place-items:center;width:100%;height:32px;border:0;background:transparent;touch-action:none}
-  .cinema-sheet.is-open>.app-sheet-handle>span{display:block;width:38px;height:5px;border-radius:99px;background:linear-gradient(180deg,#cad4ce,#9eada5);box-shadow:0 1px 0 #fff,0 2px 4px #173b2c28}
-  .cinema-sheet.is-open>*{margin-top:0}
-  .cinema-sheet.is-open>.cinema-card{border:0;padding:0;box-shadow:none;background:transparent}
-  .cinema-sheet-backdrop{display:block;position:fixed;inset:0;z-index:68;border:0;background:rgba(12,32,24,.38);cursor:pointer}
-  .cinema-sheet-close{display:grid;place-items:center;position:absolute;top:38px;right:14px;width:44px;height:44px;border:0;border-radius:999px;background:#eef4f0;color:#2f4a3e;cursor:pointer}
-
-  /* The rail: one action per panel, in the order a room is usually used, as a
-     floating column at the top right of the room. It is pinned below the
-     letterhead — not to the viewport — so it never covers the letterhead or
-     the room's name the way a fixed rail did. */
-  .cinema-rail{display:flex;flex-direction:column;gap:8px;position:absolute;top:0;right:0;z-index:67}
-  .cinema-rail button{display:grid;place-items:center;width:38px;height:38px;border:1px solid #d8e4dc;border-radius:999px;background:rgba(255,255,255,.95);color:var(--green);box-shadow:0 10px 26px rgba(12,32,24,.18);backdrop-filter:blur(8px);cursor:pointer}
-  .cinema-rail button.is-active{background:var(--green);border-color:var(--green);color:white}
-  .cinema-rail button.is-recording{background:#a3352a;border-color:#a3352a;color:white}
-  .cinema-rail button:disabled{opacity:.45;cursor:not-allowed}
-  .cinema-rail button:focus-visible{outline:3px solid var(--ui-yellow);outline-offset:2px}
-
-  /* The dock: who is here on the left, the host's actions on the right. */
-  .cinema-dock{display:flex;align-items:center;gap:10px;position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom));z-index:66;padding:9px 12px 6px;border-top:1px solid #dce5de;background:rgba(255,255,255,.97);box-shadow:0 -12px 30px rgba(18,46,36,.12)}
-  .cinema-dock-people{display:flex;align-items:center;gap:9px;min-width:0;border:0;background:none;padding:4px;cursor:pointer}
-  .cinema-dock-avatars{display:flex}
-  .cinema-dock-avatar{display:grid;place-items:center;width:30px;height:30px;margin-left:-8px;border:2px solid white;border-radius:999px;background:var(--mint);color:var(--green);font-size:11px;font-weight:900}
-  .cinema-dock-avatar:first-child{margin-left:0}
-  .cinema-dock-count{color:#3c5a4c;font-size:12px;font-weight:900;white-space:nowrap}
-  .cinema-dock-actions{display:flex;gap:8px;margin-left:auto}
-  .cinema-dock-actions button{display:grid;place-items:center;width:40px;height:40px;border:1px solid #cddbd3;border-radius:999px;background:white;color:var(--green);cursor:pointer}
-  .cinema-dock-actions button.is-active{background:var(--green);border-color:var(--green);color:white}
-  .cinema-dock-actions button.danger{border-color:#a3352a;background:#a3352a;color:white}
-  .cinema-dock-actions button:disabled{opacity:.45;cursor:progress}
-
-  /* Two extra host buttons mean the presence text steps aside on a phone:
-     the avatars still say who is here, and the row never wraps the buttons. */
-  .cinema-dock:has(.cinema-dock-actions) .cinema-dock-count{display:none}
-
-  .cinema-notes textarea{min-height:190px}
+  .cinema-room{display:block;padding-bottom:180px}.cinema-room .cinema-video-head{padding:4px 4px 12px}.cinema-room .cinema-video-title strong{display:block;font-size:16px}
+  .cinema-room .cinema-strip{padding-right:0}.cinema-room aside.cinema-side{display:contents}.cinema-panel-tabs{display:none}
+  .cinema-toolbar{display:flex;position:fixed;bottom:calc(58px + env(safe-area-inset-bottom));left:10px;right:10px;z-index:50;margin:0;padding:8px;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:space-evenly;border-radius:20px;background:#fffefaf5}
+  .cinema-toolbar-group{gap:1px}.cinema-toolbar-group+.cinema-toolbar-group{padding-left:4px}.cinema-toolbar button{min-width:44px;min-height:48px}.cinema-tool-label{font-size:10px!important}.cinema-tools{flex:1;justify-content:space-around}
+  .cinema-toolbar .cinema-tools button:nth-child(3){display:none}
+  .cinema-dialog{position:fixed;inset:auto 0 0;width:100%;max-width:none;max-height:calc(100dvh - env(safe-area-inset-top) - 12px);margin:0;border-radius:28px 28px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+  .cinema-dialog>.app-sheet-handle{display:grid;width:100%;height:28px;place-items:center;border:0;background:transparent;touch-action:none}.cinema-dialog>.app-sheet-handle>span{width:38px;height:5px;background:#aebfb3;border-radius:10px}
+  .cinema-dialog>header{padding:6px 18px 12px}.cinema-dialog-body{padding:18px;max-height:calc(100dvh - 145px);overscroll-behavior:contain}.cinema-dialog .cinema-messages{max-height:48dvh}.cinema-dialog .cinema-chat-form input{min-width:0;font-size:16px}
 }
+@media (max-width:430px){.cinema-toolbar{left:6px;right:6px}.cinema-toolbar .cinema-tools button:nth-child(2){display:none}.cinema-toolbar .cinema-toolbar-group{gap:0}.cinema-toolbar button{min-width:44px;padding:3px 0}}
+@media (prefers-reduced-motion:no-preference){.cinema-dialog[open]{animation:cinema-enter .18s ease-out}@keyframes cinema-enter{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}}
+.cinema-live-caption{position:absolute;z-index:4;left:50%;bottom:1.2rem;transform:translateX(-50%);max-width:min(760px,88%);padding:.65rem .9rem;border-radius:.75rem;background:rgba(8,18,15,.88);color:#fff;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.3);backdrop-filter:blur(8px)}
+.cinema-live-caption strong{color:#a7f3d0;margin-right:.35rem}.cinema-video{position:relative}
+.cinema-presentation{display:grid;gap:.5rem;padding:.7rem;border:1px solid rgba(20,135,102,.25);border-radius:1rem;background:#071a15;box-shadow:0 14px 34px rgba(6,35,27,.18)}.cinema-presentation header{display:flex;justify-content:space-between;color:#e9fff6;font-size:.85rem}.cinema-presentation header span{color:#81ddb9}.cinema-presentation-video{position:relative}.cinema-presentation-stream{display:block;width:100%;max-height:65vh;object-fit:contain;border-radius:.65rem;background:#000}.cinema-presentation-video button{position:absolute;right:.65rem;bottom:.65rem;display:flex;gap:.35rem;align-items:center;padding:.45rem .65rem;border-radius:999px;background:rgba(8,18,15,.84);color:#fff;border:1px solid rgba(255,255,255,.18)}
+.cinema-pip-button{position:absolute;right:.75rem;bottom:.75rem;z-index:3;display:flex;gap:.35rem;align-items:center;padding:.45rem .65rem;border-radius:999px;background:rgba(8,18,15,.82);color:#fff;border:1px solid rgba(255,255,255,.18)}
+.cinema-transcript,.cinema-polls,.cinema-study{display:grid;gap:.9rem}.cinema-privacy-controls{display:grid;gap:.6rem;padding:.8rem;border-radius:1rem;background:var(--cinema-soft,#f4f7f5)}
+.cinema-privacy-controls label{display:flex;align-items:center;gap:.5rem}.cinema-transcript-search{display:flex;align-items:center;gap:.45rem;padding:.55rem .7rem;border:1px solid var(--cinema-line,#d8e2dc);border-radius:.8rem}.cinema-transcript-search input{border:0;outline:0;background:transparent;width:100%}
+.cinema-transcript ol,.cinema-study ol{display:grid;gap:.45rem;max-height:55vh;overflow:auto;padding:0;margin:0;list-style:none}.cinema-transcript li,.cinema-study li{display:grid;grid-template-columns:auto 1fr;gap:.65rem;align-items:start;padding:.55rem;border-bottom:1px solid var(--cinema-line,#e2e8e4)}.cinema-transcript li>button,.cinema-study li>button{font-variant-numeric:tabular-nums;color:#08775a;background:transparent;border:0;padding:.1rem}.cinema-transcript li span,.cinema-study li span{display:grid;gap:.12rem}.cinema-transcript li strong{font-size:.76rem;color:#5d6b64}
+.cinema-polls form{display:grid;gap:.55rem;padding:.75rem;border-radius:1rem;background:var(--cinema-soft,#f4f7f5)}.cinema-poll-option-edit{display:grid;grid-template-columns:1fr auto;gap:.4rem}.cinema-poll-list{display:grid;gap:.8rem}.cinema-poll-list article{display:grid;gap:.45rem;padding:.8rem;border:1px solid var(--cinema-line,#dfe7e2);border-radius:1rem}.cinema-poll-list header{display:flex;justify-content:space-between;gap:.7rem}.cinema-poll-list article>button:not(.secondary){display:flex;justify-content:space-between;text-align:left;border:1px solid var(--cinema-line,#dfe7e2);background:#fff;border-radius:.75rem;padding:.65rem}.cinema-poll-list button.is-selected{border-color:#148766;background:#eefbf6}.cinema-poll-list button.is-correct{box-shadow:inset 3px 0 #16a36f}
+.cinema-study-summary{padding:.8rem;border-left:3px solid #15966e;background:#f0faf6;border-radius:.25rem .8rem .8rem .25rem}.cinema-study nav{display:flex;gap:.35rem;overflow:auto}.cinema-study nav button[aria-pressed=true]{background:#173f34;color:#fff}.cinema-study ul{display:grid;gap:.4rem;padding-left:1.2rem}.cinema-flashcards{display:grid;gap:.55rem}.cinema-flashcards details{border:1px solid var(--cinema-line,#dfe7e2);border-radius:.8rem;padding:.7rem}.cinema-flashcards summary{font-weight:700;cursor:pointer}
+@media(max-width:700px){.cinema-live-caption{bottom:.65rem;font-size:.85rem}.cinema-pip-button{font-size:0;padding:.5rem}.cinema-transcript ol,.cinema-study ol{max-height:none}}
 
-/* A narrow phone still fits five host actions beside the avatars. */
-@media (max-width:430px){
-  .cinema-dock{gap:8px;padding:8px 10px 5px}
-  .cinema-dock-actions{gap:6px}
-  .cinema-dock-actions button{width:36px;height:36px}
-}
-
-@keyframes cinema-toast-in{
-  from{opacity:0;transform:translateY(-8px)}
-  to{opacity:1;transform:translateY(0)}
-}
-
-@media (max-width:900px){
-  /* Inside a sheet the sheet is the card, so the panels drop their own frames
-     and keep their content clear of the close control. */
-  .cinema-sheet.is-open .cinema-presence-head{padding-right:36px}
-  .cinema-sheet.is-open .cinema-chat{margin-top:0;padding-top:0;border-top:0}
-  .cinema-sheet.is-open .cinema-share{border:0;background:transparent;padding:0}
-}
+/* M15 — the public event catalogue and its shareable invitation pages. */
+.cinema-events-page{width:min(1180px,100%);margin:0 auto;display:grid;gap:22px}.cinema-events-hero{padding:clamp(24px,5vw,48px);border-radius:28px;background:radial-gradient(circle at 88% 10%,#367a56 0,transparent 38%),linear-gradient(135deg,#0c251b,#173e2e);color:#fff;display:flex;align-items:end;justify-content:space-between;gap:24px;box-shadow:0 24px 60px #0b281c26}.cinema-events-hero h2{font:700 clamp(30px,5vw,52px)/1.02 Inter,system-ui,sans-serif;letter-spacing:-.045em;margin:10px 0}.cinema-events-hero p{max-width:52ch;color:#c9dfd1;line-height:1.6}.cinema-events-hero .secondary{color:#effbf4;border-color:#ffffff42;background:#ffffff12}
+.cinema-event-tools{display:flex;align-items:center;justify-content:space-between;gap:16px}.cinema-event-tools .cinema-search{width:min(390px,100%);background:#fff}.cinema-event-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.cinema-event-card{min-width:0;overflow:hidden;border:1px solid #dbe6de;border-radius:22px;background:#fffefa;box-shadow:0 15px 35px #10291f12;transition:transform .18s ease,box-shadow .18s ease}.cinema-event-card:hover{transform:translateY(-3px);box-shadow:0 20px 42px #10291f20}.cinema-event-card.is-loading{height:390px;background:linear-gradient(110deg,#edf2ee 8%,#f8faf8 18%,#edf2ee 33%);background-size:200% 100%;animation:cinema-event-loading 1.2s linear infinite}.cinema-event-poster{position:relative;display:grid;place-items:center;aspect-ratio:16/10;background:#15372a center/cover no-repeat;color:#bde99f}.cinema-event-poster:after{content:"";position:absolute;inset:50% 0 0;background:linear-gradient(transparent,#071a158c)}.cinema-event-state{position:absolute;z-index:1;top:14px;left:14px;padding:7px 10px;border-radius:999px;background:#fff;color:#183a2c;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.cinema-event-state.is-live{background:#db3e36;color:#fff}.cinema-event-state.is-replay{background:#183a2c;color:#fff}.cinema-event-copy{display:grid;gap:9px;padding:18px}.cinema-event-organizer{color:#18835f;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.055em}.cinema-event-copy h3{font:700 21px/1.2 Inter,system-ui,sans-serif;margin:0}.cinema-event-copy h3 a{color:#162c22;text-decoration:none}.cinema-event-copy p{color:#647269;line-height:1.5;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.cinema-event-meta{display:flex;gap:10px 14px;flex-wrap:wrap;padding-top:5px;color:#50645a;font-size:12px}.cinema-event-meta span{display:flex;align-items:center;gap:4px}.cinema-event-empty{text-align:center;display:grid;place-items:center;padding:52px}.cinema-event-empty h3{margin:8px 0 0}
+.cinema-event-form textarea,.cinema-feedback textarea{width:100%;resize:vertical;border:1px solid #ccd9ce;border-radius:12px;padding:12px;font:inherit}.cinema-form-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cinema-file-label input{padding:10px;background:#f4f8f4}.cinema-check{display:flex!important;align-items:flex-start!important;gap:10px}.cinema-check>input{width:20px!important;min-height:20px!important;margin-top:2px}.cinema-check>span{display:grid;gap:3px}.cinema-check small,.cinema-create label>small{display:block;color:#68776e;font-weight:400;margin-top:4px}
+.cinema-event-detail{width:min(1120px,100%);margin:0 auto;display:grid;grid-template-columns:minmax(300px,.85fr) minmax(0,1.15fr);overflow:hidden;border:1px solid #dce6df;border-radius:28px;background:#fffefa;box-shadow:0 24px 60px #10291f1a}.cinema-event-detail-poster{position:relative;min-height:620px;display:grid;place-items:center;background:#15372a center/cover no-repeat;color:#c5edaa}.cinema-event-detail-copy{padding:clamp(24px,5vw,52px);display:flex;flex-direction:column;align-items:flex-start}.cinema-event-detail-copy h1{font:750 clamp(34px,5vw,58px)/1.02 Inter,system-ui,sans-serif;letter-spacing:-.045em;margin:12px 0 18px;color:#153326}.cinema-event-description{font-size:17px;line-height:1.7;color:#586b60}.cinema-event-facts{width:100%;display:grid;gap:0;margin:22px 0}.cinema-event-facts>div{padding:15px 0;border-top:1px solid #e2e9e3}.cinema-event-facts dt{display:flex;align-items:center;gap:8px;font-weight:750;color:#1a3b2d}.cinema-event-facts dd{margin:5px 0 0 26px;color:#627269}.cinema-event-actions{display:flex;gap:9px;flex-wrap:wrap}.cinema-button-link{display:inline-flex!important;align-items:center;gap:7px;text-decoration:none}.cinema-event-after{width:100%;margin-top:28px;padding-top:24px;border-top:1px solid #dce6df}.cinema-event-after h2{font:700 24px Inter,system-ui,sans-serif}.cinema-feedback{display:grid;gap:10px;margin-top:20px;padding:18px;border-radius:18px;background:#f1f6f2}.cinema-feedback h3{margin:0}.cinema-rating{display:flex}.cinema-rating button{border:0;background:transparent;color:#e1a72f;padding:4px;cursor:pointer}
+@keyframes cinema-event-loading{to{background-position-x:-200%}}
+@media(max-width:900px){.cinema-event-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cinema-event-detail{grid-template-columns:1fr}.cinema-event-detail-poster{min-height:unset;aspect-ratio:16/10}.cinema-events-hero{align-items:flex-start;flex-direction:column}.cinema-event-tools{align-items:stretch;flex-direction:column}.cinema-event-tools .cinema-search{width:100%}}
+@media(max-width:620px){.cinema-event-grid{grid-template-columns:1fr}.cinema-form-pair{grid-template-columns:1fr}.cinema-events-hero .cinema-controls{width:100%;display:grid;grid-template-columns:1fr}.cinema-event-detail{border-radius:22px}.cinema-event-detail-copy{padding:22px}.cinema-event-detail-copy h1{font-size:36px}.cinema-event-actions{width:100%}.cinema-event-actions>*{width:100%;justify-content:center;text-align:center}}
+.cinema-event-replay{width:100%;margin-top:20px}.cinema-event-replay iframe{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:16px;background:#10291f}.cinema-event-replay p{color:#66766b;font-size:13px}
+.cinema-discussion-questions form { display: grid; gap: .65rem; margin-bottom: 1.25rem; }
+.cinema-discussion-questions textarea { width: 100%; resize: vertical; }
+.cinema-question-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .75rem; }
+.cinema-question-list li { padding: 1rem; border: 1px solid rgba(65, 98, 81, .17); border-radius: 1rem; background: rgba(255,255,255,.7); }
+.cinema-question-list li > div:first-child { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
+.cinema-question-list li span { font-size: .75rem; color: #567164; }
+.cinema-question-list li p { margin: .6rem 0; overflow-wrap: anywhere; }
+.cinema-question-actions { display: flex; flex-wrap: wrap; gap: .45rem; }
+.cinema-discussion-audience { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, .8fr); gap: 1rem; align-items: start; }
+.cinema-discussion-broadcast, .cinema-discussion-side { background: #fff; border: 1px solid rgba(65, 98, 81, .16); border-radius: 1.25rem; padding: 1rem; box-shadow: 0 16px 42px rgba(22, 48, 36, .08); }
+.cinema-discussion-broadcast-head, .cinema-discussion-broadcast-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.cinema-discussion-broadcast-head h2 { margin: .3rem 0 .9rem; }
+.cinema-discussion-video { aspect-ratio: 16 / 9; overflow: hidden; border-radius: .8rem; background: #0a1511; }
+.cinema-discussion-video iframe { display: block; width: 100%; height: 100%; border: 0; }
+.cinema-discussion-video-message { display: grid; place-items: center; height: 100%; margin: 0; padding: 1rem; text-align: center; color: #d5e7d8; }
+.cinema-discussion-broadcast-foot { padding-top: .9rem; }
+.cinema-discussion-broadcast-foot p { margin: 0; color: #4e665a; }
+.cinema-discussion-tabs { display: flex; gap: .4rem; margin-bottom: 1rem; }
+.cinema-discussion-tabs button[aria-selected="true"] { background: #123b2c; color: #fff; }
+.cinema-stage-requests { padding: .85rem; margin-bottom: 1rem; border-radius: 1rem; background: #eff8f1; }
+.cinema-stage-requests h3 { margin: 0 0 .4rem; }
+.cinema-stage-requests ul { list-style: none; padding: 0; margin: .8rem 0 0; display: grid; gap: .65rem; }
+.cinema-stage-requests li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .6rem; }
+.cinema-stage-requests li div { display: flex; gap: .35rem; }
+.cinema-discussion-stage-note { min-height: 260px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; padding: clamp(1.5rem,4vw,3rem); color: #e8ffe9; background: radial-gradient(circle at 24% 20%, #275d3f, #0b2018 70%); }
+.cinema-discussion-stage-note h2 { margin: .45rem 0; color: #fff; }
+.cinema-discussion-stage-note p { max-width: 58ch; line-height: 1.6; }
+.cinema-discussion-stage-note a { color: #b4ffb6; }
+@media (max-width: 850px) { .cinema-discussion-audience { grid-template-columns: 1fr; } .cinema-discussion-broadcast-foot { align-items: stretch; flex-direction: column; } }
