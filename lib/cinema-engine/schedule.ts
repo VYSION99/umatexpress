@@ -77,8 +77,8 @@ export async function markCinemaRoomEnded(roomId: string, now: number): Promise<
   if (!id) return false;
   const stamp = new Date(now).toISOString();
   const result = await turso(
-    "UPDATE cinema_sessions SET status = 'ENDED', ended_at = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",
-    [stamp, stamp, id],
+    "UPDATE cinema_sessions SET status = 'ENDED', ended_at = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE') AND ends_at <> '' AND ends_at <= ?",
+    [stamp, stamp, id, stamp],
   );
   return Number(result.affected_row_count || 0) > 0;
 }

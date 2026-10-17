@@ -23,6 +23,7 @@ export function CinemaCallButtons(input: {
   onToggleRecord: () => void;
   /** Name each button under its icon, for the desktop control bar. */
   labels?: boolean;
+  compactLabels?: boolean;
   hideRecorder?: boolean;
   canShare?: boolean;
 }) {
@@ -30,7 +31,7 @@ export function CinemaCallButtons(input: {
   const recording = recorder.phase === "recording" || recorder.phase === "paused";
   /** The icon alone in the rail; the icon and its name in the control bar. */
   const face = (label: string, icon: ReactNode) => input.labels
-    ? <><span className="cinema-tool-icon">{icon}</span><span className="cinema-tool-label">{label}</span></>
+    ? <><span className="cinema-tool-icon">{icon}</span><span className="cinema-tool-label">{input.compactLabels && label === "Camera" ? "Cam" : label}</span></>
     : icon;
 
   return <>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowsClockwise, Bed, Buildings, Bus, CircleNotch, Star, Wallet } from "@/components/ui/MaterialIcon";
 import { cedis } from "@/components/campusRide/hostel/format";
+import type { HostelInsights } from "@/lib/intelligence-api";
 
 type Analytics = {
   generatedAt: string;
@@ -32,15 +33,17 @@ const shortDay = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateStrin
  */
 export function HostelAnalytics() {
   const [data, setData] = useState<Analytics | null>(null);
+  const [insights, setInsights] = useState<HostelInsights | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     setError("");
     try {
       const response = await fetch("/api/console/hostel/analytics", { credentials: "same-origin", cache: "no-store" });
-      const payload = await response.json() as { analytics?: Analytics; error?: string };
+      const payload = await response.json() as { analytics?: Analytics; insights?: HostelInsights | null; error?: string };
       if (!response.ok || !payload.analytics) throw new Error(payload.error || "The analytics could not be loaded.");
       setData(payload.analytics);
+      setInsights(payload.insights ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "The analytics could not be loaded.");
     }
@@ -62,6 +65,12 @@ export function HostelAnalytics() {
       <article><span><Wallet size={12} aria-hidden />LANDLORD SHARE</span><strong>{cedis(data.money.net)}</strong><small>{cedis(data.money.released)} released · {cedis(data.money.accrued)} held</small></article>
       <article><span><Buildings size={12} aria-hidden />PLATFORM 3%</span><strong>{cedis(data.money.commission)}</strong><small>on {cedis(data.money.gross)} of bed rent</small></article>
     </section>
+
+    {insights && <section className="console-panel">
+      <h2>Booking insights</h2>
+      <ul>{insights.messages.map((message) => <li key={message}>{message}</li>)}</ul>
+      <p className="console-note">{insights.method}</p>
+    </section>}
 
     <section className="console-panel">
       <h2><Bus size={18} aria-hidden />Paid bookings, last 14 days

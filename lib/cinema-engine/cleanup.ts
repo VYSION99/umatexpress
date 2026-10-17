@@ -147,8 +147,11 @@ async function endIdleRooms(input: {
         await turso("UPDATE cinema_sessions SET updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')", [new Date(input.now).toISOString(), id]);
         continue;
       }
-      // An object that never saw a socket cannot say when the room emptied;
-      // the row's own last write is then the honest proxy.
+      // A live room may have lost its last socket just before its close
+      // callback recorded the departure. Its old row timestamp says nothing
+      // about when it became empty, so never end LIVE on that guess.
+      if (status === "LIVE" && presence.emptySince <= 0) continue;
+      // A CREATED room that never had a socket can use its own last write.
       idleSince = presence.emptySince > 0 ? presence.emptySince : Date.parse(String(row.updated_at || row.created_at || ""));
     } else if (status === "CREATED") {
       // A room nobody ever opened has no sockets to check: age is enough.

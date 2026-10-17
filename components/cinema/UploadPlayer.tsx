@@ -5,6 +5,8 @@ import { PictureInPicture } from "@/components/ui/MaterialIcon";
 import type { CinemaClientMessage, CinemaPlaybackAction, CinemaPlaybackState } from "@/lib/cinema-engine/protocol";
 import { CINEMA_DRIFT_THRESHOLD_SECONDS, CINEMA_HOST_DRIFT_SECONDS, expectedPosition, reconcilePlayback } from "@/lib/cinema-engine/sync";
 import { CinemaFullscreenButton } from "./CinemaFullscreenButton";
+import { CinemaFullscreenCameras, type CinemaCameraContext } from "./CinemaFullscreenCameras";
+import { CinemaFullscreenHostControls, type CinemaHostControlsContext } from "./CinemaFullscreenHostControls";
 
 /**
  * The room's uploaded video, driven by the room.
@@ -22,9 +24,12 @@ export function UploadPlayer(input: {
   playback: CinemaPlaybackState | null;
   now?: () => number;
   onAction: (message: CinemaClientMessage) => void;
+  cameras?: CinemaCameraContext;
+  hostControls?: CinemaHostControlsContext;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerShellRef = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState({ active: false, fallback: false });
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [needsTap, setNeedsTap] = useState(false);
   const [lease, setLease] = useState("");
@@ -151,7 +156,7 @@ export function UploadPlayer(input: {
     return () => window.clearInterval(timer);
   }, [status, apply, sendNow]);
 
-  return <div className="cinema-player" ref={playerShellRef}>
+  return <div className={`cinema-player${fullscreen.fallback ? " is-theater-fullscreen" : ""}`} ref={playerShellRef}>
     <video
       ref={videoRef}
       className={`cinema-upload-video${input.isHost ? "" : " is-passive"}`}
@@ -183,13 +188,16 @@ export function UploadPlayer(input: {
         setStatus("failed");
       }}
     />
-    {status === "ready" && <CinemaFullscreenButton playerRef={playerShellRef} videoRef={videoRef} />}
+    {(status === "ready" || fullscreen.active) && <CinemaFullscreenButton playerRef={playerShellRef} state={fullscreen} onChange={setFullscreen} />}
+    {fullscreen.active && <CinemaFullscreenCameras cameras={input.cameras} canPin={Boolean(input.hostControls)} />}
+    {fullscreen.active && <CinemaFullscreenHostControls host={input.hostControls} />}
     {status === "ready" && typeof document !== "undefined" && document.pictureInPictureEnabled && <button
       type="button"
       className="cinema-pip-button"
       aria-label="Watch this video in picture in picture"
+      title="Picture in picture"
       onClick={() => { const video = videoRef.current; if (!video) return; if (document.pictureInPictureElement) void document.exitPictureInPicture(); else void video.requestPictureInPicture().catch(() => undefined); }}
-    ><PictureInPicture size={17} /> Picture in picture</button>}
+    ><PictureInPicture size={21} aria-hidden /></button>}
     {status === "loading" && <p className="cinema-player-note">Loading the room&apos;s video…</p>}
     {status === "failed" && <p className="cinema-player-note">
       The video could not play here. Ask the host to check the upload, or try again in a moment.

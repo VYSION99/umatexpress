@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LockKey } from "@/components/ui/MaterialIcon";
 import { AuthRecoveryCard } from "@/components/account/AuthRecoveryCard";
+import { PasskeySignInButton } from "@/components/account/PasskeyControls";
 
 export default function ConsoleLoginPage() {
   const router = useRouter();
@@ -44,6 +45,7 @@ export default function ConsoleLoginPage() {
       <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       {error && <div className="console-auth-error" role="alert">{error}</div>}
       <button disabled={submitting}><LockKey size={17} />{submitting ? "Signing in…" : "Sign in"}</button>
+      <PasskeySignInButton scope="CONSOLE" onSuccess={() => router.replace("/console")} />
       <small>Every service starts here. Apply for the service you want to run, or sign in with the account your team set up.</small>
       <Link href="/console/register">Apply or request access</Link>
       <Link href="/console/reset-password">Forgot your password?</Link>

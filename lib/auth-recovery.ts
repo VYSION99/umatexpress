@@ -27,7 +27,7 @@ import { logEvent } from "@/lib/observability";
 import { envValue } from "@/lib/runtime-env";
 import { assertStudentPassword, ensureStudentAccountsTable } from "@/lib/student-auth";
 import { normalizeStudentEmail, validPlatformEmail } from "@/lib/student-email";
-import { ensureNotificationsTable, rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
+import { ensureNotificationsTable, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 export const AUTH_RECOVERY_SCOPES = ["STUDENT", "CONSOLE"] as const;
 export type AuthRecoveryScope = (typeof AUTH_RECOVERY_SCOPES)[number];
@@ -188,9 +188,10 @@ async function sendResetEmail(email: string, input: ResetEmailInput, now: Date) 
   });
 }
 
-async function sendLoginCode(email: string, code: string, now: Date) {
-  const reference = `otp:${await digest(`${email}:${now.getTime()}`)}`.slice(0, 80);
-  await ensureNotificationsTable().then(() => queueNotification(turso, {
+async function sendLoginCode(email: string, code: string, now: Date, requestId: string) {
+  // The request id is unique even when two requests share one millisecond.
+  const reference = `otp:${requestId}`;
+  return ensureNotificationsTable().then(() => queueNotification(turso, {
     recipient: email,
     template: "auth_login_code",
     subject: "Your UMaTeXPRESS sign-in code",
@@ -252,11 +253,26 @@ export async function requestLoginCode(input: { scope: AuthRecoveryScope; email:
     logEvent("info", "auth_otp_requested_unknown", { scope: input.scope });
     return answer;
   }
-  const code = randomCode();
-  await insertRequest({ scope: input.scope, accountId: account.id, email, purpose: "LOGIN", token: "", code, ttlMs: LOGIN_TTL_MS, now });
-  await sendLoginCode(email, code, now);
+  // A new request must retire the earlier proof and its undelivered email.
+  // Compare HMACs with the previous row so even a random collision cannot
+  // show the user exactly the same code twice in a row.
+  const previous = rowsToObjects(await turso(
+    "SELECT id,code_hash FROM auth_recovery_requests WHERE scope=? AND email=? AND purpose='LOGIN' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    [input.scope, email],
+  ))[0];
+  let code = randomCode();
+  while (previous && timingSafeMatch(String(previous.code_hash || ""), await digest(`${previous.id}:${code}`))) code = randomCode();
+  const requestId = crypto.randomUUID();
+  const stamp = now.toISOString();
+  await tursoTransaction([
+    { sql: "UPDATE auth_recovery_requests SET used_at=?,updated_at=? WHERE scope=? AND email=? AND purpose='LOGIN' AND used_at=''", args: [stamp, stamp, input.scope, email] },
+    { sql: "INSERT INTO auth_recovery_requests (id,scope,account_id,email,purpose,token_hash,code_hash,attempts,expires_at,used_at,created_at,updated_at) VALUES (?,?,?,?,?,'',?,0,?,'',?,?)", args: [requestId, input.scope, account.id, email, "LOGIN", await digest(`${requestId}:${code}`), new Date(now.getTime() + LOGIN_TTL_MS).toISOString(), stamp, stamp] },
+  ]);
+  await ensureNotificationsTable();
+  await turso("UPDATE notification_outbox SET status='FAILED',last_error='Superseded by a newer sign-in code',subject='Authentication message',message='' WHERE recipient=? AND template='auth_login_code' AND status='PENDING' AND reference IN (SELECT 'otp:' || id FROM auth_recovery_requests WHERE scope=? AND email=? AND purpose='LOGIN' AND used_at<>'')", [email, input.scope, email]);
+  const delivered = await sendLoginCode(email, code, now, requestId);
   logEvent("info", "auth_otp_requested", { scope: input.scope, accountId: account.id });
-  return { ...answer, delivered: true };
+  return { ...answer, delivered };
 }
 
 /** The newest open request for one address and purpose. */
@@ -265,7 +281,7 @@ async function openRequest(input: { scope: AuthRecoveryScope; email: string; pur
     `SELECT id,account_id,code_hash,token_hash,COALESCE(attempts,0) AS attempts,expires_at,COALESCE(used_at,'') AS used_at
      FROM auth_recovery_requests
      WHERE scope = ? AND email = ? AND purpose = ? AND used_at = ''
-     ORDER BY created_at DESC LIMIT 1`,
+     ORDER BY created_at DESC, rowid DESC LIMIT 1`,
     [input.scope, input.email, input.purpose],
   ))[0];
 }

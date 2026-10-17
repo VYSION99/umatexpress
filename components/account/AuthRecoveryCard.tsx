@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { CircleNotch, EnvelopeSimple, Key } from "@/components/ui/MaterialIcon";
+import { CodeBoxes } from "./CodeBoxes";
 import "./account.css";
 
 /** The two account surfaces the recovery endpoints serve. */
@@ -38,6 +39,7 @@ export function AuthRecoveryCard(input: {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [resent, setResent] = useState(false);
 
   async function post(url: string, method: string, body: unknown) {
     const response = await fetch(url, {
@@ -51,8 +53,8 @@ export function AuthRecoveryCard(input: {
     return data;
   }
 
-  const request = async (event: FormEvent) => {
-    event.preventDefault();
+  const request = async (event?: FormEvent) => {
+    event?.preventDefault();
     setBusy("request"); setError("");
     try {
       if (mode === "otp") {
@@ -60,6 +62,8 @@ export function AuthRecoveryCard(input: {
       } else {
         await post("/api/auth/recovery", "POST", { scope: input.scope, email });
       }
+      setResent(step === "reset");
+      setCode("");
       setStep("reset");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "That did not work. Try again.");
@@ -123,7 +127,8 @@ export function AuthRecoveryCard(input: {
           ? "Your link is good. Choose the new password for this account."
           : <>If an account exists for <strong>{email}</strong>, the code is on its way. It expires in {mode === "otp" ? "10" : "30"} minutes.</>}
       </span>
-      {!input.token && <label>Code from the email<input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} required value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} /></label>}
+      {!input.token && <CodeBoxes label="Code from the email" value={code} onChange={setCode} />}
+      {mode === "otp" && !input.token && <><span>Only the latest code works. A new request cancels earlier codes.</span>{resent && <span role="status">Another code was requested. Check the latest email.</span>}<button type="button" className={variant === "console" ? "console-auth-alt" : "auth-recovery-resend"} disabled={Boolean(busy)} onClick={() => void request()}>{busy === "request" ? "Sending…" : "Send a new code"}</button></>}
       {mode === "reset" && <label>New password<input type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>}
       {error && <div className="console-auth-error" role="alert">{error}</div>}
       <button disabled={busy === "verify"}>{busy === "verify" ? <CircleNotch size={17} className="console-spin" aria-hidden /> : <Key size={17} aria-hidden />}{busy === "verify" ? "Checking…" : mode === "otp" ? "Sign in" : "Set the new password"}</button>

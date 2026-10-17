@@ -25,7 +25,10 @@ export function CinemaEvents() {
     const response = await fetch("/api/cinema/organizers", { credentials: "same-origin", cache: "no-store" });
     if (response.ok) { const data = await response.json() as { organizers?: Array<{ name: string; type: string; status: string }> }; setOrganizers(data.organizers || []); }
   }, [account]);
-  useEffect(() => { void loadOrganizers(); }, [loadOrganizers]);
+  useEffect(() => {
+    const timer = setTimeout(() => void loadOrganizers(), 0);
+    return () => clearTimeout(timer);
+  }, [loadOrganizers]);
   const organization = organizers.find((item) => item.name.toLowerCase() === form.organizerName.trim().toLowerCase() && item.type === form.organizerType);
   const needsApproval = form.organizerType !== "STUDENT_GROUP" && organization?.status !== "ACTIVE";
   const requestApproval = async () => {

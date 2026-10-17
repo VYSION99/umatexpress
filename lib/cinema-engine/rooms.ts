@@ -673,7 +673,7 @@ export async function joinRoom(input: { id: string; student: { id: string; name?
   return view;
 }
 
-export const CINEMA_ROOM_ACTIONS = ["OPEN", "END", "LOCK", "UNLOCK", "RETITLE", "PRIVATE", "PUBLIC", "WAITING_ON", "WAITING_OFF"] as const;
+export const CINEMA_ROOM_ACTIONS = ["OPEN", "END", "EXTEND", "LOCK", "UNLOCK", "RETITLE", "PRIVATE", "PUBLIC", "WAITING_ON", "WAITING_OFF"] as const;
 export type CinemaRoomAction = (typeof CINEMA_ROOM_ACTIONS)[number];
 
 /**
@@ -720,6 +720,28 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
         endsAt,
       });
     }
+  } else if (action === "EXTEND") {
+    if (row.status !== "LIVE" || !row.ends_at || Number(row.duration_minutes || 0) > CINEMA_DURATION_MAX_MINUTES - 15) {
+      throw new CampusEngineError("INVALID_STATE", "This session cannot be extended further.", 409);
+    }
+    const previousEnd = String(row.ends_at);
+    const nextEnd = new Date(Date.parse(previousEnd) + 15 * 60_000).toISOString();
+    const result = await turso(
+      "UPDATE cinema_sessions SET ends_at = ?, duration_minutes = duration_minutes + 15, updated_at = ? WHERE id = ? AND status = 'LIVE' AND ends_at = ? AND ends_at > ? AND duration_minutes <= ?",
+      [nextEnd, stamp, id, previousEnd, stamp, CINEMA_DURATION_MAX_MINUTES - 15],
+    );
+    if (!Number(result.affected_row_count || 0)) {
+      throw new CampusEngineError("INVALID_STATE", "The session changed or reached its end time. Refresh and try again.", 409);
+    }
+    await scheduleCinemaRoom(id, {
+      hostStudentId: String(row.host_student_id || ""),
+      title: String(row.title || ""),
+      sourceType: String(row.video_source_type || "YOUTUBE"),
+      videoId: String(row.video_id || ""),
+      startsAt: "",
+      endsAt: nextEnd,
+    });
+    logEvent("info", "cinema_room_extended", { roomId: id, minutes: 15 });
   } else if (action === "END") {
     await turso(
       "UPDATE cinema_sessions SET status = 'ENDED', ended_at = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",

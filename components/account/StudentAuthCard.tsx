@@ -7,6 +7,8 @@ import { STUDENT_EMAIL_DOMAIN, validStudentEmail } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
 import { writeProfile } from "@/lib/passenger-profile";
 import { loadStudentAccount, publishStudentAccount, useStudentAccount } from "./useStudentAccount";
+import { CodeBoxes } from "./CodeBoxes";
+import { PasskeySettings, PasskeySignInButton } from "./PasskeyControls";
 import "./account.css";
 
 type Mode = "signin" | "signup";
@@ -85,6 +87,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
     try {
       const response = await fetch("/api/auth/recovery", { method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "STUDENT", email: account.email }) });
       if (!response.ok) throw new Error("Could not send a code. Try again shortly.");
+      setVerificationCode("");
       setVerificationError("A new code is on its way to your email.");
     } catch (error) { setVerificationError(error instanceof Error ? error.message : "Could not send a code."); }
     finally { setVerificationBusy(false); }
@@ -94,7 +97,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
     return <form className="campus-auth-card student-auth-signed-in" onSubmit={verifyEmail}>
       <h2>Verify your email</h2>
       <p>You are signed in as {account.email}. Enter the latest six-digit email code, or select <strong>Send a new code</strong> below. Cinema requires this separate email check before you join.</p>
-      <label>Verification code<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={verificationCode} onChange={event => setVerificationCode(event.target.value)} /></label>
+      <CodeBoxes label="Verification code" value={verificationCode} onChange={setVerificationCode} disabled={verificationBusy} />
       {verificationError && <p role="status">{verificationError}</p>}
       <div className="student-auth-actions">
         <button className="is-primary" disabled={verificationBusy}>{verificationBusy ? "Checking…" : "Verify email"}</button>
@@ -112,6 +115,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
         <Link className="is-primary" href={destination}>Continue</Link>
         <button type="button" onClick={signOut} disabled={loading}><SignOut size={15} aria-hidden /> Sign out</button>
       </div>
+      {account.emailVerified && <PasskeySettings scope="STUDENT" />}
     </div>;
   }
 
@@ -133,6 +137,7 @@ export function StudentAuthCard({ next }: { next?: string }) {
       : `Student accounts are limited to @${STUDENT_EMAIL_DOMAIN}. Use uppercase, lowercase, a number and a symbol in the password.`}</p>
     <button disabled={loading}>{loading ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}</button>
     {mode === "signin" && <>
+      <PasskeySignInButton scope="STUDENT" onSuccess={() => window.location.assign(destination)} />
       <Link className="student-auth-forgot" href="/reset-password">Forgot your password?</Link>
       <Link className="student-auth-forgot" href="/reset-password?mode=otp">Or sign in with a one-time code</Link>
     </>}

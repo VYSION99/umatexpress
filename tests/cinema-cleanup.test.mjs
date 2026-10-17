@@ -192,6 +192,13 @@ test("a live room whose last socket left too long ago ends", async () => {
   assert.equal(state.sessions[0].status, "ENDED");
 });
 
+test("a live room does not end during the gap before the last socket's close callback", async () => {
+  state.sessions = [session({ id: "host-navigated-away", updated_at: minutesAgo(90) })];
+  const result = await runCinemaCleanup({ now: NOW, presence: attached(0) });
+  assert.equal(result.idleEnded, 0, "the old database timestamp is not the host's departure time");
+  assert.equal(state.sessions[0].status, "LIVE");
+});
+
 test("a live room whose object cannot be reached is not ended on a guess", async () => {
   state.sessions = [session({ id: "unreachable" })];
   const result = await runCinemaCleanup({ now: NOW, presence: async () => null });
@@ -205,7 +212,7 @@ test("the idle window follows the console setting, not a constant", async () => 
   state.settings.set("cinema_room_idle_minutes", { key: "cinema_room_idle_minutes", value: "10", updated_by: "admin", updated_at: new Date(NOW).toISOString() });
   resetPlatformSettingsCache();
   state.sessions = [session({ id: "shorter-window", updated_at: minutesAgo(20) })];
-  const result = await runCinemaCleanup({ now: NOW, presence: attached(0) });
+  const result = await runCinemaCleanup({ now: NOW, presence: attached(NOW - 20 * 60_000) });
   assert.equal(result.idleEnded, 1, "ten minutes of emptiness is the override, so twenty is overdue");
 });
 

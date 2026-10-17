@@ -167,12 +167,23 @@ function handle(sql, args) {
   if (/^UPDATE cinema_sessions SET status = 'ENDED'/.test(sql)) {
     const [endedAt, updatedAt, id] = args;
     const room = state.rooms.find((row) => row.id === id);
-    if (room && (room.status === "CREATED" || room.status === "LIVE")) {
+    const due = !/AND ends_at <> '' AND ends_at <= \?/.test(sql) || (room?.ends_at && room.ends_at <= args[3]);
+    if (room && due && (room.status === "CREATED" || room.status === "LIVE")) {
       room.status = "ENDED";
       room.ended_at = endedAt;
       room.updated_at = updatedAt;
+      return affected(1);
     }
-    return affected(room ? 1 : 0);
+    return affected(0);
+  }
+  if (/^UPDATE cinema_sessions SET ends_at = \?, duration_minutes = duration_minutes \+ 15/.test(sql)) {
+    const [endsAt, updatedAt, id, previousEnd, now, maxDuration] = args;
+    const room = state.rooms.find((row) => row.id === id);
+    if (!room || room.status !== "LIVE" || room.ends_at !== previousEnd || room.ends_at <= now || room.duration_minutes > Number(maxDuration)) return affected(0);
+    room.ends_at = endsAt;
+    room.duration_minutes += 15;
+    room.updated_at = updatedAt;
+    return affected(1);
   }
   if (/^UPDATE cinema_sessions SET join_locked = \?/.test(sql)) {
     const [locked, updatedAt, id] = args;
@@ -341,6 +352,7 @@ const {
   patchRoom, readRoom, removeRoomGuest, removeRoomInvite, setRoomMemberRole,
 } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
 const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
+const { markCinemaRoomEnded } = await vite.ssrLoadModule("/lib/cinema-engine/schedule.ts");
 const sessionsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/route.ts");
 const invitesRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/invites/route.ts");
 const guestsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/guests/route.ts");
@@ -412,6 +424,26 @@ test("a room created for now is live before anyone presses play", async () => {
   assert.ok(Number.isFinite(startsAt) && Number.isFinite(endsAt), "both instants are on the row");
   assert.equal(Math.round((endsAt - startsAt) / 60_000), 60, "the run time is the host's, to the minute");
   assert.equal(room.durationMinutes, 60);
+});
+
+test("the host can extend a timed room before its deadline, and a stale alarm cannot end it", async () => {
+  const room = await createRoom({ student: host, title: "Long discussion", video: VIDEO, startInMinutes: 0, durationMinutes: 60 });
+  await expectRefusal(patchRoom({ id: room.id, studentId: guest.id, action: "EXTEND" }), "FORBIDDEN", 403);
+  const oldEnd = Date.parse(room.endsAt);
+  const extended = await patchRoom({ id: room.id, studentId: host.id, action: "EXTEND" });
+  assert.equal(Date.parse(extended.endsAt) - oldEnd, 15 * 60_000);
+  assert.equal(extended.durationMinutes, 75);
+  assert.equal(await markCinemaRoomEnded(room.id, oldEnd), false, "an alarm for the old deadline cannot close the extension");
+  assert.equal((await readRoom({ id: room.id, studentId: host.id })).status, "LIVE");
+  assert.equal(await markCinemaRoomEnded(room.id, Date.parse(extended.endsAt)), true);
+  assert.equal((await readRoom({ id: room.id, studentId: host.id })).status, "ENDED");
+
+  const capped = await createRoom({ student: host, title: "Four-hour limit", video: VIDEO, startInMinutes: 0, durationMinutes: 225 });
+  const lastExtension = await patchRoom({ id: capped.id, studentId: host.id, action: "EXTEND" });
+  assert.equal(lastExtension.durationMinutes, 240);
+  await expectRefusal(patchRoom({ id: capped.id, studentId: host.id, action: "EXTEND" }), "INVALID_STATE", 409);
+  const untimed = await createRoom({ student: host, title: "Host-ended", video: VIDEO, startInMinutes: 0 });
+  await expectRefusal(patchRoom({ id: untimed.id, studentId: host.id, action: "EXTEND" }), "INVALID_STATE", 409);
 });
 
 test("a room with a start waits for its minute", async () => {

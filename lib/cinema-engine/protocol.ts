@@ -87,6 +87,7 @@ export type CinemaServerMessage =
   | { type: "chat"; message: CinemaChatMessage }
   | { type: "chat_removed"; id: string }
   | { type: "source"; sourceType: string; videoId: string }
+  | { type: "schedule"; endsAt: string }
   | { type: "signal"; from: string; payload: CinemaSignalPayload }
   /** A new AI board for the room; the scene is already parsed and bounded. */
   | { type: "whiteboard"; board: CinemaWhiteboardView }

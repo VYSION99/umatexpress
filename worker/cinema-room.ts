@@ -228,6 +228,7 @@ export class CinemaRoom {
     // Only the newcomer needs the current playback: everyone else already has
     // it, and a page that just loaded is exactly what M3 has to catch up.
     this.send(server, { type: "state", playback: await this.playbackState(), serverAt: Date.now() });
+    this.send(server, { type: "schedule", endsAt: snapshot.endsAt });
     // The room's board rule, so a screen that just loaded renders the right
     // affordance before anybody asks anything.
     this.send(server, { type: "board_policy", policy: await this.boardPolicy() });
@@ -258,7 +259,17 @@ export class CinemaRoom {
 
   /** What the cleanup job asks before it ends an apparently abandoned room. */
   private async presenceResponse(): Promise<Response> {
-    return jsonResponse({ members: await this.presence(), emptySince: await this.emptySinceValue() }, 200);
+    const members = await this.presence();
+    let emptySince = await this.emptySinceValue();
+    // A browser may disappear from the runtime's socket list before its close
+    // callback stores EMPTY_KEY. Give cleanup a fresh empty timestamp here so
+    // it never treats the room's old database update as the departure time.
+    if (members.length === 0 && !emptySince) {
+      emptySince = Date.now();
+      this.emptySince = emptySince;
+      await this.state.storage.put(EMPTY_KEY, emptySince);
+    }
+    return jsonResponse({ members, emptySince: members.length ? 0 : emptySince }, 200);
   }
 
   /**
@@ -351,6 +362,14 @@ export class CinemaRoom {
     const body = await request.json().catch(() => null);
     const snapshot = this.snapshotFromObject(body);
     if (!snapshot) return jsonResponse({ error: "A room snapshot is required." }, 400);
+    const previous = await this.roomSnapshot();
+    // Live extensions only move the deadline forward. If two successful host
+    // requests reach this object out of order, the older nudge must not undo
+    // the newer alarm. An early OPEN is different: it clears a future start.
+    if (!snapshot.startsAt && !previous?.startsAt && snapshot.endsAt && previous?.endsAt &&
+      Date.parse(snapshot.endsAt) < Date.parse(previous.endsAt)) {
+      return jsonResponse({ ok: true, liveAt: 0, endsAt: Date.parse(previous.endsAt) }, 200);
+    }
     await this.state.storage.put(ROOM_KEY, snapshot);
     this.hostStudentId = snapshot.hostStudentId;
     const schedule = scheduleFromSnapshot(snapshot);
@@ -361,6 +380,7 @@ export class CinemaRoom {
       await this.state.storage.put(SCHEDULE_KEY, schedule);
     }
     await this.armAlarm(schedule);
+    this.broadcast({ type: "schedule", endsAt: snapshot.endsAt });
     return jsonResponse({ ok: true, liveAt: schedule.liveAt, endsAt: schedule.endsAt }, 200);
   }
 
@@ -379,14 +399,19 @@ export class CinemaRoom {
     // breath. Ending works from CREATED just as well as from LIVE.
     if (schedule.endsAt && schedule.endsAt <= now) {
       await this.clearSchedule();
+      let ended = false;
       try {
-        if (snapshot) await markCinemaRoomEnded(snapshot.roomId, now);
+        if (snapshot) ended = await markCinemaRoomEnded(snapshot.roomId, now);
       } catch (error) {
         logEvent("warn", "cinema_room_auto_end_failed", {
           roomId: snapshot?.roomId || "",
           reason: error instanceof Error ? error.message : "unknown",
         });
+        // Preserve the scheduled close if the database is temporarily unreachable;
+        // only a confirmed conditional no-op means the host extended the deadline.
+        ended = true;
       }
+      if (!ended) return; // A host may have extended the row before this stale alarm ran.
       logEvent("info", "cinema_room_auto_ended", { roomId: snapshot?.roomId || "" });
       this.broadcast({ type: "closed", reason: SCHEDULE_CLOSE_REASON });
       for (const socket of this.state.getWebSockets()) {

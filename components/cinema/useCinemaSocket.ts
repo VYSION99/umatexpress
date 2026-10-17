@@ -44,6 +44,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
   const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
   const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
+  const [scheduleEndsAt, setScheduleEndsAt] = useState<string | null>(null);
   const [whiteboard, setWhiteboard] = useState<CinemaWhiteboardView | null>(null);
   const [removedWhiteboards, setRemovedWhiteboards] = useState<string[]>([]);
   /** Why the server closed the room, when it said: removal reads differently from an end. */
@@ -145,6 +146,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         attempts = 0;
         setState("live");
         setSocketError("");
+        setClosedReason("");
         lastPong = performance.now();
         instance.send(JSON.stringify({ type: "ping", sentAt: performance.now() }));
         pingTimer = setInterval(() => {
@@ -179,6 +181,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         }
         // The host finished an upload: the room switches players without a reload.
         if (message.type === "source") setSource({ sourceType: message.sourceType, videoId: message.videoId });
+        if (message.type === "schedule") setScheduleEndsAt(message.endsAt);
         // A WebRTC leg for one peer: handed straight to the media hook, which
         // routes by `from` and never trusts anything else in the payload.
         if (message.type === "signal" && message.from) {
@@ -263,6 +266,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled, clock, failPending]);
 
   return enabled
-    ? { clock, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
-    : { clock, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
+    ? { clock, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, scheduleEndsAt, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
+    : { clock, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, scheduleEndsAt: null as string | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
 }

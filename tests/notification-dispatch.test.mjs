@@ -82,3 +82,20 @@ test("expired authentication proof is redacted without calling the provider", as
   assert.equal(row.message, "");
   assert.equal(providerCalls, before);
 });
+
+test("a superseded sign-in email is never sent even if its queue message arrives late", async () => {
+  await ensureNotificationsTable();
+  db.exec("CREATE TABLE IF NOT EXISTS auth_recovery_requests (id TEXT PRIMARY KEY,email TEXT,purpose TEXT,used_at TEXT,expires_at TEXT)");
+  const id = "superseded-proof";
+  const now = new Date().toISOString();
+  const expiry = new Date(Date.now() + 10 * 60_000).toISOString();
+  db.prepare("INSERT INTO notification_outbox(id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at,sensitive,expires_at) VALUES(?,'email','ama@st.umat.edu.gh','auth_login_code','Sign-in code','Code: 111111','otp:old-request','PENDING',0,'',?,?,1,?)").run(id, now, now, expiry);
+  db.prepare("INSERT INTO auth_recovery_requests(id,email,purpose,used_at,expires_at) VALUES('old-request','ama@st.umat.edu.gh','LOGIN',?,?)").run(now, expiry);
+  const before = providerCalls;
+  await dispatchPendingNotifications({ ids: [id] });
+  const row = db.prepare("SELECT status,subject,message FROM notification_outbox WHERE id=?").get(id);
+  assert.equal(row.status, "FAILED");
+  assert.equal(row.subject, "Authentication message");
+  assert.equal(row.message, "");
+  assert.equal(providerCalls, before);
+});

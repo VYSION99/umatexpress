@@ -160,6 +160,33 @@ test("closing a tab leaves the room, and everyone still attached sees it", async
   state.remove(guestSocket);
 });
 
+test("presence records when a host navigates away before its close callback runs", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  const [hostSocket] = state.sockets;
+  state.remove(hostSocket);
+  const response = await room.fetch(new Request("https://cinema-room/presence"));
+  const presence = await response.json();
+  assert.equal(presence.members.length, 0);
+  assert.ok(presence.emptySince > 0);
+  assert.equal(state.stored.get("emptySince"), presence.emptySince);
+  await room.webSocketClose(hostSocket);
+  assert.equal((await (await room.fetch(new Request("https://cinema-room/presence"))).json()).members.length, 0);
+});
+
+test("host navigation leaves a connected guest and the room active", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [hostSocket, guestSocket] = state.sockets;
+  await room.webSocketClose(hostSocket);
+  state.remove(hostSocket);
+  const presence = await (await room.fetch(new Request("https://cinema-room/presence"))).json();
+  assert.deepEqual(presence.members.map(member => member.studentId), ["guest-2"]);
+  assert.equal(presence.emptySince, 0);
+  assert.equal(guestSocket.closed, null, "leaving does not close the guest's session");
+});
+
 test("one student with two tabs is one person in the room", async () => {
   const { room, state } = await newRoom();
   await room.fetch(upgrade());
@@ -684,4 +711,13 @@ test("the room's run time ends it, and every screen is told why", async () => {
   assert.equal(last(socket, "closed").reason, "This room's set time is up.");
   assert.ok(socket.closed, "the sockets do not outlive the room");
   assert.equal(state.stored.get("schedule").endsAt, 0);
+});
+
+test("an older extension nudge cannot shorten the room's new deadline", async () => {
+  const { room, state } = await newRoom();
+  const later = new Date(Date.now() + 90 * 60_000).toISOString();
+  const earlier = new Date(Date.now() + 75 * 60_000).toISOString();
+  await room.fetch(scheduleRequest({ endsAt: later }));
+  await room.fetch(scheduleRequest({ endsAt: earlier }));
+  assert.equal(state.stored.get("schedule").endsAt, Date.parse(later));
 });

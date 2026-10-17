@@ -43,7 +43,7 @@ function handle(sql, args) {
   if (/^INSERT INTO notification_outbox/.test(sql)) {
     const [id, , recipient, template, subject, message, reference, , nowIso, sensitive, expiresAt] = args;
     if (outbox.some((item) => item.reference === reference && item.template === template)) return affected(0);
-    outbox.push({ id, recipient, template, subject, message, reference, createdAt: nowIso, sensitive, expiresAt });
+    outbox.push({ id, recipient, template, subject, message, reference, status: "PENDING", createdAt: nowIso, sensitive, expiresAt });
     return affected(1);
   }
 
@@ -65,12 +65,33 @@ function handle(sql, args) {
   }
 
   if (/^INSERT INTO auth_recovery_requests/.test(sql)) {
-    const [id, scope, accountId, email, purpose, tokenHash, codeHash, expiresAt, createdAt, updatedAt] = args;
+    const [id, scope, accountId, email, purpose] = args;
+    const [tokenHash, codeHash, expiresAt, createdAt, updatedAt] = sql.includes("VALUES (?,?,?,?,?,'',?")
+      ? ["", ...args.slice(5)] : args.slice(5);
     requests.push({ id, scope, account_id: accountId, email, purpose, token_hash: tokenHash, code_hash: codeHash, attempts: 0, expires_at: expiresAt, used_at: "", created_at: createdAt, updated_at: updatedAt });
     return affected(1);
   }
+  if (/^SELECT id,code_hash FROM auth_recovery_requests/.test(sql)) {
+    const row = requests.filter((item) => item.scope === args[0] && item.email === args[1] && item.purpose === "LOGIN").at(-1);
+    return ok(row ? table(["id", "code_hash"], [row]) : empty);
+  }
+  if (/^UPDATE auth_recovery_requests SET used_at=\?,updated_at=\? WHERE scope=\?/.test(sql)) {
+    let count = 0;
+    for (const row of requests) if (row.scope === args[2] && row.email === args[3] && row.purpose === "LOGIN" && !row.used_at) {
+      row.used_at = args[0]; row.updated_at = args[1]; count++;
+    }
+    return affected(count);
+  }
+  if (/^UPDATE notification_outbox SET status='FAILED',last_error='Superseded by a newer sign-in code'/.test(sql)) {
+    let count = 0;
+    const olderIds = new Set(requests.filter((request) => request.scope === args[1] && request.email === args[2] && request.purpose === "LOGIN" && request.used_at).map((request) => `otp:${request.id}`));
+    for (const row of outbox) if (row.recipient === args[0] && row.template === "auth_login_code" && row.status === "PENDING" && olderIds.has(row.reference)) {
+      Object.assign(row, { status: "FAILED", subject: "Authentication message", message: "" }); count++;
+    }
+    return affected(count);
+  }
   if (/^SELECT id,account_id,code_hash,token_hash,COALESCE\(attempts,0\) AS attempts,expires_at,COALESCE\(used_at,''\) AS used_at\s+FROM auth_recovery_requests\s+WHERE scope = \? AND email = \?/.test(sql)) {
-    const rows = requests.filter((item) => item.scope === args[0] && item.email === args[1] && item.purpose === args[2] && item.used_at === "");
+    const rows = requests.filter((item) => item.scope === args[0] && item.email === args[1] && item.purpose === args[2] && item.used_at === "").reverse();
     return ok(rows.length ? table(["id", "account_id", "code_hash", "token_hash", "attempts", "expires_at", "used_at"], rows) : empty);
   }
   if (/WHERE scope = \? AND purpose = 'RESET' AND token_hash = \? AND used_at = ''/.test(sql)) {
@@ -110,10 +131,14 @@ function handle(sql, args) {
 globalThis.fetch = async (_url, init) => {
   const body = JSON.parse(init.body);
   const results = body.requests
-    .filter((request) => request.type === "execute")
-    .map(({ stmt }) => {
-      const args = (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value));
-      return handle(stmt.sql, args);
+    .filter((request) => request.type === "execute" || request.type === "batch")
+    .map((request) => {
+      if (request.type === "batch") {
+        const step_results = request.batch.steps.map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map(arg => arg.type === "null" ? null : arg.value)).response.result);
+        return ok({ step_results, step_errors: step_results.map(() => null) });
+      }
+      const args = (request.stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value));
+      return handle(request.stmt.sql, args);
     });
   results.push({ type: "ok" });
   return { ok: true, json: async () => ({ results }) };
@@ -258,6 +283,24 @@ test("a one-time code signs the right account in, once", async () => {
   assert.equal(account.email, "ama@st.umat.edu.gh");
   assert.equal(students[0].email_verified, 1, "the mailed code proves ownership");
   assert.equal(await verifyLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", code }), null, "a code works once");
+});
+
+test("requesting another sign-in code retires the old code and undelivered email", async () => {
+  seed();
+  const now = new Date("2026-10-16T12:00:00.000Z");
+  await requestLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", now });
+  const firstMail = otpMail();
+  const firstCode = codeIn(firstMail);
+  await requestLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", now });
+  const secondMail = otpMail();
+  const secondCode = codeIn(secondMail);
+  assert.notEqual(secondCode, firstCode, "a newly requested code must differ from the preceding code");
+  assert.notEqual(secondMail.reference, firstMail.reference, "same-millisecond requests must queue separately");
+  assert.equal(firstMail.status, "FAILED");
+  assert.equal(firstMail.message, "", "an undelivered old proof is redacted");
+  assert.equal(secondMail.status, "PENDING");
+  assert.equal(await verifyLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", code: firstCode, now }), null);
+  assert.equal((await verifyLoginCode({ scope: "STUDENT", email: "ama@st.umat.edu.gh", code: secondCode, now })).id, "student-1");
 });
 
 test("a one-time code is scoped: a student code cannot open a console account", async () => {

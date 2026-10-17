@@ -78,6 +78,8 @@ export function WhiteboardChart({ block }: { block: ChartBlock }) {
   useEffect(() => {
     let disposed = false;
     let plotly: typeof import("plotly.js-basic-dist-min") | null = null;
+    let observer: ResizeObserver | null = null;
+    let lastWidth = 0;
     const element = host.current;
     void (async () => {
       try {
@@ -85,12 +87,23 @@ export function WhiteboardChart({ block }: { block: ChartBlock }) {
         if (disposed || !element) return;
         plotly = plotlyModule;
         await plotlyModule.newPlot(element, tracesOf(block), layoutOf(block), { displayModeBar: false, responsive: true });
+        if (!disposed && typeof ResizeObserver !== "undefined") {
+          observer = new ResizeObserver(() => {
+            const width = element.clientWidth;
+            if (width > 0 && width !== lastWidth) {
+              lastWidth = width;
+              void plotlyModule.Plots.resize(element);
+            }
+          });
+          observer.observe(element);
+        }
       } catch {
         if (!disposed) setFailed(true);
       }
     })();
     return () => {
       disposed = true;
+      observer?.disconnect();
       if (plotly && element) {
         try { plotly.purge(element); } catch { /* the node is gone with the board either way */ }
       }

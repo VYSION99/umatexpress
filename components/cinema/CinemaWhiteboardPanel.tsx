@@ -47,8 +47,10 @@ export function CinemaWhiteboardPanel(input: {
   isHost: boolean;
   /** The room is open, so asking is allowed. */
   active: boolean;
-  /** The room's socket is live; only then does an ask reach the room instantly. */
+  /** The room's socket is live; a question can still use the API while it reconnects. */
   connected: boolean;
+  /** A terminal socket response; a temporary offline state leaves this empty. */
+  closedReason?: string;
   /** Who the host lets ask; the room's live rule. */
   boardPolicy: CinemaBoardPolicy;
   /** Ask the room to change it; only the host's frame is accepted. */
@@ -63,7 +65,7 @@ export function CinemaWhiteboardPanel(input: {
   initialQuestion?: string;
   onInitialQuestionUsed?: () => void;
 }) {
-  const { roomId, selfId, isHost, active, connected, boardPolicy, onBoardPolicy, board, removedIds, playback, initialQuestion, onInitialQuestionUsed } = input;
+  const { roomId, selfId, isHost, active, connected, closedReason = "", boardPolicy, onBoardPolicy, board, removedIds, playback, initialQuestion, onInitialQuestionUsed } = input;
   const [history, setHistory] = useState<CinemaWhiteboardView[]>([]);
   const [limits, setLimits] = useState<WhiteboardLimits | null>(null);
   const [question, setQuestion] = useState("");
@@ -73,16 +75,20 @@ export function CinemaWhiteboardPanel(input: {
   const [clearing, setClearing] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [showComposer, setShowComposer] = useState(false);
+  const hasLoadedHistory = useRef(false);
 
   useEffect(() => {
     if (!initialQuestion) return;
     queueMicrotask(() => {
       setQuestion(initialQuestion);
+      setShowComposer(true);
       onInitialQuestionUsed?.();
     });
   }, [initialQuestion, onInitialQuestionUsed]);
 
   useEffect(() => {
+    if (!connected && hasLoadedHistory.current) return;
     let disposed = false;
     void (async () => {
       try {
@@ -92,12 +98,13 @@ export function CinemaWhiteboardPanel(input: {
         if (!response.ok) throw new Error(data.error || "The whiteboard could not be read.");
         setHistory(data.boards ?? []);
         setLimits(data.limits ?? null);
+        hasLoadedHistory.current = true;
       } catch (readError) {
         if (!disposed) setError(readError instanceof Error ? readError.message : "The whiteboard could not be read.");
       }
     })();
     return () => { disposed = true; };
-  }, [roomId]);
+  }, [roomId, connected]);
 
   const ask = useCallback(async () => {
     const text = question.trim();
@@ -123,6 +130,7 @@ export function CinemaWhiteboardPanel(input: {
         setBrowse(0);
       }
       setQuestion("");
+      setShowComposer(false);
       setNotice("The board is on its way to everyone in the room.");
     } catch (askError) {
       setError(askError instanceof Error ? askError.message : "The whiteboard could not answer that.");
@@ -198,28 +206,27 @@ export function CinemaWhiteboardPanel(input: {
     boards.push(item);
     seen.add(item.id);
   }
+  // A reconnect can fetch boards newer than the last socket announcement.
+  boards.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const index = boards.length ? Math.min(browse, boards.length - 1) : 0;
   const current = boards[index] ?? null;
   const canClear = Boolean(current) && Boolean(current && (isHost || current.requesterId === selfId));
   const off = Boolean(limits && !limits.enabled);
   /** Host-only and everyone are the two policies that leave the form open. */
   const mayAsk = boardPolicy !== "HOST" || isHost;
-  const canAsk = active && connected && !off && mayAsk && !busy && question.trim().length > 0;
+  const canAsk = active && !closedReason && !off && mayAsk && !busy && question.trim().length > 0;
 
   return <section className="cinema-card cinema-whiteboard">
     <div className="cinema-presence-head">
-      <h2>AI whiteboard</h2>
+      <div><h2>AI whiteboard</h2><p className="wb-intro">Explore a diagram, chart or explanation with everyone in the room.</p></div>
       {limits && <span className={`cinema-link ${limits.enabled ? "is-live" : ""}`}>
         {limits.enabled ? `${limits.generationsPerHour} per hour` : "Off"}
       </span>}
     </div>
-    <p className="cinema-note">
-      The board sees this room — its title, where the video is and the last few chat lines — and answers with
-      text, maths, code, diagrams, charts, interactive graphs or a simulated lab. It is a study aid: check what matters against your notes.
-    </p>
 
-    {isHost && active && limits && !off && <div className="wb-policy">
-      <span>Who may ask</span>
+    {isHost && active && limits && !off && <details className="wb-policy-details">
+      <summary>Room settings <span>{POLICY_CHOICES.find(choice => choice.value === boardPolicy)?.label}</span></summary>
+      <div className="wb-policy"><span>Who may ask</span>
       <div className="wb-policy-options" role="group" aria-label="Who may ask the whiteboard">
         {POLICY_CHOICES.map((choice) => <button
           key={choice.value}
@@ -232,7 +239,14 @@ export function CinemaWhiteboardPanel(input: {
         >{choice.label}</button>)}
       </div>
       {boardPolicy === "AUTO" && <span className="wb-policy-note">A summary every {autoMinutes} min</span>}
-    </div>}
+      </div>
+    </details>}
+
+    {limits && active && !off && boardPolicy !== "AUTO" && mayAsk && <button
+      type="button" className="wb-compose-toggle" aria-expanded={showComposer}
+      onClick={() => setShowComposer(open => !open)}
+    ><Sparkle size={17} aria-hidden /> {showComposer ? "Hide question" : "Ask the whiteboard"}</button>}
+    {active && !connected && <p className="cinema-note cinema-sub" role="status">{closedReason || "Live updates are reconnecting. Existing boards remain available and you can still send a question."}</p>}
 
     {!limits
       ? <p className="cinema-note cinema-sub">Checking what this room may ask…</p>
@@ -248,7 +262,7 @@ export function CinemaWhiteboardPanel(input: {
             </p>
             : !mayAsk
               ? <p className="cinema-note cinema-sub">The host keeps the questions in this room. The boards they ask for still reach everyone here.</p>
-              : <form className="wb-ask" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
+              : showComposer && <form className="wb-ask" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
             <textarea
               value={question}
               maxLength={limits.maxQuestionChars}
@@ -271,7 +285,7 @@ export function CinemaWhiteboardPanel(input: {
             <p className="cinema-note cinema-sub">
               {connected
                 ? playback ? "Context: where the video is playing, and the room's last messages." : "Context: the room's title and its last messages."
-                : "The room connection is down; asking returns when it reconnects."}
+                : closedReason || "The live connection is reconnecting. You can still ask; new boards may appear for others after it returns."}
             </p>
           </form>}
 

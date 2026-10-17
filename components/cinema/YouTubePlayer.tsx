@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CinemaClientMessage, CinemaPlaybackAction, CinemaPlaybackState } from "@/lib/cinema-engine/protocol";
 import { CINEMA_DRIFT_THRESHOLD_SECONDS, CINEMA_HOST_DRIFT_SECONDS, expectedPosition, reconcilePlayback } from "@/lib/cinema-engine/sync";
 import { CinemaFullscreenButton } from "./CinemaFullscreenButton";
+import { CinemaFullscreenCameras, type CinemaCameraContext } from "./CinemaFullscreenCameras";
+import { CinemaFullscreenHostControls, type CinemaHostControlsContext } from "./CinemaFullscreenHostControls";
 
 /**
  * The official YouTube player, driven by the room.
@@ -82,10 +84,13 @@ export function YouTubePlayer(input: {
   playback: CinemaPlaybackState | null;
   now?: () => number;
   onAction: (message: CinemaClientMessage) => void;
+  cameras?: CinemaCameraContext;
+  hostControls?: CinemaHostControlsContext;
 }) {
   const { videoId } = input;
   const containerRef = useRef<HTMLDivElement>(null);
   const playerShellRef = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState({ active: false, fallback: false });
   const playerRef = useRef<YouTubePlayerInstance | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [needsTap, setNeedsTap] = useState(false);
@@ -206,6 +211,9 @@ export function YouTubePlayer(input: {
           modestbranding: 1,
           controls: isHostRef.current ? 1 : 0,
           disablekb: isHostRef.current ? 0 : 1,
+          // Cinema expands the whole room player so cameras and host controls
+          // stay visible. Hide YouTube's video-only fullscreen button.
+          fs: 0,
         },
         events: {
           onReady: () => {
@@ -259,9 +267,13 @@ export function YouTubePlayer(input: {
 
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 
-  return <div className="cinema-player" ref={playerShellRef}>
+  return <div className={`cinema-player${fullscreen.fallback ? " is-theater-fullscreen" : ""}`} ref={playerShellRef}>
     <div className="cinema-player-frame" ref={containerRef} aria-label="The room's video" />
-    {status === "ready" && <CinemaFullscreenButton playerRef={playerShellRef} />}
+    {(status === "ready" || fullscreen.active) && <div className="cinema-player-actions">
+      <CinemaFullscreenButton playerRef={playerShellRef} state={fullscreen} onChange={setFullscreen} />
+    </div>}
+    {fullscreen.active && <CinemaFullscreenCameras cameras={input.cameras} canPin={Boolean(input.hostControls)} />}
+    {fullscreen.active && <CinemaFullscreenHostControls host={input.hostControls} />}
     {status === "loading" && <p className="cinema-player-note">Loading the player…</p>}
     {status === "failed" && <p className="cinema-player-note">
       The player could not load here. <a href={watchUrl} target="_blank" rel="noreferrer">Open the video on YouTube</a> — the room&apos;s controls still work.

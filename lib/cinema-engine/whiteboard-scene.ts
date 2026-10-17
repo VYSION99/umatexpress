@@ -492,7 +492,8 @@ export type CinemaWhiteboardLayout = {
 
 const NODE_WIDTH = 176;
 const NODE_HEIGHT = 56;
-const COLUMN_GAP = 84;
+// Leave room for a 22-character edge label pill between adjacent nodes.
+const COLUMN_GAP = 168;
 const ROW_GAP = 38;
 const PADDING = 26;
 

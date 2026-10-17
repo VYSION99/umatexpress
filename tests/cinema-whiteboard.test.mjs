@@ -332,6 +332,7 @@ test("the layout layers left to right, honours explicit columns, and survives a 
   assert.ok(at("a").x < at("b").x && at("b").x < at("c").x, "each layer is further right");
   assert.equal(layout.edges.length, 2);
   assert.equal(layout.width > at("c").x, true);
+  assert.ok(at("b").x - (at("a").x + at("a").width) >= 168, "edge labels fit between adjacent nodes");
 
   const pinned = layoutWhiteboardDiagram(nodes, []).nodes.find((node) => node.id === "c");
   const explicit = layoutWhiteboardDiagram([{ ...nodes[2], column: 0, row: 2 }, nodes[0]], edges.slice(0, 1)).nodes;

@@ -73,8 +73,10 @@ function DiagramBlock({ block }: { block: Extract<CinemaWhiteboardBlock, { kind:
   const arrowBoth = `wb-arrow-both-${unique}`;
   const layout = layoutWhiteboardDiagram(block.nodes, block.edges);
   return <figure className="wb-figure">
+    <div className="wb-diagram-viewport" role="region" aria-label={`${block.title || "Diagram"} canvas`} tabIndex={0}>
     <svg
       className="wb-diagram"
+      style={{ minWidth: `${layout.width}px` }}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       role="img"
       aria-label={block.title || "Diagram"}
@@ -95,7 +97,11 @@ function DiagramBlock({ block }: { block: Extract<CinemaWhiteboardBlock, { kind:
           markerEnd={edge.arrow === "none" ? undefined : `url(#${arrow})`}
           markerStart={edge.arrow === "both" ? `url(#${arrowBoth})` : undefined}
         />
-        {edge.label && <text x={edge.labelX} y={edge.labelY} className="wb-edge-label" textAnchor="middle">{edge.label}</text>}
+        {edge.label && <>
+          <title>{edge.label}</title>
+          <rect className="wb-edge-label-bg" x={edge.labelX - Math.min(edge.label.length, 22) * 3.25 - 7} y={edge.labelY - 12} width={Math.min(edge.label.length, 22) * 6.5 + 14} height={17} rx={5} />
+          <text x={edge.labelX} y={edge.labelY} className="wb-edge-label" textAnchor="middle">{edge.label.length > 22 ? `${edge.label.slice(0, 21)}…` : edge.label}</text>
+        </>}
       </g>)}
       {layout.nodes.map((node) => {
         const lines = wrapLabel(node.label);
@@ -113,7 +119,18 @@ function DiagramBlock({ block }: { block: Extract<CinemaWhiteboardBlock, { kind:
         </g>;
       })}
     </svg>
+    </div>
     {block.title && <figcaption>{block.title}</figcaption>}
+    {(block.nodes.some((node) => wrapLabel(node.label).join(" ") !== node.label.trim().replace(/\s+/g, " ")) || block.edges.some((edge) => (edge.label?.length ?? 0) > 22)) &&
+      <details className="wb-diagram-details">
+        <summary>Read full diagram labels</summary>
+        <ul>
+          {block.nodes.map((node) => <li key={node.id}><strong>{node.label}</strong></li>)}
+          {block.edges.filter((edge) => edge.label).map((edge, index) => <li key={`edge-${index}`}>
+            {block.nodes.find((node) => node.id === edge.from)?.label ?? edge.from} → {block.nodes.find((node) => node.id === edge.to)?.label ?? edge.to}: <strong>{edge.label}</strong>
+          </li>)}
+        </ul>
+      </details>}
   </figure>;
 }
 

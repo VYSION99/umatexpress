@@ -241,6 +241,82 @@
 }
 
 .student-auth-forgot:hover { text-decoration: underline; }
+.campus-auth-card button.auth-recovery-resend{border:1px solid var(--ui-line);background:#fff;color:var(--ui-green);font-size:13px}
+.campus-auth-card button.auth-recovery-resend:hover{background:var(--ui-green-soft)}
+
+.auth-code-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(5px, 1.5vw, 10px);
+  width: min(100%, 420px);
+}
+
+.auth-code-box {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  height: clamp(48px, 8vw, 60px);
+  border: 1px solid var(--ui-line, #d5ded7);
+  border-radius: 13px;
+  background: #fff;
+  color: var(--ui-ink, #12261f);
+  font-size: clamp(20px, 5vw, 26px);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 3px 9px rgba(18, 46, 36, .04);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.auth-code-grid:focus-within .auth-code-box.is-current {
+  border-color: var(--ui-green, #0d694d);
+  box-shadow: 0 0 0 3px rgba(13, 105, 77, .14);
+}
+
+.campus-auth-card .auth-code-grid input.auth-code-input,
+.console-auth-card .auth-code-grid input.auth-code-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: transparent;
+  font-size: 16px;
+  letter-spacing: 0;
+  cursor: text;
+}
+
+.console-auth-card .auth-code-grid input.auth-code-input:focus { outline: 0; }
+
+.passkey-signin { display: grid; gap: 6px; }
+.campus-auth-card .passkey-signin button.passkey-secondary,
+.console-auth-card .passkey-signin button.passkey-secondary {
+  width: 100%; min-height: 46px; border: 1px solid var(--ui-line, #d5ded7);
+  border-radius: 12px; background: #fff; color: var(--ui-green, #0d694d);
+  font-size: 14px; font-weight: 800;
+}
+.passkey-settings { display: grid; gap: 11px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--ui-line, #d5ded7); }
+.passkey-settings h3, .passkey-settings p { margin: 0; }
+.passkey-settings h3 { color: var(--ui-ink, #12261f); font-size: 19px; }
+.passkey-settings > p { color: var(--ui-muted, #57675f); font-size: 13px; line-height: 1.5; }
+.passkey-settings label { display: grid; gap: 6px; color: var(--ui-muted, #57675f); font-size: 12px; font-weight: 800; }
+.passkey-settings input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--ui-line, #d5ded7); border-radius: 11px; }
+.passkey-settings > button { min-height: 44px; border: 0; border-radius: 11px; background: var(--ui-green, #0d694d); color: white; font-weight: 800; cursor: pointer; }
+.passkey-settings ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.passkey-settings li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--ui-line, #d5ded7); border-radius: 11px; }
+.passkey-settings li span { display: grid; gap: 3px; font-size: 13px; font-weight: 800; }
+.passkey-settings li small { color: var(--ui-muted, #57675f); font-weight: 500; }
+.passkey-settings li button { min-height: 36px; padding: 0 10px; border: 1px solid var(--ui-line, #d5ded7); border-radius: 9px; background: #fff; color: #9d3229; cursor: pointer; }
+.passkey-message.is-error { color: #9d3229; }
 
 .student-auth-interface > .campus-auth-card > a:not(.student-auth-forgot) {
   justify-self: center;

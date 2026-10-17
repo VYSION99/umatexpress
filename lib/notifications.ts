@@ -326,6 +326,18 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
     }
     // Another worker already owns this message; leave it to them.
     if (!(await claimNotification(turso, { id, leaseUntil }))) continue;
+    if (String(row.template || "") === "auth_login_code") {
+      const requestId = String(row.reference || "").startsWith("otp:") ? String(row.reference).slice(4) : "";
+      const current = requestId && rowsToObjects(await turso(
+        "SELECT id FROM auth_recovery_requests WHERE id=? AND email=? AND purpose='LOGIN' AND used_at='' AND expires_at>? LIMIT 1",
+        [requestId, to, new Date().toISOString()],
+      ))[0];
+      if (!current) {
+        await turso("UPDATE notification_outbox SET status='FAILED',last_error='Superseded or expired sign-in code',subject='Authentication message',message='' WHERE id=? AND status='SENDING'", [id]);
+        failed += 1;
+        continue;
+      }
+    }
     const attempts = Number(row.attempts || 0) + 1;
     try {
       const template = String(row.template || "");

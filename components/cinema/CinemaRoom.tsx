@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Bookmark, Chats, ClosedCaption, Envelope, Flag, Hand, Lock, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Poll, Radio, Smile, Sparkle, Square, Timer, UserPlus, X } from "@/components/ui/MaterialIcon";
+import { Bookmark, Chats, ClosedCaption, Envelope, Flag, Hand, Lock, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Poll, Radio, ScreenShare, Smile, Sparkle, Square, SquaresFour, Timer, UserPlus, X } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaBookmark, CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { CINEMA_CALL_MEMBER_LIMIT, CINEMA_REACTIONS, type CinemaReaction } from "@/lib/cinema-engine/protocol";
@@ -31,7 +31,7 @@ import { SheetHandle } from "@/components/ui/SheetHandle";
 import "./cinema.css";
 
 /** Playback and devices belong to the room; changing tools never restarts a call. */
-type CinemaSheet = "" | "board" | "notes" | "bookmarks" | "record" | "invite" | "chat" | "people" | "captions" | "polls" | "questions" | "study" | "more";
+type CinemaSheet = "" | "board" | "notes" | "bookmarks" | "record" | "invite" | "chat" | "people" | "captions" | "polls" | "questions" | "study" | "more" | "host";
 
 /** A room notice that is worth interrupting a video for: an automatic board. */
 type CinemaToast = { id: string; title: string; body: string };
@@ -80,6 +80,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const [sheet, setSheet] = useState<CinemaSheet>("");
   const [reactionOpen, setReactionOpen] = useState(false);
   const [waitingMembers, setWaitingMembers] = useState<Array<{ studentId: string; displayName: string; requestedAt: string }>>([]);
+  const [stageRequestCount, setStageRequestCount] = useState(0);
   const [bookmarks, setBookmarks] = useState<CinemaBookmark[]>([]);
   const [bookmarkLabel, setBookmarkLabel] = useState("");
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
@@ -110,6 +111,11 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
     return () => clearInterval(timer);
   }, [account, room.id, room.isMember, room.status, live.state]);
   const active = roomActive && !live.closedReason;
+  useEffect(() => {
+    if (live.scheduleEndsAt === null) return;
+    const endsAt = live.scheduleEndsAt;
+    queueMicrotask(() => setRoom((current) => current.endsAt === endsAt ? current : { ...current, endsAt }));
+  }, [live.scheduleEndsAt]);
   const effectiveRole = live.members.find(member => member.studentId === account?.id)?.role || room.currentRole;
   const canPresent = ["HOST", "COHOST", "PRESENTER"].includes(effectiveRole);
   const canManage = ["HOST", "COHOST"].includes(effectiveRole);
@@ -119,7 +125,10 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   // the `source` frame, which is what switches the player without a reload.
   const sourceType = live.source?.sourceType ?? room.sourceType;
   const videoId = live.source?.videoId ?? room.videoId;
-  const openSheet = (next: CinemaSheet) => setSheet((current) => (current === next ? "" : next));
+  const openSheet = (next: CinemaSheet) => {
+    setReactionOpen(false);
+    setSheet((current) => (current === next ? "" : next));
+  };
   const closeSheet = useCallback(() => setSheet(""), []);
 
   // The call belongs to the room, not to a card: the strip draws the pictures
@@ -140,6 +149,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
     subscribeSignals: live.subscribeSignals,
     muteAllSignal: live.muteAllSignal,
   });
+  const cameras = roomMember && callEligible ? { media, members: callMembers, selfId: roomMember.id } : undefined;
   // The recorder belongs to the room for the same reason the call does: its
   // card may open and close, but a take in flight must not go with it.
   const recorder = useCinemaRecorder({
@@ -236,11 +246,25 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   }, [canManage, room.id]);
 
   useEffect(() => {
-    if (selected !== "people" || !canManage || !room.waitingRoomEnabled) return;
+    if (!active || !canManage || !room.waitingRoomEnabled) return;
     queueMicrotask(() => void loadWaiting());
-    const timer = setInterval(() => void loadWaiting(), 5_000);
+    const timer = setInterval(() => { if (!document.hidden) void loadWaiting(); }, 5_000);
     return () => clearInterval(timer);
-  }, [selected, canManage, room.waitingRoomEnabled, loadWaiting]);
+  }, [active, canManage, room.waitingRoomEnabled, loadWaiting]);
+  useEffect(() => { if (!room.waitingRoomEnabled) queueMicrotask(() => setWaitingMembers([])); }, [room.waitingRoomEnabled]);
+
+  useEffect(() => {
+    if (!active || !canManage || !room.discussionMode) return;
+    const loadRequests = async () => {
+      const response = await fetch(`/api/cinema/sessions/${room.id}/stage`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
+      if (!response?.ok) return;
+      const data = await response.json() as { requests?: Array<{ studentId: string }> };
+      setStageRequestCount(data.requests?.length || 0);
+    };
+    queueMicrotask(() => void loadRequests());
+    const timer = setInterval(() => { if (!document.hidden) void loadRequests(); }, 5_000);
+    return () => clearInterval(timer);
+  }, [active, canManage, room.discussionMode, room.id]);
 
   const decideWaiting = async (studentId: string, action: "ADMIT" | "REJECT") => {
     const response = await fetch(`/api/cinema/sessions/${room.id}/waiting`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId, action }) });
@@ -276,6 +300,12 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       if (data.room) setRoom(data.room);
     } catch { /* a failed refresh leaves the last known room on screen */ }
   }, [initialRoom.id]);
+
+  // A terminal socket frame can arrive before this page's room snapshot updates.
+  // Read the row so the whiteboard and controls show the actual end state.
+  useEffect(() => {
+    if (live.state === "closed" && live.closedReason) queueMicrotask(() => void load());
+  }, [live.state, live.closedReason, load]);
 
   const loadBookmarks = useCallback(async () => {
     if (!room.isMember) return;
@@ -508,7 +538,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
           </span>
         </div>
         {room.discussionMode && active
-          ? <div className="cinema-discussion-stage-note"><span className="cinema-eyebrow">SPEAKING STAGE</span><h2>Discuss without broadcast echo</h2><p>This call connects the host and invited speakers. The audience watches the live feed you attached to the event. Keep your broadcast setup running so they can hear the discussion.</p><a href={`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`} target="_blank" rel="noopener noreferrer">Open broadcast monitor</a></div>
+          ? <div className="cinema-discussion-stage-note"><span className="cinema-eyebrow">SPEAKING STAGE</span><h2>Host broadcast check</h2><p>The stage call is separate from the audience broadcast. Stage audio and video are not sent to YouTube automatically.</p><ol><li>Connect the speakers to your broadcast software.</li><li>Start the YouTube broadcast and check that viewers can hear it.</li><li>Keep the broadcast running while this room is live.</li></ol>{videoId && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`} target="_blank" rel="noopener noreferrer">Open audience broadcast monitor</a>}<small>Broadcast connection is not verified by UMaTeXPRESS.</small></div>
           : active && live.state === "live" && sourceType === "YOUTUBE" && videoId
           ? <YouTubePlayer
             videoId={videoId}
@@ -516,6 +546,8 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
             playback={live.playback}
             now={live.clock.now}
             onAction={live.send}
+            cameras={cameras}
+            hostControls={canManage ? { media, playback: live.playback, now: live.clock.now, onAction: live.send, roomId: room.id, waitingEnabled: room.waitingRoomEnabled, waiting: waitingMembers, stageLimit: room.stageLimit, discussionMode: room.discussionMode, stageRequestCount, onWaitingDecision: (id, action) => { void decideWaiting(id, action); } } : undefined}
           />
           : active && live.state === "live" && sourceType === "UPLOAD" && videoId
             ? <UploadPlayer
@@ -524,6 +556,8 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
               playback={live.playback}
               now={live.clock.now}
               onAction={live.send}
+              cameras={cameras}
+              hostControls={canManage ? { media, playback: live.playback, now: live.clock.now, onAction: live.send, roomId: room.id, waitingEnabled: room.waitingRoomEnabled, waiting: waitingMembers, stageLimit: room.stageLimit, discussionMode: room.discussionMode, stageRequestCount, onWaitingDecision: (id, action) => { void decideWaiting(id, action); } } : undefined}
             />
             : <p className="cinema-video-closed">
               {active
@@ -557,26 +591,30 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
             recordOpen={sheet === "record"}
             hideRecorder={mobile}
             onToggleRecord={() => openSheet("record")}
-            canShare={canPresent}
+            canShare={canPresent && !mobile}
             labels
+            compactLabels={mobile}
           />
         </div>}
         <div className="cinema-toolbar-group cinema-tools">
-          {roomMember && <ToolButton label={handRaised ? "Lower hand" : "Raise hand"} active={handRaised} onClick={() => { live.send({ type: "hand_state", raised: !handRaised }); }}><Hand size={18} aria-hidden /></ToolButton>}
-          {roomMember && <ToolButton label="React" active={reactionOpen} onClick={() => setReactionOpen(current => !current)}><Smile size={18} aria-hidden /></ToolButton>}
+          {!mobile && roomMember && <ToolButton label={handRaised ? "Lower hand" : "Raise hand"} active={handRaised} onClick={() => { live.send({ type: "hand_state", raised: !handRaised }); }}><Hand size={18} aria-hidden /></ToolButton>}
+          {!mobile && roomMember && <ToolButton label="React" active={reactionOpen} onClick={() => setReactionOpen(current => !current)}><Smile size={18} aria-hidden /></ToolButton>}
           <ToolButton label="Chat" active={selected === "chat"} onClick={() => openSheet("chat")}><Chats size={18} aria-hidden /></ToolButton>
-          {room.discussionMode && <ToolButton label="Questions" active={selected === "questions"} onClick={() => openSheet("questions")}><Hand size={18} aria-hidden /></ToolButton>}
-          <ToolButton label="People" active={selected === "people"} onClick={() => openSheet("people")}><UserPlus size={18} aria-hidden /></ToolButton>
-          <ToolButton label="Notes" active={selected === "notes"} onClick={() => openSheet("notes")}><Notebook size={18} aria-hidden /></ToolButton>
-          {memberAccount && <ToolButton label="Bookmarks" active={selected === "bookmarks"} onClick={() => openSheet("bookmarks")}><Bookmark size={18} aria-hidden /></ToolButton>}
-          {account && <ToolButton label="Whiteboard" active={selected === "board"} onClick={showBoard}><Sparkle size={18} aria-hidden /></ToolButton>}
-          {memberAccount && <ToolButton label="Captions" active={selected === "captions"} onClick={() => openSheet("captions")}><ClosedCaption size={18} aria-hidden /></ToolButton>}
-          {memberAccount && <ToolButton label="Polls" active={selected === "polls"} onClick={() => openSheet("polls")}><Poll size={18} aria-hidden /></ToolButton>}
-          <ToolButton label="More" active={selected === "more"} onClick={() => openSheet("more")}><Envelope size={18} aria-hidden /></ToolButton>
+          {!mobile && room.discussionMode && <ToolButton label="Questions" active={selected === "questions"} onClick={() => openSheet("questions")}><Hand size={18} aria-hidden /></ToolButton>}
+          {!mobile && <ToolButton label="People" active={selected === "people"} onClick={() => openSheet("people")}><UserPlus size={18} aria-hidden /></ToolButton>}
+          {!mobile && <ToolButton label="Notes" active={selected === "notes"} onClick={() => openSheet("notes")}><Notebook size={18} aria-hidden /></ToolButton>}
+          {!mobile && memberAccount && <ToolButton label="Bookmarks" active={selected === "bookmarks"} onClick={() => openSheet("bookmarks")}><Bookmark size={18} aria-hidden /></ToolButton>}
+          {account && <ToolButton label={mobile ? "Board" : "Whiteboard"} ariaLabel="Whiteboard" active={selected === "board"} onClick={showBoard}><Sparkle size={18} aria-hidden /></ToolButton>}
+          {!mobile && memberAccount && <ToolButton label="Captions" active={selected === "captions"} onClick={() => openSheet("captions")}><ClosedCaption size={18} aria-hidden /></ToolButton>}
+          {!mobile && memberAccount && <ToolButton label="Polls" active={selected === "polls"} onClick={() => openSheet("polls")}><Poll size={18} aria-hidden /></ToolButton>}
+          <ToolButton label="More" active={selected === "more"} popup={mobile} controls="cinema-sheet-more" onClick={() => openSheet("more")}><SquaresFour size={18} aria-hidden /></ToolButton>
+          {!mobile && canManage && active && <ToolButton label={`Host${waitingMembers.length + stageRequestCount ? ` (${waitingMembers.length + stageRequestCount})` : ""}`} active={selected === "host"} onClick={() => openSheet("host")}><UserPlus size={18} aria-hidden /></ToolButton>}
         </div>
       </div>
+      {canManage && active && !reactionOpen && waitingMembers.length + stageRequestCount > 0 && <button type="button" className="cinema-mobile-host-action" onClick={() => openSheet("host")}><UserPlus size={17} aria-hidden /> Host requests <span>{waitingMembers.length + stageRequestCount}</span></button>}
       {reactionOpen && roomMember && <div className="cinema-reaction-picker" role="group" aria-label="Send a reaction">
         {CINEMA_REACTIONS.map((emoji) => <button key={emoji} type="button" aria-label={`React ${emoji}`} onClick={() => { live.send({ type: "reaction", emoji: emoji as CinemaReaction }); setReactionOpen(false); }}>{emoji}</button>)}
+        <button type="button" aria-label="Close reactions" onClick={() => setReactionOpen(false)}><X size={18} aria-hidden /></button>
       </div>}
       {live.reactions.length > 0 && <div className="cinema-live-reactions" aria-live="polite">
         {live.reactions.map((reaction) => <span key={reaction.id} title={`${reaction.name} reacted`}>{reaction.emoji}<small>{reaction.name}</small></span>)}
@@ -602,33 +640,63 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       </nav>
       <Sheet open={selected === "more"} mobile={mobile} id="cinema-sheet-more" label="Room actions" onClose={closeSheet}>
         <div className="cinema-action-list">
-          <button onClick={() => setSheet("people")}><UserPlus size={18} /> People in this room</button>
-          <button onClick={() => setSheet("notes")}><Notebook size={18} /> My notes</button>
-          <button onClick={() => setSheet("captions")}><ClosedCaption size={18} /> Captions and transcript</button>
-          <button onClick={() => setSheet("polls")}><Poll size={18} /> Polls and quizzes</button>
-          <button onClick={() => setSheet("study")}><Sparkle size={18} /> Study pack</button>
-          <button onClick={() => setSheet("invite")}><UserPlus size={18} /> Invite students</button>
-          <button onClick={() => setSheet("record")}><Radio size={18} /> My recordings</button>
-          {canManage && active && <>
+          {mobile && roomMember && <button onClick={() => { live.send({ type: "hand_state", raised: !handRaised }); setSheet(""); }}><Hand size={18} /> {handRaised ? "Lower my hand" : "Raise my hand"}</button>}
+          {mobile && roomMember && <button onClick={() => { setSheet(""); setReactionOpen(true); }}><Smile size={18} /> Send a reaction</button>}
+          {mobile && roomMember && callEligible && canPresent && media.policy.camera && <button onClick={() => { void media.toggleScreen(); setSheet(""); }}><ScreenShare size={18} /> {media.screenOn ? "Stop presenting" : "Share screen or slides"}</button>}
+          {canManage && active && <button onClick={() => setSheet("host")}><UserPlus size={18} /> Host controls{waitingMembers.length + stageRequestCount ? ` · ${waitingMembers.length + stageRequestCount} requests` : ""}</button>}
+          <details className="cinema-more-section" open={!mobile}>
+            <summary>Discuss and vote</summary>
+            <div className="cinema-action-list">
+              <button onClick={() => setSheet("people")}><UserPlus size={18} /> People in this room</button>
+              {room.discussionMode && memberAccount && <button onClick={() => setSheet("questions")}><Hand size={18} /> Audience questions</button>}
+              {memberAccount && <button onClick={() => setSheet("polls")}><Poll size={18} /> Polls and quizzes</button>}
+            </div>
+          </details>
+          <details className="cinema-more-section" open={!mobile}>
+            <summary>Study tools</summary>
+            <div className="cinema-action-list">
+              <button onClick={() => setSheet("notes")}><Notebook size={18} /> My notes</button>
+              {memberAccount && <button onClick={() => setSheet("bookmarks")}><Bookmark size={18} /> Shared bookmarks</button>}
+              {memberAccount && <button onClick={() => setSheet("captions")}><ClosedCaption size={18} /> Captions and transcript</button>}
+              {memberAccount && <button onClick={() => setSheet("study")}><Sparkle size={18} /> Study pack</button>}
+            </div>
+          </details>
+          <details className="cinema-more-section" open={!mobile}>
+            <summary>Room options</summary>
+            <div className="cinema-action-list">
+              <button onClick={() => setSheet("invite")}><UserPlus size={18} /> Share room link</button>
+              {(memberAccount || recorder.recoveryUrl) && <button onClick={() => setSheet("record")}><Radio size={18} /> My recordings</button>}
+            </div>
+          </details>
+        </div>
+      </Sheet>
+      <Sheet open={selected === "host"} mobile={mobile} id="cinema-sheet-host" label="Host controls" onClose={closeSheet}>
+        {canManage && active && <div className="cinema-host-sheet">
+          <p className="cinema-note">Manage access and speakers while the room stays live.</p>
+          {room.waitingRoomEnabled && <div className="cinema-waiting-list"><h3>Waiting room <span>{waitingMembers.length}</span></h3>{waitingMembers.length ? waitingMembers.map(member => <div key={member.studentId}><strong>{member.displayName}</strong><span><button onClick={() => void decideWaiting(member.studentId, "ADMIT")}>Admit</button><button className="secondary" onClick={() => void decideWaiting(member.studentId, "REJECT")}>Decline</button></span></div>) : <p className="cinema-note">Nobody is waiting.</p>}</div>}
+          {room.discussionMode && selected === "host" && <CinemaStageRequestsPanel roomId={room.id} stageLimit={room.stageLimit} />}
+          <div className="cinema-action-list">
             {room.isHost && room.status === "CREATED" && !pendingStart && <button disabled={Boolean(busy)} onClick={() => void act("OPEN")}><Play size={18} /> Start now</button>}
+            {room.isHost && room.status === "LIVE" && endsAtMs > 0 && room.durationMinutes <= 225 && <button disabled={Boolean(busy)} onClick={() => void act("EXTEND")}><Timer size={18} /> Add 15 minutes</button>}
             {room.isHost && !room.isPrivate && <button disabled={Boolean(busy)} onClick={() => void act(room.joinLocked ? "UNLOCK" : "LOCK")}><Lock size={18} /> {room.joinLocked ? "Unlock room" : "Lock room"}</button>}
             {room.isHost && <button disabled={Boolean(busy)} onClick={() => void act(room.waitingRoomEnabled ? "WAITING_OFF" : "WAITING_ON")}><UserPlus size={18} /> {room.waitingRoomEnabled ? "Turn off waiting room" : "Turn on waiting room"}</button>}
             <button onClick={askMuteAll}><MicrophoneSlash size={18} /> {muteSent ? "Mute request sent" : "Mute everyone"}</button>
             {room.isHost && <button className="danger" onClick={() => { setSheet(""); setConfirmEnd(true); }}><Square size={18} /> End room</button>}
-          </>}
-        </div>
+          </div>
+        </div>}
       </Sheet>
       <Sheet open={selected === "record"} mobile={mobile} id="cinema-sheet-record" label="Recorder" onClose={closeSheet}>
         {selected === "record" && <CinemaRecorderPanel media={media} recorder={recorder} connected={live.state === "live"} />}
       </Sheet>
 
-      <Sheet open={selected === "board"} mobile={mobile} id="cinema-sheet-board" label="AI whiteboard" onClose={closeSheet}>
+      <Sheet open={selected === "board"} mobile={mobile} wide id="cinema-sheet-board" label="AI whiteboard" onClose={closeSheet}>
         {account && (selected === "board" || live.boardPolicy === "AUTO") && <CinemaWhiteboardPanel
           roomId={room.id}
           selfId={account.id}
           isHost={room.isHost}
-          active={active}
+          active={roomActive}
           connected={live.state === "live"}
+          closedReason={live.state === "closed" ? live.closedReason : ""}
           boardPolicy={live.boardPolicy}
           onBoardPolicy={(policy) => live.send({ type: "board_policy", policy })}
           board={live.whiteboard}
@@ -874,19 +942,20 @@ function subscribeViewport(callback: () => void) {
   return () => query.removeEventListener("change", callback);
 }
 
-function Sheet(input: { open: boolean; mobile: boolean; id: string; label: string; onClose: () => void; children: ReactNode }) {
+function Sheet(input: { open: boolean; mobile: boolean; wide?: boolean; id: string; label: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const modal = input.mobile || Boolean(input.wide);
   useEffect(() => {
     const node = ref.current;
-    if (!input.mobile || !input.open || !node) return;
+    if (!modal || !input.open || !node) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const overflow = document.body.style.overflow;
     node.showModal();
     document.body.style.overflow = "hidden";
     return () => { node.close(); document.body.style.overflow = overflow; previous?.focus(); };
-  }, [input.mobile, input.open]);
-  if (!input.mobile) return <section id={input.id} hidden={!input.open} className="cinema-tab-panel" aria-label={input.label}>{input.children}</section>;
-  return <dialog ref={ref} id={input.id} className="cinema-dialog cinema-tool-dialog" aria-label={input.label}
+  }, [modal, input.open]);
+  if (!modal) return <section id={input.id} hidden={!input.open} className="cinema-tab-panel" aria-label={input.label}>{input.children}</section>;
+  return <dialog ref={ref} id={input.id} className={`cinema-dialog cinema-tool-dialog${input.wide ? " cinema-whiteboard-dialog" : ""}`} aria-label={input.label}
     onCancel={event => { event.preventDefault(); input.onClose(); }}
     onClick={event => { if (event.target === event.currentTarget) input.onClose(); }}>
     <SheetHandle onDismiss={input.onClose} />
@@ -940,19 +1009,25 @@ function peopleOf(room: Room, live: { state: string; members: Array<{ studentId:
  */
 function ToolButton(input: {
   label: string;
+  ariaLabel?: string;
   onClick: () => void;
   children: ReactNode;
   active?: boolean;
   danger?: boolean;
   disabled?: boolean;
+  popup?: boolean;
+  controls?: string;
 }) {
   const className = input.danger ? "danger" : input.active ? "is-active" : undefined;
   return <button
     type="button"
     className={className}
-    aria-label={input.label}
+    aria-label={input.ariaLabel || input.label}
     data-tip={input.label}
     aria-pressed={input.active}
+    aria-haspopup={input.popup ? "dialog" : undefined}
+    aria-expanded={input.popup ? Boolean(input.active) : undefined}
+    aria-controls={input.controls}
     disabled={input.disabled}
     onClick={input.onClick}
   >

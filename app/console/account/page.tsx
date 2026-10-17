@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Buildings, FloppyDisk, GearSix, LockKey, SignOut, UserCircle } from "@/components/ui/MaterialIcon";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
+import { PasskeySettings } from "@/components/account/PasskeyControls";
 import "./account.css";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -96,6 +97,7 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <Link href="/console"><UserCircle size={21}/><span><strong>Console home</strong><small>Return to your assigned services</small></span><ArrowRight size={18}/></Link>
           <button type="button" onClick={() => void signOut()} disabled={signingOut}><SignOut size={21}/><span><strong>{signingOut ? "Signing out…" : "Sign out"}</strong><small>End this console session</small></span><ArrowRight size={18}/></button>
         </div>
+        {!session.mustChangePassword && <PasskeySettings scope="CONSOLE" />}
       </section>
     </div>
   </ConsoleShell>;

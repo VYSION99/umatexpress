@@ -1,5 +1,6 @@
 import { aiBinding } from "@/lib/cloudflare-bindings";
 import { envValue } from "@/lib/runtime-env";
+import { callIntelligence, intelligenceConfigured } from "@/lib/intelligence-api";
 
 // The 3.1 8B instruct model was retired on 2026-05-30; the console assistant
 // already defaulted to this one, and structured answers (the Cinema whiteboard
@@ -16,6 +17,7 @@ export async function cloudflareAiModelName() {
 }
 
 export async function isCloudflareAiConfigured() {
+  if (await intelligenceConfigured()) return true;
   // The Worker binding is the preferred path: no token travels with the
   // request, and the model is billed to the account that owns the Worker.
   if (await aiBinding()) return true;
@@ -25,13 +27,14 @@ export async function isCloudflareAiConfigured() {
 }
 
 export async function cloudflareAiConfigStatus() {
+  const pythonReady = await intelligenceConfigured();
   const bindingReady = Boolean(await aiBinding());
   const token = await envValue("CLOUDFLARE_AI_TOKEN");
   const accountId = await envValue("CLOUDFLARE_ACCOUNT_ID", ["CLOUDFLARE_ACCOUNT", "ACCOUNT_ID"]);
   const model = await envValue("CLOUDFLARE_AI_MODEL") || DEFAULT_CLOUDFLARE_AI_MODEL;
   return {
     bindingReady,
-    mode: bindingReady ? "binding" as const : (token && accountId ? "rest" as const : "none" as const),
+    mode: pythonReady ? "python" as const : (bindingReady ? "binding" as const : (token && accountId ? "rest" as const : "none" as const)),
     hasAccountId: Boolean(accountId && !accountId.startsWith("replace-with")),
     hasAiToken: Boolean(token && !token.startsWith("replace-with")),
     model,
@@ -85,6 +88,14 @@ export function normalizeCloudflareAiText(payload: unknown): string {
 }
 
 export async function callCloudflareAi(systemPrompt: string, userPrompt: string) {
+  if (await intelligenceConfigured()) {
+    try {
+      const result = await callIntelligence<{ text: string }>("v1/ai/generate", { systemPrompt, userPrompt }, 25_000);
+      if (result.text?.trim()) return result.text.trim();
+    } catch {
+      // Keep the existing Workers AI path available when the optional Python service fails.
+    }
+  }
   const model = await cloudflareAiModelName();
 
   const binding = await aiBinding();

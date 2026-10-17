@@ -15,7 +15,10 @@ export function CinemaOrganizerRequests() {
     if (!response.ok) throw new Error(data.error || "Organizer requests could not be loaded.");
     setRequests(data.organizers || []);
   }, []);
-  useEffect(() => { void load().catch((problem) => setError(problem instanceof Error ? problem.message : "Organizer requests could not be loaded.")); }, [load]);
+  useEffect(() => {
+    const timer = setTimeout(() => void load().catch((problem) => setError(problem instanceof Error ? problem.message : "Organizer requests could not be loaded.")), 0);
+    return () => clearTimeout(timer);
+  }, [load]);
   const decide = async (item: Request, approve: boolean) => {
     setBusy(item.id); setError("");
     try {
