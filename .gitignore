@@ -4,6 +4,11 @@ dist/
 .next/
 /out/
 /coverage
+__pycache__/
+*.pyc
+.venv/
+.venv-workers/
+python_modules/
 
 # Local runtime state
 .sites-runtime/

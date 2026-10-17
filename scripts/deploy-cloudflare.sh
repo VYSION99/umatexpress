@@ -31,6 +31,27 @@ fi
 
 cd "$PROJECT_DIR"
 
+# Python runs as a private Worker on the same Cloudflare account. Both app
+# Workers reach it through an internal service binding, never a public URL.
+INTELLIGENCE_WORKER_NAME="${CLOUDFLARE_INTELLIGENCE_WORKER_NAME:-$(env_or_default CLOUDFLARE_INTELLIGENCE_WORKER_NAME umatexpress-intelligence)}"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "Install uv before deploying: the private Python Worker is built with pywrangler." >&2
+  exit 1
+fi
+export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(env_or_default CLOUDFLARE_KEY "")}"
+if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+  echo "Set CLOUDFLARE_API_TOKEN or CLOUDFLARE_KEY in .env before deploying." >&2
+  exit 1
+fi
+export WRANGLER_LOG_PATH="${WRANGLER_LOG_PATH:-$PROJECT_DIR/.wrangler/wrangler.log}"
+mkdir -p "$(dirname "$WRANGLER_LOG_PATH")"
+
+echo "==> private Python Worker: $INTELLIGENCE_WORKER_NAME"
+(
+  cd "$PROJECT_DIR/services/intelligence"
+  uv run pywrangler deploy --config wrangler.jsonc --name "$INTELLIGENCE_WORKER_NAME"
+)
+
 # Bindings that name an account-side resource must exist before Wrangler can
 # deploy a Worker that references them. Creating them here keeps the first
 # deploy of a fresh account from failing halfway through, and re-running is a
@@ -138,7 +159,7 @@ fi
 # client Worker starts refusing console paths.
 if [[ -n "$CONSOLE_WORKER_NAME" ]]; then
   echo "==> console Worker: $CONSOLE_WORKER_NAME on $CONSOLE_HOSTS"
-  node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_CONSOLE_OUT" "$CONSOLE_WORKER_NAME" "$CONSOLE_HOST" console "$CONSOLE_HOSTS"
+  node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_CONSOLE_OUT" "$CONSOLE_WORKER_NAME" "$CONSOLE_HOST" console "$CONSOLE_HOSTS" "$INTELLIGENCE_WORKER_NAME"
   wrangler deploy --config "$CONFIG_CONSOLE_OUT"
   echo "Remember: push the runtime secrets to the console Worker too."
   echo "  CLOUDFLARE_WORKER_NAME=$CONSOLE_WORKER_NAME scripts/push-secrets.sh"
@@ -150,5 +171,5 @@ if [[ -z "$CONSOLE_HOST" ]]; then
 fi
 
 echo "==> client Worker: $WORKER_NAME"
-node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_OUT" "$WORKER_NAME" "$CONSOLE_HOST" "$ROLE" "$CONSOLE_HOSTS"
+node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_OUT" "$WORKER_NAME" "$CONSOLE_HOST" "$ROLE" "$CONSOLE_HOSTS" "$INTELLIGENCE_WORKER_NAME"
 wrangler deploy --config "$CONFIG_OUT"

@@ -26,7 +26,7 @@ export async function GET(request: Request) {
           total: analytics.occupancy.total,
         }, 3000);
       } catch {
-        // Ledger analytics remain available when the optional insights service is down.
+        // Ledger analytics remain available when the intelligence Worker is down.
       }
     }
     return Response.json({ ok: true, analytics, insights }, { headers: NO_STORE });

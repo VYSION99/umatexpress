@@ -54,7 +54,7 @@ Maps display OpenStreetMap tiles; HERE supplies optional server-side address sug
 - `PAYSTACK_FEE_PERCENT`: Paystack checkout fee percentage passed to the payer (student or landlord). Defaults to `1.95` for Ghana.
 - `CLOUDFLARE_ACCOUNT_ID`: Optional Cloudflare account ID for Workers AI.
 - `CLOUDFLARE_AI_BINDING` (default `AI`): binds Workers AI directly, which is the preferred path and needs no token at all. See `docs/CLOUDFLARE_BINDINGS.md`.
-- Optional Python AI and analytics service: see [`docs/PYTHON_INTELLIGENCE_API.md`](docs/PYTHON_INTELLIGENCE_API.md).
+- Private Python AI and analytics Worker: see [`docs/PYTHON_INTELLIGENCE_API.md`](docs/PYTHON_INTELLIGENCE_API.md).
 - `CLOUDFLARE_AI_TOKEN`: Optional narrow Workers AI token, used only as the fallback when the AI binding is disabled. Do not reuse the deployment API token here.
 - `CLOUDFLARE_AI_MODEL`: Optional Workers AI model name. Defaults to `@cf/meta/llama-3.3-70b-instruct-fp8-fast`.
 - `ADMIN_EMAILS`: Comma-separated email addresses allowed to sign in as administrators.

@@ -10,14 +10,14 @@
  * send every message twice, and a second set of cron triggers would run every
  * settlement, expiry and reminder job twice.
  *
- * Usage: node scripts/write-deploy-config.mjs <in.json> <out.json> <name> <console-domain> <role> <console-hosts>
+ * Usage: node scripts/write-deploy-config.mjs <in.json> <out.json> <name> <console-domain> <role> <console-hosts> [intelligence-worker]
  *   role: single | client | console
  */
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export function deployConfig(input, { name, role = "single", consoleDomain = "", consoleHosts = "" } = {}) {
+export function deployConfig(input, { name, role = "single", consoleDomain = "", consoleHosts = "", intelligenceWorker = "" } = {}) {
   const serverDir = path.dirname(input);
   const projectDir = path.dirname(path.dirname(serverDir));
   const config = JSON.parse(fs.readFileSync(input, "utf8"));
@@ -25,6 +25,12 @@ export function deployConfig(input, { name, role = "single", consoleDomain = "",
   config.topLevelName = name;
   config.main = path.join(serverDir, "index.js");
   config.assets = { directory: path.join(projectDir, "dist/client") };
+  if (intelligenceWorker) {
+    config.services = [
+      ...(config.services ?? []).filter((item) => item.binding !== "INTELLIGENCE"),
+      { binding: "INTELLIGENCE", service: intelligenceWorker },
+    ];
+  }
 
   // The runtime boundary: on any host in this list the Worker serves console
   // surfaces only, and console-native paths 404 everywhere else.
@@ -68,12 +74,12 @@ function summary(name, config, routeHost) {
 
 const isCli = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isCli) {
-  const [input, output, name, consoleDomain, role, consoleHosts] = process.argv.slice(2);
+  const [input, output, name, consoleDomain, role, consoleHosts, intelligenceWorker] = process.argv.slice(2);
   if (!input || !output || !name) {
     console.error("usage: write-deploy-config.mjs <in.json> <out.json> <name> <console-domain> <role> <console-hosts>");
     process.exit(2);
   }
-  const { config, routeHost } = deployConfig(input, { name, role, consoleDomain, consoleHosts });
+  const { config, routeHost } = deployConfig(input, { name, role, consoleDomain, consoleHosts, intelligenceWorker });
   summary(name, config, routeHost);
   fs.writeFileSync(output, JSON.stringify(config, null, 2));
 }

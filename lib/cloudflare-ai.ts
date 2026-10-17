@@ -93,7 +93,7 @@ export async function callCloudflareAi(systemPrompt: string, userPrompt: string)
       const result = await callIntelligence<{ text: string }>("v1/ai/generate", { systemPrompt, userPrompt }, 25_000);
       if (result.text?.trim()) return result.text.trim();
     } catch {
-      // Keep the existing Workers AI path available when the optional Python service fails.
+      // Keep the app's Workers AI binding available when the Python Worker fails.
     }
   }
   const model = await cloudflareAiModelName();

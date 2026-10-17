@@ -59,3 +59,15 @@ test("a single-Worker deployment is unchanged and keeps the console domain route
   const routed = write(fixtureDir, "single", "", "console.umatexpress.com");
   assert.deepEqual(routed.routes, [{ pattern: "console.umatexpress.com/*", custom_domain: true }]);
 });
+
+test("both app Workers bind the private Python Worker without duplicating a binding", () => {
+  const fixtureDir = fixture();
+  for (const role of ["client", "console"]) {
+    const { config } = deployConfig(fixtureDir.input, {
+      name: "umatexpress",
+      role,
+      intelligenceWorker: "umatexpress-intelligence",
+    });
+    assert.deepEqual(config.services, [{ binding: "INTELLIGENCE", service: "umatexpress-intelligence" }]);
+  }
+});
