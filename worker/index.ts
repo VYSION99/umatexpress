@@ -187,7 +187,6 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Frame-Options": "DENY",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=(self), payment=(self)",
   "Cross-Origin-Opener-Policy": "same-origin",
 };
 
@@ -206,6 +205,16 @@ function withSecurityHeaders(request: Request, response: Response) {
     // A route may set its own (stricter) value; the deployment default never
     // overwrites a decision made closer to the data.
     if (!headers.has(name)) headers.set(name, value);
+  }
+  if (!headers.has("Permissions-Policy")) {
+    const pathname = new URL(request.url).pathname;
+    const cinemaMedia = pathname === "/cinema" || pathname.startsWith("/cinema/") || pathname.startsWith("/api/cinema/");
+    headers.set(
+      "Permissions-Policy",
+      cinemaMedia
+        ? 'camera=(self "https://8x8.vc"), microphone=(self "https://8x8.vc"), display-capture=(self "https://8x8.vc"), geolocation=(self), payment=(self)'
+        : "camera=(), microphone=(), display-capture=(), geolocation=(self), payment=(self)",
+    );
   }
   if (new URL(request.url).protocol === "https:" && !headers.has("Strict-Transport-Security")) {
     headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");

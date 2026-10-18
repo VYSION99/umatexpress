@@ -15,6 +15,7 @@ import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { consoleAudit } from "@/lib/console-audit";
 import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
+import { endStreamingEntitlementBySession, ensureCinemaStreamingEntitlements } from "@/lib/cinema-streaming/entitlements";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
@@ -171,6 +172,8 @@ export type CinemaRoom = {
   currentRole: CinemaMemberRole | "";
   waitingRoomEnabled: boolean;
   discussionMode: boolean;
+  /** True when host and speakers use the managed JaaS stage. */
+  managedStage: boolean;
   stageLimit: number;
   waitingState: "" | "WAITING" | "REJECTED";
   /** When the host scheduled the room to go live, or '' for a room with no clock. */
@@ -255,6 +258,7 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
     currentRole: isMember ? (studentId === hostStudentId ? "HOST" : participants.find((member) => member.studentId === studentId)?.role || "VIEWER") : "",
     waitingRoomEnabled: Number(row.waiting_room || 0) === 1,
     discussionMode: Number(row.discussion_mode || 0) === 1,
+    managedStage: Number(row.managed_stage || 0) === 1,
     stageLimit: Number(row.stage_limit || 6),
     waitingState: input.waitingState || "",
     invited,
@@ -516,6 +520,18 @@ export async function readRoom(input: { id: string; studentId?: string }) {
   await requireTurso();
   await ensureCinemaTables();
   const row = await requireVisibleRoom(input.id);
+  try {
+    await ensureCinemaStreamingEntitlements();
+    const entitlement = rowsToObjects(await turso(
+      `SELECT 1 AS managed_stage FROM cinema_streaming_entitlements se
+       JOIN cinema_events e ON e.id=se.event_id
+       WHERE e.session_id=? AND se.provider='JAAS' AND se.status IN ('RESERVED','ACTIVE') LIMIT 1`,
+      [String(row.id)],
+    ))[0];
+    row.managed_stage = entitlement ? 1 : 0;
+  } catch {
+    row.managed_stage = 0;
+  }
   row.waiting_room = await waitingRoomEnabled(String(row.id));
   const members = (await membersOf([String(row.id)])).get(String(row.id)) || [];
   const studentId = String(input.studentId || "");
@@ -749,6 +765,7 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
     );
     // The live object holds the sockets; the row cannot close them by itself.
     await closeCinemaRoom(id);
+    await endStreamingEntitlementBySession(id);
     logEvent("info", "cinema_room_ended", { roomId: id });
     await incrementMetric("cinema_rooms_ended");
   } else if (action === "LOCK" || action === "UNLOCK") {

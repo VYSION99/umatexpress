@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
-import { removeRoomGuest, setRoomMemberRole } from "@/lib/cinema-engine/rooms";
+import { removeRoomGuest } from "@/lib/cinema-engine/rooms";
+import { setStreamingAwareRoomMemberRole } from "@/lib/cinema-streaming/roles";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
 import { requireCinemaAccount } from "@/lib/student-auth";
 
@@ -37,7 +38,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
     const body = await request.json() as { studentId?: string; role?: string };
-    return ok(await setRoomMemberRole({ id, studentId: student.id, guestId: body.studentId, role: body.role }), { headers: NO_STORE }, request);
+    return ok(await setStreamingAwareRoomMemberRole({ id, studentId: student.id, guestId: body.studentId, role: body.role }), { headers: NO_STORE }, request);
   } catch (error) {
     return fail(error, request);
   }

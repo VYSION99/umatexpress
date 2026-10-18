@@ -23,6 +23,7 @@ import { CinemaDialog } from "./CinemaDialog";
 import { CinemaPollsPanel } from "./CinemaPollsPanel";
 import { CinemaQuestionsPanel } from "./CinemaQuestionsPanel";
 import { CinemaDiscussionAudience } from "./CinemaDiscussionAudience";
+import { CinemaJaasStage } from "./CinemaJaasStage";
 import { CinemaStageRequestsPanel } from "./CinemaStageRequestsPanel";
 import { CinemaStudyPanel } from "./CinemaStudyPanel";
 import { CinemaTranscriptPanel } from "./CinemaTranscriptPanel";
@@ -142,7 +143,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const callEligible = Boolean(account && callMembers.some(member => member.studentId === account.id));
   const media = useCinemaMedia({
     roomId: room.id,
-    enabled: Boolean(roomMember && live.state === "live" && callEligible),
+    enabled: Boolean(!room.managedStage && roomMember && live.state === "live" && callEligible),
     selfId: roomMember?.id ?? "",
     members: callMembers,
     send: live.send,
@@ -537,7 +538,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
               : "This room has ended."}
           </span>
         </div>
-        {room.discussionMode && active
+        {room.discussionMode && room.managedStage && active && roomMember
+          ? <CinemaJaasStage roomId={room.id} active={active} />
+          : room.discussionMode && active
           ? <div className="cinema-discussion-stage-note"><span className="cinema-eyebrow">SPEAKING STAGE</span><h2>Host broadcast check</h2><p>The stage call is separate from the audience broadcast. Stage audio and video are not sent to YouTube automatically.</p><ol><li>Connect the speakers to your broadcast software.</li><li>Start the YouTube broadcast and check that viewers can hear it.</li><li>Keep the broadcast running while this room is live.</li></ol>{videoId && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`} target="_blank" rel="noopener noreferrer">Open audience broadcast monitor</a>}<small>Broadcast connection is not verified by UMaTeXPRESS.</small></div>
           : active && live.state === "live" && sourceType === "YOUTUBE" && videoId
           ? <YouTubePlayer
@@ -578,13 +581,13 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
         <MediaStreamVideo stream={screenStream} muted={screenMember.studentId === account?.id} className="cinema-presentation-stream" pictureInPicture />
       </section>}
 
-      {roomMember && <CinemaMediaStrip
+      {roomMember && !room.managedStage && <CinemaMediaStrip
         media={media}
         members={live.members}
         selfId={roomMember.id}
       />}
       <div className="cinema-toolbar" role="toolbar" aria-label="Room controls">
-        {roomMember && callEligible && <div className="cinema-toolbar-group">
+        {roomMember && !room.managedStage && callEligible && <div className="cinema-toolbar-group">
           <CinemaCallButtons
             media={media}
             recorder={recorder}
@@ -621,9 +624,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       </div>}
       {/* The old Voice & video card is gone; what it had to say that the
           buttons cannot is one line here, where the call's pictures live. */}
-      {roomMember && !callEligible && <p className="cinema-note">{room.discussionMode ? "You are in the audience. Raise your hand to request a speaking place; the host controls the stage." : `The call supports ${CINEMA_CALL_MEMBER_LIMIT} people. You can still watch and use chat, notes and the whiteboard.`}</p>}
-      {roomMember && media.error && <p className="cinema-error">{media.error}</p>}
-      {roomMember && !media.error && media.policyLoaded && !media.policy.voice && !media.policy.camera && <p className="cinema-note">
+      {roomMember && !room.managedStage && !callEligible && <p className="cinema-note">{room.discussionMode ? "You are in the audience. Raise your hand to request a speaking place; the host controls the stage." : `The call supports ${CINEMA_CALL_MEMBER_LIMIT} people. You can still watch and use chat, notes and the whiteboard.`}</p>}
+      {roomMember && !room.managedStage && media.error && <p className="cinema-error">{media.error}</p>}
+      {roomMember && !room.managedStage && !media.error && media.policyLoaded && !media.policy.voice && !media.policy.camera && <p className="cinema-note">
         Voice and camera are switched off on this deployment. Chat and the video still work.
       </p>}
 

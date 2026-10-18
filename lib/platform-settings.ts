@@ -56,6 +56,22 @@ export type PlatformSettingKey =
   | "cinema_whiteboard_enabled"
   | "cinema_whiteboard_generations_per_hour"
   | "cinema_board_auto_minutes"
+  | "cinema_jaas_enabled"
+  | "cinema_jaas_free_events_enabled"
+  | "cinema_jaas_free_stage_unique"
+  | "cinema_jaas_free_event_minutes"
+  | "cinema_jaas_free_period_days"
+  | "cinema_jaas_mau_warning"
+  | "cinema_jaas_mau_high_warning"
+  | "cinema_jaas_mau_stop_free"
+  | "cinema_cloudflare_stream_enabled"
+  | "cinema_stream_delivery_cost_microusd"
+  | "cinema_stream_delivery_retail_microusd"
+  | "cinema_stream_storage_cost_microusd"
+  | "cinema_stream_reserve_bps"
+  | "cinema_private_event_minimum_pesewas"
+  | "cinema_usd_ghs_rate_pesewas"
+  | "cinema_club_pro_monthly_pesewas"
   /* campusRide fares: the cost model behind the floor and the markup behind the ceiling */
   | "campus_commission_bps"
   | "campus_fare_cost_per_km"
@@ -326,6 +342,176 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     fallback: 10,
     min: 5,
     max: 60,
+  },
+  {
+    key: "cinema_jaas_enabled",
+    kind: "toggle",
+    label: "Cinema Jitsi stage",
+    summary: "Allow explicitly configured events to use the managed JaaS speaking stage.",
+    detail: "Off keeps every existing Cinema event on its current media path and refuses new JaaS tokens. Enable only after the App ID, key and private signing key are installed and a staged room passes role and device tests.",
+    env: "CINEMA_JAAS_ENABLED",
+    fallback: false,
+  },
+  {
+    key: "cinema_jaas_free_events_enabled",
+    kind: "toggle",
+    label: "Free JaaS organizer events",
+    summary: "Permit the limited public-event allowance for eligible organizers.",
+    detail: "Off pauses new free JaaS reservations without ending a running event. Paid and administrator-subsidized entitlements remain separate. This switch does not enable JaaS itself.",
+    env: "CINEMA_JAAS_FREE_EVENTS_ENABLED",
+    fallback: false,
+  },
+  {
+    key: "cinema_jaas_free_stage_unique",
+    kind: "number",
+    label: "Free JaaS stage identities",
+    summary: "Maximum unique verified accounts admitted to a free event's stage.",
+    detail: "Four means the host and three other speakers in total. Moving someone back to the audience does not restore a unique identity place, which prevents rotating many accounts through four concurrent tiles.",
+    env: "CINEMA_JAAS_FREE_STAGE_UNIQUE",
+    fallback: 4,
+    min: 2,
+    max: 12,
+  },
+  {
+    key: "cinema_jaas_free_event_minutes",
+    kind: "number",
+    label: "Free JaaS event duration",
+    summary: "Maximum scheduled length of a free managed-stage event, in minutes.",
+    detail: "The initial policy is 60 minutes. A running session receives a clear ending notice; cleanup does not claim that provider billing stops at the exact application deadline.",
+    env: "CINEMA_JAAS_FREE_EVENT_MINUTES",
+    fallback: 60,
+    min: 15,
+    max: 240,
+  },
+  {
+    key: "cinema_jaas_free_period_days",
+    kind: "number",
+    label: "Free JaaS event interval",
+    summary: "Minimum days between free managed-stage reservations for one quota owner.",
+    detail: "Student groups share their owner's allowance. An approved club or department uses its organizer record, so delegates and host transfers cannot produce another allowance.",
+    env: "CINEMA_JAAS_FREE_PERIOD_DAYS",
+    fallback: 30,
+    min: 1,
+    max: 365,
+  },
+  {
+    key: "cinema_jaas_mau_warning",
+    kind: "number",
+    label: "JaaS MAU first warning",
+    summary: "First monthly active-user warning for the free pilot pool.",
+    detail: "Fifteen is the initial operating alert. MAUs come from JaaS usage events and may count separate devices used by the same person.",
+    env: "CINEMA_JAAS_MAU_WARNING",
+    fallback: 15,
+    min: 1,
+    max: 100_000,
+  },
+  {
+    key: "cinema_jaas_mau_high_warning",
+    kind: "number",
+    label: "JaaS MAU high warning",
+    summary: "Second monthly active-user warning for the free pilot pool.",
+    detail: "Twenty is the initial high warning. It prompts staff to review scheduled free events and current JaaS activity before overage occurs.",
+    env: "CINEMA_JAAS_MAU_HIGH_WARNING",
+    fallback: 20,
+    min: 1,
+    max: 100_000,
+  },
+  {
+    key: "cinema_jaas_mau_stop_free",
+    kind: "number",
+    label: "Stop new free JaaS reservations",
+    summary: "Measured monthly active users at which new free reservations pause.",
+    detail: "Twenty-three preserves two of the developer plan's 25 included MAUs for testing and support. It never terminates a running event; paid or explicitly subsidized operation requires a separate decision.",
+    env: "CINEMA_JAAS_MAU_STOP_FREE",
+    fallback: 23,
+    min: 1,
+    max: 100_000,
+  },
+  {
+    key: "cinema_cloudflare_stream_enabled",
+    kind: "toggle",
+    label: "Cinema private streaming",
+    summary: "Allow paid or restricted events to create Cloudflare Stream broadcasts.",
+    detail: "Off is the safe default: public YouTube events and existing Cinema rooms continue to work, while no event may create a billable Cloudflare live input. Turn this on only after Stream credentials, pricing, prepaid reservations and reconciliation are configured and tested.",
+    env: "CINEMA_CLOUDFLARE_STREAM_ENABLED",
+    fallback: false,
+  },
+  {
+    key: "cinema_stream_delivery_cost_microusd",
+    kind: "number",
+    label: "Stream delivery cost",
+    summary: "Estimated provider cost per delivered viewer-minute, in millionths of a US dollar.",
+    detail: "1000 means USD 0.001. This is a planning assumption used before an event; provider-reported billable minutes and invoices remain authoritative for final reconciliation.",
+    env: "CINEMA_STREAM_DELIVERY_COST_MICROUSD",
+    fallback: 1_000,
+    min: 0,
+    max: 1_000_000,
+  },
+  {
+    key: "cinema_stream_delivery_retail_microusd",
+    kind: "number",
+    label: "Private delivery retail rate",
+    summary: "Organizer rate per delivered viewer-minute, in millionths of a US dollar.",
+    detail: "2000 means USD 0.002. The pricing engine refuses a retail rate below the provider cost assumption. This applies only to private UMATeXPRESS delivery, never to watching an embedded YouTube video.",
+    env: "CINEMA_STREAM_DELIVERY_RETAIL_MICROUSD",
+    fallback: 2_000,
+    min: 0,
+    max: 2_000_000,
+  },
+  {
+    key: "cinema_stream_storage_cost_microusd",
+    kind: "number",
+    label: "Stream storage cost",
+    summary: "Estimated provider cost per stored video minute, in millionths of a US dollar.",
+    detail: "5000 means USD 0.005 per stored minute. Storage is quoted separately from delivery and is charged only when the recording policy retains provider media.",
+    env: "CINEMA_STREAM_STORAGE_COST_MICROUSD",
+    fallback: 5_000,
+    min: 0,
+    max: 1_000_000,
+  },
+  {
+    key: "cinema_stream_reserve_bps",
+    kind: "number",
+    label: "Private event credit reserve",
+    summary: "Percentage of the estimate reserved before a private event, in basis points.",
+    detail: "11000 reserves 110% of the estimated retail delivery charge. It is an operational buffer, not a guaranteed hard cap; final charges follow reconciled provider usage and the disclosed overage policy.",
+    env: "CINEMA_STREAM_RESERVE_BPS",
+    fallback: 11_000,
+    min: 10_000,
+    max: 20_000,
+  },
+  {
+    key: "cinema_private_event_minimum_pesewas",
+    kind: "number",
+    label: "Private event minimum",
+    summary: "Minimum delivery reservation for a private event, in Ghana pesewas.",
+    detail: "This covers platform and payment overhead when the viewer-minute estimate is very small. Zero disables the minimum. It does not apply to free public YouTube events.",
+    env: "CINEMA_PRIVATE_EVENT_MINIMUM_PESEWAS",
+    fallback: 0,
+    min: 0,
+    max: 100_000_000,
+  },
+  {
+    key: "cinema_usd_ghs_rate_pesewas",
+    kind: "number",
+    label: "Cinema USD conversion rate",
+    summary: "Ghana pesewas used for USD 1 in private-event estimates.",
+    detail: "For example, 1500 means GH₵15.00 per USD. Operations must update it from the exchange-rate source named in the pricing policy and record when the rate becomes effective. Historical estimates and finalized charges keep their stored rate.",
+    env: "CINEMA_USD_GHS_RATE_PESEWAS",
+    fallback: 0,
+    min: 0,
+    max: 100_000,
+  },
+  {
+    key: "cinema_club_pro_monthly_pesewas",
+    kind: "number",
+    label: "Cinema Club Pro monthly price",
+    summary: "Monthly Club Pro subscription price, in Ghana pesewas.",
+    detail: "4900 is GH₵49.00. The subscription buys UMATeXPRESS organizer tools and analytics; it never charges an audience member for watching embedded YouTube content.",
+    env: "CINEMA_CLUB_PRO_MONTHLY_PESEWAS",
+    fallback: 4_900,
+    min: 0,
+    max: 10_000_000,
   },
   /*
    * campusRide fares.

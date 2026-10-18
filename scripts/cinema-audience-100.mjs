@@ -75,7 +75,7 @@ try {
   }
   await stage.requestStage({ id: event.sessionId, studentId: confirmedPeople[3].id, displayName: confirmedPeople[3].name });
   await assert.rejects(stage.decideStageRequest({ id: event.sessionId, studentId: host.id, guestId: confirmedPeople[3].id, action: "APPROVE" }), (error) => error.status === 409);
-  console.log(JSON.stringify({ result: "PASS", audienceCap: 100, admitted: admitted.length, waitlisted: waitlisted.length, panelists: 3, operations: [admissions, joins, votes, readPolls, asked, questionReads].map(({ results, ...timing }) => timing) }, null, 2));
+  console.log(JSON.stringify({ result: "PASS", audienceCap: 100, admitted: admitted.length, waitlisted: waitlisted.length, panelists: 3, operations: [admissions, joins, votes, readPolls, asked, questionReads].map((timing) => ({ label: timing.label, totalMs: timing.totalMs, p50Ms: timing.p50Ms, p95Ms: timing.p95Ms })) }, null, 2));
 } finally {
   await vite.close();
   sql.db.close();

@@ -298,6 +298,11 @@ function handle(sql, args) {
       .map((room) => ({ ...room, member: joined.has(room.id) ? 1 : 0, host_name: state.members.find(member => member.session_id === room.id && member.student_id === room.host_student_id)?.display_name || "", invited: invited.has(room.id) ? 1 : 0 }));
     return ok(rows.length ? table([...ROOM_COLUMNS, "invited", "member", "host_name"], rows) : empty);
   }
+  // Ordinary room tests have no managed-stage event. Ending one still probes
+  // the entitlement table so the production path can close JaaS sessions.
+  if (/^SELECT se\.\* FROM cinema_streaming_entitlements se[\s\S]*JOIN cinema_events e/.test(sql)) {
+    return ok(empty);
+  }
 
   throw new Error(`Unhandled SQL in the cinema test: ${sql}`);
 }

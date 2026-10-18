@@ -4,6 +4,8 @@ import { createRoom, ensureCinemaTables } from "@/lib/cinema-engine/rooms";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 import { queueNotification } from "@/lib/notifications";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
+import { cancelReservedFreeJaasEntitlement, ensureCinemaStreamingEntitlements, freeJaasPolicy, reserveFreeJaasEntitlement } from "@/lib/cinema-streaming/entitlements";
+import { jaasRuntime } from "@/lib/cinema-streaming/jaas";
 
 export const CINEMA_EVENT_SCHEMA_VERSION = "043_cinema_organizer_evidence";
 export const CINEMA_ORGANIZER_TYPES = ["CLUB", "DEPARTMENT", "STUDENT_GROUP"] as const;
@@ -56,7 +58,7 @@ export function ensureCinemaEventTables() {
 
 async function requireRuntime() {
   if (!(await isTursoConfiguredRuntime())) throw new CampusEngineError("CONFIG_REQUIRED", "Cinema events need the configured database.", 503);
-  await Promise.all([ensureCinemaTables(), ensureCinemaEventTables()]);
+  await Promise.all([ensureCinemaTables(), ensureCinemaEventTables(), ensureCinemaStreamingEntitlements()]);
 }
 
 export type CinemaEvent = {
@@ -67,6 +69,7 @@ export type CinemaEvent = {
   replayVideoId: string;
   recurrenceIndex: number; recurrenceCount: number; organizer: { id: string; name: string; type: CinemaOrganizerType };
   averageRating: number; ratingCount: number; viewerRsvp: "" | "GOING" | "WAITLIST" | "CANCELLED"; canManage: boolean;
+  managedStage: boolean;
 };
 
 const SELECT_EVENT = `SELECT e.*,o.name AS organizer_name,o.organizer_type,o.status AS organizer_status,o.verified_at AS organizer_verified_at,
@@ -74,7 +77,8 @@ const SELECT_EVENT = `SELECT e.*,o.name AS organizer_name,o.organizer_type,o.sta
   (SELECT COUNT(*) FROM cinema_event_rsvps r WHERE r.event_id=e.id AND r.status='WAITLIST') AS waitlist_count,
   (SELECT ROUND(AVG(f.rating),1) FROM cinema_event_feedback f WHERE f.event_id=e.id) AS average_rating,
   (SELECT COUNT(*) FROM cinema_event_feedback f WHERE f.event_id=e.id) AS rating_count,
-  COALESCE(s.status,'CREATED') AS room_status,s.video_id AS room_video_id,s.video_source_type AS room_source_type`;
+  COALESCE(s.status,'CREATED') AS room_status,s.video_id AS room_video_id,s.video_source_type AS room_source_type,
+  EXISTS(SELECT 1 FROM cinema_streaming_entitlements se WHERE se.event_id=e.id AND se.provider='JAAS' AND se.status IN ('RESERVED','ACTIVE')) AS managed_stage`;
 
 function eventView(row: Record<string, unknown>, studentId = ""): CinemaEvent {
   const capacity = Number(row.capacity || 0);
@@ -98,6 +102,7 @@ function eventView(row: Record<string, unknown>, studentId = ""): CinemaEvent {
     organizer: { id: String(row.organizer_id || ""), name: String(row.organizer_name || "Student group"), type: String(row.organizer_type || "STUDENT_GROUP") as CinemaOrganizerType },
     averageRating: Number(row.average_rating || 0), ratingCount: Number(row.rating_count || 0),
     viewerRsvp: String(row.viewer_rsvp || "") as CinemaEvent["viewerRsvp"], canManage: Boolean(studentId) && String(row.created_by || "") === studentId,
+    managedStage: Number(row.managed_stage || 0) === 1,
   };
 }
 
@@ -214,7 +219,7 @@ export async function decideCinemaOrganizer(input: { id: string; approve: boolea
 export async function createCinemaEvents(input: {
   student: { id: string; name?: string }; organizerName?: unknown; organizerType?: unknown; title?: unknown; description?: unknown;
   video?: unknown; startsAt?: unknown; durationMinutes?: unknown; capacity?: unknown; recurrenceCount?: unknown; certificatesEnabled?: unknown;
-  format?: unknown; stageLimit?: unknown;
+  format?: unknown; stageLimit?: unknown; managedStage?: unknown;
 }) {
   await requireRuntime();
   const title = cleanText(input.title, 80); const description = cleanText(input.description, 1200);
@@ -238,21 +243,55 @@ export async function createCinemaEvents(input: {
   if (!Number.isInteger(stageLimit) || stageLimit < 2 || stageLimit > 6) throw new CampusEngineError("VALIDATION_ERROR", "Choose two to six stage places.", 400);
   const duration = Number(input.durationMinutes ?? 60);
   if (!Number.isInteger(duration) || duration < 15 || duration > 240) throw new CampusEngineError("VALIDATION_ERROR", "Choose a duration from 15 minutes to four hours.", 400);
+  const managedStage = input.managedStage === true || String(input.managedStage || "").toLowerCase() === "true";
+  const [managedPolicy, managedRuntime] = managedStage
+    ? await Promise.all([freeJaasPolicy(), jaasRuntime()])
+    : [null, null];
+  if (managedStage && format === "SCREENING") throw new CampusEngineError("VALIDATION_ERROR", "The managed stage is available for debates and panel discussions.", 400);
+  if (managedStage && recurrenceCount !== 1) throw new CampusEngineError("VALIDATION_ERROR", "Create each free managed-stage event separately so its organizer allowance can be checked.", 400);
+  if (managedStage && !managedPolicy?.enabled) throw new CampusEngineError("CONFIG_REQUIRED", "Free managed-stage events are not currently available.", 503);
+  if (managedStage && !managedRuntime?.configured) throw new CampusEngineError("CONFIG_REQUIRED", "The managed-stage signing credentials are incomplete.", 503);
+  if (managedStage && duration > Number(managedPolicy?.maxDurationMinutes || 0)) throw new CampusEngineError("VALIDATION_ERROR", `A free managed-stage event may run for up to ${managedPolicy?.maxDurationMinutes || 60} minutes.`, 400);
+  const effectiveStageLimit = managedStage ? Number(managedPolicy?.maxStageUnique || 4) : stageLimit;
   const organizerId = await organizerFor({ studentId: input.student.id, name: input.organizerName, type: input.organizerType });
+  const organizer = rowsToObjects(await turso("SELECT owner_student_id,organizer_type FROM cinema_organizers WHERE id=? LIMIT 1", [organizerId]))[0];
+  if (!organizer) throw new CampusEngineError("NOT_FOUND", "That Cinema organizer was not found.", 404);
   const seriesId = recurrenceCount > 1 ? crypto.randomUUID() : "";
   const created: string[] = [];
   for (let index = 0; index < recurrenceCount; index++) {
     const occurrence = first + index * 7 * 24 * 60 * 60_000;
-    const room = await createRoom({ student: input.student, title, video: input.video, source: "YOUTUBE", visibility: "PUBLIC", startInMinutes: Math.max(0, Math.round((occurrence - Date.now()) / 60_000)), durationMinutes: duration, scheduleHorizonMinutes: 60 * 24 * 60 });
-    if (format !== "SCREENING") await turso("UPDATE cinema_sessions SET discussion_mode=1,stage_limit=? WHERE id=?", [stageLimit, room.id]);
-    const id = crypto.randomUUID(); const stamp = new Date().toISOString();
-    await turso(`INSERT INTO cinema_events(id,slug,organizer_id,session_id,series_id,title,description,starts_at,ends_at,capacity,certificates_enabled,status,recurrence_index,recurrence_count,created_by,created_at,updated_at,event_format,stage_limit)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,'PUBLISHING',?,?,?,?,?,?,?)`, [id, slugFor(title), organizerId, room.id, seriesId, title, description, room.startsAt, room.endsAt, capacity, input.certificatesEnabled ? 1 : 0, index + 1, recurrenceCount, input.student.id, stamp, stamp, format, stageLimit]);
-    created.push(id);
+    const id = crypto.randomUUID();
+    let roomId = "";
+    try {
+      const room = await createRoom({ student: input.student, title, video: input.video, source: "YOUTUBE", visibility: "PUBLIC", startInMinutes: Math.max(0, Math.round((occurrence - Date.now()) / 60_000)), durationMinutes: duration, scheduleHorizonMinutes: 60 * 24 * 60 });
+      roomId = room.id;
+      if (format !== "SCREENING") await turso("UPDATE cinema_sessions SET discussion_mode=1,stage_limit=? WHERE id=?", [effectiveStageLimit, room.id]);
+      const stamp = new Date().toISOString();
+      await turso(`INSERT INTO cinema_events(id,slug,organizer_id,session_id,series_id,title,description,starts_at,ends_at,capacity,certificates_enabled,status,recurrence_index,recurrence_count,created_by,created_at,updated_at,event_format,stage_limit)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,'PUBLISHING',?,?,?,?,?,?,?)`, [id, slugFor(title), organizerId, room.id, seriesId, title, description, room.startsAt, room.endsAt, capacity, input.certificatesEnabled ? 1 : 0, index + 1, recurrenceCount, input.student.id, stamp, stamp, format, effectiveStageLimit]);
+      if (managedStage && managedPolicy) await reserveFreeJaasEntitlement({
+        eventId: id, organizerId, organizerType: String(organizer.organizer_type), ownerStudentId: String(organizer.owner_student_id),
+        hostStudentId: input.student.id, startsAt: room.startsAt, durationMinutes: duration, createdBy: input.student.id, policy: managedPolicy,
+      });
+      created.push(id);
+    } catch (error) {
+      await cancelReservedFreeJaasEntitlement(id).catch(() => undefined);
+      await turso("DELETE FROM cinema_events WHERE id=? AND status='PUBLISHING'", [id]).catch(() => undefined);
+      if (roomId) {
+        await turso("DELETE FROM cinema_participants WHERE session_id=?", [roomId]).catch(() => undefined);
+        await turso("DELETE FROM cinema_sessions WHERE id=?", [roomId]).catch(() => undefined);
+      }
+      throw error;
+    }
   }
   // Publish the whole series in one write. A failed occurrence cannot leave a
   // misleading partial series in the public catalogue.
-  await turso(`UPDATE cinema_events SET status='PUBLISHED',updated_at=? WHERE id IN (${created.map(() => "?").join(",")})`, [new Date().toISOString(), ...created]);
+  try {
+    await turso(`UPDATE cinema_events SET status='PUBLISHED',updated_at=? WHERE id IN (${created.map(() => "?").join(",")})`, [new Date().toISOString(), ...created]);
+  } catch (error) {
+    for (const id of created) await cancelReservedFreeJaasEntitlement(id).catch(() => undefined);
+    throw error;
+  }
   return Promise.all(created.map((id) => readPublicCinemaEvent(id, input.student.id)));
 }
 

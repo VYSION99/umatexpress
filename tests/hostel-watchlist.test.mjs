@@ -1,51 +1,17 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { sqliteTurso } from "./helpers/sqlite-turso.mjs";
 
 process.env.TURSO_DATABASE_URL = "https://hostel-watchlist-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test";
-const directory = mkdtempSync(join(tmpdir(), "hostel-watchlist-"));
-const database = join(directory, "test.sqlite");
-const python = String.raw`
-import sys, json, sqlite3
-payload=json.load(sys.stdin)
-connection=sqlite3.connect(sys.argv[1], isolation_level=None)
-def execute(stmt):
-    args=[None if a['type']=='null' else int(a['value']) if a['type']=='integer' else a['value'] for a in stmt.get('args',[])]
-    cursor=connection.execute(stmt['sql'],args)
-    rows=cursor.fetchall()
-    return {'cols':[{'name':col[0]} for col in cursor.description or []], 'rows':rows, 'affected_row_count':max(0,cursor.rowcount)}
-results=[]
-for request in payload['requests']:
-    if request['type']=='close':
-        connection.close(); results.append({'type':'ok'}); continue
-    try:
-        if request['type']=='execute': result=execute(request['stmt'])
-        else:
-            values=[]; errors=[]
-            for step in request['batch']['steps']:
-                try: value=execute(step['stmt']); error=None
-                except Exception as exc: value=None; error={'message':str(exc)}
-                values.append(value); errors.append(error)
-            result={'step_results':values,'step_errors':errors}
-        results.append({'type':'ok','response':{'result':result}})
-    except Exception as exc: results.append({'type':'error','error':{'message':str(exc)}})
-print(json.dumps({'results':results}))
-`;
+const sql = sqliteTurso();
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async (_url, init) => {
-  const output = spawnSync("python3", ["-c", python, database], { input: init.body, encoding: "utf8" });
-  assert.equal(output.status, 0, output.stderr);
-  return { ok: true, json: async () => JSON.parse(output.stdout) };
-};
+globalThis.fetch = sql.fetch;
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ configFile: false, appType: "custom", root, resolve: { alias: { "@": root } }, plugins: [{ name: "test-hostel-schema", enforce: "pre", resolveId(source) { if (source === "@/lib/hostel-engine/landlord") return "\0test-hostel-schema"; }, load(id) { if (id === "\0test-hostel-schema") return "export async function ensureHostelTables() {}"; } }], server: { middlewareMode: true, hmr: false } });
-after(async () => { await vite.close(); globalThis.fetch = originalFetch; rmSync(directory, { recursive: true, force: true }); });
+after(async () => { await vite.close(); sql.db.close(); globalThis.fetch = originalFetch; });
 const { turso, rowsToObjects } = await vite.ssrLoadModule("/lib/turso.ts");
 const watch = await vite.ssrLoadModule("/lib/hostel-engine/watchlist.ts");
 await watch.ensureHostelWatchlist();

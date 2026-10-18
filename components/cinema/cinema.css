@@ -78,6 +78,11 @@
 .cinema-video-head span{display:block;color:#a9c4b8;font-size:12px;font-weight:700}
 .cinema-video-title{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .cinema-video-title .cinema-chip{display:inline-flex;align-items:center;gap:4px}
+.cinema-jaas-stage{position:relative;min-height:clamp(430px,68vh,760px);overflow:hidden;border:1px solid #315746;border-radius:14px;background:#07140f}
+.cinema-jaas-frame{position:absolute;inset:0}.cinema-jaas-frame iframe{width:100%;height:100%;border:0}
+.cinema-jaas-state{position:absolute;inset:0;z-index:2;display:grid;place-content:center;justify-items:center;gap:9px;padding:24px;text-align:center;background:radial-gradient(circle at 50% 35%,#174b36,#07140f 65%);color:#e8f5ed}
+.cinema-jaas-state strong{font-size:18px}.cinema-jaas-state span{max-width:48ch;color:#b8d2c4;font-size:13px;line-height:1.5}.cinema-jaas-state button{border:0;border-radius:12px;background:#b8ef91;color:#173c2a;padding:11px 16px;font-weight:900;cursor:pointer}
+@media(max-width:620px){.cinema-jaas-stage{min-height:calc(100dvh - 220px);border-radius:12px}}
 .cinema-player{position:relative;border-radius:14px;overflow:hidden;background:#000}
 .cinema-player-frame{position:relative;width:100%;aspect-ratio:16/9}
 .cinema-player-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}

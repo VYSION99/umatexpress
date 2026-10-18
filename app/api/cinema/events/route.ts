@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       student, organizerName: body.organizerName, organizerType: body.organizerType, title: body.title,
       description: body.description, video: body.video, startsAt: body.startsAt, durationMinutes: body.durationMinutes,
       capacity: body.capacity, recurrenceCount: body.recurrenceCount, certificatesEnabled: body.certificatesEnabled,
-      format: body.format, stageLimit: body.stageLimit,
+      format: body.format, stageLimit: body.stageLimit, managedStage: body.managedStage,
     });
     return ok({ events, event: events[0] }, { status: 201, headers: NO_STORE }, request);
   } catch (error) { return fail(error, request); }

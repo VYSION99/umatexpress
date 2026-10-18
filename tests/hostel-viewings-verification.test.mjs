@@ -1,38 +1,12 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { sqliteTurso } from "./helpers/sqlite-turso.mjs";
 
 process.env.TURSO_DATABASE_URL = "https://hostel-viewing-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test";
-const directory = mkdtempSync(join(tmpdir(), "hostel-viewing-"));
-const database = join(directory, "db.sqlite");
-const python = String.raw`
-import sys,json,sqlite3
-p=json.load(sys.stdin)
-c=sqlite3.connect(sys.argv[1],isolation_level=None)
-def go(s):
- a=[None if x['type']=='null' else int(x['value']) if x['type']=='integer' else x['value'] for x in s.get('args',[])]
- cur=c.execute(s['sql'],a)
- return {'cols':[{'name':x[0]} for x in cur.description or []],'rows':cur.fetchall(),'affected_row_count':max(0,cur.rowcount)}
-r=[]
-for q in p['requests']:
- if q['type']=='close': c.close();r.append({'type':'ok'});continue
- try:
-  if q['type']=='execute': result=go(q['stmt'])
-  else:
-   values=[];errors=[]
-   for x in q['batch']['steps']:
-    try: values.append(go(x['stmt']));errors.append(None)
-    except Exception as e: values.append(None);errors.append({'message':str(e)})
-   result={'step_results':values,'step_errors':errors}
-  r.append({'type':'ok','response':{'result':result}})
- except Exception as e:r.append({'type':'error','error':{'message':str(e)}})
-print(json.dumps({'results':r}))`;
+const sql = sqliteTurso();
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (_url, init) => {
   if (String(_url).startsWith("https://graphhopper.com/api/1/route")) {
@@ -40,13 +14,11 @@ globalThis.fetch = async (_url, init) => {
     assert.deepEqual(JSON.parse(init.body).points, [[-2, 5.3], [-2.005, 5.305]]);
     return { ok: true, json: async () => ({ paths: [{ distance: 1450, time: 1080000, points: { coordinates: [[-2.00, 5.30], [-2.005, 5.305]] } }] }) };
   }
-  const output = spawnSync("python3", ["-c", python, database], { input: init.body, encoding: "utf8" });
-  assert.equal(output.status, 0, output.stderr);
-  return { ok: true, json: async () => JSON.parse(output.stdout) };
+  return sql.fetch(_url, init);
 };
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ configFile: false, appType: "custom", root, resolve: { alias: { "@": root } }, plugins: [{ name: "hostel-test-stubs", enforce: "pre", resolveId(source) { if (source === "@/lib/hostel-engine/landlord" || source.endsWith("/lib/hostel-engine/landlord.ts")) return "\0landlord"; if (source === "@/lib/console-audit" || source.endsWith("/lib/console-audit.ts")) return "\0audit"; if (source === "@/lib/hostel-engine/photos" || source.endsWith("/lib/hostel-engine/photos.ts")) return "\0photos"; }, load(id) { if (id === "\0landlord") return "export async function ensureHostelTables() {}"; if (id === "\0audit") return "export async function consoleAudit() {}"; if (id === "\0photos") return "export async function ensureHostelPhotoTables() {}"; } }], server: { middlewareMode: true, hmr: false } });
-after(async () => { await vite.close(); globalThis.fetch = originalFetch; rmSync(directory, { recursive: true, force: true }); });
+after(async () => { await vite.close(); sql.db.close(); globalThis.fetch = originalFetch; });
 const { turso } = await vite.ssrLoadModule("/lib/turso.ts");
 const viewing = await vite.ssrLoadModule("/lib/hostel-engine/viewings.ts");
 const verification = await vite.ssrLoadModule("/lib/hostel-engine/verification.ts");

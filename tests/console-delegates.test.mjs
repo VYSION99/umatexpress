@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { sqliteTurso } from "./helpers/sqlite-turso.mjs";
 
 const saved = {
   url: process.env.TURSO_DATABASE_URL,
@@ -15,47 +12,13 @@ const saved = {
 process.env.TURSO_DATABASE_URL = "https://console-delegates-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test";
 process.env.CONSOLE_SESSION_SECRET = "console-delegate-test-secret-at-least-32-characters";
-const directory = mkdtempSync(join(tmpdir(), "console-delegates-"));
-const database = join(directory, "db.sqlite");
-const python = String.raw`
-import sys,json,sqlite3
-p=json.load(sys.stdin)
-c=sqlite3.connect(sys.argv[1],isolation_level=None)
-def go(s):
- a=[None if x['type']=='null' else int(x['value']) if x['type']=='integer' else x['value'] for x in s.get('args',[])]
- cur=c.execute(s['sql'],a)
- return {'cols':[{'name':x[0]} for x in cur.description or []],'rows':cur.fetchall(),'affected_row_count':max(0,cur.rowcount)}
-r=[]
-for q in p['requests']:
- if q['type']=='close': c.close();r.append({'type':'ok'});continue
- try:
-  if q['type']=='execute': result=go(q['stmt'])
-  else:
-   values=[];errors=[]
-   for x in q['batch']['steps']:
-    if x['stmt']['sql']=='ROLLBACK':
-     if any(errors):
-      try: values.append(go(x['stmt']));errors.append(None)
-      except Exception as e: values.append(None);errors.append({'message':str(e)})
-     else: values.append(None);errors.append(None)
-     continue
-    if any(errors): values.append(None);errors.append(None);continue
-    try: values.append(go(x['stmt']));errors.append(None)
-    except Exception as e: values.append(None);errors.append({'message':str(e)})
-   result={'step_results':values,'step_errors':errors}
-  r.append({'type':'ok','response':{'result':result}})
- except Exception as e:r.append({'type':'error','error':{'message':str(e)}})
-print(json.dumps({'results':r}))`;
+const sql = sqliteTurso();
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async (_url, init) => {
-  const output = spawnSync("python3", ["-c", python, database], { input: init.body, encoding: "utf8" });
-  assert.equal(output.status, 0, output.stderr);
-  return { ok: true, json: async () => JSON.parse(output.stdout) };
-};
+globalThis.fetch = sql.fetch;
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ configFile: false, appType: "custom", root, resolve: { alias: { "@": root } }, plugins: [{ name: "audit-stub", enforce: "pre", resolveId(source) { if (source === "@/lib/console-audit") return "\0audit"; }, load(id) { if (id === "\0audit") return "export async function consoleAudit() {}"; } }], server: { middlewareMode: true, hmr: false } });
 after(async () => {
-  await vite.close(); globalThis.fetch = originalFetch; rmSync(directory, { recursive: true, force: true });
+  await vite.close(); sql.db.close(); globalThis.fetch = originalFetch;
   for (const [key, value] of Object.entries(saved)) {
     const envKey = { url: "TURSO_DATABASE_URL", token: "TURSO_AUTH_TOKEN", secret: "CONSOLE_SESSION_SECRET" }[key];
     if (value === undefined) delete process.env[envKey]; else process.env[envKey] = value;

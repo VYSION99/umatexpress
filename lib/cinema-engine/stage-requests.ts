@@ -1,5 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { readRoom, setRoomMemberRole } from "@/lib/cinema-engine/rooms";
+import { readRoom } from "@/lib/cinema-engine/rooms";
+import { setStreamingAwareRoomMemberRole } from "@/lib/cinema-streaming/roles";
 import { rowsToObjects, runSchemaPass, turso } from "@/lib/turso";
 
 let ready: Promise<void> | null = null;
@@ -58,7 +59,7 @@ export async function decideStageRequest(input: { id: string; studentId: string;
   if (!pending) throw new CampusEngineError("NOT_FOUND", "That speaking request is no longer waiting.", 404);
   if (action === "APPROVE") {
     // The room's atomic stage-cap check decides whether a place is available.
-    await setRoomMemberRole({ id: input.id, studentId: input.studentId, guestId, role: "PRESENTER" });
+    await setStreamingAwareRoomMemberRole({ id: input.id, studentId: input.studentId, guestId, role: "PRESENTER" });
   }
   await turso("UPDATE cinema_stage_requests SET status=?,decided_at=? WHERE session_id=? AND student_id=? AND status='PENDING'", [action === "APPROVE" ? "APPROVED" : "REJECTED", new Date().toISOString(), input.id, guestId]);
   return { decided: true, action };

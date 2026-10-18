@@ -1,5 +1,11 @@
 # Cinema pricing and department/club adoption proposal
 
+> **Archived planning baseline:** this document records the earlier self-hosted
+> LiveKit cost study. The approved implementation now uses a limited managed
+> JaaS stage, direct JaaS livestreaming for ordinary events, optional OBS for
+> productions, public YouTube delivery and paid private Cloudflare Stream
+> delivery. See `HYBRID_STREAMING_IMPLEMENTATION_MAP.md` for the current plan.
+
 **Status:** proposal for customer interviews, not an active checkout or promise of LiveKit service.
 **Date:** 14 October 2026. Review supplier prices, exchange rates, and costs monthly.
 **Scope:** Cinema events and a proposed managed LiveKit stage. This document does not change hostel, ride, or other service prices.

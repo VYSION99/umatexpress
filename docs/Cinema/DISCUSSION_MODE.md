@@ -20,6 +20,21 @@ Applicants provide their role and an affiliation reference. Admins record the co
 
 Certificate eligibility accumulates live presence through consecutive heartbeats, crediting at most 90 seconds per heartbeat gap. A brief visit or a single heartbeat is insufficient. The required total is half the scheduled event, bounded to 10–30 minutes. Browser presence remains weaker than identity-verified attendance, so organizers should enable certificates only where that standard is appropriate.
 
+## Approved managed-stage rollout
+
+The next media path uses managed JaaS for host and panelist video. Standard
+events stream directly from JaaS to YouTube or a configured Cloudflare Stream
+RTMP input; OBS remains optional for organizer-operated productions. This is a
+target architecture and remains disabled until server-issued JaaS tokens,
+provider configuration and staged acceptance tests are complete. The existing
+peer stage remains the fallback during rollout.
+
+Free managed-stage access belongs to the event organizer, not the current host:
+one public event per rolling 30-day reservation period, up to 60 minutes and
+four unique verified stage identities including the host. A host transfer or
+delegate never resets that allowance. The canonical controls, schema and
+acceptance gates are in `HYBRID_STREAMING_IMPLEMENTATION_MAP.md`.
+
 ## Release validation still required
 
 Browser speech recognition and imported WebVTT are the current caption sources; there is no server-side speech-to-text service. The stage call remains a small peer-to-peer mesh; LiveKit or another media server is not connected. Before advertising a single-click public broadcast or dependable 100-person event, implement the stage-to-broadcast path and run a deployed load test covering admission, questions, polls, reminders, and the database. Until then, event pages tell attendees that the YouTube feed is separate and may be viewed outside the in-app attendance limit.
