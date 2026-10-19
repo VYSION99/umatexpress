@@ -22,6 +22,7 @@ function workSettings(session: ConsoleSessionInfo) {
   if (account.role === "LANDLORD") return { href: "/console/hostels/onboarding", label: "Hostel setup & verification", detail: "Property, identity, payout and staff review progress" };
   if (account.role === "ORGANIZER") return { href: "/console/profile", label: "Business verification & payouts", detail: "Manage your organizer identity and payment destination" };
   if (account.role === "DRIVER") return { href: "/console/driver", label: "Driver workspace", detail: "Your trips, boarding and queue" };
+  if (account.role === "VENDOR") return { href: "/console/food", label: "Food vendor workspace", detail: "Pickup requests and handovers" };
   if (account.role === "ADMIN" && (account.delegateServices === undefined || account.delegateServices.includes("settings"))) return { href: "/console/settings", label: "Platform settings", detail: "Service-wide controls for authorized administrators" };
   return null;
 }

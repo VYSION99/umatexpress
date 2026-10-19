@@ -4,6 +4,7 @@ import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { MapPin, ShieldCheck } from "@/components/ui/MaterialIcon";
 import { listPublicFoodListings } from "@/lib/food/listings";
 import { FoodReportButton } from "@/components/food/FoodReportButton";
+import { FoodPreorderButton } from "@/components/food/FoodPreorderButton";
 import "./food.css";
 
 export const metadata: Metadata = {
@@ -35,7 +36,7 @@ export default async function FoodPage() {
       </section>
 
       {listings.length ? <section className="food-listings" aria-label="Verified food providers">
-        {listings.map((listing) => <article className="food-listing" key={listing.id}>
+        {listings.map((listing, listingIndex) => <article className="food-listing" key={listing.id}>
           <div className="food-listing-heading">
             <div><h2>{listing.name}</h2><p>{listing.description}</p></div>
             <span className="food-verified"><ShieldCheck size={15} aria-hidden /> Verified</span>
@@ -56,6 +57,7 @@ export default async function FoodPage() {
             <p className="food-menu-note">Menu and dietary details are supplied by the provider. Confirm ingredients and availability with them before ordering.</p>
           </section>}
           <a className="food-contact" href={listing.contactHref}>{listing.contactLabel}</a>
+          <FoodPreorderButton listing={listing} showOrders={listingIndex === 0} />
           <FoodReportButton providerId={listing.id} providerName={listing.name} />
         </article>)}
       </section> : <section className="food-empty" aria-labelledby="food-empty-title">

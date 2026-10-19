@@ -80,6 +80,7 @@ export function consoleServicesForRole(role: string, delegateServices?: readonly
     LANDLORD: ["hostels", "account", "security"],
     DRIVER: ["driver", "account", "security"],
     ORGANIZER: ["organizer", "profile", "earnings", "disputes", "account", "security"],
+    VENDOR: ["food", "account", "security"],
   };
   return (order[role] || ["account", "security"]).flatMap((id) => consoleServices.filter((service) => service.id === id));
 }

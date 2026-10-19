@@ -4,6 +4,7 @@ import { consoleApplicationById } from "@/lib/console-applications";
 import { consoleSessionCookie } from "@/lib/console-auth";
 import { registerLandlord } from "@/lib/hostel-engine/landlord";
 import { registerOrganizer } from "@/lib/organizers";
+import { registerFoodVendor } from "@/lib/food/vendors";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -22,6 +23,8 @@ async function submitApplication(programme: string, body: Record<string, unknown
       return registerLandlord(body);
     case "driver":
       return registerDriverApplication(body);
+    case "vendor":
+      return registerFoodVendor(body);
     default:
       throw new CampusEngineError("INVALID_STATE", "This application is not being accepted yet.", 501);
   }

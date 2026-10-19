@@ -33,7 +33,7 @@ test("a service that can be opened has navigation and an internal destination", 
 });
 
 test("each role gets the services it may use, without repeats", () => {
-  for (const role of ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER"]) {
+  for (const role of ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER", "VENDOR"]) {
     const services = consoleServicesForRole(role);
     assert.ok(services.length, `${role} must be offered something`);
     const ids = services.map((service) => service.id);
@@ -53,7 +53,7 @@ test("each role gets the services it may use, without repeats", () => {
 });
 
 test("the grouped directory is a re-grouping of exactly what the role was offered", () => {
-  for (const role of ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER"]) {
+  for (const role of ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER", "VENDOR"]) {
     const offered = consoleServicesForRole(role).map((service) => service.id);
     const groups = consoleGroupsForRole(role);
     assert.deepEqual(groups.map((entry) => entry.group), CONSOLE_GROUP_ORDER.filter((group) => groups.some((entry) => entry.group === group)), `${role} groups are out of order`);
@@ -76,6 +76,7 @@ test("every openable service lives on the console origin", () => {
 test("a role is only offered the services its work belongs to", () => {
   assert.deepEqual(consoleServicesForRole("DRIVER").map((service) => service.id), ["driver", "account", "security"], "a driver only works the driver portal and their own account");
   assert.deepEqual(consoleServicesForRole("LANDLORD").map((service) => service.id), ["hostels", "account", "security"], "a landlord only gets the hostel workspace and their own account");
+  assert.deepEqual(consoleServicesForRole("VENDOR").map((service) => service.id), ["food", "account", "security"], "a vendor only gets the Food workspace and their own account");
   for (const role of ["MODERATOR", "ORGANIZER"]) {
     const ids = consoleServicesForRole(role).map((service) => service.id);
     assert.ok(!ids.includes("campus") && !ids.includes("vacation"), `${role} was offered operations services: ${ids.join(", ")}`);

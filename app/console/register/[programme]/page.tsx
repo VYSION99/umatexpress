@@ -46,6 +46,7 @@ function ApplicationForm({ application }: { application: ConsoleApplication }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The application could not be submitted.");
       if (application.id === "landlord") { router.replace("/console/hostels/onboarding"); return; }
+      if (application.id === "vendor") { router.replace("/console/login"); return; }
       setSubmitted(data.message || "Application received.");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "The application could not be submitted.");

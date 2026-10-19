@@ -11,6 +11,16 @@ Platform staff and Food-scoped admin delegates manage the directory at `/console
 
 The homepage Food card remains in **On the way** until staff have entered and verified real providers. Vendor self-service, “open now” claims, live item availability, ordering, delivery and payments remain outside M1.
 
+## Food M2 implementation (19 October 2026)
+
+M2 adds a controlled **pickup preorder pilot** without delivery or online payment. A verified UMaT student selects menu items and a pickup time inside the provider’s configured window. The request stores item names and prices as immutable snapshots, receives a reference, and remains unconfirmed until the assigned vendor accepts it. Students can view requests and cancel before the provider’s cutoff.
+
+Food vendors can now apply for a `VENDOR` console account. Registration does not grant access to a listing or another vendor’s orders. Platform staff must link the account to exactly one published provider after confirming the relationship. The vendor’s Food-only workspace supports `REQUESTED → ACCEPTED → READY → COLLECTED`, with explicit decline and expiry paths. Status decisions notify the student; new requests notify the vendor.
+
+Staff control the minimum lead time, maximum days ahead, daily active-request limit, response window, cancellation cutoff, pickup instructions and the switch for new requests. Closing that switch preserves existing orders. Capacity is enforced in the database transaction, prices cannot be changed retroactively, cross-origin mutations are refused, and request creation is rate limited.
+
+M2 still has no platform checkout, settlement, delivery, refund promise or real-time stock claim. Students pay the provider outside the app at pickup according to the provider’s accepted request. A payment milestone requires a separately tested vendor settlement, reconciliation, cancellation and refund design.
+
 ## Starting point
 
 The public launcher already runs CampusRide, VacationRide, Hostel Finder and OnlineCinema, plus two external partner links. **Food is its only public “Coming soon” service.** The console does not show a Food workspace until one exists. Its vendor application is described in `lib/console-applications.ts`, but remains `COMING_SOON`; the vendor handler, menu, order and fulfilment flows do not exist. The platform has student accounts, provider review patterns, payments, notifications and private object storage that can inform a new service, but these are not a ready-made food marketplace.

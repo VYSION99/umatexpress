@@ -8,7 +8,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, turso, tursoTransaction } from
  * and the role is always read from the signed session — never from a header,
  * body or query parameter, which a caller can choose freely.
  */
-export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER"] as const;
+export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER", "VENDOR"] as const;
 export const DELEGATABLE_SERVICES = ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "cinema", "food", "settings"] as const;
 export type ConsoleRole = (typeof CONSOLE_ROLES)[number];
 
@@ -387,5 +387,6 @@ export function assertConsolePassword(role: ConsoleRole, password: string) {
 /** Where a role starts after signing in. */
 export function consoleLandingPath(role: ConsoleRole) {
   if (role === "DRIVER") return "/console/driver";
+  if (role === "VENDOR") return "/console/food";
   return "/console";
 }

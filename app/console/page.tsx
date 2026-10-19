@@ -13,6 +13,7 @@ const ROLE_COPY: Record<string, { title: string; blurb: string }> = {
   ORGANIZER: { title: "Your trips, your way.", blurb: "Publish coaches, watch bookings and reach your passengers." },
   LANDLORD: { title: "Your hostels, your way.", blurb: "Build your properties and bed-spaces for students." },
   DRIVER: { title: "Ready for the next queue.", blurb: "Your vehicle, your queue and your passengers." },
+  VENDOR: { title: "Prepare every pickup with confidence.", blurb: "Accept requests, update preparation and record each collection." },
 };
 
 export default function ConsoleHome() {

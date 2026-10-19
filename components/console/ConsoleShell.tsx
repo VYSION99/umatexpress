@@ -18,6 +18,7 @@ const ROLE_LABEL: Record<string, string> = {
   ORGANIZER: "Organizer",
   LANDLORD: "Landlord",
   DRIVER: "Driver",
+  VENDOR: "Food vendor",
 };
 
 /**
