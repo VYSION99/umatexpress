@@ -9,7 +9,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, turso, tursoTransaction } from
  * body or query parameter, which a caller can choose freely.
  */
 export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER"] as const;
-export const DELEGATABLE_SERVICES = ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "cinema", "settings"] as const;
+export const DELEGATABLE_SERVICES = ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "cinema", "food", "settings"] as const;
 export type ConsoleRole = (typeof CONSOLE_ROLES)[number];
 
 export const CONSOLE_SESSION_COOKIE = "umx_console_session";
@@ -86,6 +86,7 @@ export function delegateServiceForPath(pathname: string): string | null {
   const paths: Array<[string, string]> = [
     ["/api/console/campus", "campus"], ["/api/admin/campus", "campus"], ["/api/v1/campus/admin", "campus"],
     ["/api/console/cinema", "cinema"],
+    ["/api/console/food", "food"],
     ["/api/console/hostel", "hostels"], ["/api/admin/hostel", "hostels"],
     ["/api/console/payouts", "payouts"],
     ["/api/console/settings", "settings"], ["/api/console/bindings", "settings"],

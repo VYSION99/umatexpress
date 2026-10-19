@@ -46,7 +46,7 @@ test("each role gets the services it may use, without repeats", () => {
   }
   assert.deepEqual(
     consoleServicesForRole("ADMIN").map((service) => service.id),
-    ["campus", "vacation", "organizers", "finance", "payouts", "disputes", "hostels", "cinema", "settings", "delegates", "account", "security"],
+    ["campus", "vacation", "organizers", "finance", "payouts", "disputes", "hostels", "cinema", "food", "settings", "delegates", "account", "security"],
     "an administrator gets the platform's services and the platform switchboard, never another role's personal workspace, without nonfunctional service cards",
   );
   assert.deepEqual(consoleServicesForRole("SOMETHING").map((service) => service.id), ["account", "security"], "an unknown role only reaches account services");

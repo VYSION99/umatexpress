@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { MapPin, ShieldCheck } from "@/components/ui/MaterialIcon";
 import { listPublicFoodListings } from "@/lib/food/listings";
+import { FoodReportButton } from "@/components/food/FoodReportButton";
 import "./food.css";
 
 export const metadata: Metadata = {
@@ -19,8 +20,8 @@ function priceLabel(value: number): string {
   return new Intl.NumberFormat("en-GH", { style: "currency", currency: "GHS", maximumFractionDigits: 2 }).format(value);
 }
 
-export default function FoodPage() {
-  const listings = listPublicFoodListings();
+export default async function FoodPage() {
+  const listings = await listPublicFoodListings().catch(() => []);
 
   return <CampusShell
     area="FOOD"
@@ -44,6 +45,7 @@ export default function FoodPage() {
             <div><dt>Hours</dt><dd>{listing.hours}</dd></div>
             <div><dt>Provider checked</dt><dd>{updatedLabel(listing.verifiedAt)}</dd></div>
             <div><dt>Menu updated</dt><dd>{updatedLabel(listing.updatedAt)}</dd></div>
+            {listing.pickupDetails && <div><dt>Pickup</dt><dd>{listing.pickupDetails}</dd></div>}
           </dl>
           {listing.menuItems.length > 0 && <section className="food-menu" aria-label={`${listing.name} menu`}>
             <h3>Menu</h3>
@@ -54,6 +56,7 @@ export default function FoodPage() {
             <p className="food-menu-note">Menu and dietary details are supplied by the provider. Confirm ingredients and availability with them before ordering.</p>
           </section>}
           <a className="food-contact" href={listing.contactHref}>{listing.contactLabel}</a>
+          <FoodReportButton providerId={listing.id} providerName={listing.name} />
         </article>)}
       </section> : <section className="food-empty" aria-labelledby="food-empty-title">
         <span className="food-empty-icon"><MapPin size={24} aria-hidden /></span>

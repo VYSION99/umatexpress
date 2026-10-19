@@ -1,7 +1,15 @@
 # Next student services roadmap
 
 **Planning date:** 27 September 2026
-**Status:** Recommendation for discovery; no new service is approved or marked live by this document.
+**Status:** Food M1 directory infrastructure implemented; public launch remains gated on verified provider records. No ordering or payment flow is enabled.
+
+## Food M1 implementation (19 October 2026)
+
+The first Food milestone now provides a staff-managed provider directory, timestamped menus and prices, provider verification records, publication and suspension controls, and a student correction route. Any edit returns a published listing to draft so changed details must be checked again. The public query returns only records with both `PUBLISHED` status and a verification date.
+
+Platform staff and Food-scoped admin delegates manage the directory at `/console/food`. Public browsing at `/food` does not require an account. Students can report stale hours, menu, price, location or contact details; staff record an outcome before closing the report. The schema is in `sql/039_food_directory.sql` and the canonical migration bundle.
+
+The homepage Food card remains in **On the way** until staff have entered and verified real providers. Vendor self-service, “open now” claims, live item availability, ordering, delivery and payments remain outside M1.
 
 ## Starting point
 
