@@ -34,8 +34,17 @@ cd "$PROJECT_DIR"
 # Python runs as a private Worker on the same Cloudflare account. Both app
 # Workers reach it through an internal service binding, never a public URL.
 INTELLIGENCE_WORKER_NAME="${CLOUDFLARE_INTELLIGENCE_WORKER_NAME:-$(env_or_default CLOUDFLARE_INTELLIGENCE_WORKER_NAME umatexpress-intelligence)}"
-if ! command -v uv >/dev/null 2>&1; then
-  echo "Install uv before deploying: the private Python Worker is built with pywrangler." >&2
+PYWRANGLER=()
+if command -v uv >/dev/null 2>&1; then
+  PYWRANGLER=(uv run pywrangler)
+elif [[ -x "$PROJECT_DIR/services/intelligence/.venv/bin/pywrangler" ]]; then
+  # A checked-out development environment may already have the exact
+  # pywrangler toolchain installed even when the optional uv launcher is not
+  # available system-wide. Use it directly rather than blocking the entire
+  # client and console deployment.
+  PYWRANGLER=("$PROJECT_DIR/services/intelligence/.venv/bin/pywrangler")
+else
+  echo "Install uv or create services/intelligence/.venv before deploying the private Python Worker." >&2
   exit 1
 fi
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(env_or_default CLOUDFLARE_KEY "")}"
@@ -49,7 +58,7 @@ mkdir -p "$(dirname "$WRANGLER_LOG_PATH")"
 echo "==> private Python Worker: $INTELLIGENCE_WORKER_NAME"
 (
   cd "$PROJECT_DIR/services/intelligence"
-  uv run pywrangler deploy --config wrangler.jsonc --name "$INTELLIGENCE_WORKER_NAME"
+  "${PYWRANGLER[@]}" deploy --config wrangler.jsonc --name "$INTELLIGENCE_WORKER_NAME"
 )
 
 # Bindings that name an account-side resource must exist before Wrangler can
