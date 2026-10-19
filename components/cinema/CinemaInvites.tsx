@@ -95,7 +95,7 @@ export function CinemaInvites({ roomId, members, onChanged }: {
       setRemoved((current) => [...current, guestId]);
       setNotice(data.removed
         ? "Removed. They can no longer read or enter this room."
-        : "That student was not on the guest list.");
+        : "That account was not on the guest list.");
       onChanged?.();
     } catch (removeError) {
       setError(removeError instanceof Error ? removeError.message : "That guest could not be removed.");
@@ -107,7 +107,7 @@ export function CinemaInvites({ roomId, members, onChanged }: {
   return <div className="cinema-invites">
     <h3><Envelope size={15} aria-hidden /> Guest list</h3>
     <p className="cinema-note">
-      Only the students on this list can read or join this private room. Invite by their <strong>@st.umat.edu.gh</strong> address;
+      Only verified accounts on this list can read or join this private room. Invite by the email used for their UMaTeXPRESS account;
       removing someone takes back the invitation and the seat, and closes the room on their screen.
     </p>
     <form className="cinema-invite-form" onSubmit={(event) => { event.preventDefault(); void send(); }}>
@@ -115,8 +115,8 @@ export function CinemaInvites({ roomId, members, onChanged }: {
         type="email"
         value={email}
         required
-        placeholder="student@st.umat.edu.gh"
-        aria-label="The student's UMaT email address"
+        placeholder="person@example.com"
+        aria-label="The guest's verified account email address"
         onChange={(event) => setEmail(event.target.value)}
       />
       <button type="submit" disabled={busy === "invite" || !email.trim()}><UserPlus size={15} aria-hidden /> Invite</button>
@@ -128,7 +128,7 @@ export function CinemaInvites({ roomId, members, onChanged }: {
       : <ul className="cinema-invite-list">
         {rows.map((row) => <li key={row.studentId}>
           <div>
-            <strong>{row.name || row.email || "A student"}</strong>
+            <strong>{row.name || row.email || "A guest"}</strong>
             {row.email && <small>{row.email}</small>}
           </div>
           <span className={`cinema-guest-tag${row.inRoom ? " is-in" : ""}`}>{row.inRoom ? "In the room" : "Invited"}</span>

@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { createRoom, listMyRooms } from "@/lib/cinema-engine/rooms";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { requireStudent } from "@/lib/student-auth";
+import { requireCinemaAccount, requireStudent } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    const student = await requireStudent(request);
+    const student = await requireCinemaAccount(request);
     const params = new URL(request.url).searchParams;
     const offset = Math.max(0, Math.min(100_000, Math.floor(Number(params.get("offset")) || 0)));
     const rooms = await listMyRooms(student.id, { offset, limit: 21, status: params.get("status") || "" });

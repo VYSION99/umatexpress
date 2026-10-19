@@ -46,9 +46,10 @@ and the sections after it were rewritten to match.
    by the size limit instead. The uploader never supplies the number.
 3. **Retention default.** `cinema_retention_hours` ships at 2; the R2 lifecycle
    safety net ships at 48 hours.
-4. **Room membership default.** Recommended: any signed-in UMaT student holding
-   the link may join, and the host may lock the room. Explicit invite lists are a
-   later feature.
+4. **Room membership default — revised for public Cinema.** Any signed-in account
+   with a verified email and the link may join, and the host may lock the room.
+   Creating free rooms remains limited to UMaT student accounts. Private rooms
+   use explicit verified-account invitation lists.
 5. **Voice and video transport — decided in M8.** Browsers open one
    `RTCPeerConnection` per pair and the SDP/ICE legs are relayed blind through
    the `CinemaRoom` socket, which accepts only a leg from an attached member
@@ -1010,7 +1011,7 @@ room that simply expired from counting as a strike against its host.
 | GET/DELETE | `/api/cinema/recordings/:id` | Read or delete a take, recorder only (M8) |
 | GET | `/api/cinema/recordings/:id/file` | Download the take, streamed by the Worker (M8) |
 | GET/POST/DELETE | `/api/cinema/sessions/:id/whiteboard` | List the room's AI boards, ask for one, or clear one (M9) |
-| GET/POST/DELETE | `/api/cinema/sessions/:id/invites` | The private room's guest list: read it, invite a UMaT address, take an invitation back (M10) |
+| GET/POST/DELETE | `/api/cinema/sessions/:id/invites` | The private room's guest list: read it, invite a verified account address, take an invitation back (M10) |
 | GET/POST/DELETE | `/api/cinema/sessions/:id/bookmarks` | Read, add, or remove shared timestamped study moments (M14) |
 | DELETE | `/api/cinema/sessions/:id/guests` | Remove a guest from the room itself: invitation, membership and sockets together (M10) |
 

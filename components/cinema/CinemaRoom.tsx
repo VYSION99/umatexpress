@@ -819,7 +819,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
               : "You are an invited guest: you can watch, chat, ask the board and use the media, and the host keeps the room's controls."
             : room.joinLocked
               ? "The host locked the door, so only people already in can come back."
-              : "Everyone with the link and a UMaT account can join. A name leaves the list when that person closes the room."}
+              : "Everyone with the link and a verified account can join. A name leaves the list when that person closes the room."}
       </p>
       </section>
       </Sheet>
@@ -831,7 +831,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
           {account && live.messages.length > 0 && <span className="cinema-link">{live.messages.length} message{live.messages.length === 1 ? "" : "s"}</span>}
         </div>
         {!account
-          ? <p className="cinema-note">Sign in with your <strong>@st.umat.edu.gh</strong> account to read and send messages with the room.</p>
+          ? <p className="cinema-note">Sign in with a verified account to read and send messages with the room.</p>
           : <>
             {live.messages.length === 0
               ? <p className="cinema-note">No messages yet. Ask about a moment in the video and the room attaches where you were.</p>

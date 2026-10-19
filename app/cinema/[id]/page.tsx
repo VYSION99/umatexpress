@@ -50,7 +50,7 @@ export default async function CinemaRoomPage({ params }: { params: Promise<{ id:
   if (restricted) return <CampusShell
     area="CINEMA"
     title="A private room"
-    subtitle="Only invited students can open it"
+    subtitle="Only invited verified accounts can open it"
   >
     <section className="cinema-card">
       <h2>This room is private</h2>

@@ -7,6 +7,7 @@ import { FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } fro
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
+import { validStudentEmail } from "@/lib/student-email";
 import { CinemaDialog } from "./CinemaDialog";
 import { UploadPanel } from "./UploadPanel";
 import "./cinema.css";
@@ -34,6 +35,7 @@ type CinemaDoor = "PUBLIC" | "PRIVATE";
 export function CinemaLobby() {
   const router = useRouter();
   const { ready, account } = useStudentAccount();
+  const canHost = Boolean(account && validStudentEmail(account.email));
   const [dialog, setDialog] = useState<"" | "create" | "join">("");
   const [filter, setFilter] = useState("");
   const [offset, setOffset] = useState(0);
@@ -206,13 +208,13 @@ export function CinemaLobby() {
   return <div className="cinema-lobby">
     <section className="cinema-lobby-head">
       <div><span className="cinema-eyebrow">LIVE VIDEO · PANELS · DEBATES</span><h2>Watch the event.<br />Join the conversation.</h2><p>Stream campus events, follow a moderated panel, ask questions and vote. Create a smaller room when your group needs its own space.</p></div>
-      <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Explore video events</Link><button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create room</button><button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join room</button></div>
+      <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Explore video events</Link>{canHost && <button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create room</button>}<button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join room</button></div>
     </section>
     <CinemaDialog open={Boolean(publicRoom)} title="Make this room public?" busy={Boolean(roomBusy)} onClose={() => setPublicRoom(null)}>
-      <p>Any signed-in UMaT student with the link will be able to join {publicRoom?.title}.</p>
+      <p>Any signed-in account with a verified email and the link will be able to join {publicRoom?.title}.</p>
       <div className="cinema-controls"><button disabled={Boolean(roomBusy)} onClick={() => { if (publicRoom) void flipDoor(publicRoom).then(() => setPublicRoom(null)); }}>Make public</button><button className="secondary" onClick={() => setPublicRoom(null)}>Keep private</button></div>
     </CinemaDialog>
-    <CinemaDialog open={dialog === "create" || Boolean(uploadRoom)} title={uploadRoom ? "Upload your video" : "Create a room"} busy={busy} onClose={() => { setDialog(""); setUploadRoom(null); void load(); }}>
+    <CinemaDialog open={(dialog === "create" && canHost) || Boolean(uploadRoom)} title={uploadRoom ? "Upload your video" : "Create a room"} busy={busy} onClose={() => { setDialog(""); setUploadRoom(null); void load(); }}>
 
     {uploadRoom
       ? <section className="cinema-card">

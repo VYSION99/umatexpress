@@ -1,9 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
-import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { joinRoom, readRoom } from "@/lib/cinema-engine/rooms";
+import { joinRoom } from "@/lib/cinema-engine/rooms";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { requireCinemaAccount } from "@/lib/student-auth";
-import { validStudentEmail } from "@/lib/student-email";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -18,8 +16,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const student = await requireCinemaAccount(request);
     const { id } = await context.params;
-    const preview = await readRoom({ id, studentId: student.id });
-    if (!preview.discussionMode && !validStudentEmail(student.email)) throw new CampusEngineError("FORBIDDEN", "Only UMaT student accounts can join regular Cinema rooms.", 403);
     const room = await joinRoom({ id, student });
     return ok({ room }, { headers: NO_STORE }, request);
   } catch (error) {

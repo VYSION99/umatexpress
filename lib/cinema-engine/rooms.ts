@@ -16,13 +16,14 @@ import { consoleAudit } from "@/lib/console-audit";
 import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { endStreamingEntitlementBySession, ensureCinemaStreamingEntitlements } from "@/lib/cinema-streaming/entitlements";
+import { validPlatformEmail } from "@/lib/student-email";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
  * Cinema rooms: the phase-one half of docs/Cinema.
  *
  * A room is a row, its membership is another row, and both are readable by any
- * signed-in student who holds the link. There is no playback state here and no
+ * signed-in, verified account that holds the link. There is no playback state here and no
  * video object: the Durable Object that owns live state arrives with M2, and
  * uploads with phase two. What this module owns is who may be in a room, what
  * state the room itself is in, and the rules that keep both honest.
@@ -805,9 +806,6 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
 
 /** The guest list is bounded like every other list in the room. */
 const INVITE_LIMIT = 60;
-/** Only a UMaT student address can be invited, and only one that exists. */
-const UMAT_STUDENT_EMAIL = /^[A-Za-z0-9._%+-]+@st\.umat\.edu\.gh$/;
-
 export type CinemaRoomInvite = {
   studentId: string;
   email: string;
@@ -850,7 +848,7 @@ export async function listRoomInvites(input: { id: string; studentId: string }) 
 
 /**
  * An invitation is an address, never an id typed in by hand: the host gives a
- * UMaT email, the account is looked up, and a student who has no account is a
+ * verified-account email, the account is looked up, and a person who has no account is a
  * 404 rather than a row that would never be read.
  */
 export async function inviteToRoom(input: { id: string; studentId: string; email: unknown }) {
@@ -859,14 +857,14 @@ export async function inviteToRoom(input: { id: string; studentId: string; email
   const row = await requireHostedRoom(input.id, input.studentId);
   if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
   const email = String(input.email ?? "").replace(/\s+/g, "").toLowerCase();
-  if (!UMAT_STUDENT_EMAIL.test(email)) {
-    throw new CampusEngineError("VALIDATION_ERROR", "Invite a UMaT student address ending in @st.umat.edu.gh.", 400);
+  if (!validPlatformEmail(email)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Enter a valid account email address.", 400);
   }
   const account = rowsToObjects(await turso(
-    "SELECT id,COALESCE(name,'') AS name FROM student_accounts WHERE lower(email) = ? AND COALESCE(active,1) = 1 LIMIT 1",
+    "SELECT id,COALESCE(name,'') AS name FROM student_accounts WHERE lower(email) = ? AND COALESCE(active,1) = 1 AND COALESCE(email_verified,0) = 1 LIMIT 1",
     [email],
   ))[0];
-  if (!account) throw new CampusEngineError("NOT_FOUND", "No active UMaT account uses that address. Check the spelling with the student.", 404);
+  if (!account) throw new CampusEngineError("NOT_FOUND", "No verified UMaTeXPRESS account uses that address. Ask the person to create and verify an account first.", 404);
   const inviteeId = String(account.id || "");
   if (inviteeId === String(input.studentId)) {
     throw new CampusEngineError("VALIDATION_ERROR", "You are already in this room.", 400);

@@ -9,8 +9,8 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * A private room's guest list, for its host.
  *
  * An invitation is an address rather than an id because that is what a host
- * has: the engine resolves the UMaT email to the one account it belongs to, so
- * a list can never point at a student who does not exist. Every verb is
+ * has: the engine resolves a verified account email to its owner, so a list
+ * can never point at an account that does not exist. Every verb is
  * host-only, and taking an invitation back closes the door without touching
  * the membership of anyone already inside.
  */

@@ -347,6 +347,7 @@ const ACCOUNT = {
 const STUDENT_ACCOUNTS = new Map([
   [ACCOUNT.id, ACCOUNT],
   ["student-guest", { id: "student-guest", email: "kwesi@st.umat.edu.gh", name: "Kwesi Guest", active: 1 }],
+  ["public-guest", { id: "public-guest", email: "guest@example.com", name: "Public Guest", active: 1 }],
 ]);
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
 after(async () => vite.close());
@@ -359,6 +360,7 @@ const {
 const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
 const { markCinemaRoomEnded } = await vite.ssrLoadModule("/lib/cinema-engine/schedule.ts");
 const sessionsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/route.ts");
+const joinRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/join/route.ts");
 const invitesRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/invites/route.ts");
 const guestsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/guests/route.ts");
 const socketRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/ws/route.ts");
@@ -648,13 +650,13 @@ test("a room becomes private, and a stranger with the link is refused the read a
   assert.equal((await joinRoom({ id: room.id, student: guest })).isMember, true);
 });
 
-test("an invitation names an existing UMaT address, and lets it read and join", async () => {
+test("an invitation names an existing verified account, and lets it read and join", async () => {
   const room = await createRoom({ student: host, video: VIDEO });
   await patchRoom({ id: room.id, studentId: host.id, action: "PRIVATE" });
 
   await expectRefusal(inviteToRoom({ id: room.id, studentId: host.id, email: "ghost@st.umat.edu.gh" }), "NOT_FOUND", 404);
-  await expectRefusal(inviteToRoom({ id: room.id, studentId: host.id, email: "kwesi@gmail.com" }), "VALIDATION_ERROR", 400);
-  await expectRefusal(inviteToRoom({ id: room.id, studentId: host.id, email: "kwesi@umat.edu.gh" }), "VALIDATION_ERROR", 400);
+  await expectRefusal(inviteToRoom({ id: room.id, studentId: host.id, email: "not-an-email" }), "VALIDATION_ERROR", 400);
+  await expectRefusal(inviteToRoom({ id: room.id, studentId: host.id, email: "unknown@example.com" }), "NOT_FOUND", 404);
   await expectRefusal(inviteToRoom({ id: room.id, studentId: host.id, email: ACCOUNT.email }), "VALIDATION_ERROR", 400);
 
   const invited = await inviteToRoom({ id: room.id, studentId: host.id, email: "Kwesi@st.umat.edu.gh" });
@@ -682,6 +684,13 @@ test("an invitation names an existing UMaT address, and lets it read and join", 
   assert.equal(takenBack.removed, true);
   assert.equal(takenBack.invites.length, 0);
   assert.equal((await listMyRooms(guest.id)).length, 1, "taking an invitation back never removes a member");
+});
+
+test("a verified non-student account can be invited to a private room", async () => {
+  const room = await createRoom({ student: host, video: VIDEO, visibility: "PRIVATE" });
+  const invited = await inviteToRoom({ id: room.id, studentId: host.id, email: "Guest@Example.com" });
+  assert.equal(invited.invite.studentId, "public-guest");
+  assert.equal((await joinRoom({ id: room.id, student: { id: "public-guest", name: "Public Guest" } })).isMember, true);
 });
 
 test("the invite route is the host's, and it answers with the list every time", async () => {
@@ -824,6 +833,32 @@ test("the routes require the platform account, and create a room for it once sig
   const listPayload = await listed.json();
   assert.equal(listPayload.rooms.length, 1);
   assert.equal(listPayload.rooms[0].id, payload.room.id);
+});
+
+test("a verified non-student account can join Cinema and read its room list but cannot host", async () => {
+  const room = await createRoom({ student: host, title: "Open screening", video: VIDEO, startInMinutes: 0 });
+  const cookie = await studentSessionCookie("public-guest", new Request("https://umatexpress.test/"));
+  const context = { params: Promise.resolve({ id: room.id }) };
+
+  const joined = await joinRoute.POST(new Request(`https://umatexpress.test/api/cinema/sessions/${room.id}/join`, {
+    method: "POST",
+    headers: { cookie },
+  }), context);
+  const joinedPayload = await joined.json();
+  assert.equal(joined.status, 200, JSON.stringify(joinedPayload));
+  assert.equal(joinedPayload.room.isMember, true);
+
+  const listed = await sessionsRoute.GET(new Request("https://umatexpress.test/api/cinema/sessions", { headers: { cookie } }));
+  const listedPayload = await listed.json();
+  assert.equal(listed.status, 200, JSON.stringify(listedPayload));
+  assert.deepEqual(listedPayload.rooms.map((entry) => entry.id), [room.id]);
+
+  const create = await sessionsRoute.POST(new Request("https://umatexpress.test/api/cinema/sessions", {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ title: "Not allowed", video: VIDEO }),
+  }));
+  assert.equal(create.status, 403, "hosting stays limited to UMaT student accounts");
 });
 
 test("the create route carries the lobby's two choices without losing the upload rule", async () => {
