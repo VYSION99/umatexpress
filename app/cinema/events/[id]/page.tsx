@@ -10,4 +10,4 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     return { title: `${event.title} | UMaTeXPRESS Cinema`, description, openGraph: { title: event.title, description, type: "website", ...(event.posterUrl ? { images: [event.posterUrl] } : {}) } };
   } catch { return { title: "Cinema event | UMaTeXPRESS", description: "Open a UMaTeXPRESS Cinema event invitation, RSVP, and join the session." }; }
 }
-export default async function CinemaEventPage({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; return <CampusShell area="CINEMA" title="Community event" subtitle="A shared invitation from the UMaT community."><CinemaEventDetail id={id} /></CampusShell>; }
+export default async function CinemaEventPage({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; return <CampusShell area="CINEMA" title="Cinema event" subtitle="A scheduled organizer programme with an RSVP, attendance limit and live event room."><CinemaEventDetail id={id} /></CampusShell>; }

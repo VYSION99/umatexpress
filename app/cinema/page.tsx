@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 export default function CinemaPage() {
   return <CampusShell
     area="CINEMA"
-    title="Live video & discussions"
-    subtitle="Watch campus streams, debates and panels. Join the audience or take the speaking stage."
+    title="Cinema events"
+    subtitle="Scheduled, organizer-led screenings, debates and panels. Reserve a place, then join the event room when it opens."
   >
     <CinemaEvents />
   </CampusShell>;

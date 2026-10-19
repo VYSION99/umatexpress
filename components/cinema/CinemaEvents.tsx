@@ -85,7 +85,7 @@ export function CinemaEvents() {
   const visible = events;
   return <div className="cinema-events-page">
     <section className="cinema-events-hero">
-      <div><span className="cinema-eyebrow">CINEMA LIVE</span><h2>Live video, real conversations.</h2><p>Watch campus streams, debates and panels. Join the audience, ask questions, vote and request the speaking stage.</p></div>
+      <div><span className="cinema-eyebrow">SCHEDULED EVENTS · RSVP · LIVE &amp; REPLAY</span><h2>Live video, real conversations.</h2><p>Events are published by an organizer for a set time and audience. Reserve your place, then join the event room to watch, ask questions, vote or request the speaking stage.</p></div>
       <div className="cinema-controls">{account && validStudentEmail(account.email) ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">UMaT student organizers can publish events.</span>}{account?.emailVerified && <Link className="cinema-rooms-link" href="/cinema/rooms"><FilmSlate size={18} /> Your rooms</Link>}</div>
     </section>
     <div className="cinema-event-tools">

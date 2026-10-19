@@ -207,8 +207,8 @@ export function CinemaLobby() {
 
   return <div className="cinema-lobby">
     <section className="cinema-lobby-head">
-      <div><span className="cinema-eyebrow">LIVE VIDEO · PANELS · DEBATES</span><h2>Watch the event.<br />Join the conversation.</h2><p>Stream campus events, follow a moderated panel, ask questions and vote. Create a smaller room when your group needs its own space.</p></div>
-      <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Explore video events</Link>{canHost && <button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create room</button>}<button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join room</button></div>
+      <div><span className="cinema-eyebrow">WATCH ROOMS · LINK OR INVITATION</span><h2>Watch together.<br />Study with your group.</h2><p>A room is a smaller space opened by one host. Join from a shared link or private invitation; it is separate from the scheduled event catalogue and does not use event RSVPs.</p></div>
+      <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Browse scheduled events</Link>{canHost && <button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create a room</button>}<button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join with a link</button></div>
     </section>
     <CinemaDialog open={Boolean(publicRoom)} title="Make this room public?" busy={Boolean(roomBusy)} onClose={() => setPublicRoom(null)}>
       <p>Any signed-in account with a verified email and the link will be able to join {publicRoom?.title}.</p>
