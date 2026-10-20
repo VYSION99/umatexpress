@@ -1,5 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { ensureFoodDirectoryTables } from "@/lib/food/listings";
+import { ensureFoodOperationsTables, foodPilotSettings } from "@/lib/food/operations";
 import { foodVendorForProfile } from "@/lib/food/vendors";
 import { notifyParty } from "@/lib/notify-templates";
 import type { StudentAccount } from "@/lib/student-auth";
@@ -46,9 +47,14 @@ async function orders(where: string, args: Array<string|number|null>) { await en
 export function listStudentFoodPreorders(studentId: string) { return orders("WHERE o.student_id=?",[studentId]); }
 
 export async function createFoodPreorder(input: Record<string, unknown>, student: StudentAccount) {
-  await ensureFoodPreorderTables(); const providerId=clean(input.providerId,"Provider",80,1); const pickupAt=clean(input.pickupAt,"Pickup time",60,1); const note=clean(input.note,"Order note",300);
+  await Promise.all([ensureFoodPreorderTables(), ensureFoodOperationsTables()]); const providerId=clean(input.providerId,"Provider",80,1); const pickupAt=clean(input.pickupAt,"Pickup time",60,1); const note=clean(input.note,"Order note",300);
   const pickupMs=Date.parse(pickupAt); if (!Number.isFinite(pickupMs)) throw new CampusEngineError("VALIDATION_ERROR","Choose a valid pickup time.",400);
   const settings=await foodPreorderSettings(providerId); if(!settings.enabled) throw new CampusEngineError("INVALID_STATE","Pickup preorders are not open for this provider.",409);
+  const [pilot, operation] = await Promise.all([foodPilotSettings(), turso("SELECT pilot_enabled,service_status,updated_at FROM food_provider_operations WHERE provider_id=? LIMIT 1", [providerId])]);
+  const operationRow = rowsToObjects(operation)[0];
+  if (!pilot.enabled || Number(operationRow?.pilot_enabled || 0) !== 1) throw new CampusEngineError("INVALID_STATE","This provider is not currently in the pickup pilot.",409);
+  if (String(operationRow?.service_status || "CLOSED") === "CLOSED") throw new CampusEngineError("INVALID_STATE","This provider is temporarily closed for pickup requests.",409);
+  if (!operationRow?.updated_at || Date.now()-Date.parse(String(operationRow.updated_at))>18*60*60_000) throw new CampusEngineError("INVALID_STATE","The provider must refresh today’s availability before accepting new requests.",409);
   const now=new Date(); if(pickupMs<now.getTime()+settings.minimumLeadMinutes*60000 || pickupMs>now.getTime()+settings.maximumDaysAhead*86400000) throw new CampusEngineError("VALIDATION_ERROR",`Choose a pickup between ${settings.minimumLeadMinutes} minutes and ${settings.maximumDaysAhead} days from now.`,400);
   const requested=Array.isArray(input.items)?input.items:[]; if(!requested.length||requested.length>20) throw new CampusEngineError("VALIDATION_ERROR","Choose between 1 and 20 menu items.",400);
   const ids=requested.map((entry)=>String((entry as Record<string,unknown>)?.menuItemId||"")); if(ids.some((id)=>!id)||new Set(ids).size!==ids.length) throw new CampusEngineError("VALIDATION_ERROR","Choose each valid menu item once.",400);

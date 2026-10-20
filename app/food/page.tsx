@@ -27,7 +27,7 @@ export default async function FoodPage() {
   return <CampusShell
     area="FOOD"
     title="Find food around campus"
-    subtitle="Browse provider-verified food places. This directory does not take orders or payments."
+    subtitle="Browse verified providers and request pickup where the controlled pilot is open. Payment stays with the provider."
   >
     <div className="food-directory">
       <section className="food-trust-note" aria-label="How Food listings are reviewed">
@@ -41,18 +41,20 @@ export default async function FoodPage() {
             <div><h2>{listing.name}</h2><p>{listing.description}</p></div>
             <span className="food-verified"><ShieldCheck size={15} aria-hidden /> Verified</span>
           </div>
+          <div className="food-live-status">{listing.operation.updatedAt?<span className={listing.operation.fresh?`is-${listing.operation.serviceStatus.toLowerCase()}`:"is-stale"}>{listing.operation.fresh?listing.operation.serviceStatus:"UPDATE REQUIRED"}</span>:<span>Availability not published</span>}{listing.operation.availabilityNote&&<p>{listing.operation.availabilityNote}</p>}</div>
           <p className="food-location"><MapPin size={16} aria-hidden />{listing.location}</p>
           <dl className="food-details">
-            <div><dt>Hours</dt><dd>{listing.hours}</dd></div>
+            <div><dt>{listing.operation.updatedAt?"Current hours":"Hours"}</dt><dd>{listing.operation.currentHours||listing.hours}</dd></div>
             <div><dt>Provider checked</dt><dd>{updatedLabel(listing.verifiedAt)}</dd></div>
             <div><dt>Menu updated</dt><dd>{updatedLabel(listing.updatedAt)}</dd></div>
+            {listing.operation.updatedAt&&<div><dt>Availability updated</dt><dd>{updatedLabel(listing.operation.updatedAt)}</dd></div>}
             {listing.pickupDetails && <div><dt>Pickup</dt><dd>{listing.pickupDetails}</dd></div>}
           </dl>
           {listing.menuItems.length > 0 && <section className="food-menu" aria-label={`${listing.name} menu`}>
             <h3>Menu</h3>
-            <ul>{listing.menuItems.map((item, index) => <li key={`${listing.id}-${index}`}>
+            <ul>{listing.menuItems.map((item, index) => <li className={item.available?"":"is-unavailable"} key={`${listing.id}-${index}`}>
               <div><strong>{item.name}</strong>{item.description && <p>{item.description}</p>}{item.dietaryNote && <small>{item.dietaryNote}</small>}</div>
-              <span>{priceLabel(item.priceGhs)}</span>
+              <span>{item.available?priceLabel(item.priceGhs):"Unavailable"}</span>
             </li>)}</ul>
             <p className="food-menu-note">Menu and dietary details are supplied by the provider. Confirm ingredients and availability with them before ordering.</p>
           </section>}

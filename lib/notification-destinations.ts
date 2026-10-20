@@ -18,6 +18,8 @@ export function notificationAction(template: string, reference: string, message 
     return reference ? { href: "/payment/callback?reference=" + encodeURIComponent(reference), label: "View ticket" } : null;
   }
   if (template === "food_preorder_requested") return { href: "/console/food", label: "Review pickup request" };
+  if (template === "food_support_opened") return { href: "/console/food", label: "Review Food support case" };
+  if (template === "food_support_closed") return { href: "/food", label: "View pickup details" };
   if (template.startsWith("food_preorder_")) return { href: "/food", label: "View pickup status" };
   if (template.startsWith("campus_") || ["driver_accepted", "driver_arrived", "driver_cancelled", "trip_completed"].includes(template)) {
     return reference ? { href: "/campus/ticket?reference=" + encodeURIComponent(reference), label: "Track ride" } : { href: "/campus", label: "Open campusRide" };

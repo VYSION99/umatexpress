@@ -91,6 +91,16 @@
 .food-order-status.is-accepted, .food-order-status.is-ready { background: #def4e7; color: #116344; }
 .food-order-status.is-declined, .food-order-status.is-cancelled, .food-order-status.is-expired { background: #f7e4e1; color: #92372e; }
 .food-order-confirmed { display: flex; align-items: center; gap: .3rem; color: #116344 !important; font-weight: 800; }
+.food-preorder-paused { margin: 1rem 0 0; padding: .7rem .8rem; border-radius: .7rem; background: #f3f5f4; color: #596b62; font-size: .82rem; }
+.food-care-actions { display: flex !important; flex-wrap: wrap; gap: .5rem; }
+.food-care-actions button { display: inline-flex; align-items: center; gap: .3rem; min-height: 2.4rem; padding: 0 .7rem; border: 1px solid #d8e3dd; border-radius: .65rem; background: #fff; color: #275441; font: inherit; font-size: .78rem; font-weight: 800; cursor: pointer; }
+.food-live-status { display: flex; align-items: center; gap: .55rem; margin-top: .85rem; }
+.food-live-status > span { flex: 0 0 auto; padding: .25rem .55rem; border-radius: 99px; background: #edf1ef; color: #4e6258; font-size: .68rem; font-weight: 900; letter-spacing: .05em; }
+.food-live-status > span.is-open { background: #dff4e8; color: #126343; }
+.food-live-status > span.is-busy { background: #fff0c9; color: #765616; }
+.food-live-status > span.is-closed { background: #f5e5e2; color: #91382f; }
+.food-live-status > span.is-stale { background: #f3eee3; color: #705a25; }
+.food-live-status p { margin: 0; color: #5b6c63; font-size: .82rem; }
 
 .food-listings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; margin-top: 1.25rem; }
 .food-listing { padding: 1.25rem; border: 1px solid #e1e8e4; border-radius: 1rem; background: #fff; }
@@ -111,6 +121,8 @@
 .food-menu li p { margin: .2rem 0 0; color: #5b6c63; line-height: 1.4; }
 .food-menu li small { display: block; margin-top: .25rem; color: #77541c; }
 .food-menu li > span { flex: 0 0 auto; color: #183e2f; font-weight: 700; }
+.food-menu li.is-unavailable { opacity: .65; }
+.food-menu li.is-unavailable > span { color: #8a4038; font-size: .78rem; }
 .food-menu-note { margin: .75rem 0 0; color: #68786f; font-size: .82rem; line-height: 1.5; }
 @media (max-width: 36rem) {
   .food-directory { width: min(100% - 1.25rem, 70rem); margin-top: 1rem; }

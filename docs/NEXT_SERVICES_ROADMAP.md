@@ -1,7 +1,7 @@
 # Next student services roadmap
 
 **Planning date:** 27 September 2026
-**Status:** Food M1 directory infrastructure implemented; public launch remains gated on verified provider records. No ordering or payment flow is enabled.
+**Status:** Food M1–M3 implemented behind controlled launch gates. Public launch remains gated on real verified providers, linked vendors and an operated pilot. Online payment and delivery remain disabled.
 
 ## Food M1 implementation (19 October 2026)
 
@@ -20,6 +20,14 @@ Food vendors can now apply for a `VENDOR` console account. Registration does not
 Staff control the minimum lead time, maximum days ahead, daily active-request limit, response window, cancellation cutoff, pickup instructions and the switch for new requests. Closing that switch preserves existing orders. Capacity is enforced in the database transaction, prices cannot be changed retroactively, cross-origin mutations are refused, and request creation is rate limited.
 
 M2 still has no platform checkout, settlement, delivery, refund promise or real-time stock claim. Students pay the provider outside the app at pickup according to the provider’s accepted request. A payment milestone requires a separately tested vendor settlement, reconciliation, cancellation and refund design.
+
+## Food M3 implementation (20 October 2026)
+
+M3 adds the operational controls needed to run a small pickup pilot without presenting unverified availability as fact. A linked vendor may update only the provider's current service state, temporary hours, availability note and which verified menu items can be prepared. Provider identity, location, contact, item names and prices remain staff-controlled. Every vendor update and staff pilot decision is recorded in an audit history.
+
+New requests require all four gates: the global staff pilot switch, provider admission, the provider's M2 pickup configuration and a current OPEN or BUSY vendor status refreshed within 18 hours. Any gate can stop new requests without deleting or hiding existing pickups. Editing or suspending a provider removes it from the pilot; staff must verify and admit it again.
+
+Students can report a problem after a provider accepts a pickup and can submit one rating after collection is confirmed. Active cases appear in the staff Food workspace with review, resolution and dismissal actions. The operations dashboard shows request totals, collected, expired and declined counts, average acceptance time, and collection-backed ratings. M3 does not issue refunds, take online payment, promise delivery or infer stock.
 
 ## Starting point
 
