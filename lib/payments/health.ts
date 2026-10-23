@@ -20,16 +20,17 @@ export async function paymentHealth(now = new Date()) {
     ["campus_payments", "Campus ride", "PENDING", "PAID_REVIEW"],
     ["hostel_bookings", "Hostel", "PENDING_PAYMENT", "PAYMENT_REVIEW"],
     ["hostel_plugin_subscriptions", "Hostel service", "PENDING_PAYMENT", "PAYMENT_REVIEW"],
+    ["food_payments", "Food", "PENDING", "REVIEW"],
   ]) {
     definitions.push(
       { id: `${table}-stuck`, severity: "warning", title: `${product} payments are overdue`, detail: "Payment has been pending for more than fifteen minutes. Verify the existing reference.", table, date: "created_at", where: "status=? AND created_at<?", args: [pending, minutesAgo(15)] },
       { id: `${table}-review`, severity: "critical", title: `${product} payments need review`, detail: "A payment, amount, currency, or reservation issue requires attention.", table, date: "created_at", where: "status IN (?, 'REVERSAL_REVIEW')", args: [review] },
     );
   }
-  const refunds = [["campus_refunds", "Campus ride"], ["hostel_refunds", "Hostel"]] as const;
+  const refunds = [["campus_refunds", "Campus ride", "payment_reference"], ["hostel_refunds", "Hostel", "reference"], ["food_refunds", "Food", "payment_reference"]] as const;
   for (const [table, product] of refunds) definitions.push({
-    id: `${table}-delayed`, severity: "warning", title: `${product} refunds need attention`, detail: "A refund failed or has remained approved for more than 24 hours. Verify it before resubmitting.",
-    table, date: "updated_at", where: "status='FAILED' OR (status='APPROVED' AND updated_at<?)", args: [minutesAgo(24 * 60)],
+    id: `${table}-delayed`, severity: "warning", title: `${product} refunds need attention`, detail: "A refund failed, needs review, or has remained approved for more than 24 hours. Verify it before resubmitting.",
+    table, date: "updated_at", where: "status IN ('FAILED','REVIEW') OR (status='APPROVED' AND updated_at<?)", args: [minutesAgo(24 * 60)],
   });
   const available = definitions.filter(item => tables.has(item.table));
   const rows = available.length ? rowsToObjects(await turso(available.map(item => `SELECT '${item.id}' AS id,COUNT(*) AS count,MIN(${item.date}) AS oldest FROM ${item.table} WHERE ${item.where}`).join(" UNION ALL "), available.flatMap(item => item.args || []))) : [];
@@ -38,6 +39,6 @@ export async function paymentHealth(now = new Date()) {
     return row && Number(row.count) > 0 ? [{ id, severity, title, detail, count: Number(row.count), oldestAt: String(row.oldest || "") }] : [];
   });
   const refundTables = refunds.filter(([table]) => tables.has(table));
-  const pendingRefunds = refundTables.length ? rowsToObjects(await turso(refundTables.map(([table, product]) => `SELECT '${product}' AS service,id,${table === "campus_refunds" ? "payment_reference" : "reference"} AS reference,amount,status,updated_at FROM ${table} WHERE status IN ('APPROVED','FAILED')`).join(" UNION ALL ") + " ORDER BY updated_at LIMIT 50")) : [];
+  const pendingRefunds = refundTables.length ? rowsToObjects(await turso(refundTables.map(([table, product, reference]) => `SELECT '${product}' AS service,id,${reference} AS reference,amount,status,updated_at FROM ${table} WHERE status IN ('APPROVED','FAILED','REVIEW')`).join(" UNION ALL ") + " ORDER BY updated_at LIMIT 50")) : [];
   return { alerts, pendingRefunds, checkedAt: now.toISOString() };
 }

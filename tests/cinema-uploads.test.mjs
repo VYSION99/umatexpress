@@ -17,7 +17,7 @@ process.env.TURSO_DATABASE_URL = "https://cinema-uploads-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const state = { rooms: [], members: [], uploads: [], signals: [], audits: [], metrics: new Map(), settings: new Map() };
+const state = { rooms: [], members: [], uploads: [], signals: [], audits: [], metrics: new Map(), settings: new Map(), allowances: new Map(), grants: new Map() };
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -31,13 +31,27 @@ const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), row
 
 const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at", "discussion_mode", "stage_limit"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
-const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "created_at", "updated_at"];
+const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "playlist_position", "created_at", "updated_at"];
 
 function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
   if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
   if (/^ALTER TABLE/.test(sql)) return ok(empty);
+  if (/^DROP INDEX/.test(sql)) return ok(empty);
+  if (/^SELECT plan FROM cinema_room_plan_grants/.test(sql)) {
+    const grant = state.grants.get(args[0]);
+    return ok(grant ? table(["plan"], [{ plan: grant }]) : empty);
+  }
+  if (/^INSERT OR IGNORE INTO cinema_room_allowances/.test(sql)) {
+    if (!state.allowances.has(args[0])) state.allowances.set(args[0], { plan: args[1], max_files: args[2], max_bytes: args[3], max_minutes: args[4] });
+    return affected(1);
+  }
+  if (/^SELECT plan,max_files,max_bytes,max_minutes FROM cinema_room_allowances/.test(sql)) {
+    const row = state.allowances.get(args[0]);
+    return ok(row ? table(["plan", "max_files", "max_bytes", "max_minutes"], [row]) : empty);
+  }
+  if (/^SELECT COALESCE\(MAX\(playlist_position\),0\)/.test(sql)) return ok(table(["last_position"], [{ last_position: Math.max(0, ...state.uploads.filter((upload) => upload.session_id === args[0]).map((upload) => upload.playlist_position || 1)) }]));
   if (/^SELECT key, value, COALESCE\(updated_by,''\) AS updated_by/.test(sql)) {
     const rows = [...state.settings].map(([key, value]) => ({ key, value, updated_by: "", updated_at: "" }));
     return ok(rows.length ? table(["key", "value", "updated_by", "updated_at"], rows) : empty);
@@ -50,9 +64,21 @@ function handle(sql, args) {
   }
 
   // The upload engine's lean room read.
-  if (/^SELECT id,host_student_id,status,title FROM cinema_sessions WHERE id = \? AND status <> 'DELETED' LIMIT 1/.test(sql)) {
+  if (/^SELECT id,host_student_id,status,title,video_source_type,visibility FROM cinema_sessions WHERE id = \? AND status <> 'DELETED' LIMIT 1/.test(sql)) {
     const row = state.rooms.find((room) => room.id === args[0]);
-    return ok(row ? table(["id", "host_student_id", "status", "title"], [row]) : empty);
+    return ok(row ? table(["id", "host_student_id", "status", "title", "video_source_type", "visibility"], [row]) : empty);
+  }
+  if (/^SELECT host_student_id,status,video_source_type FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
+    const row = state.rooms.find((room) => room.id === args[0]);
+    return ok(row ? table(["host_student_id", "status", "video_source_type"], [row]) : empty);
+  }
+  if (/^SELECT role FROM cinema_participants WHERE session_id = \? AND student_id = \? AND left_at = '' LIMIT 1/.test(sql)) {
+    const row = state.members.find((member) => member.session_id === args[0] && member.student_id === args[1] && !member.left_at);
+    return ok(row ? table(["role"], [{ role: row.role || "VIEWER" }]) : empty);
+  }
+  if (/^SELECT host_student_id,title,starts_at,ends_at,duration_minutes,status FROM cinema_sessions/.test(sql)) {
+    const row = state.rooms.find((room) => room.id === args[0]);
+    return ok(row ? table(["host_student_id", "title", "starts_at", "ends_at", "duration_minutes", "status"], [row]) : empty);
   }
   // The room read the playback lease makes.
   if (/^SELECT id,host_student_id,title,video_source_type,video_id,status,join_locked,visibility,starts_at,ends_at,duration_minutes,started_at,ended_at,created_at,updated_at,discussion_mode,stage_limit FROM cinema_sessions WHERE id = \? LIMIT 1/.test(sql)) {
@@ -63,7 +89,7 @@ function handle(sql, args) {
   if (/^SELECT u\.\*, s\.status AS room_status/.test(sql)) {
     const [studentId, sessionId, uploadId] = args;
     const room = state.rooms.find((row) => row.id === sessionId && row.status !== "DELETED");
-    const upload = state.uploads.find((row) => row.session_id === sessionId && row.id === uploadId && row.status === "READY");
+    const upload = state.uploads.find((row) => row.session_id === sessionId && row.id === uploadId && row.status === "READY" && row.id === room?.video_id);
     if (!room || !upload) return ok(empty);
     const member = state.members.find((row) => row.session_id === sessionId && row.student_id === studentId && !row.left_at);
     return ok(table([...UPLOAD_COLUMNS, "room_status", "room_host_student_id", "member_id"], [{
@@ -93,26 +119,54 @@ function handle(sql, args) {
   if (/^UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = \?, visibility = 'PRIVATE', updated_at = \? WHERE id = \?/.test(sql)) {
     const [videoId, updatedAt, id] = args;
     const room = state.rooms.find((row) => row.id === id);
-    if (!room) return affected(0);
+    if (!room || room.video_id) return affected(0);
     Object.assign(room, { video_source_type: "UPLOAD", video_id: videoId, visibility: "PRIVATE", updated_at: updatedAt });
     return affected(1);
   }
 
+  if (/^UPDATE cinema_sessions SET ends_at = \?, duration_minutes = \?/.test(sql)) {
+    const [endsAt, duration, updatedAt, id] = args;
+    const room = state.rooms.find((row) => row.id === id);
+    if (!room) return affected(0);
+    Object.assign(room, { ends_at: endsAt, duration_minutes: duration, updated_at: updatedAt });
+    return affected(1);
+  }
+
+  if (/^UPDATE cinema_sessions SET video_id = \?, updated_at = \? WHERE id = \? AND video_id = \?/.test(sql)) {
+    const [videoId, updatedAt, id, expected] = args;
+    const room = state.rooms.find((row) => row.id === id && row.video_id === expected);
+    if (!room) return affected(0);
+    Object.assign(room, { video_id: videoId, updated_at: updatedAt });
+    return affected(1);
+  }
+  if (/^UPDATE cinema_sessions SET video_id = \?, updated_at = \? WHERE id = \? AND video_source_type = 'UPLOAD' AND video_id = \?/.test(sql)) {
+    const [videoId, updatedAt, id, expected] = args;
+    const room = state.rooms.find((row) => row.id === id && row.video_source_type === "UPLOAD" && row.video_id === expected);
+    if (!room) return affected(0);
+    Object.assign(room, { video_id: videoId, updated_at: updatedAt });
+    return affected(1);
+  }
+
   if (/^SELECT id,session_id,uploader_id,r2_object_key/.test(sql)) {
-    const row = state.uploads.find((upload) => upload.session_id === args[0]);
-    return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
+    let rows = state.uploads.filter((upload) => upload.session_id === args[0]);
+    if (sql.includes("status IN ('READY','UPLOADING')")) rows = rows.filter((upload) => ["READY", "UPLOADING"].includes(upload.status));
+    if (sql.includes("status = 'UPLOADING'")) rows = rows.filter((upload) => upload.status === "UPLOADING");
+    if (sql.includes("status <> 'DELETED'")) rows = rows.filter((upload) => upload.status !== "DELETED");
+    if (sql.includes("id = (SELECT video_id")) rows = rows.filter((upload) => upload.id === state.rooms.find((room) => room.id === args[0])?.video_id);
+    rows.sort((a, b) => (a.playlist_position || 1) - (b.playlist_position || 1));
+    return ok(rows.length ? table(UPLOAD_COLUMNS, sql.includes("LIMIT 1") ? rows.slice(0, 1) : rows) : empty);
   }
   if (/^SELECT id,session_id,uploader_id,r2_object_key[\s\S]*AND status = 'UPLOADING' LIMIT 1/.test(sql)) {
     const row = state.uploads.find((upload) => upload.session_id === args[0] && upload.status === "UPLOADING");
     return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
   }
   if (/^INSERT INTO cinema_uploads/.test(sql)) {
-    const [id, sessionId, uploaderId, objectKey, uploadId, filename, sizeBytes, mimeType, expiresAt, createdAt, updatedAt] = args;
+    const [id, sessionId, uploaderId, objectKey, uploadId, filename, sizeBytes, mimeType, expiresAt, createdAt, updatedAt, position] = args;
     state.uploads.push({
       id, session_id: sessionId, uploader_id: uploaderId, r2_object_key: objectKey, r2_upload_id: uploadId,
       original_filename: filename, file_size_bytes: sizeBytes, mime_type: mimeType, duration_seconds: 0,
       ownership_confirmed: 1, status: "UPLOADING", expires_at: expiresAt, deleted_at: "", removed_by: "", removed_reason: "",
-      created_at: createdAt, updated_at: updatedAt,
+      playlist_position: position, created_at: createdAt, updated_at: updatedAt,
     });
     return affected(1);
   }
@@ -148,6 +202,13 @@ function handle(sql, args) {
   if (/^INSERT INTO admin_audit_logs/.test(sql)) {
     const [, adminEmail, action, targetType, targetReference, details] = args;
     state.audits.push({ adminEmail, action, targetType, targetReference, details });
+    return affected(1);
+  }
+  if (/^UPDATE cinema_uploads SET playlist_position = \?, updated_at = \? WHERE id = \? AND session_id = \? AND status = 'READY'/.test(sql)) {
+    const [position, updatedAt, id, sessionId] = args;
+    const upload = state.uploads.find((row) => row.id === id && row.session_id === sessionId && row.status === "READY");
+    if (!upload) return affected(0);
+    Object.assign(upload, { playlist_position: position, updated_at: updatedAt });
     return affected(1);
   }
   if (/^UPDATE cinema_uploads SET status = 'READY', duration_seconds = \?, updated_at = \? WHERE id = \? AND status = 'UPLOADING'/.test(sql)) {
@@ -206,9 +267,18 @@ function handle(sql, args) {
 
 globalThis.fetch = async (_url, init) => {
   const body = JSON.parse(init.body);
-  const results = body.requests
-    .filter((request) => request.type === "execute")
-    .map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value))));
+  const decode = (args = []) => args.map((arg) => arg.type === "null" ? null : arg.value);
+  const results = body.requests.map((request) => {
+    if (request.type === "close") return ok(empty);
+    if (request.type === "batch") {
+      const steps = request.batch.steps;
+      return ok({
+        step_results: steps.map(({ stmt }) => stmt.sql === "BEGIN IMMEDIATE" || stmt.sql === "COMMIT" ? empty : stmt.sql === "ROLLBACK" ? null : handle(stmt.sql, decode(stmt.args)).response.result),
+        step_errors: steps.map(() => null),
+      });
+    }
+    return handle(request.stmt.sql, decode(request.stmt.args));
+  });
   return { ok: true, json: async () => ({ results }) };
 };
 
@@ -285,8 +355,8 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 
 const {
-  CINEMA_UPLOAD_PART_BYTES, abortCinemaUpload, beginCinemaUpload, cinemaUploadKey,
-  cinemaUploadLimits, completeCinemaUpload, countCinemaUploaderRemovals, parseMp4Duration,
+  CINEMA_UPLOAD_PART_BYTES, abortCinemaUpload, advanceCinemaPlaylist, beginCinemaUpload, cinemaUploadKey,
+  cinemaUploadLimits, completeCinemaUpload, countCinemaUploaderRemovals, parseMp4Duration, reorderCinemaPlaylist,
   purgeCinemaUploadForRoom, putCinemaUploadPart, takeDownCinemaUpload,
 } = await vite.ssrLoadModule("/lib/cinema-engine/uploads.ts");
 const {
@@ -320,8 +390,8 @@ function mp4Head(seconds, { timescale = 1000, version = 0 } = {}) {
 
 function room(overrides = {}) {
   return {
-    id: "room-1", host_student_id: "host-a", title: "Signals", video_source_type: "YOUTUBE", video_id: "M7lc1UVf-VE",
-    status: "LIVE", join_locked: 0, visibility: "PUBLIC", starts_at: "", ends_at: "", duration_minutes: 0,
+    id: "room-1", host_student_id: "host-a", title: "Signals", video_source_type: "UPLOAD", video_id: "",
+    status: "LIVE", join_locked: 0, visibility: "PRIVATE", starts_at: "", ends_at: "", duration_minutes: 0,
     started_at: stamp(30), ended_at: "", created_at: stamp(60), updated_at: stamp(1), ...overrides,
   };
 }
@@ -334,6 +404,8 @@ beforeEach(() => {
   state.audits = [];
   state.metrics.clear();
   state.settings.clear();
+  state.allowances.clear();
+  state.grants.clear();
   resetPlatformSettingsCache();
 });
 
@@ -381,7 +453,7 @@ test("only the host starts an upload, and only after saying the video is theirs"
   assert.equal(missingRoom?.code, "NOT_FOUND");
 });
 
-test("an upload is one row, one key, and as many parts as the size needs", async () => {
+test("an upload uses a private key, and a second cannot start while one is in flight", async () => {
   const bucket = fakeBucket();
   const started = await begin({ bucket });
   assert.equal(started.parts, 1);
@@ -397,11 +469,14 @@ test("an upload is one row, one key, and as many parts as the size needs", async
   assert.equal(limits.maxBytes, 2 * 1024 ** 3);
   assert.deepEqual(limits.types, ["video/mp4", "video/quicktime", "video/webm"]);
 
+  const blocked = await begin({ sizeBytes: CINEMA_UPLOAD_PART_BYTES + 100, bucket }).then(() => null, (error) => error);
+  assert.equal(blocked?.code, "INVALID_STATE");
+  await abortCinemaUpload({ roomId: "room-1", studentId: "host-a", bucket });
   const multi = await begin({ sizeBytes: CINEMA_UPLOAD_PART_BYTES + 100, bucket });
   assert.equal(multi.parts, 2, "a part-sized file plus a remainder is two parts");
 });
 
-test("a room that already plays a video refuses another, and a failed one is replaced", async () => {
+test("the free plan allows one ready file, and an in-flight file must be cancelled", async () => {
   const aborted = [];
   const bucket = fakeBucket({ aborted });
   const started = await begin({ bucket });
@@ -411,10 +486,38 @@ test("a room that already plays a video refuses another, and a failed one is rep
   assert.equal(state.uploads[0].id, started.upload.id, "the ready upload was left alone");
 
   state.uploads[0].status = "UPLOADING";
+  const inFlight = await begin({ bucket }).then(() => null, (error) => error);
+  assert.equal(inFlight?.code, "INVALID_STATE");
+  await abortCinemaUpload({ roomId: "room-1", studentId: "host-a", bucket });
   const second = await begin({ bucket });
-  assert.notEqual(second.upload.id, started.upload.id, "the stale upload made way for the new one");
-  assert.equal(state.uploads.length, 1);
-  assert.equal(aborted.length, 1, "the old multipart upload was aborted rather than left billing");
+  assert.notEqual(second.upload.id, started.upload.id);
+  assert.equal(aborted.length, 1);
+});
+
+test("a paid room keeps three files in order and enters discussion after the last", async () => {
+  state.grants.set("host-a", "STUDENT_PLUS");
+  const bucket = fakeBucket();
+  const clip = mp4Head(2);
+  const ids = [];
+  for (let index = 0; index < 3; index += 1) {
+    const started = await begin({ bucket, filename: `part-${index + 1}.mp4` });
+    ids.push(started.upload.id);
+    await putCinemaUploadPart({ roomId: "room-1", studentId: "host-a", partNumber: 1, body: clip.buffer, bucket });
+    await completeCinemaUpload({ roomId: "room-1", studentId: "host-a", parts: [{ partNumber: 1, etag: "etag-1" }], bucket });
+  }
+  assert.equal(state.rooms[0].video_id, ids[0], "adding a queued file does not interrupt playback");
+  const fourth = await begin({ bucket }).then(() => null, (error) => error);
+  assert.equal(fourth?.code, "INVALID_STATE");
+  const firstLease = await issueCinemaPlayback({ roomId: "room-1", studentId: "host-a" });
+  const oldClaims = await verifyCinemaMediaToken(firstLease.url.split("/").pop());
+  await reorderCinemaPlaylist({ roomId: "room-1", studentId: "host-a", uploadIds: [ids[2], ids[1]] });
+  assert.equal(state.rooms[0].video_id, ids[0], "reordering leaves the active file playing");
+  assert.equal((await advanceCinemaPlaylist({ roomId: "room-1", studentId: "host-a", currentUploadId: ids[0] })).next.id, ids[2]);
+  assert.equal((await cinemaUploadForToken(oldClaims).then(() => null, (error) => error))?.code, "NOT_FOUND", "a previous file's lease stops after advancement");
+  assert.equal((await advanceCinemaPlaylist({ roomId: "room-1", studentId: "host-a", currentUploadId: ids[2] })).next.id, ids[1]);
+  assert.equal((await advanceCinemaPlaylist({ roomId: "room-1", studentId: "host-a", currentUploadId: ids[1] })).phase, "DISCUSSION");
+  assert.equal(state.rooms[0].status, "LIVE", "finishing a playlist does not end the room");
+  assert.equal(state.rooms[0].video_id, "");
 });
 
 test("a part has to be exactly the size the upload agreed to", async () => {
@@ -479,7 +582,7 @@ test("a stored size that disagrees with the declared one fails the upload, not t
   assert.equal(error?.code, "VALIDATION_ERROR");
   assert.equal(state.uploads[0].status, "FAILED");
   assert.equal(bucket.objects.size, 0, "the object that arrived is gone");
-  assert.equal(state.rooms[0].video_source_type, "YOUTUBE", "the room is unchanged");
+  assert.equal(state.rooms[0].video_source_type, "UPLOAD", "the room is unchanged");
 });
 
 test("a video longer than the deployment allows is refused after the header says so", async () => {
@@ -548,6 +651,7 @@ test("a member of an open room gets a lease, and nobody else does", async () => 
   const bucket = fakeBucket();
   const started = await begin({ bucket });
   state.uploads[0].status = "READY";
+  state.rooms[0].video_id = started.upload.id;
   state.members.push({ session_id: "room-1", student_id: "guest-a", display_name: "Kwesi", joined_at: stamp(5), last_seen_at: stamp(1), left_at: "" });
 
   const lease = await issueCinemaPlayback({ roomId: "room-1", studentId: "guest-a" });
@@ -570,6 +674,7 @@ test("a lease names the upload the row still holds, and serves the range it aske
   const bytes = new Uint8Array(64).map((_, index) => index);
   const started = await begin({ bucket, sizeBytes: 64 });
   state.uploads[0].status = "READY";
+  state.rooms[0].video_id = started.upload.id;
   state.uploads[0].file_size_bytes = 64;
   bucket.objects.set(started.upload.objectKey, { bytes, size: 64, contentType: "video/mp4" });
 
@@ -596,6 +701,7 @@ test("a removed guest's lease and an ended room's lease both stop at the next re
   const bytes = new Uint8Array(32).map((_, index) => index);
   const started = await begin({ bucket, sizeBytes: 32 });
   state.uploads[0].status = "READY";
+  state.rooms[0].video_id = started.upload.id;
   state.uploads[0].file_size_bytes = 32;
   bucket.objects.set(started.upload.objectKey, { bytes, size: 32, contentType: "video/mp4" });
   state.members.push({ session_id: "room-1", student_id: "guest-a", display_name: "Kwesi", joined_at: stamp(5), last_seen_at: stamp(1), left_at: "" });
@@ -622,6 +728,7 @@ test("the video can be reported, and the card carries the uploader's history", a
   const bucket = fakeBucket();
   const started = await begin({ bucket });
   state.uploads[0].status = "READY";
+  state.rooms[0].video_id = started.upload.id;
   state.uploads[0].duration_seconds = 92;
   state.uploads[0].original_filename = "lecture.mp4";
 
@@ -664,7 +771,7 @@ test("the video can be reported, and the card carries the uploader's history", a
   assert.equal(gone?.code, "NOT_FOUND", "a video that is not playing cannot be reported");
 });
 
-test("a takedown deletes the object, stops the lease and turns the room back to YouTube", async () => {
+test("a takedown deletes the current object and leaves the private room open", async () => {
   const bucket = fakeBucket();
   const started = await begin({ bucket });
   const clip = mp4Head(2);
@@ -681,7 +788,7 @@ test("a takedown deletes the object, stops the lease and turns the room back to 
   assert.equal(state.uploads[0].status, "DELETED");
   assert.equal(state.uploads[0].removed_by, "mod@umat.edu.gh");
   assert.equal(state.uploads[0].removed_reason, "Copyright complaint");
-  assert.equal(state.rooms[0].video_source_type, "YOUTUBE");
+  assert.equal(state.rooms[0].video_source_type, "UPLOAD");
   assert.equal(state.rooms[0].video_id, "");
   assert.equal(state.audits.length, 1);
   assert.equal(state.audits[0].action, "cinema_upload_removed");
@@ -697,21 +804,22 @@ test("a takedown deletes the object, stops the lease and turns the room back to 
   assert.equal(refused?.code, "NOT_FOUND");
 
   const again = await takeDownCinemaUpload({ roomId: "room-1", actor: "mod@umat.edu.gh", bucket }).then(() => null, (error) => error);
-  assert.equal(again?.code, "INVALID_STATE", "a second takedown reports the truth");
+  assert.equal(again?.code, "NOT_FOUND", "a second takedown reports the truth");
   const nowhere = await takeDownCinemaUpload({ roomId: "room-2", actor: "mod@umat.edu.gh", bucket }).then(() => null, (error) => error);
   assert.equal(nowhere?.code, "NOT_FOUND");
 });
 
 test("a bucket that refuses the takedown leaves the row DELETING and the video unplayable", async () => {
   const failing = fakeBucket({ failDelete: true });
-  await begin({ bucket: failing });
+  const started = await begin({ bucket: failing });
   state.uploads[0].status = "READY";
+  state.rooms[0].video_id = started.upload.id;
 
   const refused = await takeDownCinemaUpload({ roomId: "room-1", actor: "mod@umat.edu.gh", bucket: failing }).then(() => null, (error) => error);
   assert.equal(refused?.code, "ENGINE_ERROR");
   assert.equal(state.uploads[0].status, "DELETING", "the row never claims a deletion the bucket refused");
   assert.equal(state.uploads[0].deleted_at, "");
-  assert.equal(state.rooms[0].video_source_type, "YOUTUBE", "the room was never touched");
+  assert.equal(state.rooms[0].video_source_type, "UPLOAD", "the room was never touched");
   assert.equal(state.audits.length, 0, "a failed takedown is not audited as a removal");
 
   const stopped = await issueCinemaPlayback({ roomId: "room-1", studentId: "host-a" }).then(() => null, (error) => error);
@@ -735,6 +843,7 @@ test("repeated takedowns end a student's upload rights, and retention is not a s
   assert.equal(await countCinemaUploaderRemovals("host-a"), 0);
   const first = await begin({ bucket: fakeBucket() });
   assert.ok(first.upload.id, "three strikes is not two");
+  state.uploads.find((upload) => upload.id === first.upload.id).status = "FAILED";
 
   state.uploads.push(strike("strike-1", "room-a", "mod@umat.edu.gh"));
   assert.equal(await countCinemaUploaderRemovals("host-a"), 1);

@@ -1,7 +1,8 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { readRoom } from "@/lib/cinema-engine/rooms";
-import { abortCinemaUpload, beginCinemaUpload, cinemaUploadForRoom, cinemaUploadLimits } from "@/lib/cinema-engine/uploads";
+import { abortCinemaUpload, beginCinemaUpload, cinemaUploadsForRoom, cinemaUploadLimits } from "@/lib/cinema-engine/uploads";
+import { snapshotCinemaRoomAllowance } from "@/lib/cinema-engine/room-plans";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
 import { requireStudent } from "@/lib/student-auth";
 
@@ -20,8 +21,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const { id } = await context.params;
     const room = await readRoom({ id, studentId: student.id });
     if (!room.isHost) throw new CampusEngineError("FORBIDDEN", "Only the host can manage this room's upload.", 403);
-    const upload = await cinemaUploadForRoom(room.id);
-    return ok({ upload: upload && upload.status !== "DELETED" ? publicUpload(upload) : null, limits: await cinemaUploadLimits() }, { headers: NO_STORE }, request);
+    const uploads = await cinemaUploadsForRoom(room.id);
+    const allowance = await snapshotCinemaRoomAllowance(room.id, student.id);
+    const selected = uploads.find((item) => item.status === "UPLOADING") || uploads[0] || null;
+    return ok({ upload: selected ? publicUpload(selected) : null, currentUploadId: room.videoId,
+      uploads: uploads.map(publicUpload), allowance, limits: await cinemaUploadLimits() }, { headers: NO_STORE }, request);
   } catch (error) {
     return fail(error, request);
   }
@@ -60,7 +64,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
 }
 
 /** The object key never leaves the server; the id and the metadata can. */
-function publicUpload(upload: { id: string; status: string; originalFilename: string; fileSizeBytes: number; mimeType: string; durationSeconds: number; createdAt: string }) {
+function publicUpload(upload: { id: string; status: string; originalFilename: string; fileSizeBytes: number; mimeType: string; durationSeconds: number; createdAt: string; playlistPosition: number }) {
   return {
     id: upload.id,
     status: upload.status,
@@ -69,5 +73,6 @@ function publicUpload(upload: { id: string; status: string; originalFilename: st
     mimeType: upload.mimeType,
     durationSeconds: upload.durationSeconds,
     createdAt: upload.createdAt,
+    playlistPosition: upload.playlistPosition,
   };
 }

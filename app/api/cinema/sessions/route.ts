@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       visibility: body.visibility,
       startInMinutes: body.startInMinutes,
       durationMinutes: body.durationMinutes,
+      reusable: true,
     });
     return ok({ room }, { status: 201, headers: NO_STORE }, request);
   } catch (error) {

@@ -10,6 +10,8 @@ import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
 import { validStudentEmail } from "@/lib/student-email";
 import { CinemaDialog } from "./CinemaDialog";
 import { UploadPanel } from "./UploadPanel";
+import { CinemaReuseButton } from "./CinemaReuseButton";
+import type { ReusableCinemaRoom } from "@/lib/cinema-engine/reusable-rooms";
 import "./cinema.css";
 
 /** Where the room's video comes from, decided before the room exists. */
@@ -53,6 +55,8 @@ export function CinemaLobby() {
   const [runsFor, setRunsFor] = useState("0");
   const [link, setLink] = useState("");
   const [rooms, setRooms] = useState<CinemaRoom[]>([]);
+  const [savedRooms, setSavedRooms] = useState<ReusableCinemaRoom[]>([]);
+  const [savedToForget, setSavedToForget] = useState<ReusableCinemaRoom | null>(null);
   /** The room waiting for its file; the upload step runs here, not in the room. */
   const [uploadRoom, setUploadRoom] = useState<CinemaRoom | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,6 +85,27 @@ export function CinemaLobby() {
   }, [offset, filter]);
 
   useEffect(() => { if (account) queueMicrotask(load); }, [account, load]);
+  useEffect(() => {
+    if (!canHost) return;
+    let active = true;
+    void fetch("/api/cinema/reusable-rooms", { credentials: "same-origin", cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { rooms?: ReusableCinemaRoom[] } | null) => { if (active) setSavedRooms(data?.rooms || []); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [canHost]);
+  const forgetSaved = async () => {
+    if (!savedToForget) return;
+    setRoomBusy(savedToForget.id); setListError("");
+    try {
+      const response = await fetch(`/api/cinema/reusable-rooms/${savedToForget.id}`, { method: "DELETE", credentials: "same-origin" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "The saved room could not be removed.");
+      setSavedRooms((current) => current.filter((room) => room.id !== savedToForget.id));
+      setSavedToForget(null);
+    } catch (problem) { setListError(problem instanceof Error ? problem.message : "The saved room could not be removed."); }
+    finally { setRoomBusy(""); }
+  };
 
   /** Typing drops the last tray: it belonged to the words that are gone. */
   const searchFor = (value: string) => {
@@ -214,18 +239,19 @@ export function CinemaLobby() {
       <p>Any signed-in account with a verified email and the link will be able to join {publicRoom?.title}.</p>
       <div className="cinema-controls"><button disabled={Boolean(roomBusy)} onClick={() => { if (publicRoom) void flipDoor(publicRoom).then(() => setPublicRoom(null)); }}>Make public</button><button className="secondary" onClick={() => setPublicRoom(null)}>Keep private</button></div>
     </CinemaDialog>
-    <CinemaDialog open={(dialog === "create" && canHost) || Boolean(uploadRoom)} title={uploadRoom ? "Upload your video" : "Create a room"} busy={busy} onClose={() => { setDialog(""); setUploadRoom(null); void load(); }}>
+    <CinemaDialog open={(dialog === "create" && canHost) || Boolean(uploadRoom)} title={uploadRoom ? "Build your playlist" : "Create a room"} busy={busy} onClose={() => { setDialog(""); setUploadRoom(null); void load(); }}>
 
     {uploadRoom
       ? <section className="cinema-card">
-        <h2>Add the file</h2>
+        <h2>Add your files</h2>
         <p className="cinema-note">
-          <strong>{uploadRoom.title}</strong> is invite-only. Add a video, then invite your group.
+          <strong>{uploadRoom.title}</strong> is invite-only. Add files in playback order, then invite your group.
         </p>
         <UploadPanel
           roomId={uploadRoom.id}
-          onUploaded={() => { void load(); router.push(`/cinema/${uploadRoom.id}`); }}
+          onUploaded={() => { void load(); }}
         />
+        <button type="button" className="cinema-cta" onClick={() => router.push(`/cinema/${uploadRoom.id}`)}>Open room</button>
         <p className="cinema-note cinema-sub">
           No file right now?{" "}
           <button type="button" className="cinema-text-button" onClick={() => router.push(`/cinema/${uploadRoom.id}`)}>Open the room without it</button>
@@ -324,6 +350,7 @@ export function CinemaLobby() {
                 <option value="90">90 minutes</option>
                 <option value="120">2 hours</option>
                 <option value="180">3 hours</option>
+                {source === "UPLOAD" && <option value="300">5 hours (Pro)</option>}
               </select>
             </label>
           </div>
@@ -331,7 +358,7 @@ export function CinemaLobby() {
             {Number(startIn) > 0
               ? "The room opens by itself at that minute: it goes live and the video starts on every screen that is waiting."
               : "The room is live the moment you create it, and the video starts as soon as it is ready."}
-            {Number(runsFor) > 0 ? " It ends by itself when the run time is up." : " You end it when you are done."}
+            {Number(runsFor) > 0 ? " It ends by itself when the run time is up." : source === "UPLOAD" ? " After the first file is ready, your plan's time limit becomes the safety deadline; you can end the room earlier." : " You end it when you are done."}
           </p>
           {error && <p className="cinema-error">{error}</p>}
           <button disabled={busy || (source === "YOUTUBE" && !video.trim())} onClick={() => void create()}>
@@ -352,6 +379,17 @@ export function CinemaLobby() {
       </div>
 
       {error && <p className="cinema-error" role="alert">{error}</p>}
+    </CinemaDialog>
+    {savedRooms.length > 0 && <section className="cinema-card cinema-room-list" aria-label="Reusable rooms">
+      <div className="cinema-list-heading"><div><h2>Your reusable rooms</h2><p className="cinema-note">Keep the same invitation link. Each new session starts with fresh chat and, for file rooms, a new playlist.</p></div></div>
+      <ul className="cinema-rooms">{savedRooms.map((saved) => <li className="cinema-room-row" key={saved.id}>
+        <div className="cinema-room-info"><div className="cinema-room-tags"><span className="cinema-chip">{saved.currentStatus === "LIVE" ? "Live now" : saved.currentStatus === "CREATED" ? "Ready" : "Between sessions"}</span>{saved.sourceType === "UPLOAD" && <span className="cinema-chip is-private">Private files</span>}</div><h3><Link href={`/cinema/${saved.id}`}>{saved.title}</Link></h3><p>{saved.sourceType === "UPLOAD" ? "Upload a fresh playlist each time" : "YouTube watch room"} · stable link</p></div>
+        <div className="cinema-room-actions">{saved.currentStatus === "LIVE" || saved.currentStatus === "CREATED" ? <Link className="cinema-room-open" href={`/cinema/${saved.id}`}>Open room</Link> : <><CinemaReuseButton stableId={saved.id} /><button type="button" className="cinema-chip is-button" onClick={() => setSavedToForget(saved)}>Remove saved room</button></>}</div>
+      </li>)}</ul>
+    </section>}
+    <CinemaDialog open={Boolean(savedToForget)} title="Remove saved room?" busy={Boolean(roomBusy)} onClose={() => setSavedToForget(null)}>
+      <p>The reusable link and saved guest list will be removed. This does not delete a past session before its normal retention deadline.</p>
+      <div className="cinema-controls"><button type="button" className="danger" disabled={Boolean(roomBusy)} onClick={() => void forgetSaved()}>{roomBusy ? "Removing…" : "Remove saved room"}</button><button type="button" className="secondary" onClick={() => setSavedToForget(null)}>Keep room</button></div>
     </CinemaDialog>
     <section className="cinema-card cinema-room-list">
       <div className="cinema-list-heading"><h2>Your rooms</h2><button className="cinema-text-button" disabled={loading} onClick={() => void load()}>Refresh</button></div>
@@ -386,11 +424,11 @@ export function CinemaLobby() {
                   title={room.isPrivate ? "Make this room public" : "Make this room invite-only"}
                   onClick={() => room.isPrivate ? setPublicRoom(room) : void flipDoor(room)}
                 >{room.isPrivate ? <Globe size={11} aria-hidden /> : <Lock size={11} aria-hidden />}{room.isPrivate ? "Make public" : "Make private"}</button>}
-                {room.isHost && isActive(room) && !room.videoId && <button
+                {room.isHost && room.sourceType === "UPLOAD" && isActive(room) && <button
                   type="button"
                   className="cinema-chip is-button is-upload"
                   onClick={() => { setError(""); setUploadRoom(room); }}
-                ><UploadSimple size={11} aria-hidden /> Add video</button>}
+                ><UploadSimple size={11} aria-hidden /> Manage playlist</button>}
               </div>
             </li>;
           })}

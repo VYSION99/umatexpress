@@ -17,6 +17,8 @@ import { queueNotification } from "@/lib/notifications";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { endStreamingEntitlementBySession, ensureCinemaStreamingEntitlements } from "@/lib/cinema-streaming/entitlements";
 import { validPlatformEmail } from "@/lib/student-email";
+import { activeCinemaRoomPlan, snapshotCinemaRoomAllowance } from "@/lib/cinema-engine/room-plans";
+import { registerReusableCinemaRoom, reusableRoomForSession, syncReusableRoomGuest, updateReusableRoomProfile } from "@/lib/cinema-engine/reusable-rooms";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
@@ -162,6 +164,9 @@ export type CinemaRoom = {
   hostStudentId: string;
   hostName: string;
   title: string;
+  stableRoomId: string;
+  /** Present when this playback session belongs to a published Cinema event. */
+  eventSlug: string;
   sourceType: CinemaSourceType;
   videoId: string;
   status: CinemaRoomStatus;
@@ -248,6 +253,8 @@ export function roomView(row: CinemaRoomRow, input: { studentId?: string; partic
     hostStudentId,
     hostName: host?.displayName || String(row.host_name || "") || "The host",
     title: String(row.title || "") || "Study room",
+    stableRoomId: String(row.stable_room_id || row.id || ""),
+    eventSlug: String(row.event_slug || ""),
     sourceType: (String(row.video_source_type || "YOUTUBE") as CinemaSourceType),
     videoId: Number(row.discussion_mode || 0) === 1 && !isMember ? "" : String(row.video_id || ""),
     status,
@@ -410,6 +417,8 @@ export async function createRoom(input: {
   durationMinutes?: unknown;
   /** Internal event-series horizon. Public room creation keeps the seven-day ceiling. */
   scheduleHorizonMinutes?: unknown;
+  /** App watch rooms keep a stable link; event playback sessions do not. */
+  reusable?: boolean;
 }) {
   await requireTurso();
   await ensureCinemaTables();
@@ -443,6 +452,10 @@ export async function createRoom(input: {
       400,
     );
   }
+  const uploadPlan = source === "UPLOAD" ? await activeCinemaRoomPlan(String(input.student.id)) : null;
+  if (uploadPlan && duration > uploadPlan.minutes) {
+    throw new CampusEngineError("VALIDATION_ERROR", `This plan allows rooms up to ${uploadPlan.minutes} minutes.`, 400);
+  }
   const clocked = hasSchedule(input.startInMinutes) || duration > 0;
   const requestedStart = Math.round(Number(input.startInMinutes ?? 0));
   const eventHorizon = Math.max(CINEMA_START_MAX_MINUTES, Math.min(60 * 24 * 60, Math.round(Number(input.scheduleHorizonMinutes) || CINEMA_START_MAX_MINUTES)));
@@ -473,9 +486,15 @@ export async function createRoom(input: {
       "INSERT OR IGNORE INTO cinema_participants (session_id,student_id,display_name,joined_at,last_seen_at,left_at,role) VALUES (?,?,?,?,?,'','HOST')",
       [id, String(input.student.id), String(input.student.name || "").slice(0, 80), stamp, stamp],
     );
+    if (source === "UPLOAD") await snapshotCinemaRoomAllowance(id, String(input.student.id));
+    if (input.reusable) await registerReusableCinemaRoom({
+      id, hostStudentId: String(input.student.id), title, sourceType: source as CinemaSourceType,
+      videoId, visibility, durationMinutes: duration,
+    });
   } catch (error) {
     // A room without its host is a share link nobody can open, so the insert
     // that failed takes the room with it rather than leaving it behind.
+    await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]).catch(() => undefined);
     await turso("DELETE FROM cinema_sessions WHERE id = ?", [id]).catch(() => undefined);
     throw error;
   }
@@ -521,6 +540,14 @@ export async function readRoom(input: { id: string; studentId?: string }) {
   await requireTurso();
   await ensureCinemaTables();
   const row = await requireVisibleRoom(input.id);
+  const reusable = await reusableRoomForSession(String(row.id));
+  row.stable_room_id = reusable?.id || String(row.id);
+  try {
+    const event = rowsToObjects(await turso("SELECT slug FROM cinema_events WHERE session_id = ? LIMIT 1", [String(row.id)]))[0];
+    row.event_slug = String(event?.slug || "");
+  } catch (error) {
+    if (!(error instanceof Error && /no such table: cinema_events/i.test(error.message))) throw error;
+  }
   try {
     await ensureCinemaStreamingEntitlements();
     const entitlement = rowsToObjects(await turso(
@@ -594,8 +621,7 @@ export async function listMyRooms(studentId: string, options: { offset?: number;
   const offset = Math.max(0, Math.min(100_000, Math.floor(Number(options.offset) || 0)));
   const limit = Math.max(1, Math.min(21, Math.floor(Number(options.limit) || LIST_LIMIT)));
   const status = options.status === "LIVE" ? " AND s.status = 'LIVE'" : options.status === "SCHEDULED" ? " AND s.status = 'CREATED'" : options.status === "RECENT" ? " AND s.status IN ('ENDED','EXPIRED')" : "";
-  const rows = rowsToObjects(await turso(
-    `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.visibility,
+  const query = (excludeEvents: boolean) => `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.visibility,
             CASE WHEN i.student_id IS NULL THEN 0 ELSE 1 END AS invited,
             CASE WHEN p.student_id IS NULL THEN 0 ELSE 1 END AS member,
             (SELECT display_name FROM cinema_participants h WHERE h.session_id = s.id AND h.student_id = s.host_student_id) AS host_name,
@@ -603,10 +629,17 @@ export async function listMyRooms(studentId: string, options: { offset?: number;
        FROM cinema_sessions s
        LEFT JOIN cinema_participants p ON p.session_id = s.id AND p.student_id = ?
        LEFT JOIN cinema_room_invites i ON i.session_id = s.id AND i.student_id = ?
-      WHERE s.status <> 'DELETED' AND (p.student_id IS NOT NULL OR i.student_id IS NOT NULL)${status}
-      ORDER BY s.created_at DESC, s.id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [String(studentId), String(studentId)],
-  ));
+      WHERE s.status <> 'DELETED' AND (p.student_id IS NOT NULL OR i.student_id IS NOT NULL)
+        ${excludeEvents ? "AND NOT EXISTS (SELECT 1 FROM cinema_events e WHERE e.session_id = s.id)" : ""}${status}
+      ORDER BY s.created_at DESC, s.id DESC LIMIT ${limit} OFFSET ${offset}`;
+  const args = [String(studentId), String(studentId)];
+  let rows: CinemaRoomRow[];
+  try {
+    rows = rowsToObjects(await turso(query(true), args));
+  } catch (error) {
+    if (!(error instanceof Error && /no such table: cinema_events/i.test(error.message))) throw error;
+    rows = rowsToObjects(await turso(query(false), args));
+  }
   const counts = await memberCounts(rows.map((row) => String(row.id || "")));
   // Every room here is in the list because this student joined it or was
   // invited to it, so the names are not needed to render the lobby — only the
@@ -709,6 +742,16 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
   if (String(row.host_student_id || "") !== String(input.studentId || "")) {
     throw new CampusEngineError("FORBIDDEN", "Only the host can change this room.", 403);
   }
+  if (["PRIVATE", "PUBLIC", "EXTEND", "RETITLE"].includes(action)) {
+    try {
+      const linkedEvent = rowsToObjects(await turso(
+        "SELECT id FROM cinema_events WHERE session_id = ? LIMIT 1", [String(row.id)],
+      ))[0];
+      if (linkedEvent) throw new CampusEngineError("INVALID_STATE", "Manage this event from its event page; room settings cannot change its publication or schedule.", 409);
+    } catch (error) {
+      if (!(error instanceof Error && /no such table: cinema_events/i.test(error.message))) throw error;
+    }
+  }
   const stamp = new Date().toISOString();
   const id = String(row.id);
 
@@ -738,6 +781,12 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
       });
     }
   } else if (action === "EXTEND") {
+    if (row.video_source_type === "UPLOAD") {
+      const allowance = await snapshotCinemaRoomAllowance(id, String(row.host_student_id || ""));
+      if (Number(row.duration_minutes || 0) + 15 > allowance.maxMinutes) {
+        throw new CampusEngineError("INVALID_STATE", "This room has reached its plan's time allowance.", 409);
+      }
+    }
     if (row.status !== "LIVE" || !row.ends_at || Number(row.duration_minutes || 0) > CINEMA_DURATION_MAX_MINUTES - 15) {
       throw new CampusEngineError("INVALID_STATE", "This session cannot be extended further.", 409);
     }
@@ -790,12 +839,14 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
       "UPDATE cinema_sessions SET visibility = ?, updated_at = ? WHERE id = ?",
       [action === "PRIVATE" ? "PRIVATE" : "PUBLIC", stamp, id],
     );
+    await updateReusableRoomProfile(id, { visibility: action === "PRIVATE" ? "PRIVATE" : "PUBLIC" });
     logEvent("info", action === "PRIVATE" ? "cinema_room_made_private" : "cinema_room_made_public", { roomId: id });
   } else {
     await turso(
       "UPDATE cinema_sessions SET title = ?, updated_at = ? WHERE id = ?",
       [roomTitle(input.title), stamp, id],
     );
+    await updateReusableRoomProfile(id, { title: roomTitle(input.title) });
   }
 
   const fresh = (await membersOf([id])).get(id) || [];
@@ -874,6 +925,7 @@ export async function inviteToRoom(input: { id: string; studentId: string; email
     "INSERT OR IGNORE INTO cinema_room_invites (session_id,student_id,invited_by,created_at) VALUES (?,?,?,?)",
     [String(row.id), inviteeId, String(input.studentId), stamp],
   );
+  await syncReusableRoomGuest(String(row.id), inviteeId, String(input.studentId), true);
   if (Number(inserted.affected_row_count || 0) === 1) {
     try {
       await ensureNotificationsTable();
@@ -908,6 +960,7 @@ export async function removeRoomInvite(input: { id: string; studentId: string; i
     [String(row.id), inviteeId],
   );
   const removed = Number(result.affected_row_count || 0) > 0;
+  if (removed) await syncReusableRoomGuest(String(row.id), inviteeId, String(input.studentId), false);
   if (removed) logEvent("info", "cinema_room_invite_removed", { roomId: String(row.id) });
   return { removed, invites: await inviteRows(String(row.id)) };
 }
@@ -940,6 +993,7 @@ export async function removeRoomGuest(input: { id: string; studentId: string; gu
   );
   const removedInvitation = Number(invitation.affected_row_count || 0) > 0;
   const removedMembership = Number(membership.affected_row_count || 0) > 0;
+  if (removedInvitation || removedMembership) await syncReusableRoomGuest(String(row.id), guestId, String(input.studentId), false);
   if (removedInvitation || removedMembership) {
     // The row is the truth; closing the sockets is the courtesy that makes the
     // removal immediate for the room and for the person who left.

@@ -14,6 +14,9 @@ const SOURCES: Record<string, string[]> = {
   hostel_payout_batches: ['id','status','mode','total_amount','transfer_fee','transfer_reference'],
   campus_refunds: ['id','status','amount','payment_reference','paystack_reference'],
   hostel_refunds: ['id','status','amount','reference','paystack_reference'],
+  food_payments: ['id','status','amount','currency','base_amount','fee_amount','commission_amount','vendor_amount','preorder_id','provider_id','paid_at'],
+  food_settlements: ['id','status','gross_amount','commission_amount','net_amount','currency','provider_id','preorder_id','paid_at'],
+  food_refunds: ['id','status','amount','base_amount','fee_amount','commission_amount','vendor_amount','provider_id','payment_reference','paystack_reference'],
 };
 
 /** Installing a trigger and snapshotting existing rows commit together. Every
@@ -67,7 +70,7 @@ export function sourceBalances(source: string, row: Row, previous: Balances = {}
   const provider = `provider_clearing:${currency}`;
   // A review hold does not prove a second receipt or a compensating refund.
   if (state === 'REVERSAL_REVIEW' || (state === 'PAYMENT_REVIEW' && Object.keys(previous).length)) return previous;
-  if (['payments','campus_payments','hostel_bookings','hostel_plugin_subscriptions'].includes(source)) {
+  if (['payments','campus_payments','hostel_bookings','hostel_plugin_subscriptions','food_payments'].includes(source)) {
     // PAYMENT_REVIEW only represents money when the provider supplied paid_at.
     // A reversed charge also uses this operational queue, but must not create a
     // cash receipt that no longer exists at the provider.
@@ -90,6 +93,19 @@ export function sourceBalances(source: string, row: Row, previous: Balances = {}
       add(customer,fare); add(`commission_revenue:${currency}`,-commission);
       add(`seller_pending:campus:${String(row.queue_entry_id)}:${currency}`,-net);
     }
+    if (source==='food_payments' && state==='SUCCESSFUL') {
+      const base=money(row.base_amount), commission=money(row.commission_amount), net=money(row.vendor_amount);
+      if (net+commission!==base) throw new Error('COMMISSION_SNAPSHOT_MISMATCH');
+      add(customer,base); add(`commission_revenue:${currency}`,-commission);
+      add(`seller_pending:food:${String(row.provider_id)}:${currency}`,-net);
+    }
+    return result;
+  }
+  if (source==='food_settlements') {
+    const net=money(row.net_amount), seller=`food:${String(row.provider_id)}:${currency}`;
+    if (state==='REVERSED') return result;
+    if (state==='AVAILABLE') { add(`seller_pending:${seller}`,net); add(`seller_available:${seller}`,-net); }
+    else if (state==='PAID') { add(`seller_available:${seller}`,net); add(`manual_disbursements:${currency}`,-net); }
     return result;
   }
   if (source==='organizer_payouts' || source==='hostel_payouts') {
@@ -112,6 +128,15 @@ export function sourceBalances(source: string, row: Row, previous: Balances = {}
       add(`payout_clearing:${currency}`,amount);
       add(row.mode==='MANUAL'?`manual_disbursements:${currency}`:provider,-amount);
     }
+    return result;
+  }
+  if (source==='food_refunds') {
+    if (state==='PAID') {
+      const amount=money(row.amount), base=money(row.base_amount), fee=money(row.fee_amount), commission=money(row.commission_amount), vendor=money(row.vendor_amount);
+      if (amount!==base+fee || base!==commission+vendor) throw new Error('COMMISSION_SNAPSHOT_MISMATCH');
+      add(provider,-amount); add(`processing_fee_recovery:${currency}`,fee);
+      add(`commission_revenue:${currency}`,commission); add(`seller_pending:food:${String(row.provider_id)}:${currency}`,vendor);
+    } else if (state==='APPROVED') { const amount=money(row.amount); add(customer,amount); add(`refunds_reserved:${currency}`,-amount); }
     return result;
   }
   if (source.endsWith('_refunds')) {

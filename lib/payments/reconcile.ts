@@ -59,7 +59,8 @@ export async function reconcileUnknownOperations(limit=2) {
         const reference=String(row.reference);
         const campus=rowsToObjects(await turso('SELECT payment_reference AS charge_reference,amount FROM campus_refunds WHERE id=?',[reference]))[0];
         const hostel=campus?null:rowsToObjects(await turso('SELECT reference AS charge_reference,amount FROM hostel_refunds WHERE id=?',[reference]))[0];
-        const refund=campus||hostel;
+        const food=campus||hostel?null:rowsToObjects(await turso('SELECT payment_reference AS charge_reference,amount FROM food_refunds WHERE id=?',[reference]))[0];
+        const refund=campus||hostel||food;
         if(!refund) continue;
         const matched=await reconcileUnknownRefund(reference,String(refund.charge_reference),Number(refund.amount));
         if(!matched.matched) continue;
@@ -142,10 +143,11 @@ export async function reconcileUnknownRefund(operationId:string,transactionRefer
   const refundReference=String(refund.reference||'');
   if(!refundReference) throw new Error('Provider refund has no reference.');
   const status=String(refund.status||'').toLowerCase();
-  const data={reference:refundReference,amount:expectedAmount,status};
+  const data={reference:refundReference,amount:expectedAmount,currency:charge.currency,status};
   const target=String(operationId);
   await turso('UPDATE campus_refunds SET paystack_reference=? WHERE id=? AND COALESCE(paystack_reference,\'\')=\'\'',[refundReference,target]);
   await turso('UPDATE hostel_refunds SET paystack_reference=? WHERE id=? AND COALESCE(paystack_reference,\'\')=\'\'',[refundReference,target]);
+  await turso('UPDATE food_refunds SET paystack_reference=? WHERE id=? AND COALESCE(paystack_reference,\'\')=\'\'',[refundReference,target]);
   const event=status==='processed'?'refund.processed':status==='failed'?'refund.failed':'refund.pending';
   const applied=await processPaystackEvent({event,data});
   if(!applied.handled) throw new Error('Refund does not match a product record.');

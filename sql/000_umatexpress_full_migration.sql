@@ -1428,7 +1428,8 @@ CREATE INDEX IF NOT EXISTS idx_cinema_signals_session ON cinema_risk_signals(ses
 -- asked before the first byte. Statuses are UPLOADING, READY, DELETING,
 -- DELETED and FAILED; `expires_at` is the earliest the retention job could
 -- delete the object, and the room's own ended_at decides when it actually does.
--- One row per room is enforced by the unique index rather than the route.
+-- The initial upload implementation allowed one row per room; migration 043
+-- replaces that index with a bounded ordered playlist.
 
 CREATE TABLE IF NOT EXISTS cinema_uploads (
   id                  TEXT PRIMARY KEY,
@@ -1465,6 +1466,23 @@ CREATE INDEX IF NOT EXISTS idx_cinema_uploads_status ON cinema_uploads(status, c
 
 ALTER TABLE cinema_uploads ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
 ALTER TABLE cinema_uploads ADD COLUMN removed_reason TEXT NOT NULL DEFAULT '';
+
+-- 043: a private room may have a plan-limited ordered playlist. Existing
+-- single-file rows remain at position one. Paid plan grants are admin-managed
+-- until subscription purchase and reconciliation are connected.
+DROP INDEX IF EXISTS idx_cinema_uploads_session;
+ALTER TABLE cinema_uploads ADD COLUMN playlist_position INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_cinema_uploads_playlist ON cinema_uploads(session_id, playlist_position);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_uploads_active_position ON cinema_uploads(session_id, playlist_position) WHERE status IN ('READY','UPLOADING');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_uploads_one_inflight ON cinema_uploads(session_id) WHERE status = 'UPLOADING';
+CREATE TABLE IF NOT EXISTS cinema_room_plan_grants (
+  account_id TEXT PRIMARY KEY, plan TEXT NOT NULL, valid_until TEXT NOT NULL DEFAULT '',
+  granted_by TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cinema_room_allowances (
+  room_id TEXT PRIMARY KEY, plan TEXT NOT NULL, max_files INTEGER NOT NULL,
+  max_bytes INTEGER NOT NULL, max_minutes INTEGER NOT NULL, created_at TEXT NOT NULL
+);
 
 -- 031: cinema recordings — a member's own voice and camera, kept privately.
 --
@@ -1721,3 +1739,66 @@ CREATE TABLE IF NOT EXISTS food_order_feedback (
   student_id TEXT NOT NULL, rating INTEGER NOT NULL, comment TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_food_feedback_provider ON food_order_feedback(provider_id,created_at DESC);
+
+-- 042: Food online payments and settlement accounting. Gates default off.
+CREATE TABLE IF NOT EXISTS food_payment_profiles (
+  provider_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+  commission_bps INTEGER NOT NULL DEFAULT 1000 CHECK(commission_bps BETWEEN 0 AND 5000),
+  settlement_delay_minutes INTEGER NOT NULL DEFAULT 1440 CHECK(settlement_delay_minutes BETWEEN 0 AND 43200),
+  updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
+  FOREIGN KEY(provider_id) REFERENCES food_providers(id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS food_payments (
+  id TEXT PRIMARY KEY, preorder_id TEXT NOT NULL UNIQUE, provider_id TEXT NOT NULL,
+  reference TEXT NOT NULL UNIQUE, provider TEXT NOT NULL DEFAULT 'PAYSTACK',
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','SUCCESSFUL','FAILED','REVIEW')),
+  currency TEXT NOT NULL DEFAULT 'GHS', base_amount INTEGER NOT NULL CHECK(base_amount>0), fee_amount INTEGER NOT NULL CHECK(fee_amount>=0),
+  amount INTEGER NOT NULL CHECK(amount=base_amount+fee_amount), commission_amount INTEGER NOT NULL CHECK(commission_amount>=0),
+  vendor_amount INTEGER NOT NULL CHECK(vendor_amount>=0 AND base_amount=commission_amount+vendor_amount),
+  settlement_delay_minutes INTEGER NOT NULL DEFAULT 1440 CHECK(settlement_delay_minutes BETWEEN 0 AND 43200),
+  transaction_id TEXT NOT NULL DEFAULT '', failure_reason TEXT NOT NULL DEFAULT '', paid_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  FOREIGN KEY(preorder_id) REFERENCES food_preorders(id) ON DELETE RESTRICT,
+  FOREIGN KEY(provider_id) REFERENCES food_providers(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_food_payments_status ON food_payments(status,created_at DESC);
+CREATE TABLE IF NOT EXISTS food_refunds (
+  id TEXT PRIMARY KEY, preorder_id TEXT NOT NULL, payment_reference TEXT NOT NULL, provider_id TEXT NOT NULL,
+  amount INTEGER NOT NULL CHECK(amount=base_amount+fee_amount), base_amount INTEGER NOT NULL CHECK(base_amount>0),
+  fee_amount INTEGER NOT NULL CHECK(fee_amount>=0), commission_amount INTEGER NOT NULL CHECK(commission_amount>=0),
+  vendor_amount INTEGER NOT NULL CHECK(vendor_amount>=0 AND base_amount=commission_amount+vendor_amount),
+  status TEXT NOT NULL DEFAULT 'REQUESTED' CHECK(status IN ('REQUESTED','APPROVED','PAID','FAILED','REVIEW')),
+  cause TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', requested_by TEXT NOT NULL, decided_by TEXT NOT NULL DEFAULT '',
+  paystack_reference TEXT NOT NULL DEFAULT '', provider_status TEXT NOT NULL DEFAULT '', settled_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  FOREIGN KEY(preorder_id) REFERENCES food_preorders(id) ON DELETE RESTRICT,
+  FOREIGN KEY(provider_id) REFERENCES food_providers(id) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_food_refunds_open ON food_refunds(preorder_id) WHERE status IN ('REQUESTED','APPROVED');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_food_refunds_provider ON food_refunds(paystack_reference) WHERE paystack_reference <> '';
+CREATE TABLE IF NOT EXISTS food_settlements (
+  id TEXT PRIMARY KEY, preorder_id TEXT NOT NULL UNIQUE, provider_id TEXT NOT NULL, currency TEXT NOT NULL DEFAULT 'GHS',
+  gross_amount INTEGER NOT NULL CHECK(gross_amount>0), commission_amount INTEGER NOT NULL CHECK(commission_amount>=0),
+  net_amount INTEGER NOT NULL CHECK(net_amount>=0 AND gross_amount=commission_amount+net_amount),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','AVAILABLE','PAID','REVERSED')),
+  available_at TEXT NOT NULL, paid_reference TEXT NOT NULL DEFAULT '', paid_by TEXT NOT NULL DEFAULT '',
+  paid_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  FOREIGN KEY(preorder_id) REFERENCES food_preorders(id) ON DELETE RESTRICT,
+  FOREIGN KEY(provider_id) REFERENCES food_providers(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_food_settlements_provider ON food_settlements(provider_id,status,available_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_food_settlements_paid_reference ON food_settlements(paid_reference) WHERE paid_reference <> '';
+
+-- 044: reusable Cinema watch-room identity; temporary sessions remain separate.
+CREATE TABLE IF NOT EXISTS cinema_reusable_rooms (
+  id TEXT PRIMARY KEY, host_student_id TEXT NOT NULL, current_session_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL, source_type TEXT NOT NULL, video_id TEXT NOT NULL DEFAULT '',
+  visibility TEXT NOT NULL DEFAULT 'PUBLIC', duration_minutes INTEGER NOT NULL DEFAULT 0,
+  busy_token TEXT NOT NULL DEFAULT '', busy_until TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cinema_reusable_rooms_host ON cinema_reusable_rooms(host_student_id,updated_at DESC);
+CREATE TABLE IF NOT EXISTS cinema_reusable_room_guests (
+  room_id TEXT NOT NULL, student_id TEXT NOT NULL, invited_by TEXT NOT NULL,
+  created_at TEXT NOT NULL, PRIMARY KEY(room_id,student_id)
+);

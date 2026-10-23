@@ -18,7 +18,7 @@ import { turso } from "@/lib/turso";
 export const CINEMA_START_MAX_MINUTES = 7 * 24 * 60;
 /** A room shorter than a quarter hour is a meet-up; longer than four hours is a vigil. */
 export const CINEMA_DURATION_MIN_MINUTES = 15;
-export const CINEMA_DURATION_MAX_MINUTES = 240;
+export const CINEMA_DURATION_MAX_MINUTES = 300;
 
 /** Whether the host asked for a clock at all; absent keeps the legacy room. */
 export function hasSchedule(value: unknown): boolean {

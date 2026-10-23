@@ -20,7 +20,9 @@ import { CinemaFullscreenHostControls, type CinemaHostControlsContext } from "./
 
 export function UploadPlayer(input: {
   roomId: string;
+  uploadId: string;
   isHost: boolean;
+  canAdvance: boolean;
   playback: CinemaPlaybackState | null;
   now?: () => number;
   onAction: (message: CinemaClientMessage) => void;
@@ -34,6 +36,24 @@ export function UploadPlayer(input: {
   const [needsTap, setNeedsTap] = useState(false);
   const [lease, setLease] = useState("");
   const reloadsRef = useRef(0);
+  const [advancing, setAdvancing] = useState(false);
+  const advancedRef = useRef(false);
+
+  const advance = useCallback(async () => {
+    if (!input.canAdvance || advancedRef.current) return;
+    advancedRef.current = true;
+    setAdvancing(true);
+    try {
+      const response = await fetch(`/api/cinema/sessions/${input.roomId}/playlist`, {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentUploadId: input.uploadId }),
+      });
+      if (!response.ok) throw new Error("Could not move to the next file.");
+    } catch {
+      advancedRef.current = false;
+      setAdvancing(false);
+    }
+  }, [input.canAdvance, input.roomId, input.uploadId]);
 
   // Props are mirrored into refs for the same reason the YouTube player does
   // it: the element is created once per lease, and an effect that read a stale
@@ -176,6 +196,7 @@ export function UploadPlayer(input: {
       }}
       onPlay={() => handlePlayPause("play")}
       onPause={() => handlePlayPause("pause")}
+      onEnded={() => { if (input.canAdvance) window.setTimeout(() => void advance(), 1500); }}
       onError={() => {
         // A lease that ran out mid-playback is replaced once, at the same spot,
         // rather than shown as a broken video.
@@ -188,6 +209,7 @@ export function UploadPlayer(input: {
         setStatus("failed");
       }}
     />
+    {input.canAdvance && <button type="button" className="cinema-upload-next" disabled={advancing} onClick={() => void advance()}>{advancing ? "Moving on…" : "Next file / discussion"}</button>}
     {(status === "ready" || fullscreen.active) && <CinemaFullscreenButton playerRef={playerShellRef} state={fullscreen} onChange={setFullscreen} />}
     {fullscreen.active && <CinemaFullscreenCameras cameras={input.cameras} canPin={Boolean(input.hostControls)} />}
     {fullscreen.active && <CinemaFullscreenHostControls host={input.hostControls} />}

@@ -1,4 +1,8 @@
 .food-console { display: grid; gap: 1rem; }
+.food-payment-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(12rem,20rem) auto; gap: .6rem; align-items: center; padding: .75rem 0; border-top: 1px solid #e2e9e5; }
+.food-payment-row p { margin: 0; }
+.food-payment-row input { min-height: 2.6rem; padding: .65rem .75rem; border: 1px solid #ccd9d2; border-radius: .7rem; font: inherit; }
+.food-payment-row button { min-height: 2.6rem; padding: 0 .8rem; border: 0; border-radius: .7rem; background: #7f3029; color: #fff; font: inherit; font-weight: 800; }
 .food-console-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) auto; gap: .75rem; }
 .food-console-stats article { display: grid; gap: .2rem; min-height: 5rem; padding: 1rem; border: 1px solid var(--ui-line); border-radius: 1rem; background: #fff; }
 .food-console-stats article span { color: var(--ui-muted); font-size: .75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
@@ -136,6 +140,7 @@
   .food-menu-row label:nth-of-type(3), .food-menu-row label:nth-of-type(4) { grid-column: 1 / -1; }
 }
 @media (max-width: 36rem) {
+  .food-payment-row { grid-template-columns: 1fr; }
   .food-console-stats { grid-template-columns: repeat(3,1fr); gap: .4rem; }
   .food-console-stats article { min-height: 4.2rem; padding: .65rem; }
   .food-provider-card dl { grid-template-columns: 1fr; }

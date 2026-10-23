@@ -57,7 +57,7 @@ test("a single-Worker deployment is unchanged and keeps the console domain route
   assert.equal(plain.routes, undefined);
 
   const routed = write(fixtureDir, "single", "", "console.umatexpress.com");
-  assert.deepEqual(routed.routes, [{ pattern: "console.umatexpress.com/*", custom_domain: true }]);
+  assert.deepEqual(routed.routes, [{ pattern: "console.umatexpress.com", custom_domain: true }]);
 });
 
 test("both app Workers bind the private Python Worker without duplicating a binding", () => {
@@ -70,4 +70,27 @@ test("both app Workers bind the private Python Worker without duplicating a bind
     });
     assert.deepEqual(config.services, [{ binding: "INTELLIGENCE", service: "umatexpress-intelligence" }]);
   }
+});
+
+test("custom domains stay on their own Workers and both recognize the console host", () => {
+  const f = fixture();
+  for (const role of ["client", "console"]) {
+    const { config } = deployConfig(f.input, {
+      name: role, role, clientDomain: "https://umatexpress.com/",
+      consoleDomain: "console.umatexpress.com", consoleHosts: "console.example.workers.dev",
+    });
+    assert.deepEqual(config.routes, [{ pattern: role === "client" ? "umatexpress.com" : "console.umatexpress.com", custom_domain: true }]);
+    assert.equal(config.vars.CONSOLE_HOSTS, "console.umatexpress.com,console.example.workers.dev");
+  }
+});
+
+test("production domains disable alternate Worker URLs and register public aliases", () => {
+  const { config } = deployConfig(fixture().input, { name: "umatexpress", role: "client", clientDomain: "umatexpress.com", clientAliases: "www.umatexpress.com" });
+  assert.equal(config.assets.run_worker_first, true);
+  assert.equal(config.assets.binding, "ASSETS");
+  assert.equal(config.workers_dev, false);
+  assert.equal(config.preview_urls, false);
+  assert.equal(config.vars.CANONICAL_HOST, "umatexpress.com");
+  assert.equal(config.vars.HOST_ALIASES, "www.umatexpress.com");
+  assert.deepEqual(config.routes.map(route => route.pattern), ["umatexpress.com", "www.umatexpress.com"]);
 });

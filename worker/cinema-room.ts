@@ -332,7 +332,11 @@ export class CinemaRoom {
     const videoId = String(body?.videoId || "").trim();
     const snapshot = await this.state.storage.get<CinemaRoomSnapshot>(ROOM_KEY);
     if (snapshot) await this.state.storage.put(ROOM_KEY, { ...snapshot, sourceType, videoId });
+    const reset: CinemaPlaybackState = { positionSeconds: 0, isPlaying: false, updatedAt: 0, durationSeconds: 0 };
+    this.playback = reset;
+    await this.state.storage.put(PLAYBACK_KEY, reset);
     this.broadcast({ type: "source", sourceType, videoId });
+    this.broadcast({ type: "state", playback: reset, serverAt: Date.now() });
     // The file landed after the room's minute, so the room starts it now and
     // from the top: nothing has watched a frame of it yet, which is exactly
     // what makes an upload's auto-play different from a YouTube link's.

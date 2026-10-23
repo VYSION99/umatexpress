@@ -16,7 +16,7 @@ process.env.TURSO_DATABASE_URL = "https://cinema-rooms-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
-const state = { rooms: [], members: [], invites: [], waiting: [], eventRooms: new Map(), notifications: [], metrics: new Map(), failMembershipOnce: false };
+const state = { rooms: [], members: [], invites: [], profiles: new Map(), profileGuests: [], waiting: [], eventRooms: new Map(), notifications: [], metrics: new Map(), failMembershipOnce: false };
 
 function cell(value) {
   if (value === null || value === undefined) return { type: "null" };
@@ -44,6 +44,84 @@ function handle(sql, args) {
     return affected(1);
   }
   if (/^ALTER TABLE/.test(sql)) return ok(empty);
+  if (/^INSERT (OR IGNORE )?INTO cinema_reusable_rooms/.test(sql)) {
+    const [id, host_student_id, current_session_id, title, source_type, video_id, visibility, duration_minutes, created_at, updated_at] = args;
+    state.profiles.set(id, { id, host_student_id, current_session_id, title, source_type, video_id, visibility, duration_minutes, created_at, updated_at, busy_token: "", busy_until: "" });
+    return affected(1);
+  }
+  if (/^SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,/.test(sql) && sql.includes("FROM cinema_sessions s WHERE s.id=? LIMIT 1")) {
+    const room = state.rooms.find((item) => item.id === args[0]);
+    return ok(room ? table(ROOM_COLUMNS, [room]) : empty);
+  }
+  if (/^SELECT id FROM cinema_events WHERE session_id=\? LIMIT 1/.test(sql)) {
+    const event = state.eventRooms.get(args[0]);
+    return ok(event ? table(["id"], [{ id: event.id }]) : empty);
+  }
+  if (/^INSERT OR IGNORE INTO cinema_reusable_room_guests\(room_id,student_id,invited_by,created_at\)\s+SELECT/.test(sql)) {
+    let count = 0;
+    for (const invite of state.invites.filter((item) => item.session_id === args[1])) {
+      if (state.profileGuests.some((item) => item.room_id === args[0] && item.student_id === invite.student_id)) continue;
+      state.profileGuests.push({ room_id: args[0], student_id: invite.student_id, invited_by: invite.invited_by, created_at: invite.created_at }); count++;
+    }
+    return affected(count);
+  }
+  if (/^SELECT p\.\*,COALESCE\(s\.status,'DELETED'\) AS current_status/.test(sql)) {
+    const rows = [...state.profiles.values()].filter((profile) => sql.includes("WHERE p.host_student_id=?") ? profile.host_student_id === args[0] : sql.includes("WHERE p.current_session_id=? OR p.id=?") ? profile.current_session_id === args[0] || profile.id === args[1] : profile.id === args[0]);
+    const joined = rows.map((profile) => ({ ...profile, current_status: state.rooms.find((room) => room.id === profile.current_session_id)?.status || "DELETED" }));
+    return ok(joined.length ? table(Object.keys(joined[0]), sql.includes("LIMIT 1") ? joined.slice(0, 1) : joined) : empty);
+  }
+  if (/^UPDATE cinema_reusable_rooms SET (title|visibility)=\?,updated_at=\? WHERE current_session_id=\?/.test(sql)) {
+    const key = sql.includes("SET title=") ? "title" : "visibility";
+    const profile = [...state.profiles.values()].find((item) => item.current_session_id === args[2]);
+    if (profile) { profile[key] = args[0]; profile.updated_at = args[1]; }
+    return affected(profile ? 1 : 0);
+  }
+  if (/^INSERT OR IGNORE INTO cinema_reusable_room_guests\(room_id,student_id,invited_by,created_at\) VALUES/.test(sql)) {
+    if (!state.profileGuests.some((item) => item.room_id === args[0] && item.student_id === args[1])) state.profileGuests.push({ room_id: args[0], student_id: args[1], invited_by: args[2], created_at: args[3] });
+    return affected(1);
+  }
+  if (/^DELETE FROM cinema_reusable_room_guests WHERE room_id=\? AND student_id=\?/.test(sql)) {
+    const before = state.profileGuests.length;
+    state.profileGuests = state.profileGuests.filter((item) => item.room_id !== args[0] || item.student_id !== args[1]);
+    return affected(before - state.profileGuests.length);
+  }
+  if (/^DELETE FROM cinema_reusable_rooms WHERE id=\? AND host_student_id=\? AND current_session_id=\? AND busy_token=\?/.test(sql)) {
+    const profile = state.profiles.get(args[0]);
+    if (!profile || profile.host_student_id !== args[1] || profile.current_session_id !== args[2] || profile.busy_token !== args[3]) return affected(0);
+    state.profiles.delete(args[0]); return affected(1);
+  }
+  if (/^DELETE FROM cinema_reusable_room_guests WHERE room_id=\? AND NOT EXISTS/.test(sql)) {
+    if (state.profiles.has(args[1])) return affected(0);
+    const before = state.profileGuests.length;
+    state.profileGuests = state.profileGuests.filter((item) => item.room_id !== args[0]);
+    return affected(before - state.profileGuests.length);
+  }
+  if (/^INSERT OR IGNORE INTO cinema_room_invites\(session_id,student_id,invited_by,created_at\)\s+SELECT/.test(sql)) {
+    let count = 0;
+    for (const guest of state.profileGuests.filter((item) => item.room_id === args[1])) {
+      if (state.invites.some((item) => item.session_id === args[0] && item.student_id === guest.student_id)) continue;
+      state.invites.push({ session_id: args[0], student_id: guest.student_id, invited_by: guest.invited_by, created_at: guest.created_at }); count++;
+    }
+    return affected(count);
+  }
+  if (/^UPDATE cinema_reusable_rooms SET busy_token=\?,busy_until=\?/.test(sql)) {
+    const profile = state.profiles.get(args[2]);
+    if (!profile || profile.current_session_id !== args[3] || (profile.busy_token && profile.busy_until >= args[4])) return affected(0);
+    profile.busy_token = args[0]; profile.busy_until = args[1]; return affected(1);
+  }
+  if (/^UPDATE cinema_reusable_rooms SET current_session_id=\?,busy_token=''/.test(sql)) {
+    const profile = state.profiles.get(args[2]);
+    if (!profile || profile.current_session_id !== args[3] || profile.busy_token !== args[4]) return affected(0);
+    profile.current_session_id = args[0]; profile.updated_at = args[1]; profile.busy_token = ""; profile.busy_until = ""; return affected(1);
+  }
+  if (/^UPDATE cinema_reusable_rooms SET busy_token='',busy_until=''/.test(sql)) {
+    const profile = state.profiles.get(args[0]);
+    if (profile && profile.busy_token === args[1]) { profile.busy_token = ""; profile.busy_until = ""; return affected(1); }
+    return affected(0);
+  }
+  if (/^SELECT plan FROM cinema_room_plan_grants/.test(sql)) return ok(empty);
+  if (/^INSERT OR IGNORE INTO cinema_room_allowances/.test(sql)) return affected(1);
+  if (/^SELECT plan,max_files,max_bytes,max_minutes FROM cinema_room_allowances/.test(sql)) return ok(table(["plan", "max_files", "max_bytes", "max_minutes"], [{ plan: "FREE", max_files: 1, max_bytes: 500 * 1024 ** 2, max_minutes: 60 }]));
 
   // The Turso rate-limit store, which the routes use when no Durable Object
   // binding is present. Each window is fresh, so every call is allowed.
@@ -127,6 +205,14 @@ function handle(sql, args) {
   if (/^SELECT e.status,o.status AS organizer_status/.test(sql.replace(/\s+/g, " "))) {
     const event = state.eventRooms.get(args[1]);
     return ok(event ? table(["status", "organizer_status", "organizer_type", "verified_at", "rsvp_status"], [{ status: event.status || "PUBLISHED", organizer_status: event.organizerStatus || "ACTIVE", organizer_type: event.organizerType || "STUDENT_GROUP", verified_at: event.verifiedAt || "", rsvp_status: event.rsvps.has(args[0]) ? "GOING" : "" }]) : empty);
+  }
+  if (/^SELECT id FROM cinema_events WHERE session_id = \? LIMIT 1/.test(sql)) {
+    const event = state.eventRooms.get(args[0]);
+    return ok(event ? table(["id"], [{ id: event.id }]) : empty);
+  }
+  if (/^SELECT slug FROM cinema_events WHERE session_id = \? LIMIT 1/.test(sql)) {
+    const event = state.eventRooms.get(args[0]);
+    return ok(event ? table(["slug"], [{ slug: event.slug || "campus-event" }]) : empty);
   }
   if (/^SELECT session_id, COUNT\(\*\) AS members FROM cinema_participants/.test(sql)) {
     const ids = args;
@@ -292,7 +378,7 @@ function handle(sql, args) {
     const joined = new Set(state.members.filter((member) => member.student_id === studentId).map((member) => member.session_id));
     const invited = new Set(state.invites.filter((invite) => invite.student_id === studentId).map((invite) => invite.session_id));
     const rows = state.rooms
-      .filter((room) => room.status !== "DELETED" && (joined.has(room.id) || invited.has(room.id)))
+      .filter((room) => room.status !== "DELETED" && (joined.has(room.id) || invited.has(room.id)) && (!sql.includes("NOT EXISTS (SELECT 1 FROM cinema_events") || !state.eventRooms.has(room.id)))
       .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
       .slice(Number(sql.match(/OFFSET (\d+)/)?.[1] || 0), Number(sql.match(/OFFSET (\d+)/)?.[1] || 0) + Number(sql.match(/LIMIT (\d+)/)?.[1] || 20))
       .map((room) => ({ ...room, member: joined.has(room.id) ? 1 : 0, host_name: state.members.find(member => member.session_id === room.id && member.student_id === room.host_student_id)?.display_name || "", invited: invited.has(room.id) ? 1 : 0 }));
@@ -364,6 +450,9 @@ const joinRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/join/r
 const invitesRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/invites/route.ts");
 const guestsRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/guests/route.ts");
 const socketRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/ws/route.ts");
+const reuseRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/reuse/route.ts");
+const forgetRoute = await vite.ssrLoadModule("/app/api/cinema/reusable-rooms/[id]/route.ts");
+const { reuseCinemaRoom } = await vite.ssrLoadModule("/lib/cinema-engine/reuse.ts");
 
 const host = { id: "student-host", name: "Ama Host" };
 const guest = { id: "student-guest", name: "Kwesi Guest" };
@@ -381,6 +470,8 @@ beforeEach(() => {
   state.rooms.length = 0;
   state.members.length = 0;
   state.invites.length = 0;
+  state.profiles.clear();
+  state.profileGuests.length = 0;
   state.eventRooms.clear();
   state.waiting.length = 0;
   state.notifications.length = 0;
@@ -445,9 +536,9 @@ test("the host can extend a timed room before its deadline, and a stale alarm ca
   assert.equal(await markCinemaRoomEnded(room.id, Date.parse(extended.endsAt)), true);
   assert.equal((await readRoom({ id: room.id, studentId: host.id })).status, "ENDED");
 
-  const capped = await createRoom({ student: host, title: "Four-hour limit", video: VIDEO, startInMinutes: 0, durationMinutes: 225 });
+  const capped = await createRoom({ student: host, title: "Five-hour limit", video: VIDEO, startInMinutes: 0, durationMinutes: 285 });
   const lastExtension = await patchRoom({ id: capped.id, studentId: host.id, action: "EXTEND" });
-  assert.equal(lastExtension.durationMinutes, 240);
+  assert.equal(lastExtension.durationMinutes, 300);
   await expectRefusal(patchRoom({ id: capped.id, studentId: host.id, action: "EXTEND" }), "INVALID_STATE", 409);
   const untimed = await createRoom({ student: host, title: "Host-ended", video: VIDEO, startInMinutes: 0 });
   await expectRefusal(patchRoom({ id: untimed.id, studentId: host.id, action: "EXTEND" }), "INVALID_STATE", 409);
@@ -835,6 +926,43 @@ test("the routes require the platform account, and create a room for it once sig
   assert.equal(listPayload.rooms[0].id, payload.room.id);
 });
 
+test("a watch room keeps its link while reuse creates a clean session and preserves its guest list", async () => {
+  const cookie = await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/"));
+  const created = await sessionsRoute.POST(new Request("https://umatexpress.test/api/cinema/sessions", {
+    method: "POST", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ title: "Weekly study", video: VIDEO, visibility: "PRIVATE" }),
+  }));
+  assert.equal(created.status, 201);
+  const original = (await created.json()).room;
+  await inviteToRoom({ id: original.id, studentId: ACCOUNT.id, email: STUDENT_ACCOUNTS.get(guest.id).email });
+  await patchRoom({ id: original.id, studentId: ACCOUNT.id, action: "END" });
+  const restarted = await reuseRoute.POST(new Request(`https://umatexpress.test/api/cinema/sessions/${original.id}/reuse`, {
+    method: "POST", headers: { cookie },
+  }), { params: Promise.resolve({ id: original.id }) });
+  assert.equal(restarted.status, 200, JSON.stringify(await restarted.clone().json()));
+  const result = await restarted.json();
+  assert.equal(result.stableId, original.id);
+  assert.notEqual(result.sessionId, original.id);
+  assert.equal(state.rooms.find((room) => room.id === original.id).status, "ENDED");
+  assert.equal((await readRoom({ id: result.sessionId, studentId: ACCOUNT.id })).stableRoomId, original.id);
+  assert.equal((await readRoom({ id: result.sessionId, studentId: guest.id })).invited, true);
+  assert.equal(state.members.filter((member) => member.session_id === result.sessionId).length, 1, "old attendance is not copied");
+  const tooEarly = await forgetRoute.DELETE(new Request(`https://umatexpress.test/api/cinema/reusable-rooms/${original.id}`, { method: "DELETE", headers: { cookie } }), { params: Promise.resolve({ id: original.id }) });
+  assert.equal(tooEarly.status, 409, "an active saved room cannot be removed");
+  await patchRoom({ id: result.sessionId, studentId: ACCOUNT.id, action: "END" });
+  const forgotten = await forgetRoute.DELETE(new Request(`https://umatexpress.test/api/cinema/reusable-rooms/${original.id}`, { method: "DELETE", headers: { cookie } }), { params: Promise.resolve({ id: original.id }) });
+  assert.equal(forgotten.status, 200);
+  assert.equal(state.profiles.size, 0);
+  assert.equal(state.profileGuests.length, 0);
+});
+
+test("an event playback session cannot become a reusable watch room", async () => {
+  const room = await createRoom({ student: host, title: "Public event", video: VIDEO });
+  state.eventRooms.set(room.id, { id: "event-1", rsvps: new Set() });
+  await expectRefusal(reuseCinemaRoom({ id: room.id, student: host }), "INVALID_STATE", 409);
+  assert.equal(state.profiles.size, 0);
+});
+
 test("a verified non-student account can join Cinema and read its room list but cannot host", async () => {
   const room = await createRoom({ student: host, title: "Open screening", video: VIDEO, startInMinutes: 0 });
   const cookie = await studentSessionCookie("public-guest", new Request("https://umatexpress.test/"));
@@ -965,6 +1093,11 @@ test("a public event room still requires an RSVP at the server join boundary", a
   await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
   state.eventRooms.get(room.id).rsvps.add(guest.id);
   assert.equal((await joinRoom({ id: room.id, student: guest })).isMember, true);
+  assert.equal((await readRoom({ id: room.id, studentId: guest.id })).eventSlug, "campus-event");
+  assert.deepEqual(await listMyRooms(host.id), [], "event sessions do not appear among hosted watch rooms");
+  assert.deepEqual(await listMyRooms(guest.id), [], "event attendance does not create a watch-room entry");
+  await expectRefusal(patchRoom({ id: room.id, studentId: host.id, action: "PRIVATE" }), "INVALID_STATE", 409);
+  await expectRefusal(patchRoom({ id: room.id, studentId: host.id, action: "EXTEND" }), "INVALID_STATE", 409);
 });
 
 test("lobby retains guest membership and host names without fetching every participant", async () => {

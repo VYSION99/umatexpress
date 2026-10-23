@@ -305,7 +305,8 @@ test("a finished upload switches every open screen, and the snapshot after it", 
   }));
   assert.equal(response.status, 200);
   for (const socket of [hostSocket, guestSocket]) {
-    assert.deepEqual(socket.sent.at(-1), { type: "source", sourceType: "UPLOAD", videoId: "upload-1" });
+    assert.deepEqual(last(socket, "source"), { type: "source", sourceType: "UPLOAD", videoId: "upload-1" });
+    assert.equal(last(socket, "state").playback.positionSeconds, 0, "a new file starts from the beginning");
   }
   // The object's own snapshot moves with the row, so a wake still knows which
   // video the room plays.

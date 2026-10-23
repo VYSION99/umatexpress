@@ -30,6 +30,8 @@ interface Env {
     };
   };
   CONSOLE_HOSTS?: string;
+  CANONICAL_HOST?: string;
+  HOST_ALIASES?: string;
 }
 
 interface ExecutionContext {
@@ -62,27 +64,44 @@ const worker = {
     // degrade to "no bindings" rather than throw.
     const bindings = env ?? ({} as Env);
 
+    const canonical = bindings.CANONICAL_HOST;
+    const aliases = (bindings.HOST_ALIASES ?? "").split(",").map(host => host.trim().toLowerCase()).filter(Boolean);
+    if (canonical && aliases.includes(url.hostname.toLowerCase())) {
+      url.hostname = canonical;
+      url.protocol = "https:";
+      url.port = "";
+      return withSecurityHeaders(request, Response.redirect(url.toString(), 308));
+    }
+
     // The console is a separate origin. When CONSOLE_HOSTS is configured the
     // console origin serves console surfaces only, and console-native paths are
     // never reachable from the public host. Unconfigured means no boundary,
     // which is what local development and preview deployments rely on.
     const boundary = consoleBoundaryResponse(request, bindings.CONSOLE_HOSTS ?? process.env.CONSOLE_HOSTS);
-    if (boundary) return boundary;
+    if (boundary) return withSecurityHeaders(request, boundary);
 
     if (url.pathname === "/_vinext/image") {
-      if (!bindings.ASSETS || !bindings.IMAGES) return new Response("Image optimization is unavailable locally.", { status: 404 });
+      if (!bindings.ASSETS || !bindings.IMAGES) return withSecurityHeaders(request, new Response("Image optimization is unavailable locally.", { status: 404 }));
       const assets = bindings.ASSETS;
       const images = bindings.IMAGES;
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
+      return withSecurityHeaders(request, await handleImageOptimization(request, {
         fetchAsset: (path) => assets.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
           const result = await images.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
-      }, allowedWidths);
+      }, allowedWidths));
     }
 
+    // Run host rules and headers before static assets as well as app routes.
+    // Missing assets fall through to the router; API and WebSocket requests
+    // go straight to their handlers.
+    if (bindings.ASSETS && (request.method === "GET" || request.method === "HEAD")
+      && !request.headers.has("upgrade") && !url.pathname.startsWith("/api/")) {
+      const asset = await bindings.ASSETS.fetch(request);
+      if (asset.status !== 404) return withSecurityHeaders(request, asset);
+    }
     return withSecurityHeaders(request, await handler.fetch(request, bindings, ctx));
   },
 

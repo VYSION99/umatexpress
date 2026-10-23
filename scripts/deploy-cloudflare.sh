@@ -29,6 +29,10 @@ if [[ -z "$CONSOLE_HOST" && -f "$PROJECT_DIR/.env" ]]; then
   CONSOLE_HOST="$(grep -E '^CLOUDFLARE_CONSOLE_HOST=' "$PROJECT_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)"
 fi
 
+CLIENT_HOST="${CLOUDFLARE_CLIENT_HOST:-$(env_or_default CLOUDFLARE_CLIENT_HOST "")}"
+
+CLIENT_ALIASES="${CLOUDFLARE_CLIENT_ALIASES:-$(env_or_default CLOUDFLARE_CLIENT_ALIASES "")}"
+
 cd "$PROJECT_DIR"
 
 # Python runs as a private Worker on the same Cloudflare account. Both app
@@ -168,7 +172,7 @@ fi
 # client Worker starts refusing console paths.
 if [[ -n "$CONSOLE_WORKER_NAME" ]]; then
   echo "==> console Worker: $CONSOLE_WORKER_NAME on $CONSOLE_HOSTS"
-  node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_CONSOLE_OUT" "$CONSOLE_WORKER_NAME" "$CONSOLE_HOST" console "$CONSOLE_HOSTS" "$INTELLIGENCE_WORKER_NAME"
+  node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_CONSOLE_OUT" "$CONSOLE_WORKER_NAME" "$CONSOLE_HOST" console "$CONSOLE_HOSTS" "$INTELLIGENCE_WORKER_NAME" "$CLIENT_HOST" "$CLIENT_ALIASES"
   wrangler deploy --config "$CONFIG_CONSOLE_OUT"
   echo "Remember: push the runtime secrets to the console Worker too."
   echo "  CLOUDFLARE_WORKER_NAME=$CONSOLE_WORKER_NAME scripts/push-secrets.sh"
@@ -180,5 +184,5 @@ if [[ -z "$CONSOLE_HOST" ]]; then
 fi
 
 echo "==> client Worker: $WORKER_NAME"
-node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_OUT" "$WORKER_NAME" "$CONSOLE_HOST" "$ROLE" "$CONSOLE_HOSTS" "$INTELLIGENCE_WORKER_NAME"
+node "$PROJECT_DIR/scripts/write-deploy-config.mjs" "$CONFIG_IN" "$CONFIG_OUT" "$WORKER_NAME" "$CONSOLE_HOST" "$ROLE" "$CONSOLE_HOSTS" "$INTELLIGENCE_WORKER_NAME" "$CLIENT_HOST" "$CLIENT_ALIASES"
 wrangler deploy --config "$CONFIG_OUT"

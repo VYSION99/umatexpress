@@ -4,8 +4,10 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { CinemaRoom } from "@/components/cinema/CinemaRoom";
+import { CinemaReuseButton } from "@/components/cinema/CinemaReuseButton";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { readRoom, type CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
+import { reusableRoomById } from "@/lib/cinema-engine/reusable-rooms";
 import { studentAccountFromRequest } from "@/lib/student-auth";
 
 export const metadata: Metadata = {
@@ -36,8 +38,17 @@ export default async function CinemaRoomPage({ params }: { params: Promise<{ id:
   let room: Room | null = null;
   let restricted = false;
   const studentId = await signedInStudentId();
+  const saved = await reusableRoomById(id);
+  const currentId = saved?.currentSessionId || id;
+  if (saved && ["EXPIRED", "DELETED"].includes(saved.currentStatus)) return <CampusShell
+    area="CINEMA" title={saved.hostStudentId === studentId ? saved.title : "Watch room"}
+    subtitle="This room is between sessions"
+  ><section className="cinema-card"><h2>Waiting for the next session</h2><p>The host can use this same link again. Previous chat and temporary uploads are no longer available.</p>
+      {saved.hostStudentId === studentId && <CinemaReuseButton stableId={saved.id} />}
+      <Link className="cinema-cta" href="/cinema/rooms">Watch rooms</Link>
+    </section></CampusShell>;
   try {
-    room = await readRoom({ id, studentId });
+    room = await readRoom({ id: currentId, studentId });
   } catch (error) {
     // A private room is a 403 from the engine rather than a 404, so the page
     // can tell a student with the link what is actually happening.
@@ -72,7 +83,7 @@ export default async function CinemaRoomPage({ params }: { params: Promise<{ id:
   return <CampusShell
     area="CINEMA"
     title={room.title}
-    subtitle={`${stateCopy} · hosted by ${room.hostName}`}
+    subtitle={`${room.eventSlug ? "Cinema event" : "Watch room"} · ${stateCopy} · hosted by ${room.hostName}`}
   >
     <CinemaRoom initialRoom={room} />
   </CampusShell>;

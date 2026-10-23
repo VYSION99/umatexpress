@@ -1,7 +1,7 @@
 # Next student services roadmap
 
 **Planning date:** 27 September 2026
-**Status:** Food M1–M3 implemented behind controlled launch gates. Public launch remains gated on real verified providers, linked vendors and an operated pilot. Online payment and delivery remain disabled.
+**Status:** Food M1–M4 implemented behind controlled launch gates. Public launch remains gated on real verified providers, linked vendors and an operated pilot. Online payment has independent default-off global and provider gates; delivery remains unavailable.
 
 ## Food M1 implementation (19 October 2026)
 
@@ -28,6 +28,14 @@ M3 adds the operational controls needed to run a small pickup pilot without pres
 New requests require all four gates: the global staff pilot switch, provider admission, the provider's M2 pickup configuration and a current OPEN or BUSY vendor status refreshed within 18 hours. Any gate can stop new requests without deleting or hiding existing pickups. Editing or suspending a provider removes it from the pilot; staff must verify and admit it again.
 
 Students can report a problem after a provider accepts a pickup and can submit one rating after collection is confirmed. Active cases appear in the staff Food workspace with review, resolution and dismissal actions. The operations dashboard shows request totals, collected, expired and declined counts, average acceptance time, and collection-backed ratings. M3 does not issue refunds, take online payment, promise delivery or infer stock.
+
+## Food M4 implementation (20 October 2026)
+
+M4 adds an independently gated Paystack checkout after vendor acceptance. The charged total, processing fee, platform commission and vendor net are frozen in integer pesewas. Webhook and active verification share one idempotent settlement path; amount or currency mismatches enter review. Payment-enrolled orders cannot move to ready before successful payment.
+
+Cancellation before the existing cutoff records a full refund when money was collected. An administrator approves the refund, and only a processed provider result marks it paid. Collection creates vendor earnings after the configured release delay. Staff record an external payout reference; automatic vendor transfers are deliberately outside this release. The immutable finance projection includes Food payments, paid refunds and earnings transitions.
+
+The deployment-wide payment switch and every provider payment profile default off. M4 does not enable Food on the homepage or add delivery. See `docs/FOOD_PAYMENTS_M4.md` and `sql/042_food_payments.sql`.
 
 ## Starting point
 

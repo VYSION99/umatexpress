@@ -6,6 +6,7 @@ import { applyHostelRefundEvent } from "@/lib/hostel-engine/refunds";
 
 import { applyPaystackTransferEvent } from "@/lib/organizer-payouts";
 import { markSuccessful, markFailed } from "@/lib/payments/vacation";
+import { applyFoodRefundEvent, failFoodPayment, settleFoodPayment } from "@/lib/food/payments";
 
 export type PaystackWebhook = {
   event?: string;
@@ -43,7 +44,9 @@ export async function processPaystackEvent(event: PaystackWebhook) {
   const transactionId = event.data?.id ? String(event.data.id) : "";
   const amount = Number(event.data?.amount || 0);
   if (isRefundEvent(event.event)) {
-    const input = { event: String(event.event), reference, status: event.data?.status, amount };
+    const input = { event: String(event.event), reference, status: event.data?.status, amount, currency: String(event.data?.currency || "MISSING") };
+    const food = await applyFoodRefundEvent(input);
+    if (food.handled) return food;
     const hostel = await applyHostelRefundEvent(input);
     return hostel.handled ? hostel : await applyCampusRefundEvent(input);
   }
@@ -61,13 +64,17 @@ export async function processPaystackEvent(event: PaystackWebhook) {
     if (vacation.handled) return vacation;
     const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, "payment-inbox", Number(event.data?.fees || 0), currency);
     if (campus.handled) return campus;
+    const food = await settleFoodPayment(reference, amount, currency, transactionId);
+    if (food.handled) return food;
     return settleHostelWebhookPayment({ reference, amount, currency, transactionId, source: "webhook" });
   }
   const reason = event.data?.gateway_response || "PAYSTACK_PAYMENT_FAILED";
   const vacation = await markFailed(reference, reason, transactionId);
   if (vacation.handled) return vacation;
   const campus = await markCampusRidePaymentFailed(reference, reason, transactionId, "payment-inbox");
-  return campus.handled ? campus : await failHostelWebhookPayment({ reference, reason, transactionId });
+  if (campus.handled) return campus;
+  const food = await failFoodPayment(reference, reason, transactionId);
+  return food.handled ? food : await failHostelWebhookPayment({ reference, reason, transactionId });
 }
 
 export function actionablePaystackEvent(event: PaystackWebhook) {

@@ -87,6 +87,8 @@
 .food-order-card dt { color: #6b7b72; font-size: .7rem; }
 .food-order-card dd { margin: .2rem 0 0; font-weight: 750; }
 .food-order-card > button { min-height: 2.5rem; border: 1px solid #e7c7c1; border-radius: .7rem; background: #fff; color: #97372e; font: inherit; font-weight: 800; cursor: pointer; }
+.food-order-card > .food-pay-button { border-color: #126c4e; background: #126c4e; color: #fff; }
+.food-payment-note { padding: .55rem .7rem; border-radius: .65rem; background: #fff4d6; color: #674e19 !important; font-weight: 750; }
 .food-order-status { justify-self: start; padding: .2rem .5rem; border-radius: 99px; background: #fff2cc; color: #72551a; font-size: .66rem; font-weight: 900; }
 .food-order-status.is-accepted, .food-order-status.is-ready { background: #def4e7; color: #116344; }
 .food-order-status.is-declined, .food-order-status.is-cancelled, .food-order-status.is-expired { background: #f7e4e1; color: #92372e; }

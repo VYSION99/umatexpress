@@ -32,6 +32,7 @@ const PLATFORM_SETTINGS_STATEMENTS = [
 ];
 
 export type PlatformSettingKey =
+  | "food_payments_enabled"
   | "here_maps_enabled"
   | "hostel_maintenance_enabled"
   | "hostel_conditions_enabled"
@@ -106,6 +107,12 @@ export type PlatformSettingDefinition = {
 };
 
 export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] = [
+  {
+    key: "food_payments_enabled", kind: "toggle", label: "Food online payments",
+    summary: "Allow enrolled Food providers to collect accepted pickup orders online.",
+    detail: "This is the deployment-wide money gate. A provider also needs its own payment profile enabled. Off stops new checkout while preserving payment, refund and settlement records already in progress.",
+    env: "FOOD_PAYMENTS_ENABLED", fallback: false,
+  },
   { key: "hostel_stay_requests_enabled", kind: "toggle", label: "Hostel stay plans",
     summary: "Enable room-change requests and next-year renewals for opted-in properties.",
     detail: "Owners enable each property and configure renewal windows. Off pauses new requests, offers and acceptance; existing handovers, payment verification and history remain available. Different-price room changes are disabled.",

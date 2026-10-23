@@ -1,0 +1,10 @@
+import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
+import { startFoodCheckout, verifyFoodPayment } from "@/lib/food/payments";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { requireStudent } from "@/lib/student-auth";
+import { idempotentCheckout } from "@/lib/payments/idempotency";
+
+const headers={"Cache-Control":"no-store"};
+function sameOrigin(request:Request){const origin=request.headers.get("origin");if(origin&&origin!==new URL(request.url).origin)throw new CampusEngineError("FORBIDDEN","Cross-origin checkout refused.",403)}
+export async function POST(request:Request){try{sameOrigin(request);const student=await requireStudent(request);return await idempotentCheckout(request,student.email,"FOOD",async()=>{const limited=await rateLimit(request,"food-payment-start",{limit:10,windowMs:60*60_000});if(!limited.ok)return rateLimitResponse(limited.retryAfter);const body=await request.json() as {preorderId?:unknown};const result=await startFoodCheckout({preorderId:body.preorderId,origin:new URL(request.url).origin},student);return Response.json(result,{status:result.paid?200:202,headers})})}catch(error){if(!(error instanceof CampusEngineError))return Response.json({ok:false,code:"ENGINE_ERROR",error:"Checkout is temporarily unavailable."},{status:503,headers});const failure=campusErrorPayload(error);return Response.json(failure.body,{status:failure.status,headers})}}
+export async function GET(request:Request){try{const student=await requireStudent(request);const limited=await rateLimit(request,"food-payment-verify",{limit:120,windowMs:10*60_000});if(!limited.ok)return rateLimitResponse(limited.retryAfter);const reference=new URL(request.url).searchParams.get("reference")||"";if(!reference)throw new CampusEngineError("VALIDATION_ERROR","Missing payment reference.",400);return Response.json(await verifyFoodPayment(reference,student),{headers});}catch(error){const failure=campusErrorPayload(error);return Response.json(failure.body,{status:failure.status,headers})}}

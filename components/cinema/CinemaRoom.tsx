@@ -16,11 +16,13 @@ import { CinemaNotes } from "./CinemaNotes";
 import { CinemaRecorderPanel } from "./CinemaRecorderPanel";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
 import { UploadPlayer } from "./UploadPlayer";
+import { UploadPanel } from "./UploadPanel";
 import { YouTubePlayer } from "./YouTubePlayer";
 import { useCinemaMedia } from "./useCinemaMedia";
 import { useCinemaRecorder } from "./useCinemaRecorder";
 import { CinemaDialog } from "./CinemaDialog";
 import { CinemaPollsPanel } from "./CinemaPollsPanel";
+import { CinemaReuseButton } from "./CinemaReuseButton";
 import { CinemaQuestionsPanel } from "./CinemaQuestionsPanel";
 import { CinemaDiscussionAudience } from "./CinemaDiscussionAudience";
 import { CinemaJaasStage } from "./CinemaJaasStage";
@@ -75,6 +77,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const [reportNotice, setReportNotice] = useState("");
   const mobile = useSyncExternalStore(subscribeViewport, mobileViewport, () => false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [playlistOpen, setPlaylistOpen] = useState(false);
+  const [playlistRevision, setPlaylistRevision] = useState(0);
+  const [playlistFiles, setPlaylistFiles] = useState<Array<{ id: string; filename: string; position: number }>>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState("");
   const chatRequest = useRef<{ text: string; id: string } | null>(null);
@@ -126,6 +131,15 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   // the `source` frame, which is what switches the player without a reload.
   const sourceType = live.source?.sourceType ?? room.sourceType;
   const videoId = live.source?.videoId ?? room.videoId;
+  useEffect(() => {
+    if (sourceType !== "UPLOAD" || !room.isMember) return;
+    let cancelled = false;
+    void fetch(`/api/cinema/sessions/${room.id}/playlist`, { credentials: "same-origin", cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { uploads?: Array<{ id: string; filename: string; position: number }> } | null) => { if (!cancelled) setPlaylistFiles(data?.uploads || []); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [room.id, room.isMember, sourceType, videoId, playlistOpen, playlistRevision]);
   const openSheet = (next: CinemaSheet) => {
     setReactionOpen(false);
     setSheet((current) => (current === next ? "" : next));
@@ -418,7 +432,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   };
 
   const share = async () => {
-    const link = `${window.location.origin}/cinema/${room.id}`;
+    const link = `${window.location.origin}${initialRoom.eventSlug ? `/cinema/events/${initialRoom.eventSlug}` : `/cinema/${initialRoom.stableRoomId}`}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -515,6 +529,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   };
 
   return <div className="cinema-room">
+    <CinemaDialog open={playlistOpen} title="Room playlist" onClose={() => setPlaylistOpen(false)}>
+      <UploadPanel roomId={room.id} onUploaded={() => setPlaylistRevision((value) => value + 1)} />
+    </CinemaDialog>
     <CinemaDialog open={confirmEnd} title="End this room?" onClose={() => setConfirmEnd(false)} busy={Boolean(busy)}>
       <p>Playback and calls will stop for everyone. Any unsaved recording can still be downloaded from this page.</p>
       <div className="cinema-controls"><button type="button" className="danger" disabled={Boolean(busy)} onClick={() => { void act("END").then(() => setConfirmEnd(false)); }}>End room for everyone</button><button type="button" className="secondary" onClick={() => setConfirmEnd(false)}>Keep watching</button></div>
@@ -554,14 +571,19 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
           />
           : active && live.state === "live" && sourceType === "UPLOAD" && videoId
             ? <UploadPlayer
+              key={videoId}
               roomId={room.id}
+              uploadId={videoId}
               isHost={canPresent}
+              canAdvance={canManage}
               playback={live.playback}
               now={live.clock.now}
               onAction={live.send}
               cameras={cameras}
               hostControls={canManage ? { media, playback: live.playback, now: live.clock.now, onAction: live.send, roomId: room.id, waitingEnabled: room.waitingRoomEnabled, waiting: waitingMembers, stageLimit: room.stageLimit, discussionMode: room.discussionMode, stageRequestCount, onWaitingDecision: (id, action) => { void decideWaiting(id, action); } } : undefined}
             />
+            : active && live.state === "live" && sourceType === "UPLOAD" && !videoId && room.isMember
+            ? <div className="cinema-video-closed"><strong>No file playing</strong><p>When the playlist finishes, this room stays open for discussion until the host ends it.</p></div>
             : <p className="cinema-video-closed">
               {active
                 ? !account ? "Sign in to join this room." : room.waitingState === "WAITING" ? "You are in the waiting room. The host or a co-host will admit you." : room.waitingState === "REJECTED" ? "The host could not admit this request." : !room.isMember ? "Joining the room…" : live.state !== "live" ? "Connecting to the room…" : room.isHost
@@ -571,10 +593,17 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
             </p>}
         {roomActive && needsEmailVerification && <Link className="cinema-verify-link" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}><Envelope size={18} aria-hidden /> Verify your email</Link>}
         {currentCaption && <div className="cinema-live-caption" aria-live="polite"><strong>{currentCaption.source === "CALL" ? currentCaption.speakerName : "Captions"}</strong> {currentCaption.text}</div>}
-        {!active && <Link className="cinema-cta" href="/cinema/rooms">Back to your rooms</Link>}
+        {!active && <Link className="cinema-cta" href={initialRoom.eventSlug ? `/cinema/events/${initialRoom.eventSlug}` : "/cinema/rooms"}>{initialRoom.eventSlug ? "Back to event" : "Back to your rooms"}</Link>}
+        {!active && room.isHost && !initialRoom.eventSlug && room.status === "ENDED" && <CinemaReuseButton stableId={initialRoom.stableRoomId} />}
         {active && account && room.waitingState === "REJECTED" && <button type="button" className="cinema-cta" onClick={() => void requestAdmissionAgain()}>Request admission again</button>}
         {active && !account && <Link className="cinema-cta" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}>Sign in to join</Link>}
       </section>
+
+      {sourceType === "UPLOAD" && room.isMember && <section className="cinema-playlist" aria-label="Room playlist">
+        <div className="cinema-playlist-head"><div><strong>Playlist</strong><span>{playlistFiles.length} file{playlistFiles.length === 1 ? "" : "s"} · followed by discussion</span></div>
+          {room.isHost && active && <button type="button" className="secondary" onClick={() => setPlaylistOpen(true)}>Add files</button>}</div>
+        {playlistFiles.length > 0 && <ol>{playlistFiles.map((file) => <li key={file.id} className={file.id === videoId ? "is-playing" : ""}><span>{file.position}</span><strong>{file.filename}</strong><small>{file.id === videoId ? "Playing" : "Queued"}</small></li>)}</ol>}
+      </section>}
 
       {screenMember && screenStream && <section className="cinema-presentation" aria-label={`${screenMember.displayName || "Presenter"}'s shared screen`}>
         <header><strong>{screenMember.studentId === account?.id ? "You are presenting" : `${screenMember.displayName || "Presenter"} is presenting`}</strong><span>Live screen</span></header>
@@ -667,7 +696,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
           <details className="cinema-more-section" open={!mobile}>
             <summary>Room options</summary>
             <div className="cinema-action-list">
-              <button onClick={() => setSheet("invite")}><UserPlus size={18} /> Share room link</button>
+              <button onClick={() => setSheet("invite")}><UserPlus size={18} /> Share {initialRoom.eventSlug ? "event" : "room"} link</button>
               {(memberAccount || recorder.recoveryUrl) && <button onClick={() => setSheet("record")}><Radio size={18} /> My recordings</button>}
             </div>
           </details>
@@ -755,8 +784,8 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       <Sheet open={selected === "invite"} mobile={mobile} id="cinema-sheet-invite" label="Invite" onClose={closeSheet}>
         <section className="cinema-share">
           <strong>Invite</strong>
-          <code>{`/cinema/${room.id}`}</code>
-          <button onClick={() => void share()}>{copied ? "Link copied" : "Copy the room link"}</button>
+          <code>{initialRoom.eventSlug ? `/cinema/events/${initialRoom.eventSlug}` : `/cinema/${initialRoom.stableRoomId}`}</code>
+          <button onClick={() => void share()}>{copied ? "Link copied" : `Copy the ${initialRoom.eventSlug ? "event" : "room"} link`}</button>
         </section>
         {room.isHost && room.isPrivate && <section className="cinema-card cinema-invite-card">
           <CinemaInvites

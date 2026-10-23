@@ -128,6 +128,18 @@ test('reversal review never creates a second receipt or changes posted balances'
   assert.deepEqual(sourceBalances('payments', { status: 'REVERSAL_REVIEW', amount: 1020 }, original), original);
 });
 
+test('Food payment, release and refund projections preserve a balanced vendor liability', async () => {
+  const { sourceBalances } = await vite.ssrLoadModule('/lib/payments/accounting.ts');
+  const payment = sourceBalances('food_payments', { status: 'SUCCESSFUL', amount: 1020, base_amount: 1000, fee_amount: 20, commission_amount: 100, vendor_amount: 900, provider_id: 'canteen', currency: 'GHS', paid_at: '2026-10-20' });
+  assert.equal(Object.values(payment).reduce((sum, value) => sum + value, 0), 0);
+  assert.equal(payment['seller_pending:food:canteen:GHS'], -900);
+  const available = sourceBalances('food_settlements', { status: 'AVAILABLE', net_amount: 900, provider_id: 'canteen', currency: 'GHS' });
+  assert.deepEqual(available, { 'seller_pending:food:canteen:GHS': 900, 'seller_available:food:canteen:GHS': -900 });
+  const refund = sourceBalances('food_refunds', { status: 'PAID', amount: 1020, base_amount: 1000, fee_amount: 20, commission_amount: 100, vendor_amount: 900, provider_id: 'canteen', currency: 'GHS' });
+  assert.equal(Object.values(refund).reduce((sum, value) => sum + value, 0), 0);
+  assert.equal(refund['seller_pending:food:canteen:GHS'], 900);
+});
+
 test('reversals hold unsent payouts without reopening terminal bookings or journeys', async () => {
   globalThis.fetch = sql.fetch;
   const { flagPaymentReversal } = await vite.ssrLoadModule('/lib/payments/reversal.ts');

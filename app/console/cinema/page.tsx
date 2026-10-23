@@ -3,6 +3,7 @@
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { CinemaRoomsPanel } from "@/components/console/cinema/CinemaRoomsPanel";
 import { CinemaOrganizerRequests } from "@/components/console/cinema/CinemaOrganizerRequests";
+import { CinemaRoomPlans } from "@/components/console/cinema/CinemaRoomPlans";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
 
@@ -22,6 +23,7 @@ export default function CinemaRoomsPage() {
       >
         <CinemaRoomsPanel />
         {session.account.role === "ADMIN" && <CinemaOrganizerRequests />}
+        {session.account.role === "ADMIN" && <CinemaRoomPlans />}
       </ConsoleShell>
       : <ConsoleUnavailable session={session} service="cinema" label="STUDY ROOMS" blurb="Watch rooms belong to platform staff." />}
   </ConsoleSessionGate>;
