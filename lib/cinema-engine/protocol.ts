@@ -87,6 +87,8 @@ export type CinemaServerMessage =
   | { type: "chat"; message: CinemaChatMessage }
   | { type: "chat_removed"; id: string }
   | { type: "source"; sourceType: string; videoId: string }
+  /** A stored poll or question changed; clients refetch their own authorized view. */
+  | { type: "interaction_changed"; kind: "questions" | "polls" }
   | { type: "schedule"; endsAt: string }
   | { type: "signal"; from: string; payload: CinemaSignalPayload }
   /** A new AI board for the room; the scene is already parsed and bounded. */
@@ -156,7 +158,7 @@ export type CinemaRecordingStateInput = {
   active: boolean;
 };
 
-export const CINEMA_REACTIONS = ["👏", "❤️", "😂", "💡", "✅"] as const;
+export const CINEMA_REACTIONS = ["👏", "❤️", "😂", "😮", "🔥", "🙌", "👍", "🎉", "💡", "🤔", "💯", "✅"] as const;
 export type CinemaReaction = (typeof CINEMA_REACTIONS)[number];
 export type CinemaReactionInput = { type: "reaction"; emoji: CinemaReaction };
 export type CinemaHandStateInput = { type: "hand_state"; raised: boolean };

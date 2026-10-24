@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowDown, ArrowRight, ArrowSquareOut, ArrowUp, Bell, Bus, Car, Compass, House, MagnifyingGlass, MapPin, PushPin, Sliders, SquaresFour, Ticket, User, X } from "@/components/ui/MaterialIcon";
+import { ArrowDown, ArrowRight, ArrowSquareOut, ArrowUp, Bell, Car, Compass, House, MagnifyingGlass, MapPin, PushPin, Sliders, SquaresFour, User, X } from "@/components/ui/MaterialIcon";
 import { defaultPreferences, homepageServices, services, type LauncherPreference, type OpenService, type Service } from "./services";
 import { useLauncherLayout } from "./useLauncherLayout";
 import { ProfilePanel } from "./ProfilePanel";
 import { NotificationFeed } from "./NotificationFeed";
+import { HomeServiceSearch } from "./HomeServiceSearch";
+import { ProfileAvatar } from "@/components/account/ProfilePhoto";
 import { useNotifications } from "@/components/account/useNotifications";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import { entrance } from "@/components/ui/motion";
-import { SheetHandle } from "@/components/ui/SheetHandle";
+import { AppBottomSheet } from "@/components/ui/AppBottomSheet";
+import { FloatingDock } from "@/components/ui/FloatingDock";
 import "./launcher.css";
 import "./home.css";
 
@@ -59,8 +62,6 @@ export default function CampusLauncher() {
   const [panel, setPanel] = useState<Panel>(null);
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { if (panel) dialog.current?.showModal(); else dialog.current?.close(); }, [panel]);
   function save(next: LauncherPreference[]) {
     setNotice(saveLayout(next) ? "Layout saved on this device." : "Your layout is updated for this visit. Browser storage is unavailable.");
   }
@@ -78,14 +79,15 @@ export default function CampusLauncher() {
   const homepage = homepageServices(preferences);
   const pinned = new Set(preferences.filter(item => item.pinned).map(item => item.id));
   const matches = openServices.filter(service => `${service.title} ${service.description} ${service.detail} ${service.category}`.toLowerCase().includes(query.toLowerCase().trim()));
+  const panelTitle = panel === "services" ? "Open services" : panel === "customise" ? "Make it yours" : panel === "profile" ? "Your profile" : panel === "tickets" ? "Your tickets" : panel === "notifications" ? "Notifications" : "Here to help";
   return <div className="launcher home">
     <a href="#home-main" className="launch-skip">Skip to services</a>
     <header className="home-bar">
       <Link href="/" className="home-brand"><img className="home-mark" src="/logo-mark.png" width="40" height="40" alt="" /><span><span className="home-wordmark">UMaTe<em>X</em>PRESS</span><p className="home-tagline">Your campus companion</p></span></Link>
-      <nav className="home-nav-desktop" aria-label="Campus services"><a href="#services">Explore</a><Link href="/campus"><Car size={16} aria-hidden />campusRide</Link><Link href="/vacation"><Bus size={16} aria-hidden />vacationRide</Link></nav>
+      <HomeServiceSearch />
       <div className="home-bar-actions">
         <button className="home-icon-button" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} onClick={() => setPanel("notifications")}><Bell size={20} aria-hidden />{unread > 0 && <span className="home-dot" aria-hidden />}</button>
-        <button className="home-guest" onClick={() => setPanel("profile")} aria-label="Your profile"><User size={18} aria-hidden /><span>{greeting || "Guest"}</span></button>
+        <button className="home-guest" onClick={() => setPanel("profile")} aria-label="Your profile">{account ? <ProfileAvatar scope="STUDENT" name={account.name} /> : <User size={18} aria-hidden />}<span>{greeting || "Guest"}</span></button>
       </div>
     </header>
     <main id="home-main" className="home-main">
@@ -124,15 +126,14 @@ export default function CampusLauncher() {
           their own routes and are not advertised from the student homepage. */}
       <footer className="home-footer"><span><strong>UMaTeXPRESS</strong> · Made for campus life.</span><button onClick={() => setPanel("support")}>Help</button></footer>
     </main>
-    <nav className="home-nav" aria-label="Home sections">
-      <a href="#home-main" aria-current="page"><House size={21} aria-hidden />Home</a>
-      <button onClick={() => setPanel("services")}><SquaresFour size={21} aria-hidden />Services</button>
-      <button onClick={() => setPanel("tickets")}><Ticket size={21} aria-hidden />Tickets</button>
-      <button onClick={() => setPanel("profile")}><User size={21} aria-hidden />Profile</button>
-    </nav>
-    <dialog ref={dialog} className="launch-dialog" onCancel={() => setPanel(null)} onClick={event => { if (event.target === event.currentTarget) setPanel(null); }} aria-labelledby="launch-dialog-title">
-      <SheetHandle onDismiss={() => setPanel(null)} />
-      <motion.div className="launch-dialog-inner" key={panel ?? "closed"} {...entrance(reducedMotion)}><div className="launch-dialog-heading"><h2 id="launch-dialog-title">{panel === "services" ? "Open services" : panel === "customise" ? "Make it yours" : panel === "profile" ? "Your profile" : panel === "tickets" ? "Your tickets" : panel === "notifications" ? "Notifications" : "Here to help"}</h2><button className="home-icon-button" aria-label="Close" onClick={() => setPanel(null)}><X size={20} aria-hidden /></button></div>
+    <FloatingDock label="Home navigation" items={[
+      { id: "home", label: "Home", icon: "home", href: "/", active: true },
+      { id: "services", label: "Services", icon: "services", onSelect: () => setPanel("services") },
+      { id: "tickets", label: "Tickets", icon: "ticket", onSelect: () => setPanel("tickets") },
+      { id: "profile", label: "Profile", icon: "account", onSelect: () => setPanel("profile") },
+    ]} />
+    <AppBottomSheet open={panel !== null} title={panelTitle} onClose={() => setPanel(null)} className="launch-dialog">
+      <motion.div className="launch-dialog-inner" key={panel ?? "closed"} {...entrance(reducedMotion)}><div className="launch-dialog-heading"><h2 id="launch-dialog-title">{panelTitle}</h2><button className="home-icon-button" aria-label="Close" onClick={() => setPanel(null)}><X size={20} aria-hidden /></button></div>
       {panel === "services" && <><label className="launch-search"><MagnifyingGlass size={18} aria-hidden /><input aria-label="Filter open services" placeholder="Search rides, hostels, cinema…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <p className="launch-directory-note">{homepage.length} of {openServices.length} open services on your homepage.</p>
       <div className="launch-directory">{matches.map(service => { const item = preferences.find(row => row.id === service.id)!; const Icon = service.icon; return <article key={service.id}><Icon size={24} aria-hidden /><div><h3>{service.title}</h3><p>{service.description}</p>{service.destination && <Link
@@ -147,6 +148,6 @@ export default function CampusLauncher() {
       {panel === "notifications" && <NotificationFeed />}
       {panel === "support" && <div className="launch-panel-message"><Compass size={32} aria-hidden /><h3>Where would you like to go?</h3><p>Use the help assistant inside CampusRide or VacationRide for service questions. Keep your payment reference when asking about a booking.</p><Link href="/campus">CampusRide help →</Link><Link href="/vacation">VacationRide help →</Link></div>}
       <p className="launch-save-status" role="status">{notice || error}</p></motion.div>
-    </dialog>
+    </AppBottomSheet>
   </div>;
 }

@@ -76,6 +76,25 @@ export async function announceCinemaSource(roomId: string, source: { sourceType:
   }
 }
 
+/** The database remains authoritative; open clients only receive a refetch hint. */
+export async function announceCinemaInteraction(roomId: string, kind: "questions" | "polls", moderatorsOnly = false) {
+  const namespace = await cinemaRoomNamespace();
+  if (!namespace) return;
+  try {
+    const stub = namespace.get(namespace.idFromName(String(roomId)));
+    await stub.fetch("https://cinema-room/interaction-changed", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, moderatorsOnly }),
+    });
+  } catch (error) {
+    logEvent("warn", "cinema_interaction_announce_failed", {
+      roomId: String(roomId), kind,
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
 /**
  * Tells a live room that the host removed a guest. The membership row is
  * already gone by the time this runs; closing the guest's sockets is what
@@ -208,10 +227,10 @@ export async function cinemaRoomPresence(roomId: string): Promise<CinemaRoomPres
     const stub = namespace.get(namespace.idFromName(String(roomId)));
     const response = await stub.fetch("https://cinema-room/presence", { method: "GET" });
     if (!response.ok) return null;
-    const data = await response.json() as { members?: unknown[]; emptySince?: unknown };
+    const data = await response.json() as { members?: unknown[]; connectedCount?: unknown; emptySince?: unknown };
     const emptySince = Number(data.emptySince);
     return {
-      memberCount: Array.isArray(data.members) ? data.members.length : 0,
+      memberCount: Number.isFinite(Number(data.connectedCount)) ? Number(data.connectedCount) : Array.isArray(data.members) ? data.members.length : 0,
       emptySince: Number.isFinite(emptySince) && emptySince > 0 ? emptySince : 0,
     };
   } catch (error) {

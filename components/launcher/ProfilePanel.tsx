@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowRight, Check, ShieldCheck, SignOut, Ticket, User, X } from "@/components/ui/MaterialIcon";
-import { ticketHref, writeProfile } from "@/lib/passenger-profile";
-import type { StudentAccount } from "@/lib/student-auth";
+import { useState } from "react";
+import { ArrowRight, Key, ShieldCheck, SignOut, Ticket, User, X } from "@/components/ui/MaterialIcon";
+import { clearProfile, clearSavedTickets, notifyPassengerChanged, ticketHref } from "@/lib/passenger-profile";
 import { publishStudentAccount, useStudentAccount } from "@/components/account/useStudentAccount";
+import { ProfileAvatar } from "@/components/account/ProfilePhoto";
 import { usePassenger } from "./usePassenger";
 
 const formatSavedAt = (value: string) => {
@@ -17,51 +17,21 @@ const formatSavedAt = (value: string) => {
 export function ProfilePanel({ ticketsOnly = false }: { ticketsOnly?: boolean }) {
   const { tickets, forgetTicket } = usePassenger();
   const { ready, account } = useStudentAccount();
-  const [form, setForm] = useState({ name: "", phone: "" });
   const [status, setStatus] = useState("");
-  // Saving and signing out both wait on the database, so the button that was
-  // pressed says what it is doing instead of leaving a dead label on screen.
-  const [busy, setBusy] = useState<"" | "save" | "signout">("");
-  const [seeded, setSeeded] = useState(false);
-
-  // The panel can open before the account request lands, so the saved name and
-  // number are filled in as soon as they arrive. Anything already typed wins.
-  useEffect(() => {
-    if (seeded || !account) return;
-    queueMicrotask(() => {
-      setForm(current => (current.name || current.phone ? current : { name: account.name, phone: account.phone }));
-      setSeeded(true);
-    });
-  }, [account, seeded]);
-
-  const save = async () => {
-    setBusy("save"); setStatus("");
-    try {
-      const response = await fetch("/api/auth/student", {
-        method: "PATCH",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: form.name, phone: form.phone }),
-      });
-      const data = await response.json() as { account?: StudentAccount; error?: string };
-      if (!response.ok || !data.account) throw new Error(data.error || "Your details could not be saved.");
-      writeProfile({ name: data.account.name, email: data.account.email, phone: data.account.phone });
-      publishStudentAccount(data.account);
-      setStatus("Saved to your UMaTeXPRESS account.");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Your details could not be saved.");
-    } finally {
-      setBusy("");
-    }
-  };
+  const [busy, setBusy] = useState(false);
 
   const signOut = async () => {
-    setBusy("signout");
-    try { await fetch("/api/auth/student", { method: "DELETE", credentials: "same-origin" }); } catch { /* the account page clears the cookie server-side */ }
-    publishStudentAccount(null);
-    setForm({ name: "", phone: "" });
-    setStatus("Signed out on this device.");
-    setBusy("");
+    setBusy(true); setStatus("");
+    try {
+      const response = await fetch("/api/auth/student", { method: "DELETE", credentials: "same-origin" });
+      if (!response.ok) throw new Error("Could not sign out. Try again.");
+      clearProfile();
+      clearSavedTickets();
+      notifyPassengerChanged();
+      publishStudentAccount(null);
+      setStatus("Signed out on this device.");
+    } catch (error) { setStatus(error instanceof Error ? error.message : "Could not sign out."); }
+    finally { setBusy(false); }
   };
 
   const ticketsBlock = <section className="profile-tickets" aria-labelledby="profile-tickets-title">
@@ -86,20 +56,14 @@ export function ProfilePanel({ ticketsOnly = false }: { ticketsOnly?: boolean })
 
   if (ready && account) return <div className="profile-panel">
     <div className="profile-account">
-      <span className="profile-account-badge"><ShieldCheck size={16} aria-hidden /> Signed in</span>
-      <strong>{account.email}</strong>
-      <p className="profile-note">One account for campusRide and vacationRide. Only UMaT student addresses can hold an account.</p>
-    </div>
-    <div className="profile-fields">
-      <label><span>Full name</span><input autoComplete="name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="e.g. Ama Mensah" /></label>
-      <label><span>Mobile Money number</span><input inputMode="tel" autoComplete="tel" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="05X XXX XXXX" /></label>
+      <div className="profile-panel-identity"><ProfileAvatar scope="STUDENT" name={account.name} /><div><span className="profile-account-badge"><ShieldCheck size={16} aria-hidden /> {account.emailVerified ? "Verified account" : "Email not verified"}</span><strong>{account.name || account.email}</strong><small>{account.email}</small></div></div>
     </div>
     <div className="profile-actions">
-      <button className="profile-save" disabled={busy !== ""} onClick={save}><Check size={16} aria-hidden /> {busy === "save" ? "Saving…" : "Save details"}</button>
-      <button className="profile-forget" disabled={busy !== ""} onClick={signOut}>{busy === "signout" ? "Signing out…" : <><SignOut size={15} aria-hidden /> Sign out</>}</button>
+      <Link className="profile-save" href="/profile"><User size={16} aria-hidden /> View profile</Link>
+      <Link className="profile-forget" href="/profile#security"><Key size={16} aria-hidden /> Security</Link>
     </div>
+    <button className="profile-forget" disabled={busy} onClick={() => void signOut()}><SignOut size={16} aria-hidden /> {busy ? "Signing out…" : "Sign out"}</button>
     {status && <p className="profile-status" role="status">{status}</p>}
-    {ticketsBlock}
   </div>;
 
   return <div className="profile-panel">
@@ -107,8 +71,8 @@ export function ProfilePanel({ ticketsOnly = false }: { ticketsOnly?: boolean })
       <span className="profile-account-badge is-guest"><User size={16} aria-hidden /> Guest</span>
       <strong>Browsing without an account</strong>
       <p className="profile-note">
-        Search rides, compare fares and open a ticket without signing in. Holding a seat or joining a campus ride
-        queue needs your UMaT student account — one account for both services, limited to @st.umat.edu.gh.
+        Explore rides, hostels and Cinema without signing in. A UMaT student account is needed for ride bookings;
+        any verified account can take part in eligible Cinema events.
       </p>
     </div>
     <div className="profile-actions">

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Re
 import { Bookmark, Chats, ClosedCaption, Envelope, Flag, Hand, Lock, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Poll, Radio, ScreenShare, Smile, Sparkle, Square, SquaresFour, Timer, UserPlus, X } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaBookmark, CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
-import { CINEMA_CALL_MEMBER_LIMIT, CINEMA_REACTIONS, type CinemaReaction } from "@/lib/cinema-engine/protocol";
+import { CINEMA_CALL_MEMBER_LIMIT } from "@/lib/cinema-engine/protocol";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
 import { CinemaCallButtons } from "./CinemaCallButtons";
@@ -26,6 +26,7 @@ import { CinemaReuseButton } from "./CinemaReuseButton";
 import { CinemaQuestionsPanel } from "./CinemaQuestionsPanel";
 import { CinemaDiscussionAudience } from "./CinemaDiscussionAudience";
 import { CinemaJaasStage } from "./CinemaJaasStage";
+import { CinemaReactionOverlay, CinemaReactionPicker } from "./CinemaReactions";
 import { CinemaStageRequestsPanel } from "./CinemaStageRequestsPanel";
 import { CinemaStudyPanel } from "./CinemaStudyPanel";
 import { CinemaTranscriptPanel } from "./CinemaTranscriptPanel";
@@ -530,7 +531,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
 
   return <div className="cinema-room">
     <CinemaDialog open={playlistOpen} title="Room playlist" onClose={() => setPlaylistOpen(false)}>
-      <UploadPanel roomId={room.id} onUploaded={() => setPlaylistRevision((value) => value + 1)} />
+      <UploadPanel roomId={room.id} isPrivate={room.isPrivate} onUploaded={() => setPlaylistRevision((value) => value + 1)} />
     </CinemaDialog>
     <CinemaDialog open={confirmEnd} title="End this room?" onClose={() => setConfirmEnd(false)} busy={Boolean(busy)}>
       <p>Playback and calls will stop for everyone. Any unsaved recording can still be downloaded from this page.</p>
@@ -556,7 +557,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
           </span>
         </div>
         {room.discussionMode && room.managedStage && active && roomMember
-          ? <CinemaJaasStage roomId={room.id} active={active} />
+          ? <div className="cinema-stage-reaction-host"><CinemaJaasStage roomId={room.id} active={active} /><CinemaReactionOverlay reactions={live.reactions} /></div>
           : room.discussionMode && active
           ? <div className="cinema-discussion-stage-note"><span className="cinema-eyebrow">SPEAKING STAGE</span><h2>Host broadcast check</h2><p>The stage call is separate from the audience broadcast. Stage audio and video are not sent to YouTube automatically.</p><ol><li>Connect the speakers to your broadcast software.</li><li>Start the YouTube broadcast and check that viewers can hear it.</li><li>Keep the broadcast running while this room is live.</li></ol>{videoId && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`} target="_blank" rel="noopener noreferrer">Open audience broadcast monitor</a>}<small>Broadcast connection is not verified by UMaTeXPRESS.</small></div>
           : active && live.state === "live" && sourceType === "YOUTUBE" && videoId
@@ -567,6 +568,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
             now={live.clock.now}
             onAction={live.send}
             cameras={cameras}
+            reactions={live.reactions}
             hostControls={canManage ? { media, playback: live.playback, now: live.clock.now, onAction: live.send, roomId: room.id, waitingEnabled: room.waitingRoomEnabled, waiting: waitingMembers, stageLimit: room.stageLimit, discussionMode: room.discussionMode, stageRequestCount, onWaitingDecision: (id, action) => { void decideWaiting(id, action); } } : undefined}
           />
           : active && live.state === "live" && sourceType === "UPLOAD" && videoId
@@ -580,6 +582,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
               now={live.clock.now}
               onAction={live.send}
               cameras={cameras}
+              reactions={live.reactions}
               hostControls={canManage ? { media, playback: live.playback, now: live.clock.now, onAction: live.send, roomId: room.id, waitingEnabled: room.waitingRoomEnabled, waiting: waitingMembers, stageLimit: room.stageLimit, discussionMode: room.discussionMode, stageRequestCount, onWaitingDecision: (id, action) => { void decideWaiting(id, action); } } : undefined}
             />
             : active && live.state === "live" && sourceType === "UPLOAD" && !videoId && room.isMember
@@ -602,7 +605,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       {sourceType === "UPLOAD" && room.isMember && <section className="cinema-playlist" aria-label="Room playlist">
         <div className="cinema-playlist-head"><div><strong>Playlist</strong><span>{playlistFiles.length} file{playlistFiles.length === 1 ? "" : "s"} · followed by discussion</span></div>
           {room.isHost && active && <button type="button" className="secondary" onClick={() => setPlaylistOpen(true)}>Add files</button>}</div>
-        {playlistFiles.length > 0 && <ol>{playlistFiles.map((file) => <li key={file.id} className={file.id === videoId ? "is-playing" : ""}><span>{file.position}</span><strong>{file.filename}</strong><small>{file.id === videoId ? "Playing" : "Queued"}</small></li>)}</ol>}
+        {playlistFiles.length > 0 && <ol>{playlistFiles.map((file) => <li key={file.id} className={file.id === videoId ? "is-playing" : ""}><span>{file.position}</span><img className="cinema-file-thumb" src={`/api/cinema/sessions/${room.id}/thumbnail?uploadId=${encodeURIComponent(file.id)}`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{file.filename}</strong><small>{file.id === videoId ? "Playing" : "Queued"}</small></li>)}</ol>}
       </section>}
 
       {screenMember && screenStream && <section className="cinema-presentation" aria-label={`${screenMember.displayName || "Presenter"}'s shared screen`}>
@@ -644,13 +647,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
         </div>
       </div>
       {canManage && active && !reactionOpen && waitingMembers.length + stageRequestCount > 0 && <button type="button" className="cinema-mobile-host-action" onClick={() => openSheet("host")}><UserPlus size={17} aria-hidden /> Host requests <span>{waitingMembers.length + stageRequestCount}</span></button>}
-      {reactionOpen && roomMember && <div className="cinema-reaction-picker" role="group" aria-label="Send a reaction">
-        {CINEMA_REACTIONS.map((emoji) => <button key={emoji} type="button" aria-label={`React ${emoji}`} onClick={() => { live.send({ type: "reaction", emoji: emoji as CinemaReaction }); setReactionOpen(false); }}>{emoji}</button>)}
-        <button type="button" aria-label="Close reactions" onClick={() => setReactionOpen(false)}><X size={18} aria-hidden /></button>
-      </div>}
-      {live.reactions.length > 0 && <div className="cinema-live-reactions" aria-live="polite">
-        {live.reactions.map((reaction) => <span key={reaction.id} title={`${reaction.name} reacted`}>{reaction.emoji}<small>{reaction.name}</small></span>)}
-      </div>}
+      {reactionOpen && roomMember && <CinemaReactionPicker onReact={(emoji) => { live.send({ type: "reaction", emoji }); setReactionOpen(false); }} onClose={() => setReactionOpen(false)} />}
       {/* The old Voice & video card is gone; what it had to say that the
           buttons cannot is one line here, where the call's pictures live. */}
       {roomMember && !room.managedStage && !callEligible && <p className="cinema-note">{room.discussionMode ? "You are in the audience. Raise your hand to request a speaking place; the host controls the stage." : `The call supports ${CINEMA_CALL_MEMBER_LIMIT} people. You can still watch and use chat, notes and the whiteboard.`}</p>}
@@ -749,10 +746,10 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       </Sheet>
 
       <Sheet open={selected === "polls"} mobile={mobile} id="cinema-sheet-polls" label="Polls and quizzes" onClose={closeSheet}>
-        {memberAccount && <CinemaPollsPanel roomId={room.id} canManage={canManage} />}
+        {memberAccount && <CinemaPollsPanel roomId={room.id} canManage={canManage} revision={live.pollsRevision} />}
       </Sheet>
       <Sheet open={selected === "questions"} mobile={mobile} id="cinema-sheet-questions" label="Audience questions" onClose={closeSheet}>
-        {room.discussionMode && selected === "questions" && roomMember && <CinemaQuestionsPanel roomId={room.id} canManage={canManage} />}
+        {room.discussionMode && selected === "questions" && roomMember && <CinemaQuestionsPanel roomId={room.id} canManage={canManage} revision={live.questionsRevision} />}
       </Sheet>
 
       <Sheet open={selected === "study"} mobile={mobile} id="cinema-sheet-study" label="Study intelligence" onClose={closeSheet}>

@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Poll } from "@/components/ui/MaterialIcon";
 import type { CinemaPoll } from "@/lib/cinema-engine/polls";
 
-export function CinemaPollsPanel({ roomId, canManage }: { roomId: string; canManage: boolean }) {
+export function CinemaPollsPanel({ roomId, canManage, revision = 0 }: { roomId: string; canManage: boolean; revision?: number }) {
   const [polls, setPolls] = useState<CinemaPoll[]>([]); const [question, setQuestion] = useState(""); const [options, setOptions] = useState(["", ""]); const [quiz, setQuiz] = useState(false); const [correct, setCorrect] = useState(0); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const load = useCallback(async () => { const response = await fetch(`/api/cinema/sessions/${roomId}/polls`, { credentials: "same-origin", cache: "no-store" }); const data = await response.json() as { polls?: CinemaPoll[]; error?: string }; if (!response.ok) throw new Error(data.error); setPolls(data.polls || []); }, [roomId]);
   useEffect(() => { queueMicrotask(() => void load().catch((e) => setError(e.message))); const timer = setInterval(() => { if (!document.hidden) void load().catch(() => undefined); }, 25_000 + Math.floor(Math.random() * 5_000)); return () => clearInterval(timer); }, [load]);
+  useEffect(() => { if (revision) queueMicrotask(() => void load().catch(() => undefined)); }, [revision, load]);
   const post = async (body: Record<string, unknown>) => { setBusy(true); setError(""); try { const response = await fetch(`/api/cinema/sessions/${roomId}/polls`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error); await load(); } catch (e) { setError(e instanceof Error ? e.message : "The poll could not be updated."); } finally { setBusy(false); } };
   const create = async () => { await post({ question, options, kind: quiz ? "QUIZ" : "POLL", correctIndex: correct }); setQuestion(""); setOptions(["", ""]); };
   return <section className="cinema-polls"><div className="cinema-presence-head"><h2><Poll size={17} /> Polls & quick quizzes</h2></div>

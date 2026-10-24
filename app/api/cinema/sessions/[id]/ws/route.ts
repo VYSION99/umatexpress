@@ -38,6 +38,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         403,
       );
     }
+    const audienceOnly = new URL(request.url).searchParams.get("audience") === "1";
+    if (audienceOnly && (!room.discussionMode || room.currentRole !== "VIEWER")) {
+      throw new CampusEngineError("FORBIDDEN", "Only discussion viewers can open the audience update channel.", 403);
+    }
 
     const namespace = await cinemaRoomNamespace();
     if (!namespace) {
@@ -52,6 +56,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       studentId: student.id,
       displayName: String(student.name || "").slice(0, 80),
       role: room.currentRole || "VIEWER",
+      audienceOnly,
     })));
     forwarded.headers.set("x-cinema-room", encodeURIComponent(JSON.stringify({
       roomId: room.id,

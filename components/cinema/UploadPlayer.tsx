@@ -7,6 +7,8 @@ import { CINEMA_DRIFT_THRESHOLD_SECONDS, CINEMA_HOST_DRIFT_SECONDS, expectedPosi
 import { CinemaFullscreenButton } from "./CinemaFullscreenButton";
 import { CinemaFullscreenCameras, type CinemaCameraContext } from "./CinemaFullscreenCameras";
 import { CinemaFullscreenHostControls, type CinemaHostControlsContext } from "./CinemaFullscreenHostControls";
+import { CinemaReactionOverlay } from "./CinemaReactions";
+import type { CinemaReactionEvent } from "./useCinemaSocket";
 
 /**
  * The room's uploaded video, driven by the room.
@@ -28,6 +30,7 @@ export function UploadPlayer(input: {
   onAction: (message: CinemaClientMessage) => void;
   cameras?: CinemaCameraContext;
   hostControls?: CinemaHostControlsContext;
+  reactions?: CinemaReactionEvent[];
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerShellRef = useRef<HTMLDivElement>(null);
@@ -181,6 +184,7 @@ export function UploadPlayer(input: {
       ref={videoRef}
       className={`cinema-upload-video${input.isHost ? "" : " is-passive"}`}
       src={lease || undefined}
+      poster={`/api/cinema/sessions/${input.roomId}/thumbnail?uploadId=${encodeURIComponent(input.uploadId)}`}
       controls={input.isHost}
       playsInline
       preload="metadata"
@@ -209,6 +213,7 @@ export function UploadPlayer(input: {
         setStatus("failed");
       }}
     />
+    <CinemaReactionOverlay reactions={input.reactions ?? []} />
     {input.canAdvance && <button type="button" className="cinema-upload-next" disabled={advancing} onClick={() => void advance()}>{advancing ? "Moving on…" : "Next file / discussion"}</button>}
     {(status === "ready" || fullscreen.active) && <CinemaFullscreenButton playerRef={playerShellRef} state={fullscreen} onChange={setFullscreen} />}
     {fullscreen.active && <CinemaFullscreenCameras cameras={input.cameras} canPin={Boolean(input.hostControls)} />}

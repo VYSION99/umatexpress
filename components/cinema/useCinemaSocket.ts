@@ -44,6 +44,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
   const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
   const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
+  const [questionsRevision, setQuestionsRevision] = useState(0);
+  const [pollsRevision, setPollsRevision] = useState(0);
   const [scheduleEndsAt, setScheduleEndsAt] = useState<string | null>(null);
   const [whiteboard, setWhiteboard] = useState<CinemaWhiteboardView | null>(null);
   const [removedWhiteboards, setRemovedWhiteboards] = useState<string[]>([]);
@@ -165,6 +167,10 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
           return;
         }
         if (message.type === "presence") setMembers(message.members || []);
+        if (message.type === "interaction_changed") {
+          if (message.kind === "questions") setQuestionsRevision((value) => value + 1);
+          else setPollsRevision((value) => value + 1);
+        }
         if (message.type === "state") {
           if (message.serverAt) clock.sample(message.serverAt);
           setPlayback(message.playback);
@@ -266,6 +272,6 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, [roomId, enabled, clock, failPending]);
 
   return enabled
-    ? { clock, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, scheduleEndsAt, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
-    : { clock, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, scheduleEndsAt: null as string | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
+    ? { clock, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, questionsRevision, pollsRevision, scheduleEndsAt, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
+    : { clock, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, questionsRevision, pollsRevision, scheduleEndsAt: null as string | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
 }

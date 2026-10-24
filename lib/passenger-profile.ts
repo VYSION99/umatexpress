@@ -1,11 +1,9 @@
 /**
  * The passenger profile is device-local on purpose.
  *
- * UMaTeXPRESS has no student accounts yet: drivers and admins sign in, but a
- * passenger is identified only by the name, email and phone they type into a
- * booking form. So this module keeps those three fields (plus the tickets this
- * device has already opened) in the browser only. Nothing here is uploaded, and
- * nothing here can be read from another device or by another passenger.
+ * This cache fills booking forms and remembers ticket links opened on this
+ * device. Student accounts now exist, but these local ticket references are
+ * not an account-wide booking history and must be labelled accordingly.
  *
  * The same three fields were previously remembered by the campusRide queue form
  * under `umx_campus_rider`; that key is still read once and then retired so
@@ -152,6 +150,12 @@ export function forgetTicket(reference: string, store: StorageLike | null = defa
     store.setItem(TICKETS_KEY, JSON.stringify(readSavedTickets(store).filter(ticket => ticket.reference !== target)));
     return true;
   } catch { return false; }
+}
+
+export function clearSavedTickets(store: StorageLike | null = defaultStorage()): boolean {
+  if (!store) return false;
+  try { store.removeItem(TICKETS_KEY); return true; }
+  catch { return false; }
 }
 
 /** Where a saved reference can be verified again. The ticket page re-checks it with the server. */

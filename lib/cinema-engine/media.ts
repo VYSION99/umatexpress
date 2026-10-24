@@ -13,6 +13,7 @@ import { envValue } from "@/lib/runtime-env";
  * byte ranges, because a video element scrubs by asking for ranges — and never
  * exposes the object key.
  *
+ * The media route also matches the signed-in account to the lease's student.
  * A URL that expires inside a long room is intended: the player asks for a new
  * one when playback stalls, and every request re-reads the room and the
  * student's seat, so a host who removes a guest or ends the room stops the

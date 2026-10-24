@@ -145,6 +145,53 @@ test("the arrival of a second student is broadcast to both, host first", async (
   assert.equal(last(hostSocket, "presence").members[1].isHost, false);
 });
 
+test("interaction hints reach moderators only when a question is pending", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": identity("guest-2", "Kwesi Guest") }));
+  const [host, guest] = state.sockets;
+  const changed = (kind, moderatorsOnly) => new Request("https://cinema-room/interaction-changed", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind, moderatorsOnly }),
+  });
+  await room.fetch(changed("questions", true));
+  assert.equal(last(host, "interaction_changed")?.kind, "questions");
+  assert.equal(last(guest, "interaction_changed"), undefined);
+  await room.fetch(changed("polls", false));
+  assert.equal(last(host, "interaction_changed")?.kind, "polls");
+  assert.equal(last(guest, "interaction_changed")?.kind, "polls");
+});
+
+test("broadcast audience gets interaction hints without joining stage presence", async () => {
+  const { room, state } = await newRoom();
+  await room.fetch(upgrade());
+  await room.fetch(upgrade({ "x-cinema-attachment": encodeURIComponent(JSON.stringify({ studentId: "viewer-1", displayName: "Viewer", role: "VIEWER", audienceOnly: true })) }));
+  const [host, audience] = state.sockets;
+  assert.deepEqual((await room.presence()).map((member) => member.studentId), ["host-1"]);
+  assert.equal(last(audience, "presence"), undefined);
+  const connected = await (await room.fetch(new Request("https://cinema-room/presence"))).json();
+  assert.equal(connected.connectedCount, 2);
+  assert.equal(connected.members.length, 1);
+  await room.fetch(new Request("https://cinema-room/interaction-changed", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "polls" }),
+  }));
+  assert.equal(last(audience, "interaction_changed")?.kind, "polls");
+  await room.webSocketMessage(audience, JSON.stringify({ type: "reaction", emoji: "🔥" }));
+  assert.equal(last(host, "reaction")?.emoji, "🔥");
+  assert.equal(last(audience, "reaction")?.emoji, "🔥");
+  await room.webSocketMessage(audience, JSON.stringify({ type: "play", time: 42 }));
+  assert.equal(last(audience, "error")?.type, "error", "audience cannot control playback");
+  await room.fetch(new Request("https://cinema-room/source", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sourceType: "YOUTUBE", videoId: "dQw4w9WgXcQ" }),
+  }));
+  assert.equal(last(audience, "source"), undefined);
+  assert.equal(last(host, "source")?.type, "source");
+  await room.webSocketClose(audience);
+  assert.deepEqual((await room.presence(audience)).map((member) => member.studentId), ["host-1"]);
+});
+
 test("closing a tab leaves the room, and everyone still attached sees it", async () => {
   const { room, state } = await newRoom();
   await room.fetch(upgrade());

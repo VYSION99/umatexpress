@@ -118,17 +118,17 @@ function handle(sql, args) {
     }
     return affected(count);
   }
-  if (/^UPDATE cinema_sessions SET video_source_type = 'YOUTUBE', video_id = '', updated_at = \?/.test(sql)) {
-    const [updatedAt, id, videoId] = args;
+  if (/^UPDATE cinema_sessions SET video_id = \?, updated_at = \? WHERE id = \? AND video_source_type = 'UPLOAD' AND video_id = \?/.test(sql)) {
+    const [nextVideoId, updatedAt, id, videoId] = args;
     const session = state.sessions.find((row) => row.id === id);
     if (!session || session.video_source_type !== "UPLOAD" || session.video_id !== videoId) return affected(0);
-    Object.assign(session, { video_source_type: "YOUTUBE", video_id: "", updated_at: updatedAt });
+    Object.assign(session, { video_id: nextVideoId, updated_at: updatedAt });
     return affected(1);
   }
 
   if (/^SELECT id,session_id,uploader_id,r2_object_key/.test(sql)) {
-    const row = state.uploads.find((upload) => upload.session_id === args[0]);
-    return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
+    const rows = state.uploads.filter((upload) => upload.session_id === args[0] && (!/status IN \('READY','UPLOADING'\)/.test(sql) || ["READY", "UPLOADING"].includes(upload.status)));
+    return ok(rows.length ? table(UPLOAD_COLUMNS, rows) : empty);
   }
   if (/^SELECT COUNT\(\*\) AS removals FROM cinema_uploads/.test(sql)) {
     const [uploaderId, excludeId] = args;
@@ -452,7 +452,7 @@ test("a moderator takes an uploaded video down through the console API", async (
   assert.equal(body.removal.filename, "party.mp4");
   assert.equal(state.uploads[0].status, "DELETED");
   assert.equal(state.uploads[0].removed_by, "mod@umat.edu.gh");
-  assert.equal(state.sessions[0].video_source_type, "YOUTUBE");
+  assert.equal(state.sessions[0].video_source_type, "UPLOAD", "a file playlist remains a file room after takedown");
   assert.equal(state.sessions[0].video_id, "");
   assert.equal(state.audits.at(-1).action, "cinema_upload_removed");
   assert.equal(JSON.parse(state.audits.at(-1).details).reason, "Copyright complaint");

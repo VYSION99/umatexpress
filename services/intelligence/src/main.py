@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from workers import asgi
 
 from insights import DailyBookings, booking_insights
+from thumbnails import choose_thumbnail
+from question_groups import suggest_groups
 
 app = FastAPI(title="UMATeXPRESS Intelligence", docs_url=None, redoc_url=None, openapi_url=None)
 Default = asgi.entrypoint(app)
@@ -24,6 +26,34 @@ class AnalyticsInput(BaseModel):
 class GenerateInput(BaseModel):
     systemPrompt: str = Field(min_length=1, max_length=12000)
     userPrompt: str = Field(min_length=1, max_length=24000)
+
+
+class ThumbnailFrame(BaseModel):
+    brightness: float = Field(ge=0, le=1)
+    contrast: float = Field(ge=0, le=1)
+
+
+class ThumbnailSelectionInput(BaseModel):
+    frames: list[ThumbnailFrame] = Field(min_length=1, max_length=4)
+
+
+class DiscussionQuestionInput(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    text: str = Field(min_length=5, max_length=400)
+
+
+class QuestionGroupsInput(BaseModel):
+    questions: list[DiscussionQuestionInput] = Field(min_length=1, max_length=100)
+
+
+@app.post("/v1/cinema/questions/groups")
+async def group_questions(payload: QuestionGroupsInput):
+    return {"groups": suggest_groups([question.model_dump() for question in payload.questions])}
+
+
+@app.post("/v1/cinema/thumbnail/select")
+async def select_thumbnail(payload: ThumbnailSelectionInput):
+    return {"index": choose_thumbnail([frame.model_dump() for frame in payload.frames])}
 
 
 @app.post("/v1/analytics/hostels/insights")

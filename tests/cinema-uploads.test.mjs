@@ -116,11 +116,11 @@ function handle(sql, args) {
     const rows = [...grouped].map(([session_id, members]) => ({ session_id, members }));
     return ok(rows.length ? table(["session_id", "members"], rows) : empty);
   }
-  if (/^UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = \?, visibility = 'PRIVATE', updated_at = \? WHERE id = \?/.test(sql)) {
+  if (/^UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = \?, updated_at = \? WHERE id = \?/.test(sql)) {
     const [videoId, updatedAt, id] = args;
     const room = state.rooms.find((row) => row.id === id);
     if (!room || room.video_id) return affected(0);
-    Object.assign(room, { video_source_type: "UPLOAD", video_id: videoId, visibility: "PRIVATE", updated_at: updatedAt });
+    Object.assign(room, { video_source_type: "UPLOAD", video_id: videoId, updated_at: updatedAt });
     return affected(1);
   }
 
@@ -364,6 +364,7 @@ const {
 } = await vite.ssrLoadModule("/lib/cinema-engine/media.ts");
 const { resetPlatformSettingsCache } = await vite.ssrLoadModule("/lib/platform-settings.ts");
 const { fileCinemaReport } = await vite.ssrLoadModule("/lib/cinema-engine/signals.ts");
+const mediaRoute = await vite.ssrLoadModule("/app/api/cinema/media/[token]/route.ts");
 
 const stamp = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 
@@ -407,6 +408,12 @@ beforeEach(() => {
   state.allowances.clear();
   state.grants.clear();
   resetPlatformSettingsCache();
+});
+
+test("a signed media URL alone cannot play a file without its account session", async () => {
+  const { token } = await signCinemaMediaToken({ roomId: "room-1", uploadId: "upload-1", studentId: "host-a" });
+  const response = await mediaRoute.GET(new Request(`https://umatexpress.test/api/cinema/media/${token}`), { params: Promise.resolve({ token }) });
+  assert.equal(response.status, 401);
 });
 
 const begin = (input = {}) => beginCinemaUpload({
@@ -551,7 +558,7 @@ test("finishing checks R2's own report, and the room only then points at the vid
   assert.equal(finished.durationSeconds, 92, "the length came from the object, not from the client");
   assert.equal(state.rooms[0].video_source_type, "UPLOAD");
   assert.equal(state.rooms[0].video_id, started.upload.id);
-  assert.equal(state.rooms[0].visibility, "PRIVATE", "an uploaded video closes the room behind it");
+  assert.equal(state.rooms[0].visibility, "PRIVATE", "uploading preserves the chosen private door");
   assert.equal(bucket.objects.size, 1);
 });
 
@@ -570,6 +577,17 @@ test("an empty upload room, the kind the lobby creates, takes the first file it 
   assert.equal(finished.upload.status, "READY");
   assert.equal(state.rooms[0].video_id, started.upload.id, "the empty room now points at the file");
   assert.equal(state.rooms[0].visibility, "PRIVATE", "and the door it was created with stays shut");
+});
+
+test("completing a file in a public room keeps it public", async () => {
+  state.rooms = [room({ video_id: "", visibility: "PUBLIC" })];
+  const bucket = fakeBucket();
+  const started = await begin({ bucket, sizeBytes: 52 });
+  const file = mp4Head(92);
+  await putCinemaUploadPart({ roomId: "room-1", studentId: "host-a", partNumber: 1, body: file.buffer.slice(0, file.byteLength), bucket });
+  await completeCinemaUpload({ roomId: "room-1", studentId: "host-a", parts: [{ partNumber: 1, etag: "etag-1" }], bucket });
+  assert.equal(state.rooms[0].video_id, started.upload.id);
+  assert.equal(state.rooms[0].visibility, "PUBLIC");
 });
 
 test("a stored size that disagrees with the declared one fails the upload, not the room", async () => {

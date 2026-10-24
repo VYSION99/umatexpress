@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 import { ShieldCheck, SignOut } from "@/components/ui/MaterialIcon";
 import { STUDENT_EMAIL_DOMAIN, validStudentEmail } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
-import { writeProfile } from "@/lib/passenger-profile";
+import { clearProfile, clearSavedTickets, notifyPassengerChanged, writeProfile } from "@/lib/passenger-profile";
 import { loadStudentAccount, publishStudentAccount, useStudentAccount } from "./useStudentAccount";
 import { CodeBoxes } from "./CodeBoxes";
 import { PasskeySettings, PasskeySignInButton } from "./PasskeyControls";
@@ -61,8 +61,12 @@ export function StudentAuthCard({ next }: { next?: string }) {
 
   const signOut = async () => {
     setLoading(true);
-    try { await fetch("/api/auth/student", { method: "DELETE", credentials: "same-origin" }); } catch { /* the cookie is cleared server-side when the network returns */ }
-    publishStudentAccount(null);
+    try {
+      const response = await fetch("/api/auth/student", { method: "DELETE", credentials: "same-origin" });
+      if (!response.ok) throw new Error("Could not sign out. Try again.");
+      clearProfile(); clearSavedTickets(); notifyPassengerChanged();
+      publishStudentAccount(null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not sign out."); }
     setLoading(false);
     setForm({ email: "", password: "", name: "", phone: "" });
   };

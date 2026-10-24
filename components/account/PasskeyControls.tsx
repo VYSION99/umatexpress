@@ -61,7 +61,12 @@ export function PasskeySettings({ scope }: { scope: PasskeyScope }) {
       .then(data => setPasskeys(data.passkeys || []))
       .catch(() => undefined);
   }, [scope]);
-  if (!supported) return null;
+  useEffect(() => {
+    if (window.location.hash !== "#passkeys") return;
+    const frame = requestAnimationFrame(() => document.getElementById("passkeys")?.scrollIntoView({ block: "start" }));
+    return () => cancelAnimationFrame(frame);
+  }, [supported]);
+  if (!supported) return <div className="passkey-settings" id="passkeys"><h3>Passkeys</h3><p>Passkeys are unavailable in this browser or connection. Open this page over HTTPS in a browser that supports passkeys.</p></div>;
 
   async function refresh() {
     const response = await fetch(`/api/auth/passkeys?scope=${scope}`, { credentials: "same-origin", cache: "no-store" });
@@ -92,7 +97,7 @@ export function PasskeySettings({ scope }: { scope: PasskeyScope }) {
     finally { setBusy(false); }
   }
 
-  return <div className="passkey-settings">
+  return <div className="passkey-settings" id="passkeys">
     <h3>Passkeys</h3>
     <p>Use your device screen lock, fingerprint, or face unlock to sign in. Keep your password and email recovery available.</p>
     <label>Current password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label>

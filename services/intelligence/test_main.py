@@ -11,10 +11,26 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 sys.modules.setdefault("workers", SimpleNamespace(asgi=SimpleNamespace(entrypoint=lambda app: app)))
 
 from insights import DailyBookings, booking_insights
+from thumbnails import choose_thumbnail
+from question_groups import suggest_groups
 from main import AnalyticsInput, DailyBookingsInput, GenerateInput, ai_text, generate, hostel_insights
 
 
 class IntelligenceTests(unittest.TestCase):
+    def test_question_groups_suggest_only_similar_wording(self):
+        self.assertEqual(suggest_groups([
+            {"id": "a", "text": "What evidence supports this policy?"},
+            {"id": "b", "text": "Can you explain the student housing costs?"},
+            {"id": "c", "text": "Which evidence supports the policy?"},
+        ]), [["a", "c"]])
+
+    def test_thumbnail_avoids_dark_frames(self):
+        self.assertEqual(choose_thumbnail([
+            {"brightness": 0.02, "contrast": 0.05},
+            {"brightness": 0.5, "contrast": 0.3},
+            {"brightness": 0.95, "contrast": 0.1},
+        ]), 1)
+
     def test_analytics_uses_only_aggregate_counts(self):
         days = [DailyBookings(f"2026-10-{day:02d}", 1 if day <= 7 else 2) for day in range(1, 15)]
         result = booking_insights(days, occupied=3, total=5)

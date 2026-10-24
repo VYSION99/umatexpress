@@ -6,6 +6,9 @@ import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import { CinemaQuestionsPanel } from "./CinemaQuestionsPanel";
 import { CinemaPollsPanel } from "./CinemaPollsPanel";
+import { useCinemaAudienceUpdates } from "./useCinemaAudienceUpdates";
+import { CinemaReactionOverlay, CinemaReactionPicker } from "./CinemaReactions";
+import { CinemaFullscreenButton, type CinemaFullscreenState } from "./CinemaFullscreenButton";
 
 type StageState = { status: string; title: string; videoId: string; role: string };
 
@@ -18,6 +21,10 @@ export function CinemaDiscussionAudience({ initialRoom, onStageRole }: { initial
   const [tab, setTab] = useState<"questions" | "polls">("questions");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reactionOpen, setReactionOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState<CinemaFullscreenState>({ active: false, fallback: false });
+  const playerRef = useRef<HTMLDivElement>(null);
+  const updates = useCinemaAudienceUpdates(room.id, Boolean(room.isMember && account?.emailVerified && ["CREATED", "LIVE"].includes(state.status)));
   const joining = useRef(false);
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/cinema/sessions/${room.id}/stage`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
@@ -80,10 +87,14 @@ export function CinemaDiscussionAudience({ initialRoom, onStageRole }: { initial
   return <section className="cinema-discussion-audience" aria-label="Discussion audience">
     <div className="cinema-discussion-broadcast">
       <div className="cinema-discussion-broadcast-head"><div><span className="cinema-eyebrow">PUBLIC DISCUSSION</span><h2>{state.title}</h2></div><span className={`cinema-event-state is-${state.status.toLowerCase()}`}>{state.status === "LIVE" ? "Live now" : state.status === "ENDED" ? "Ended" : "Upcoming"}</span></div>
-      <div className="cinema-discussion-video">{room.isMember && state.status !== "ENDED" ? <iframe src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(state.videoId)}?autoplay=1`} title={`${state.title} live broadcast`} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen /> : <p className="cinema-discussion-video-message">{state.status === "ENDED" ? "This discussion has ended." : "Confirming your reserved place…"}</p>}</div>
-      <div className="cinema-discussion-broadcast-foot"><p>You are watching the broadcast. The host invites speakers onto the separate stage.</p><button className="secondary" disabled={busy || requestPending || state.status === "ENDED" || !room.isMember} onClick={() => void requestToSpeak()}>{requestPending ? "Speaking request sent" : "Request to speak"}</button></div>
+      <div className={`cinema-discussion-player cinema-player${fullscreen.fallback ? " is-theater-fullscreen" : ""}`} ref={playerRef}>
+        <div className="cinema-discussion-video">{room.isMember && state.status !== "ENDED" && state.videoId ? <iframe src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(state.videoId)}?autoplay=1&playsinline=1&fs=0`} title={`${state.title} live broadcast`} allow="autoplay; encrypted-media; picture-in-picture" /> : <p className="cinema-discussion-video-message">{state.status === "ENDED" ? "This discussion has ended." : "Confirming your reserved place…"}</p>}</div>
+        <div className="cinema-discussion-player-foot"><CinemaReactionOverlay reactions={updates.reactions} placement="rail" /><CinemaFullscreenButton playerRef={playerRef} state={fullscreen} onChange={setFullscreen} /></div>
+      </div>
+      <div className="cinema-discussion-broadcast-foot"><p>You are watching the broadcast. The host invites speakers onto the separate stage.</p><div className="cinema-discussion-actions"><button className="secondary" disabled={state.status !== "LIVE" || !room.isMember || !updates.connected} onClick={() => setReactionOpen((open) => !open)}>React <span aria-hidden>👏</span></button><button className="secondary" disabled={busy || requestPending || state.status === "ENDED" || !room.isMember} onClick={() => void requestToSpeak()}>{requestPending ? "Speaking request sent" : "Request to speak"}</button></div></div>
+      {reactionOpen && <CinemaReactionPicker onReact={(emoji) => { if (updates.sendReaction(emoji)) setReactionOpen(false); else setError("Reactions are reconnecting. Try again in a moment."); }} onClose={() => setReactionOpen(false)} />}
       {error && <p className="cinema-error" role="alert">{error}</p>}
     </div>
-    <aside className="cinema-discussion-side"><div className="cinema-discussion-tabs" role="tablist" aria-label="Audience participation"><button role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Questions</button><button role="tab" aria-selected={tab === "polls"} onClick={() => setTab("polls")}>Polls</button></div>{room.isMember ? tab === "questions" ? <CinemaQuestionsPanel roomId={room.id} canManage={false} /> : <CinemaPollsPanel roomId={room.id} canManage={false} /> : <p className="cinema-note">Joining the audience…</p>}</aside>
+    <aside className="cinema-discussion-side"><div className="cinema-discussion-tabs" role="tablist" aria-label="Audience participation"><button role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Questions</button><button role="tab" aria-selected={tab === "polls"} onClick={() => setTab("polls")}>Polls</button></div>{room.isMember ? tab === "questions" ? <CinemaQuestionsPanel roomId={room.id} canManage={false} revision={updates.questionsRevision} /> : <CinemaPollsPanel roomId={room.id} canManage={false} revision={updates.pollsRevision} /> : <p className="cinema-note">Joining the audience…</p>}</aside>
   </section>;
 }

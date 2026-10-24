@@ -7,6 +7,7 @@ import { ArrowRight, Buildings, FloppyDisk, GearSix, LockKey, SignOut, UserCircl
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { PasskeySettings } from "@/components/account/PasskeyControls";
+import { ProfileAvatar, ProfilePhotoEditor } from "@/components/account/ProfilePhoto";
 import "./account.css";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -72,7 +73,6 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
   }
 
   const settings = workSettings(session);
-  const initials = session.account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0].toUpperCase()).join("") || "U";
   const role = session.account.delegateServices !== undefined ? "Admin delegate" : ROLE_LABEL[session.account.role] || session.account.role;
 
   return <ConsoleShell session={session} service="account" label="YOUR ACCOUNT" title="Profile & settings" blurb="Keep your console contact details current and open the settings you are allowed to manage.">
@@ -80,7 +80,7 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
       {error && <p className="console-alert" role="alert">{error}</p>}
       {notice && <p className="console-alert console-alert-ok" role="status">{notice}</p>}
       <section className="console-profile-card" id="profile" aria-labelledby="console-profile-title">
-        <div className="console-profile-identity"><span className="console-profile-avatar" aria-hidden="true">{initials}</span><div><span>PERSONAL PROFILE</span><h2 id="console-profile-title">{session.account.name}</h2><p>{role} · {session.account.status.toLowerCase()} account</p></div></div>
+        <div className="console-profile-identity"><ProfileAvatar scope="CONSOLE" name={session.account.name} className="console-profile-avatar" /><div><span>PERSONAL PROFILE</span><h2 id="console-profile-title">{session.account.name}</h2><p>{role} · {session.account.status.toLowerCase()} account</p></div></div>
         <form onSubmit={save} className="console-profile-form">
           <label>Display name<input required minLength={2} maxLength={80} autoComplete="name" value={name} onChange={event => setName(event.target.value)} /></label>
           <label>Contact number<input type="tel" maxLength={24} autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="Optional" /></label>
@@ -88,6 +88,7 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <p>These details identify your console account. Legal identity, property, and payout records have their own review process in your workspace.</p>
           <button type="submit" disabled={busy || (name.trim() === session.account.name && phone.trim() === (session.account.phone || ""))}><FloppyDisk size={18}/>{busy ? "Saving…" : "Save profile"}</button>
         </form>
+        <div id="photo" className="console-profile-photo"><ProfilePhotoEditor scope="CONSOLE" name={session.account.name} /></div>
       </section>
 
       <section className="console-profile-card" id="settings" aria-labelledby="console-settings-title">

@@ -10,7 +10,9 @@ import { ConsoleAssistant } from "@/components/console/ConsoleAssistant";
 import { ConsoleNotifications } from "@/components/console/ConsoleNotifications";
 import "@/components/launcher/launcher.css";
 import "@/components/admin/console.css";
-import { SheetHandle } from "@/components/ui/SheetHandle";
+import { AppBottomSheet } from "@/components/ui/AppBottomSheet";
+import { FloatingDock } from "@/components/ui/FloatingDock";
+import { ProfileAvatar } from "@/components/account/ProfilePhoto";
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: "Administrator",
@@ -59,13 +61,7 @@ export function ConsoleShell({
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
   const accountMenu = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (panel) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [panel]);
   useEffect(() => {
     if (!accountOpen) return;
     const closeOutside = (event: PointerEvent) => { if (!accountMenu.current?.contains(event.target as Node)) setAccountOpen(false); };
@@ -80,7 +76,6 @@ export function ConsoleShell({
     ? available.filter((item) => `${item.title} ${item.detail} ${item.tags.join(" ")}`.toLowerCase().includes(needle))
     : available;
 
-  const initials = session.account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0].toUpperCase()).join("") || "U";
   const roleSettings = session.account.role === "LANDLORD" ? { href: "/console/hostels/onboarding", label: "Hostel setup" }
     : session.account.role === "ORGANIZER" ? { href: "/console/profile", label: "Business profile" }
     : session.account.role === "ADMIN" && (session.account.delegateServices === undefined || session.account.delegateServices.includes("settings")) ? { href: "/console/settings", label: "Platform settings" }
@@ -146,15 +141,17 @@ export function ConsoleShell({
         <ConsoleNotifications />
         <div className="console-profile-dropdown" ref={accountMenu}>
           <button type="button" className="console-profile-trigger" aria-label={`Account menu for ${session.account.name}`} aria-expanded={accountOpen} aria-controls="console-account-menu" onClick={() => setAccountOpen(value => !value)}>
-            <span className="console-profile-trigger-avatar" aria-hidden="true">{initials}</span>
+            <ProfileAvatar scope="CONSOLE" name={session.account.name} className="console-profile-trigger-avatar" />
             <span className="console-profile-trigger-copy"><strong>{session.account.name}</strong><small>{roleLabel}</small></span>
             <CaretDown size={15} aria-hidden="true"/>
           </button>
           {accountOpen && <div id="console-account-menu" className="console-profile-popover">
-            <div className="console-profile-popover-head"><span className="console-profile-trigger-avatar" aria-hidden="true">{initials}</span><div><strong>{session.account.name}</strong><small>{session.account.email}</small></div></div>
+            <div className="console-profile-popover-head"><ProfileAvatar scope="CONSOLE" name={session.account.name} className="console-profile-trigger-avatar" /><div><strong>{session.account.name}</strong><small>{session.account.email}</small></div></div>
             <nav aria-label="Account actions">
               <Link href="/console/account#profile" onClick={() => setAccountOpen(false)}><UserCircle size={18}/> My profile</Link>
+              <Link href="/console/account#photo" onClick={() => setAccountOpen(false)}><UserCircle size={18}/> Profile photo</Link>
               <Link href="/console/account#settings" onClick={() => setAccountOpen(false)}><GearSix size={18}/> Account settings</Link>
+              {!session.mustChangePassword && <Link href="/console/account#passkeys" onClick={() => setAccountOpen(false)}><LockKey size={18}/> Set up passkey</Link>}
               <Link href="/console/change-password" onClick={() => setAccountOpen(false)}><LockKey size={18}/> Change password</Link>
               {roleSettings && <Link href={roleSettings.href} onClick={() => setAccountOpen(false)}><ShieldCheck size={18}/> {roleSettings.label}</Link>}
             </nav>
@@ -176,15 +173,14 @@ export function ConsoleShell({
       </main>
     </div>
 
-    <nav className="launch-mobile-nav" aria-label="Console navigation">
-      <Link href="/console" aria-current={service === "home" ? "page" : undefined}><House size={21}/>Home</Link>
-      <button type="button" onClick={() => setPanel(true)}><SquaresFour size={21}/>Services</button>
-      <Link href="/console/change-password" aria-current={pathname === "/console/change-password" ? "page" : undefined}><LockKey size={21}/>Security</Link>
-      <Link href="/console/account" aria-current={pathname === "/console/account" ? "page" : undefined}><UserCircle size={21}/>Account</Link>
-    </nav>
+    <FloatingDock label="Console navigation" items={[
+      { id: "home", label: "Home", icon: "home", href: "/console", active: service === "home" },
+      { id: "services", label: "Services", icon: "services", onSelect: () => setPanel(true) },
+      { id: "security", label: "Security", icon: "shield", href: "/console/change-password", active: pathname === "/console/change-password" },
+      { id: "account", label: "Account", icon: "account", href: "/console/account", active: pathname === "/console/account" },
+    ]} />
 
-    <dialog ref={dialog} className="launch-dialog" aria-labelledby="console-switcher-title" onCancel={() => setPanel(false)} onClick={(event) => { if (event.target === event.currentTarget) setPanel(false); }}>
-      <SheetHandle onDismiss={() => setPanel(false)} />
+    <AppBottomSheet open={panel} title="Services" onClose={() => setPanel(false)} className="launch-dialog">
       <div className="launch-dialog-inner">
         <div className="launch-dialog-heading">
           <h2 id="console-switcher-title">Services</h2>
@@ -209,7 +205,7 @@ export function ConsoleShell({
           {!matches.length && <p role="status">No matching services. Try “rides”, “trips”, or “payouts”.</p>}
         </div>
       </div>
-    </dialog>
+    </AppBottomSheet>
     {session.account.delegateServices === undefined && <ConsoleAssistant session={session} service={service} />}
   </div>;
 }

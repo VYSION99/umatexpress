@@ -9,9 +9,14 @@ const statements = [
     id TEXT PRIMARY KEY,session_id TEXT NOT NULL,summary TEXT NOT NULL DEFAULT '',chapters TEXT NOT NULL DEFAULT '[]',notes TEXT NOT NULL DEFAULT '[]',flashcards TEXT NOT NULL DEFAULT '[]',questions TEXT NOT NULL DEFAULT '[]',model TEXT NOT NULL DEFAULT '',created_by TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL
   )`,
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_study_session ON cinema_study_packs(session_id)",
+  `CREATE TABLE IF NOT EXISTS cinema_study_jobs (
+    session_id TEXT PRIMARY KEY,requested_by TEXT NOT NULL,status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_cinema_study_jobs_queue ON cinema_study_jobs(status,created_at)",
 ];
 let ready: Promise<void> | null = null;
-export function ensureCinemaStudyTables() { ready ??= runSchemaPass({ metaTable: "campus_schema_meta", id: "cinemaStudyPacks", version: "039_cinema_study_packs", statements }).catch((e) => { ready = null; throw e; }); return ready; }
+export function ensureCinemaStudyTables() { ready ??= runSchemaPass({ metaTable: "campus_schema_meta", id: "cinemaStudyPacks", version: "046_cinema_study_jobs", statements }).catch((e) => { ready = null; throw e; }); return ready; }
 
 export type CinemaStudyPack = {
   id: string; summary: string;
@@ -20,6 +25,7 @@ export type CinemaStudyPack = {
   questions: Array<{ question: string; answer: string }>;
   createdAt: string; updatedAt: string;
 };
+export type CinemaStudyJob = { status: "QUEUED" | "RUNNING" | "DONE" | "FAILED"; error: string; updatedAt: string };
 
 function safeArray<T>(value: unknown, map: (item: Record<string, unknown>) => T | null): T[] {
   try { const raw = typeof value === "string" ? JSON.parse(value) : value; return Array.isArray(raw) ? raw.map((v) => map(v && typeof v === "object" ? v as Record<string, unknown> : {})).filter((v): v is T => v !== null).slice(0, 20) : []; } catch { return []; }
@@ -41,6 +47,28 @@ export async function readCinemaStudyPack(id: string, studentId: string): Promis
   await ensureCinemaStudyTables(); await member(id, studentId);
   const row = rowsToObjects(await turso("SELECT * FROM cinema_study_packs WHERE session_id=? LIMIT 1", [id]))[0];
   return row ? view(row) : null;
+}
+
+export async function readCinemaStudyJob(id: string, studentId: string): Promise<CinemaStudyJob | null> {
+  await ensureCinemaStudyTables(); await member(id, studentId);
+  const row = rowsToObjects(await turso("SELECT status,error,updated_at FROM cinema_study_jobs WHERE session_id=? LIMIT 1", [id]))[0];
+  return row ? { status: String(row.status) as CinemaStudyJob["status"], error: String(row.error || ""), updatedAt: String(row.updated_at || "") } : null;
+}
+
+export async function requestCinemaStudyPack(input: { id: string; studentId: string }) {
+  await ensureCinemaStudyTables();
+  const room = await member(input.id, input.studentId);
+  if (!["HOST", "COHOST"].includes(room.currentRole)) throw new CampusEngineError("FORBIDDEN", "Only the host or a co-host can build the shared study pack.", 403);
+  const privacy = await readCinemaTranscriptPrivacy(input.id, input.studentId);
+  if (!privacy.aiStudyEnabled) throw new CampusEngineError("INVALID_STATE", "The host has not enabled AI study tools for this session.", 409);
+  const transcript = await listCinemaTranscript({ id: input.id, studentId: input.studentId });
+  const bookmarks = await listCinemaBookmarks({ id: input.id, studentId: input.studentId });
+  if (!transcript.length && !bookmarks.length) throw new CampusEngineError("INVALID_STATE", "Add captions, a transcript, or shared moments before generating a study pack.", 409);
+  const stamp = new Date().toISOString();
+  await turso(`INSERT INTO cinema_study_jobs (session_id,requested_by,status,error,created_at,updated_at) VALUES (?,?,'QUEUED','',?,?)
+    ON CONFLICT(session_id) DO UPDATE SET requested_by=excluded.requested_by,status='QUEUED',error='',updated_at=excluded.updated_at
+    WHERE cinema_study_jobs.status IN ('DONE','FAILED')`, [input.id, input.studentId, stamp, stamp]);
+  return readCinemaStudyJob(input.id, input.studentId);
 }
 
 function jsonObject(text: string): Record<string, unknown> {
@@ -77,20 +105,38 @@ export async function generateCinemaStudyPack(input: { id: string; studentId: st
 }
 
 /** Builds at most one consented ended-room pack per cron pass. */
-export async function generatePendingCinemaStudyPack() {
+export async function generatePendingCinemaStudyPack(options: { generate?: typeof generateCinemaStudyPack } = {}) {
   await ensureCinemaStudyTables();
+  const generate = options.generate ?? generateCinemaStudyPack;
+  const stale = new Date(Date.now() - 10 * 60_000).toISOString();
+  const requested = rowsToObjects(await turso("SELECT session_id,requested_by FROM cinema_study_jobs WHERE status='QUEUED' OR (status='RUNNING' AND updated_at<?) ORDER BY created_at LIMIT 1", [stale]))[0];
+  if (requested) {
+    const id = String(requested.session_id);
+    const claimed = await turso("UPDATE cinema_study_jobs SET status='RUNNING',updated_at=? WHERE session_id=? AND (status='QUEUED' OR (status='RUNNING' AND updated_at<?))", [new Date().toISOString(), id, stale]);
+    if (Number(claimed.affected_row_count || 0) !== 1) return { generated: 0 };
+    try {
+      const pack = await generate({ id, studentId: String(requested.requested_by) });
+      await turso("UPDATE cinema_study_jobs SET status='DONE',error='',updated_at=? WHERE session_id=?", [new Date().toISOString(), id]);
+      return { generated: pack ? 1 : 0 };
+    } catch {
+      await turso("UPDATE cinema_study_jobs SET status='FAILED',error=?,updated_at=? WHERE session_id=?", ["The study pack could not be built. Check the transcript and try again.", new Date().toISOString(), id]);
+      return { generated: 0 };
+    }
+  }
   const row = rowsToObjects(await turso(
     `SELECT s.id,s.host_student_id FROM cinema_sessions s
      JOIN cinema_session_privacy p ON p.session_id=s.id AND p.ai_study_enabled=1
      LEFT JOIN cinema_study_packs pack ON pack.session_id=s.id
+     LEFT JOIN cinema_study_jobs job ON job.session_id=s.id
      WHERE s.status='ENDED' AND pack.session_id IS NULL
+       AND job.session_id IS NULL
        AND (EXISTS (SELECT 1 FROM cinema_transcript_segments t WHERE t.session_id=s.id)
          OR EXISTS (SELECT 1 FROM cinema_bookmarks b WHERE b.session_id=s.id))
      ORDER BY s.ended_at ASC LIMIT 1`,
   ))[0];
   if (!row) return { generated: 0 };
   try {
-    const pack = await generateCinemaStudyPack({ id: String(row.id), studentId: String(row.host_student_id) });
+    const pack = await generate({ id: String(row.id), studentId: String(row.host_student_id) });
     return { generated: pack ? 1 : 0 };
   } catch {
     // A model or configuration failure is retried by a later cron without

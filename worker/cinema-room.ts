@@ -66,6 +66,8 @@ export type CinemaSocketAttachment = {
   recording: boolean;
   role: CinemaMemberRole;
   handRaised: boolean;
+  /** Receives interaction hints only; never joins media-stage presence. */
+  audienceOnly?: boolean;
 };
 
 export type CinemaRoomSocket = {
@@ -144,6 +146,7 @@ function readAttachment(socket: CinemaRoomSocket): CinemaSocketAttachment | null
       ? String(value.role).toUpperCase()
       : "VIEWER") as CinemaMemberRole,
     handRaised: value.handRaised === true,
+    audienceOnly: value.audienceOnly === true,
   };
 }
 
@@ -168,6 +171,7 @@ export class CinemaRoom {
     if (url.pathname === "/close") return this.closeRoom();
     if (url.pathname === "/purge-message") return this.purgeMessage(request);
     if (url.pathname === "/source") return this.updateSource(request);
+    if (url.pathname === "/interaction-changed") return this.interactionChanged(request);
     if (url.pathname === "/whiteboard") return this.publishWhiteboard(request);
     if (url.pathname === "/whiteboard-remove") return this.removeWhiteboard(request);
     if (url.pathname === "/presence") return this.presenceResponse();
@@ -216,6 +220,14 @@ export class CinemaRoom {
     this.state.acceptWebSocket(server);
     server.serializeAttachment(attachment.studentId === snapshot.hostStudentId ? { ...attachment, role: "HOST" } : attachment);
 
+    if (attachment.audienceOnly) {
+      // The audience watches the broadcast separately. Do not replay chat,
+      // announce stage presence, or make these sockets stage participants.
+      this.emptySince = 0;
+      await this.state.storage.put(EMPTY_KEY, 0);
+      return new Response(null, { status: 101, webSocket: client } as ResponseInit);
+    }
+
     // Somebody is here, so the room is not idle. The marker is what the
     // cleanup job reads: the database cannot see sockets, and the object
     // cannot be polled for every room on every cron tick.
@@ -260,16 +272,17 @@ export class CinemaRoom {
   /** What the cleanup job asks before it ends an apparently abandoned room. */
   private async presenceResponse(): Promise<Response> {
     const members = await this.presence();
+    const connectedCount = this.state.getWebSockets().filter((socket) => Boolean(readAttachment(socket))).length;
     let emptySince = await this.emptySinceValue();
     // A browser may disappear from the runtime's socket list before its close
     // callback stores EMPTY_KEY. Give cleanup a fresh empty timestamp here so
     // it never treats the room's old database update as the departure time.
-    if (members.length === 0 && !emptySince) {
+    if (connectedCount === 0 && !emptySince) {
       emptySince = Date.now();
       this.emptySince = emptySince;
       await this.state.storage.put(EMPTY_KEY, emptySince);
     }
-    return jsonResponse({ members, emptySince: members.length ? 0 : emptySince }, 200);
+    return jsonResponse({ members, connectedCount, emptySince: connectedCount ? 0 : emptySince }, 200);
   }
 
   /**
@@ -292,6 +305,18 @@ export class CinemaRoom {
     if (!id) return jsonResponse({ error: "A message id is required." }, 400);
     this.broadcast({ type: "chat_removed", id });
     return jsonResponse({ ok: true, id }, 200);
+  }
+
+  private async interactionChanged(request: Request): Promise<Response> {
+    const body = await request.json().catch(() => null) as { kind?: unknown; moderatorsOnly?: unknown } | null;
+    if (body?.kind !== "questions" && body?.kind !== "polls") return jsonResponse({ error: "Invalid interaction kind." }, 400);
+    const frame = JSON.stringify({ type: "interaction_changed", kind: body.kind });
+    for (const socket of this.state.getWebSockets()) {
+      const role = readAttachment(socket)?.role;
+      if (body.moderatorsOnly === true && role !== "HOST" && role !== "COHOST") continue;
+      try { socket.send(frame); } catch { /* a disconnected client uses its next fetch */ }
+    }
+    return jsonResponse({ ok: true }, 200);
   }
 
   /**
@@ -576,6 +601,10 @@ export class CinemaRoom {
       this.send(socket, { type: "pong", at: Date.now(), ...(parsed.sentAt ? { sentAt: parsed.sentAt } : {}) });
       return;
     }
+    if (readAttachment(socket)?.audienceOnly && parsed.type !== "reaction") {
+      this.send(socket, { type: "error", message: "Audience connections receive updates only." });
+      return;
+    }
     if (parsed.type === "chat_message") {
       await this.applyChat(socket, parsed);
       return;
@@ -858,15 +887,16 @@ export class CinemaRoom {
 
   /** A closed tab is not a message, but it changes presence just the same. */
   async webSocketClose(socket: CinemaRoomSocket): Promise<void> {
+    const audienceOnly = readAttachment(socket)?.audienceOnly;
     // The runtime still lists the closing socket while this handler runs, so
     // it has to be excluded by hand or the room would keep seeing the person
     // who just left until the next arrival.
     const remaining = await this.presence(socket);
-    this.broadcast({ type: "presence", members: remaining }, socket);
+    if (!audienceOnly) this.broadcast({ type: "presence", members: remaining }, socket);
     // The room is idle once nobody is attached. Recording the instant here —
     // rather than inferring it from stale rows later — is what lets the
     // cleanup job end an abandoned room without guessing.
-    this.emptySince = remaining.length === 0 ? Date.now() : 0;
+    this.emptySince = this.state.getWebSockets().some((other) => other !== socket && readAttachment(other)) ? 0 : Date.now();
     await this.state.storage.put(EMPTY_KEY, this.emptySince);
   }
 
@@ -880,7 +910,7 @@ export class CinemaRoom {
     for (const socket of this.state.getWebSockets()) {
       if (socket === exclude) continue;
       const attachment = readAttachment(socket);
-      if (!attachment) continue;
+      if (!attachment || attachment.audienceOnly) continue;
       members.set(attachment.studentId, {
         studentId: attachment.studentId,
         displayName: attachment.displayName,
@@ -910,6 +940,7 @@ export class CinemaRoom {
     const frame = JSON.stringify(message);
     for (const socket of this.state.getWebSockets()) {
       if (socket === except) continue;
+      if (readAttachment(socket)?.audienceOnly && message.type !== "closed" && message.type !== "interaction_changed" && message.type !== "reaction") continue;
       try {
         socket.send(frame);
       } catch { /* same as send() */ }
@@ -957,6 +988,7 @@ export class CinemaRoom {
         ? String(parsed.role).toUpperCase()
         : "VIEWER") as CinemaMemberRole,
       handRaised: false,
+      audienceOnly: parsed.audienceOnly === true,
     };
   }
 

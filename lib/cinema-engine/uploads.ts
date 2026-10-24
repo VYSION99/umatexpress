@@ -168,8 +168,8 @@ async function requireUploadRoom(roomId: string, studentId: string) {
   if (status !== "CREATED" && status !== "LIVE") {
     throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
   }
-  if (String(row.video_source_type || "") !== "UPLOAD" || String(row.visibility || "") !== "PRIVATE") {
-    throw new CampusEngineError("INVALID_STATE", "Files can only be added to a private upload room.", 409);
+  if (String(row.video_source_type || "") !== "UPLOAD") {
+    throw new CampusEngineError("INVALID_STATE", "Files can only be added to a file room.", 409);
   }
   return { id: String(row.id), title: String(row.title || ""), status };
 }
@@ -521,11 +521,10 @@ export async function completeCinemaUpload(input: {
     "UPDATE cinema_uploads SET status = 'READY', duration_seconds = ?, updated_at = ? WHERE id = ? AND status = 'UPLOADING'",
     [durationSeconds, stamp, uploadId],
   );
-  // An upload is the host's own copy, so the room closes behind it: the moment
-  // the video is READY the visibility flips to PRIVATE and only the guest list
-  // can walk in. Opening the room again is the host's own call in the controls.
+  // Completing a file never changes the host's public or invite-only choice.
+  // Playback still requires a signed lease for an active room member.
   const selected = await turso(
-    "UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = ?, visibility = 'PRIVATE', updated_at = ? WHERE id = ? AND video_id = ''",
+    "UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = ?, updated_at = ? WHERE id = ? AND video_id = ''",
     [uploadId, stamp, String(input.roomId)],
   );
   if (Number(selected.affected_row_count || 0) > 0) {
@@ -547,7 +546,7 @@ export async function completeCinemaUpload(input: {
   // The room's screens learn about the new source on the socket; the row is the
   // record, and a reconnect picks it up from the snapshot as it always did.
   if (Number(selected.affected_row_count || 0) > 0) await announceCinemaSource(String(input.roomId), { sourceType: "UPLOAD", videoId: uploadId });
-  logEvent("info", "cinema_upload_ready", { roomId: String(input.roomId), uploadId, sizeBytes, durationSeconds, visibility: "PRIVATE" });
+  logEvent("info", "cinema_upload_ready", { roomId: String(input.roomId), uploadId, sizeBytes, durationSeconds });
   await incrementMetric("cinema_uploads_ready");
   const fresh = (await cinemaUploadsForRoom(String(input.roomId))).find((entry) => entry.id === uploadId);
   return { upload: fresh || uploadView({ ...row, status: "READY", duration_seconds: durationSeconds, updated_at: stamp }), durationSeconds };
@@ -640,7 +639,7 @@ export async function takeDownCinemaUpload(input: {
   if (upload.status === "UPLOADING") await abortMultipart(bucket, upload.objectKey, String(row.r2_upload_id || ""));
   if (bucket) {
     try {
-      await bucket.delete(upload.objectKey);
+      await bucket.delete([upload.objectKey, `cinema/${roomId}/video/${upload.id}/thumbnail.webp`]);
     } catch (error) {
       logEvent("warn", "cinema_upload_takedown_failed", { roomId, uploadId: upload.id, reason: error instanceof Error ? error.message : "unknown" });
       throw new CampusEngineError("ENGINE_ERROR", "The bucket refused the deletion, so the video is still there. Try again.", 502);
@@ -726,7 +725,7 @@ export async function purgeCinemaUploadForRoom(sessionId: string, options: { buc
       await abortMultipart(bucket, String(row.r2_object_key || ""), String(row.r2_upload_id || ""));
     }
     if (bucket) {
-      try { await bucket.delete(String(row.r2_object_key || "")); }
+      try { await bucket.delete([String(row.r2_object_key || ""), `cinema/${sessionId}/video/${id}/thumbnail.webp`]); }
       catch (error) {
         logEvent("warn", "cinema_upload_delete_failed", { roomId: String(sessionId), uploadId: id, reason: error instanceof Error ? error.message : "unknown" });
         return { status: "retry" as const };

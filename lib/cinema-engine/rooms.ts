@@ -331,9 +331,9 @@ async function memberCounts(sessionIds: string[]): Promise<Map<string, number>> 
   return counts;
 }
 
-/** A private room, without a second read: the column is on every room row. */
+/** The room door is the stored visibility, regardless of its video source. */
 function isPrivateRow(row: CinemaRoomRow): boolean {
-  return row.video_source_type === "UPLOAD" || String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE";
+  return String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE";
 }
 
 /** Whether one student holds an invitation to one room. */
@@ -402,8 +402,8 @@ async function reconcileRoomClock(row: CinemaRoomRow): Promise<boolean> {
  * The two choices a room is made of are made here, once, because the room
  * itself carries neither control: where the video comes from — a YouTube link,
  * or a file the host uploads from the lobby next — and who may walk in. An
- * upload room is created private and empty on purpose: the door is shut before
- * the first byte arrives, and `video_id` is filled by the upload that follows.
+ * upload room is created empty, and `video_id` is filled by the upload that
+ * follows. Visibility remains the host's choice for either source.
  */
 export async function createRoom(input: {
   student: { id: string; name?: string };
@@ -434,11 +434,9 @@ export async function createRoom(input: {
     if (!lookup.ok) throw new CampusEngineError("VALIDATION_ERROR", lookup.reason, 400);
     videoId = lookup.id;
   }
-  // A file can never open the door it will close: the upload rule wins over
-  // whatever the caller asked for.
-  const visibility: CinemaRoomVisibility = source === "UPLOAD" || String(input.visibility ?? "").trim().toUpperCase() === "PRIVATE"
-    ? "PRIVATE"
-    : "PUBLIC";
+  const requestedVisibility = String(input.visibility ?? "").trim().toUpperCase();
+  const visibility: CinemaRoomVisibility = requestedVisibility === "PRIVATE" || (source === "UPLOAD" && requestedVisibility !== "PUBLIC")
+    ? "PRIVATE" : "PUBLIC";
 
   // The clock is optional: a create call that mentions neither a start nor a
   // run time keeps the room this engine has always made — CREATED, waiting for
@@ -830,9 +828,6 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
     );
     row.waiting_room = action === "WAITING_ON" ? 1 : 0;
   } else if (action === "PRIVATE" || action === "PUBLIC") {
-    if (action === "PUBLIC" && row.video_source_type === "UPLOAD") {
-      throw new CampusEngineError("VALIDATION_ERROR", "Uploaded videos are invite-only. Manage access from the guest list.", 400);
-    }
     // Changing the door does not move anyone already inside: a member keeps
     // their seat, and only the people outside it changes.
     await turso(

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CampusNav } from "./CampusNav";
+import { PublicFloatingDock } from "@/components/ui/PublicFloatingDock";
 
 export function CampusShell({ area, title, subtitle, children }: { area: string; title: string; subtitle: string; children: ReactNode }) {
   const interfaceClass = area === "CAMPUSRIDE" || area.includes("HOSTEL") ? "campus-student-shell" : area.includes("DRIVER") ? "campus-driver-shell" : area.includes("ADMIN") ? "campus-admin-shell" : "";
@@ -15,7 +16,7 @@ export function CampusShell({ area, title, subtitle, children }: { area: string;
       <CampusNav area={area} variant="desktop" />
     </header>
     {children}
-    <CampusNav area={area} variant="mobile" />
+    <PublicFloatingDock />
   </main>;
 }
 

@@ -10,7 +10,8 @@ Cloudflare runs Python Workers in Pyodide. The Worker uses FastAPI and Pydantic
 for its internal API, and its `AI` binding calls Workers AI directly. The
 `workers_dev` and preview routes are disabled in its Wrangler configuration.
 Authentication, bookings, payments and the analytics ledger stay in the app
-Worker. Only AI prompts and aggregate booking counts reach Python.
+Worker. Only AI prompts, aggregate booking counts, and Cinema frame-quality
+metrics reach Python; the video files and thumbnail images do not.
 
 ## Deploy
 
@@ -37,3 +38,29 @@ The dashboard sends only fourteen daily paid-booking counts and current
 bed-space totals. Python reports a seven-day comparison, not a forecast. If
 the Python Worker is unavailable, the ledger dashboard and the app's own
 Workers AI binding remain available.
+
+# Cinema uploaded-video thumbnails
+
+When a host uploads an MP4, MOV, or WebM file, the browser decodes three small
+frames while the multipart transfer is running. The private Python Intelligence
+Worker selects the clearest representative frame at
+`POST /v1/cinema/thumbnail/select` using brightness and contrast scores. The
+application Worker validates the selected JPEG, converts it to a 320 × 180 WebP
+with Cloudflare Images, and stores it beside the video in private R2.
+
+Thumbnails are served only to authenticated room members; the host alone can
+create them. They appear in the room list, upload queue, playlist, and player
+poster. Video upload remains usable if a browser cannot seek the file, the
+Python service is unavailable, or image processing fails. In local development
+without the Python service binding, the first decoded frame is selected.
+Removing or expiring a video also removes its thumbnail.
+
+## Cinema discussion question suggestions
+
+The host or co-host can ask for similarly worded pending and approved
+questions. The TypeScript route checks room membership and moderator role,
+rate-limits requests, and sends at most 100 question IDs and texts to the
+private `POST /v1/cinema/questions/groups` Python endpoint. Python uses a
+bounded word-overlap algorithm and returns ID groups only. The app verifies
+those IDs against the current authorized queue before display. Suggestions
+never approve, merge, dismiss, or reorder questions.

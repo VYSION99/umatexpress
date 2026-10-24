@@ -6,6 +6,8 @@ import { CINEMA_DRIFT_THRESHOLD_SECONDS, CINEMA_HOST_DRIFT_SECONDS, expectedPosi
 import { CinemaFullscreenButton } from "./CinemaFullscreenButton";
 import { CinemaFullscreenCameras, type CinemaCameraContext } from "./CinemaFullscreenCameras";
 import { CinemaFullscreenHostControls, type CinemaHostControlsContext } from "./CinemaFullscreenHostControls";
+import { CinemaReactionOverlay } from "./CinemaReactions";
+import type { CinemaReactionEvent } from "./useCinemaSocket";
 
 /**
  * The official YouTube player, driven by the room.
@@ -86,6 +88,7 @@ export function YouTubePlayer(input: {
   onAction: (message: CinemaClientMessage) => void;
   cameras?: CinemaCameraContext;
   hostControls?: CinemaHostControlsContext;
+  reactions?: CinemaReactionEvent[];
 }) {
   const { videoId } = input;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -267,11 +270,14 @@ export function YouTubePlayer(input: {
 
   const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 
-  return <div className={`cinema-player${fullscreen.fallback ? " is-theater-fullscreen" : ""}`} ref={playerShellRef}>
+  return <div className={`cinema-player cinema-youtube-player${fullscreen.fallback ? " is-theater-fullscreen" : ""}`} ref={playerShellRef}>
     <div className="cinema-player-frame" ref={containerRef} aria-label="The room's video" />
-    {(status === "ready" || fullscreen.active) && <div className="cinema-player-actions">
-      <CinemaFullscreenButton playerRef={playerShellRef} state={fullscreen} onChange={setFullscreen} />
-    </div>}
+    <div className="cinema-youtube-player-foot">
+      <CinemaReactionOverlay reactions={input.reactions ?? []} placement="rail" />
+      {(status === "ready" || fullscreen.active) && <div className="cinema-player-actions">
+        <CinemaFullscreenButton playerRef={playerShellRef} state={fullscreen} onChange={setFullscreen} />
+      </div>}
+    </div>
     {fullscreen.active && <CinemaFullscreenCameras cameras={input.cameras} canPin={Boolean(input.hostControls)} />}
     {fullscreen.active && <CinemaFullscreenHostControls host={input.hostControls} />}
     {status === "loading" && <p className="cinema-player-note">Loading the player…</p>}

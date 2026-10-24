@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/campus-engine/responses";
 import { listDiscussionQuestions, moderateDiscussionQuestion, submitDiscussionQuestion } from "@/lib/cinema-engine/questions";
 import { rateLimitSubject, rateLimitResponse } from "@/lib/rate-limit";
 import { requireCinemaAccount } from "@/lib/student-auth";
+import { announceCinemaInteraction } from "@/lib/cinema-engine/realtime";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 type Context = { params: Promise<{ id: string }> };
@@ -17,7 +18,9 @@ export async function POST(request: Request, context: Context) {
     const limited = await rateLimitSubject("cinema-question", account.id, { limit: 4, windowMs: 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params; const body = await request.json() as { text?: unknown };
-    return ok({ question: await submitDiscussionQuestion({ id, studentId: account.id, displayName: account.name, text: body.text }) }, { status: 201, headers: NO_STORE }, request);
+    const question = await submitDiscussionQuestion({ id, studentId: account.id, displayName: account.name, text: body.text });
+    await announceCinemaInteraction(id, "questions", true);
+    return ok({ question }, { status: 201, headers: NO_STORE }, request);
   } catch (error) { return fail(error, request); }
 }
 
@@ -27,6 +30,8 @@ export async function PATCH(request: Request, context: Context) {
     const limited = await rateLimitSubject("cinema-question-moderate", account.id, { limit: 40, windowMs: 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params; const body = await request.json() as { questionId?: unknown; status?: unknown };
-    return ok(await moderateDiscussionQuestion({ id, studentId: account.id, questionId: body.questionId, status: body.status }), { headers: NO_STORE }, request);
+    const result = await moderateDiscussionQuestion({ id, studentId: account.id, questionId: body.questionId, status: body.status });
+    await announceCinemaInteraction(id, "questions");
+    return ok(result, { headers: NO_STORE }, request);
   } catch (error) { return fail(error, request); }
 }

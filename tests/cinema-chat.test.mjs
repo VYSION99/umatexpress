@@ -219,7 +219,8 @@ test("a wire frame must be a real message, and a timestamp must be a position", 
   assert.equal(parseClientMessage(JSON.stringify({ type: "board_policy" })), null);
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: "hand_state", raised: true })), { type: "hand_state", raised: true });
   assert.deepEqual(parseClientMessage(JSON.stringify({ type: "reaction", emoji: "👏" })), { type: "reaction", emoji: "👏" });
-  assert.equal(parseClientMessage(JSON.stringify({ type: "reaction", emoji: "🔥" })), null);
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "reaction", emoji: "🔥" })), { type: "reaction", emoji: "🔥" });
+  assert.equal(parseClientMessage(JSON.stringify({ type: "reaction", emoji: "🚀" })), null);
 });
 
 test("hands update presence and reactions are stamped by the room", async () => {

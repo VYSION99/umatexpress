@@ -219,6 +219,7 @@ async function deleteExpiredRooms(input: { limit: number; now: number; retention
     await turso("DELETE FROM cinema_poll_votes WHERE poll_id IN (SELECT id FROM cinema_polls WHERE session_id = ?)", [id]);
     await turso("DELETE FROM cinema_polls WHERE session_id = ?", [id]);
     await turso("DELETE FROM cinema_study_packs WHERE session_id = ?", [id]);
+    await turso("DELETE FROM cinema_study_jobs WHERE session_id = ?", [id]);
     await turso("DELETE FROM cinema_waiting_members WHERE session_id = ?", [id]);
     await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
     // The guest list goes with the membership it was written for.

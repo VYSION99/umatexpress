@@ -133,3 +133,116 @@
   dialog:is(.launch-dialog, .vacation-dialog, .campus-ride-dialog, .residency-dialog, .hostel-batch-dialog, .hostel-review-bulk-dialog)[open],
   .cinema-sheet.is-open { animation: none; }
 }
+
+/* One floating route dock, shared by the client homepage, service shells and console. */
+.app-floating-dock { display: none; }
+
+dialog.app-bottom-sheet[open] {
+  width: min(580px, calc(100% - 28px));
+  max-height: min(85dvh, 760px);
+  padding: 0;
+  border: 1px solid #d8e5dc;
+  border-radius: 24px;
+  background: #fffefa;
+  color: #163127;
+  box-shadow: 0 28px 80px #10271e36;
+}
+dialog.app-bottom-sheet::backdrop { background: #0b211b80; backdrop-filter: blur(6px); }
+.app-bottom-sheet-content { max-height: min(85dvh, 760px); overflow-y: auto; overscroll-behavior: contain; }
+.app-dock-sheet-inner { padding: 22px; }
+.app-dock-sheet-inner header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.app-dock-sheet-inner h2 { margin: 0; font-size: 21px; letter-spacing: -.04em; }
+.app-dock-sheet-inner header button { min-height: 42px; padding: 0 12px; border: 1px solid #d6e5da; border-radius: 10px; background: #fff; color: #0b6148; font-weight: 750; }
+.app-dock-sheet-inner > p { margin: 8px 0 17px; color: #60746a; font-size: 13px; }
+.app-dock-directory { display: grid; gap: 7px; }
+.app-dock-directory a { display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 9px 11px; border: 1px solid #e1e9e3; border-radius: 13px; background: #fff; color: #17382b; text-decoration: none; }
+.app-dock-directory a:hover { border-color: #9dcbb2; background: #f3faf5; }
+.app-dock-directory a > span:nth-child(2) { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.app-dock-directory strong { font-size: 13px; }
+.app-dock-directory small { color: #627469; font-size: 11px; }
+.app-dock-directory a > span:last-child { color: #237557; font-size: 24px; }
+
+@media (max-width: 900px) {
+  .app-floating-dock {
+    position: fixed;
+    z-index: 65;
+    left: 50%;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 2px;
+    width: min(430px, calc(100vw - 24px));
+    min-height: 66px;
+    padding: 5px;
+    border: 1px solid #d6e5da;
+    border-radius: 23px;
+    background: #fffefaee;
+    box-shadow: 0 6px 0 #0b493427, 0 18px 40px #0d332829, inset 0 1px 0 #fff;
+    backdrop-filter: blur(18px);
+    transform: translateX(-50%);
+    transition: opacity .16s ease, translate .16s ease;
+  }
+  .app-floating-dock > :is(a, button) {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 2px;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 56px;
+    padding: 4px 2px;
+    border: 0;
+    border-radius: 17px;
+    background: transparent;
+    color: #51645a;
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .app-floating-dock > :is(a, button).is-active {
+    background: linear-gradient(155deg, #e8f7ed, #d8f0e1);
+    color: #075c42;
+    box-shadow: inset 0 1px 0 #fff, 0 3px 7px #0b49341a;
+  }
+  .app-floating-dock > :is(a, button):focus-visible { outline: 2px solid #ba8d31; outline-offset: -3px; }
+  .app-dock-icon { display: grid; place-items: center; width: 31px; height: 31px; filter: drop-shadow(0 2px 2px #0b49342b); }
+  .app-dock-label { overflow: hidden; max-width: 100%; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+  .app-floating-dock .is-active .app-dock-icon { translate: 0 -2px; filter: drop-shadow(0 4px 3px #0b49343b); }
+
+  body:has(dialog[open]) .app-floating-dock,
+  body:has(:is(input, textarea, select, [contenteditable="true"]):focus) .app-floating-dock {
+    opacity: 0;
+    pointer-events: none;
+    translate: 0 18px;
+  }
+  body:has(.app-floating-dock) .app-install-prompt { bottom: calc(92px + env(safe-area-inset-bottom)); }
+  .home-main:has(~ .app-floating-dock) { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+  .campus-shell:has(.app-floating-dock) { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+
+  dialog.app-bottom-sheet[open] {
+    position: fixed;
+    inset: auto 8px calc(10px + env(safe-area-inset-bottom) + var(--app-keyboard-offset, 0px));
+    box-sizing: border-box;
+    width: calc(100vw - 16px);
+    max-width: none;
+    max-height: min(82dvh, calc(100dvh - var(--app-keyboard-offset, 0px) - 22px));
+    margin: 0;
+    border-radius: 27px;
+    overflow: hidden;
+  }
+  dialog.app-bottom-sheet[open] > .app-sheet-handle { display: grid; place-items: center; width: 100%; height: 32px; border: 0; background: transparent; touch-action: none; }
+  .app-bottom-sheet-content { max-height: calc(82dvh - 32px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  dialog.app-bottom-sheet[data-keyboard-open] .app-bottom-sheet-content { max-height: calc(100dvh - var(--app-keyboard-offset, 0px) - 64px); }
+  dialog.app-bottom-sheet[open] .launch-dialog-inner { max-height: none; overflow: visible; }
+  dialog.app-bottom-sheet[open] :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) { font-size: 16px; }
+}
+
+@media (min-width: 801px) and (max-width: 900px) {
+  .console-launcher .app-floating-dock { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-floating-dock { transition: none; }
+  .app-floating-dock .is-active .app-dock-icon { translate: none; }
+}

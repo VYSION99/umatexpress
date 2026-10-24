@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } from "@/components/ui/MaterialIcon";
+import { CalendarDots, Clock, FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
@@ -24,10 +24,9 @@ type CinemaDoor = "PUBLIC" | "PRIVATE";
  *
  * The choices a room is made of are made here, not inside the room: where the
  * video comes from — a YouTube link, or a file the host uploads next — and who
- * may walk in. An upload runs here beside the room it fills, and an upload room
- * is private from the moment it exists, because the engine closes that door
- * before a byte arrives. A host who changes their mind about the door does it
- * from the room list below; the room itself carries neither control.
+ * may walk in. An upload runs here beside the room it fills. A host who changes
+ * their mind about the door does it from the room list below; the room itself
+ * carries neither control.
  *
  * Creating a room needs an account because a room has a host and a membership
  * row; watching the lobby list needs the same account for the same reason. The
@@ -49,8 +48,10 @@ export function CinemaLobby() {
   const [video, setVideo] = useState("");
   const [source, setSource] = useState<CinemaSource>("YOUTUBE");
   const [door, setDoor] = useState<CinemaDoor>("PUBLIC");
-  /** Minutes from now the room opens; 0 means it is live on creation. */
-  const [startIn, setStartIn] = useState("0");
+  const [startMode, setStartMode] = useState<"NOW" | "LATER">("NOW");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleNow, setScheduleNow] = useState(0);
   /** The host's run time in minutes; 0 means only the host ends the room. */
   const [runsFor, setRunsFor] = useState("0");
   const [link, setLink] = useState("");
@@ -149,12 +150,19 @@ export function CinemaLobby() {
     setSearch({ busy: false, error: "", done: false });
   };
 
-  // A file makes its room private, and the engine would refuse any other
-  // answer; the form shows that rather than pretending the choice is open.
-  const createsPrivate = source === "UPLOAD" || door === "PRIVATE";
+  const createsPrivate = door === "PRIVATE";
   const isActive = (room: CinemaRoom) => room.status === "CREATED" || room.status === "LIVE";
 
   const create = async () => {
+    let startInMinutes = 0;
+    if (startMode === "LATER") {
+      const target = new Date(`${scheduleDate}T${scheduleTime}`);
+      startInMinutes = Math.ceil((target.getTime() - Date.now()) / 60_000);
+      if (!scheduleDate || !scheduleTime || !Number.isFinite(target.getTime()) || startInMinutes < 1 || startInMinutes > 7 * 24 * 60) {
+        setError("Choose a future date and time within the next seven days.");
+        return;
+      }
+    }
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/cinema/sessions", {
@@ -169,7 +177,7 @@ export function CinemaLobby() {
           // The clock rides with the door and the source: the engine decides
           // what the numbers may be, and a scheduled room is armed before the
           // lobby's next screen renders.
-          startInMinutes: Number(startIn),
+          startInMinutes,
           durationMinutes: Number(runsFor),
         }),
       });
@@ -213,6 +221,29 @@ export function CinemaLobby() {
     router.push(`/cinema/${id}`);
   };
 
+  const scheduleDays = Array.from({ length: 8 }, (_, index) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + index);
+    return { value: localDate(date), label: index === 0 ? "Today" : index === 1 ? "Tomorrow" : date.toLocaleDateString([], { weekday: "short" }), day: date.getDate() };
+  });
+  const scheduledPreview = startMode === "LATER" && scheduleDate && scheduleTime
+    ? new Date(`${scheduleDate}T${scheduleTime}`) : null;
+  const schedulePreviewValid = scheduledPreview && !Number.isNaN(scheduledPreview.getTime())
+    && scheduledPreview.getTime() > scheduleNow && scheduledPreview.getTime() <= scheduleNow + 7 * 24 * 60 * 60_000;
+
+  function chooseSchedule() {
+    if (!scheduleDate || !scheduleTime) {
+      const next = new Date(Date.now() + 60 * 60_000);
+      next.setMinutes(0, 0, 0);
+      setScheduleDate(localDate(next));
+      setScheduleTime(localTime(next));
+    }
+    setScheduleNow(Date.now());
+    setStartMode("LATER");
+    setError("");
+  }
+
   if (!ready) return <section className="cinema-card"><p className="cinema-note">Checking your account…</p></section>;
 
   if (!account) return <section className="cinema-card">
@@ -245,10 +276,11 @@ export function CinemaLobby() {
       ? <section className="cinema-card">
         <h2>Add your files</h2>
         <p className="cinema-note">
-          <strong>{uploadRoom.title}</strong> is invite-only. Add files in playback order, then invite your group.
+          <strong>{uploadRoom.title}</strong> is {uploadRoom.isPrivate ? "invite-only" : "open to verified accounts with the link"}. Add files in playback order, then share the room link.
         </p>
         <UploadPanel
           roomId={uploadRoom.id}
+          isPrivate={uploadRoom.isPrivate}
           onUploaded={() => { void load(); }}
         />
         <button type="button" className="cinema-cta" onClick={() => router.push(`/cinema/${uploadRoom.id}`)}>Open room</button>
@@ -292,12 +324,10 @@ export function CinemaLobby() {
         </p>}
         {picked && <p className="cinema-note cinema-sub">Picked <strong>{picked.title}</strong>. Give the room a name below and open it.</p>}
       </section>}
-      <section className="cinema-card">
-        <h2>Start a room</h2>
-        <p className="cinema-note">
-          Attach a YouTube link to watch together, or play a file of your own. A file makes the room invite-only: it is stored privately and only your guest list can watch it.
-        </p>
-        <div className="cinema-create">
+      <section className="cinema-card cinema-create-panel">
+        <h2>Room setup</h2>
+        <p className="cinema-note">Choose what to watch, who can join and when playback starts.</p>
+        <div className="cinema-create cinema-create-form">
           <label>Room name
             <input value={title} maxLength={80} placeholder="PHY 201 — revision" onChange={(event) => setTitle(event.target.value)} />
           </label>
@@ -305,7 +335,7 @@ export function CinemaLobby() {
             <button type="button" role="radio" aria-checked={source === "YOUTUBE"} className={source === "YOUTUBE" ? "is-on" : ""} onClick={() => setSource("YOUTUBE")}>
               <LinkSimple size={15} aria-hidden /> YouTube link
             </button>
-            <button type="button" role="radio" aria-checked={source === "UPLOAD"} className={source === "UPLOAD" ? "is-on" : ""} onClick={() => setSource("UPLOAD")}>
+            <button type="button" role="radio" aria-checked={source === "UPLOAD"} className={source === "UPLOAD" ? "is-on" : ""} onClick={() => { setSource("UPLOAD"); setDoor("PRIVATE"); }}>
               <UploadSimple size={15} aria-hidden /> Play a file
             </button>
           </div>
@@ -320,7 +350,6 @@ export function CinemaLobby() {
               role="radio"
               aria-checked={!createsPrivate}
               className={!createsPrivate ? "is-on" : ""}
-              disabled={source === "UPLOAD"}
               onClick={() => setDoor("PUBLIC")}
             ><Globe size={15} aria-hidden /> Anyone with the link</button>
             <button
@@ -331,38 +360,30 @@ export function CinemaLobby() {
               onClick={() => setDoor("PRIVATE")}
             ><Lock size={15} aria-hidden /> Invite only</button>
           </div>
-          {source === "UPLOAD" && <p className="cinema-note">Uploaded videos stay invite-only.</p>}
-          <div className="cinema-clock">
-            <label>Starts
-              <select value={startIn} onChange={(event) => setStartIn(event.target.value)}>
-                <option value="0">Straight away</option>
-                <option value="15">In 15 minutes</option>
-                <option value="30">In 30 minutes</option>
-                <option value="60">In 1 hour</option>
-                <option value="120">In 2 hours</option>
-              </select>
-            </label>
-            <label>Runs for
-              <select value={runsFor} onChange={(event) => setRunsFor(event.target.value)}>
-                <option value="0">Until I end it</option>
-                <option value="30">30 minutes</option>
-                <option value="60">1 hour</option>
-                <option value="90">90 minutes</option>
-                <option value="120">2 hours</option>
-                <option value="180">3 hours</option>
-                {source === "UPLOAD" && <option value="300">5 hours (Pro)</option>}
-              </select>
-            </label>
-          </div>
-          <p className="cinema-note">
-            {Number(startIn) > 0
-              ? "The room opens by itself at that minute: it goes live and the video starts on every screen that is waiting."
-              : "The room is live the moment you create it, and the video starts as soon as it is ready."}
-            {Number(runsFor) > 0 ? " It ends by itself when the run time is up." : source === "UPLOAD" ? " After the first file is ready, your plan's time limit becomes the safety deadline; you can end the room earlier." : " You end it when you are done."}
-          </p>
+          {source === "UPLOAD" && <p className="cinema-note">Only upload videos you have the right to share. Public file rooms can be joined by any verified account with the link.</p>}
+          <section className="cinema-create-schedule" aria-label="Room schedule">
+            <div className="cinema-create-section-heading"><CalendarDots size={19} aria-hidden /><div><strong>When should it start?</strong><small>Set a time now or plan up to seven days ahead.</small></div></div>
+            <div className="cinema-create-start-choice" role="radiogroup" aria-label="Room start time">
+              <button type="button" role="radio" aria-checked={startMode === "NOW"} className={startMode === "NOW" ? "is-on" : ""} onClick={() => { setStartMode("NOW"); setError(""); }}><Clock size={17} aria-hidden /> Start now</button>
+              <button type="button" role="radio" aria-checked={startMode === "LATER"} className={startMode === "LATER" ? "is-on" : ""} onClick={chooseSchedule}><CalendarDots size={17} aria-hidden /> Pick a date</button>
+            </div>
+            {startMode === "LATER" && <div className="cinema-date-picker">
+              <div className="cinema-date-strip" aria-label="Choose a day; swipe to see more dates">
+                {scheduleDays.map(day => <button key={day.value} type="button" aria-pressed={scheduleDate === day.value} onClick={() => { setScheduleDate(day.value); setScheduleNow(Date.now()); setError(""); }}><span>{day.label}</span><strong>{day.day}</strong></button>)}
+              </div>
+              <div className="cinema-date-fields"><label>Date<input type="date" required min={scheduleDays[0].value} max={scheduleDays[7].value} value={scheduleDate} onChange={event => { setScheduleDate(event.target.value); setScheduleNow(Date.now()); setError(""); }} /></label><label>Time<input type="time" required step="60" value={scheduleTime} onChange={event => { setScheduleTime(event.target.value); setScheduleNow(Date.now()); setError(""); }} /></label></div>
+              <small>Times use your device’s local time zone. Swipe the days to browse.</small>
+            </div>}
+          </section>
+          <section className="cinema-create-duration"><div className="cinema-create-section-heading"><Clock size={19} aria-hidden /><div><strong>How long?</strong><small>A fixed end time closes the room automatically.</small></div></div>
+            <label>Room duration<select value={runsFor} onChange={(event) => setRunsFor(event.target.value)}>
+              <option value="0">Until I end it</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="90">90 minutes</option><option value="120">2 hours</option><option value="180">3 hours</option><option value="240">4 hours</option>{source === "UPLOAD" && <option value="300">5 hours (Pro)</option>}
+            </select></label>
+          </section>
+          <p className={`cinema-schedule-summary${startMode === "LATER" && !schedulePreviewValid ? " is-invalid" : ""}`} role="status"><CalendarDots size={17} aria-hidden /><span>{startMode === "LATER" ? schedulePreviewValid ? `Scheduled for ${scheduledPreview.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}.` : "Choose a future date and time within seven days." : source === "UPLOAD" ? "Room opens now; playback starts when your file is ready." : "Starts as soon as you create it."} {Number(runsFor) > 0 ? `Ends after ${Number(runsFor) < 60 ? `${runsFor} minutes` : `${Number(runsFor) / 60} hours`}.` : source === "UPLOAD" ? "Your plan's safety limit still applies once playback begins." : "You decide when to end it."}</span></p>
           {error && <p className="cinema-error">{error}</p>}
           <button disabled={busy || (source === "YOUTUBE" && !video.trim())} onClick={() => void create()}>
-            {busy ? "One moment…" : source === "UPLOAD" ? "Create the room" : Number(startIn) > 0 ? "Schedule the room" : "Open the room"}
+            {busy ? "One moment…" : startMode === "LATER" ? "Schedule the room" : source === "UPLOAD" ? "Create the room" : "Open the room"}
           </button>
         </div>
       </section>
@@ -381,9 +402,9 @@ export function CinemaLobby() {
       {error && <p className="cinema-error" role="alert">{error}</p>}
     </CinemaDialog>
     {savedRooms.length > 0 && <section className="cinema-card cinema-room-list" aria-label="Reusable rooms">
-      <div className="cinema-list-heading"><div><h2>Your reusable rooms</h2><p className="cinema-note">Keep the same invitation link. Each new session starts with fresh chat and, for file rooms, a new playlist.</p></div></div>
+      <div className="cinema-list-heading"><div><h2>Your reusable rooms</h2><p className="cinema-note">Keep the same room link. Each new session starts with fresh chat and, for file rooms, a new playlist.</p></div></div>
       <ul className="cinema-rooms">{savedRooms.map((saved) => <li className="cinema-room-row" key={saved.id}>
-        <div className="cinema-room-info"><div className="cinema-room-tags"><span className="cinema-chip">{saved.currentStatus === "LIVE" ? "Live now" : saved.currentStatus === "CREATED" ? "Ready" : "Between sessions"}</span>{saved.sourceType === "UPLOAD" && <span className="cinema-chip is-private">Private files</span>}</div><h3><Link href={`/cinema/${saved.id}`}>{saved.title}</Link></h3><p>{saved.sourceType === "UPLOAD" ? "Upload a fresh playlist each time" : "YouTube watch room"} · stable link</p></div>
+        <div className="cinema-room-info"><div className="cinema-room-tags"><span className="cinema-chip">{saved.currentStatus === "LIVE" ? "Live now" : saved.currentStatus === "CREATED" ? "Ready" : "Between sessions"}</span>{saved.sourceType === "UPLOAD" && <span className="cinema-chip is-private">{saved.visibility === "PRIVATE" ? "Invite-only files" : "Public file room"}</span>}</div><h3><Link href={`/cinema/${saved.id}`}>{saved.title}</Link></h3><p>{saved.sourceType === "UPLOAD" ? "Upload a fresh playlist each time" : "YouTube watch room"} · stable link</p></div>
         <div className="cinema-room-actions">{saved.currentStatus === "LIVE" || saved.currentStatus === "CREATED" ? <Link className="cinema-room-open" href={`/cinema/${saved.id}`}>Open room</Link> : <><CinemaReuseButton stableId={saved.id} /><button type="button" className="cinema-chip is-button" onClick={() => setSavedToForget(saved)}>Remove saved room</button></>}</div>
       </li>)}</ul>
     </section>}
@@ -399,7 +420,9 @@ export function CinemaLobby() {
         : <ul className="cinema-rooms">
           {rooms.map((room) => {
             const thumbnail = room.sourceType === "YOUTUBE" && /^[A-Za-z0-9_-]{11}$/.test(room.videoId)
-              ? `https://i.ytimg.com/vi/${room.videoId}/hqdefault.jpg` : "";
+              ? `https://i.ytimg.com/vi/${room.videoId}/hqdefault.jpg`
+              : room.sourceType === "UPLOAD" && room.videoId
+                ? `/api/cinema/sessions/${room.id}/thumbnail?uploadId=${encodeURIComponent(room.videoId)}` : "";
             const status = room.status === "CREATED" ? "Scheduled" : room.status === "LIVE" ? "Live now" : "Ended";
             return <li className="cinema-room-row" key={room.id}>
               <Link className="cinema-room-poster" href={`/cinema/${room.id}`} aria-label={`Open ${room.title}`}>
@@ -417,7 +440,7 @@ export function CinemaLobby() {
               </div>
               <div className="cinema-room-actions">
                 <Link className="cinema-room-open" href={`/cinema/${room.id}`}>{isActive(room) ? "Open room" : "View room"}</Link>
-                {room.isHost && room.sourceType !== "UPLOAD" && isActive(room) && <button
+                {room.isHost && isActive(room) && <button
                   type="button"
                   className="cinema-chip is-button"
                   disabled={roomBusy === room.id}
@@ -449,4 +472,12 @@ function sessionDateCopy(iso: string) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "Time to be confirmed";
   return at.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function localDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localTime(date: Date) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }

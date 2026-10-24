@@ -10,7 +10,8 @@ import { PassengerSupportCard } from "@/components/account/PassengerSupportCard"
 export default async function AccountPage({ searchParams }: { searchParams?: Promise<{ next?: string }> }) {
   const params = await searchParams;
   const cinemaAudience = params?.next?.startsWith("/cinema") === true;
-  return <CampusShell area="UMATEXPRESS ACCOUNT" title={cinemaAudience ? "Join Cinema events" : "Sign in to book"} subtitle={cinemaAudience ? "A verified account lets you reserve a place and join public discussions." : "One UMaT account for campusRide and vacationRide. Browsing stays open to everyone."}>
+  const profileAccess = params?.next?.startsWith("/profile") === true;
+  return <CampusShell area="UMATEXPRESS ACCOUNT" title={cinemaAudience ? "Join Cinema events" : profileAccess ? "Your account" : "Sign in to book"} subtitle={cinemaAudience ? "A verified account lets you reserve a place and join public discussions." : profileAccess ? "Sign in or verify your email to manage your profile and security." : "One UMaT account for campusRide and vacationRide. Browsing stays open to everyone."}>
     <section className={`student-auth-interface${cinemaAudience ? " student-auth-interface--cinema" : ""}`}>
       {cinemaAudience ? <aside className="cinema-auth-intro" aria-label="About Cinema access">
         <span className="cinema-auth-eyebrow">CINEMA ACCESS</span>
@@ -21,9 +22,9 @@ export default async function AccountPage({ searchParams }: { searchParams?: Pro
           <div><strong>For UMaT students</strong><span>Publish an event, host a panel, or create a smaller private room.</span></div>
         </div>
         <Link className="cinema-auth-browse" href="/cinema">Browse events without signing in</Link>
-      </aside> : <CampusStatusBanner title="Only booking needs an account" message="Search rides, compare fares and check a ticket without signing in. Holding a seat or joining a queue needs your student account." />}
+      </aside> : !profileAccess && <CampusStatusBanner title="Only booking needs an account" message="Search rides, compare fares and check a ticket without signing in. Holding a seat or joining a queue needs your student account." />}
       <StudentAuthCard next={params?.next} />
-      {!cinemaAudience && <PassengerSupportCard />}
+      {!cinemaAudience && !profileAccess && <PassengerSupportCard />}
       {!cinemaAudience && <Link href="/">Back to UMaTeXPRESS home</Link>}
     </section>
   </CampusShell>;

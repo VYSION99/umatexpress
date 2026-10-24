@@ -1,5 +1,6 @@
 import { fail } from "@/lib/campus-engine/responses";
 import { cinemaUploadForToken, parseCinemaByteRange, readCinemaMediaObject, verifyCinemaMediaToken } from "@/lib/cinema-engine/media";
+import { requireCinemaAccount } from "@/lib/student-auth";
 
 /**
  * The bytes behind a signed lease.
@@ -10,6 +11,7 @@ import { cinemaUploadForToken, parseCinemaByteRange, readCinemaMediaObject, veri
  * room, the upload and the student, and the row decides whether it is still
  * true. Nothing is cached, because a lease that expires should not survive in a
  * browser's disk cache after the retention job has taken the object away.
+ * The request must also carry the verified account that received the token.
  */
 const NO_STORE = { "Cache-Control": "private, no-store" };
 
@@ -17,6 +19,8 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
   try {
     const claims = await verifyCinemaMediaToken((await context.params).token);
     if (!claims) return Response.json({ error: "This video link has expired. Ask the room for a fresh one." }, { status: 401, headers: NO_STORE });
+    const viewer = await requireCinemaAccount(request);
+    if (viewer.id !== claims.studentId) return Response.json({ error: "This video link belongs to another account." }, { status: 403, headers: NO_STORE });
     const upload = await cinemaUploadForToken(claims);
     const range = parseCinemaByteRange(request.headers.get("range"), upload.fileSizeBytes);
     if (range === "invalid") {
@@ -47,6 +51,8 @@ export async function HEAD(request: Request, context: { params: Promise<{ token:
   try {
     const claims = await verifyCinemaMediaToken((await context.params).token);
     if (!claims) return new Response(null, { status: 401, headers: NO_STORE });
+    const viewer = await requireCinemaAccount(request);
+    if (viewer.id !== claims.studentId) return new Response(null, { status: 403, headers: NO_STORE });
     const upload = await cinemaUploadForToken(claims);
     // One byte proves the object is still there without fetching the video.
     const media = await readCinemaMediaObject({ upload, range: { offset: 0, length: 1 } });

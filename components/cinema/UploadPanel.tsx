@@ -1,6 +1,7 @@
 "use client";
 
 import { putCinemaPart } from "./transfer";
+import { captureVideoThumbnails } from "./video-thumbnail";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadSimple } from "@/components/ui/MaterialIcon";
@@ -19,7 +20,7 @@ type Allowance = { plan: string; maxFiles: number; maxBytes: number; maxMinutes:
  * record of who said the video could be shared. The panel is a body, not a
  * card: the lobby owns the heading and the room it is filling.
  */
-export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
+export function UploadPanel(input: { roomId: string; onUploaded: () => void; isPrivate?: boolean }) {
   const [limits, setLimits] = useState<UploadLimits | null>(null);
   const [upload, setUpload] = useState<UploadState>(null);
   const [uploads, setUploads] = useState<NonNullable<UploadState>[]>([]);
@@ -77,6 +78,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    const thumbnails = captureVideoThumbnails(file).catch(() => []);
     try {
       const opened = await fetch(`/api/cinema/sessions/${input.roomId}/upload`, {
         method: "POST",
@@ -109,8 +111,20 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
         body: JSON.stringify({ parts }),
         signal: controller.signal,
       });
-      const completion = await finished.json() as { error?: string };
+      const completion = await finished.json() as { error?: string; upload?: { id: string } };
       if (!finished.ok) throw new Error(completion.error || "The upload could not be finished.");
+      // Artwork is optional: unsupported video decoders must never undo a
+      // completed multipart upload.
+      if (completion.upload?.id) {
+        try {
+          const candidates = await thumbnails;
+          if (candidates.length) await fetch(`/api/cinema/sessions/${input.roomId}/thumbnail`, {
+            method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ uploadId: completion.upload.id, candidates }),
+            signal: AbortSignal.timeout(15_000),
+          });
+        } catch { /* The room uses its film icon when no frame can be captured. */ }
+      }
       setFile(null);
       setOwned(false);
       setSent(0);
@@ -155,8 +169,9 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
       {allowance?.plan.replaceAll("_", " ") || "Free"}: {readyUploads.length} of {allowance?.maxFiles || 1} files · {allowance ? humanSize(allowance.maxBytes) : "500 MB"} total · up to {allowance?.maxMinutes || 60} minutes.
       Videos play in this order, then the room stays open for discussion until you end it.
     </p>
+    {!input.isPrivate && <p className="cinema-note">Anyone with the link and a verified account can join this room and watch its files. Upload only content you may share with them.</p>}
     {upload?.status === "UPLOADING" && !busy && <p className="cinema-note">An upload is in progress. Cancel it before choosing another file.</p>}
-    {readyUploads.length > 0 && <ol className="cinema-upload-queue">{readyUploads.map((entry, index) => <li key={entry.id}><strong>{entry.filename}</strong><span>{entry.id === currentUploadId ? "Playing" : humanSize(entry.sizeBytes)}</span>{index > currentIndex && currentIndex >= 0 && <span className="cinema-queue-actions"><button type="button" aria-label={`Move ${entry.filename} earlier`} disabled={busy || index <= currentIndex + 1} onClick={() => void move(index, -1)}>↑</button><button type="button" aria-label={`Move ${entry.filename} later`} disabled={busy || index >= readyUploads.length - 1} onClick={() => void move(index, 1)}>↓</button></span>}</li>)}</ol>}
+    {readyUploads.length > 0 && <ol className="cinema-upload-queue">{readyUploads.map((entry, index) => <li key={entry.id}><img className="cinema-file-thumb" src={`/api/cinema/sessions/${input.roomId}/thumbnail?uploadId=${encodeURIComponent(entry.id)}`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{entry.filename}</strong><span>{entry.id === currentUploadId ? "Playing" : humanSize(entry.sizeBytes)}</span>{index > currentIndex && currentIndex >= 0 && <span className="cinema-queue-actions"><button type="button" aria-label={`Move ${entry.filename} earlier`} disabled={busy || index <= currentIndex + 1} onClick={() => void move(index, -1)}>↑</button><button type="button" aria-label={`Move ${entry.filename} later`} disabled={busy || index >= readyUploads.length - 1} onClick={() => void move(index, 1)}>↓</button></span>}</li>)}</ol>}
     {full ? <p className="cinema-note">This room has reached its file allowance.</p> : <>
     <input
       className="cinema-upload-file"
@@ -168,7 +183,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void }) {
     />
     <label className="cinema-upload-consent">
       <input type="checkbox" checked={owned} disabled={busy} onChange={(event) => setOwned(event.target.checked)} />
-      I recorded this, or I have the right to share it with this room.
+      I recorded this, or I have the right to share it with everyone who can join this room.
     </label>
     {busy && total > 0 && <div className="cinema-upload-progress">
       <div className="cinema-upload-bar" style={{ width: `${Math.round((sent / total) * 100)}%` }} />

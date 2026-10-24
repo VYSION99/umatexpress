@@ -13,8 +13,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * Reading the lobby is not: a student may reload their own list as often as
  * they like. The lobby's choices travel in the same body: its video source,
  * who may join, and — since M12 — when the room goes live and how long it
- * runs. The engine keeps the final word on every one of them, and a file
- * always means a private room.
+ * runs. The engine keeps the final word on every one of them.
  */
 export async function POST(request: Request) {
   try {

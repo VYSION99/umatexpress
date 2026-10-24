@@ -590,14 +590,24 @@ test("a room asked for at creation as invite-only is private before anyone knock
   await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
 });
 
-test("an upload room is created empty, private, and waiting for its file", async () => {
+test("a public upload room is created empty and can admit a verified guest", async () => {
   const room = await createRoom({ student: host, title: "Field trip", source: "UPLOAD", visibility: "PUBLIC" });
   assert.equal(room.sourceType, "UPLOAD");
   assert.equal(room.videoId, "", "the upload that follows is what fills this in");
-  assert.equal(room.visibility, "PRIVATE", "a file can never open the door it will close");
+  assert.equal(room.visibility, "PUBLIC");
   assert.equal(room.status, "CREATED");
   assert.equal(room.joinable, true);
+  const preview = await readRoom({ id: room.id, studentId: guest.id });
+  assert.equal(preview.isPrivate, false);
+  const joined = await joinRoom({ id: room.id, student: guest });
+  assert.equal(joined.isMember, true);
+});
+
+test("an upload room defaults to invite-only and still requires a guest invite", async () => {
+  const room = await createRoom({ student: host, title: "Private file", source: "UPLOAD" });
+  assert.equal(room.isPrivate, true);
   await expectRefusal(readRoom({ id: room.id, studentId: guest.id }), "FORBIDDEN", 403);
+  await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
 });
 
 test("a source no room understands, and a YouTube room with no link, are both refused", async () => {
@@ -956,6 +966,16 @@ test("a watch room keeps its link while reuse creates a clean session and preser
   assert.equal(state.profileGuests.length, 0);
 });
 
+test("a reusable public file room keeps its visibility and starts with no file", async () => {
+  const original = await createRoom({ student: host, title: "Open study video", source: "UPLOAD", visibility: "PUBLIC", reusable: true });
+  await patchRoom({ id: original.id, studentId: host.id, action: "END" });
+  const restarted = await reuseCinemaRoom({ id: original.id, student: host });
+  const next = await readRoom({ id: restarted.sessionId, studentId: host.id });
+  assert.equal(next.visibility, "PUBLIC");
+  assert.equal(next.videoId, "");
+  assert.equal(next.stableRoomId, original.id);
+});
+
 test("an event playback session cannot become a reusable watch room", async () => {
   const room = await createRoom({ student: host, title: "Public event", video: VIDEO });
   state.eventRooms.set(room.id, { id: "event-1", rsvps: new Set() });
@@ -989,7 +1009,7 @@ test("a verified non-student account can join Cinema and read its room list but 
   assert.equal(create.status, 403, "hosting stays limited to UMaT student accounts");
 });
 
-test("the create route carries the lobby's two choices without losing the upload rule", async () => {
+test("the create route preserves the host's public or private file choice", async () => {
   const request = new Request("https://umatexpress.test/api/cinema/sessions", { headers: { cookie: await studentSessionCookie(ACCOUNT.id, new Request("https://umatexpress.test/")) } });
   const response = await sessionsRoute.POST(new Request(request.url, {
     method: "POST",
@@ -1000,7 +1020,7 @@ test("the create route carries the lobby's two choices without losing the upload
   assert.equal(response.status, 201, JSON.stringify(payload));
   assert.equal(payload.room.sourceType, "UPLOAD");
   assert.equal(payload.room.videoId, "", "the room waits for the file the lobby is about to send");
-  assert.equal(payload.room.visibility, "PRIVATE", "the route cannot be talked out of the upload rule");
+  assert.equal(payload.room.visibility, "PUBLIC");
 
   const privateResponse = await sessionsRoute.POST(new Request(request.url, {
     method: "POST",
@@ -1064,12 +1084,17 @@ test("an active room without the realtime binding is a 503, not a crash", async 
   assert.match(payload.error, /Live rooms are not available/);
 });
 
-test("uploaded-video rooms cannot be made public, including legacy public rows", async () => {
-  const room = await createRoom({ student: host, source: "UPLOAD", title: "Private file" });
-  await expectRefusal(patchRoom({ id: room.id, studentId: host.id, action: "PUBLIC" }), "VALIDATION_ERROR", 400);
-  state.rooms.find(row => row.id === room.id).visibility = "PUBLIC";
+test("a file room can be opened to link holders and closed again", async () => {
+  const room = await createRoom({ student: host, source: "UPLOAD", title: "Private file", visibility: "PRIVATE" });
   await expectRefusal(readRoom({ id: room.id, studentId: guest.id }), "FORBIDDEN", 403);
-  await expectRefusal(joinRoom({ id: room.id, student: guest }), "FORBIDDEN", 403);
+  const opened = await patchRoom({ id: room.id, studentId: host.id, action: "PUBLIC" });
+  assert.equal(opened.isPrivate, false);
+  assert.equal((await readRoom({ id: room.id, studentId: guest.id })).joinable, true);
+  await joinRoom({ id: room.id, student: guest });
+  const closed = await patchRoom({ id: room.id, studentId: host.id, action: "PRIVATE" });
+  assert.equal(closed.isPrivate, true);
+  assert.equal((await readRoom({ id: room.id, studentId: guest.id })).isMember, true, "closing the door keeps current members");
+  await expectRefusal(readRoom({ id: room.id, studentId: "outsider" }), "FORBIDDEN", 403);
 });
 
 test("public previews omit the roster, identities and playback source", async () => {
