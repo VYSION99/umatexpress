@@ -54,16 +54,22 @@ export async function saveProfilePhoto(request: Request, scope: ProfileScope, bo
   const id = await accountId(request, scope);
   if (!body.byteLength || body.byteLength > MAX_UPLOAD_BYTES) throw new CampusEngineError("VALIDATION_ERROR", "Choose a photo smaller than 4 MB.", 413);
   if (!validImage(new Uint8Array(body), type)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a valid JPG, PNG, or WebP photo.", 400);
-  const images = await imagesBinding();
   const bucket = await privateBucket();
-  if (!images || !bucket) throw new CampusEngineError("CONFIG_REQUIRED", "Profile photo processing is unavailable.", 503);
+  if (!bucket) throw new CampusEngineError("CONFIG_REQUIRED", "Profile photo storage is unavailable.", 503);
   let processed: ArrayBuffer;
   try {
-    const stream = new Blob([body], { type }).stream();
-    const image = await images.input(stream).transform({ width: 320, height: 320, fit: "cover" }).output({ format: "image/webp", quality: 82 });
+    const images = await imagesBinding();
+    if (!images) throw new Error("Image transformation is unavailable.");
+    const image = await images.input(new Blob([body], { type }).stream())
+      .transform({ width: 320, height: 320, fit: "cover" }).output({ format: "image/webp", quality: 82 });
     processed = await image.response().arrayBuffer();
   } catch {
-    throw new CampusEngineError("VALIDATION_ERROR", "This image could not be processed. Try another photo.", 400);
+    // The editor already crops to a bounded WebP. Keep photo uploads usable
+    // when the optional Images service is unavailable on this account.
+    if (type !== "image/webp" || body.byteLength > 512 * 1024) {
+      throw new CampusEngineError("VALIDATION_ERROR", "This image could not be processed. Try another photo.", 400);
+    }
+    processed = body;
   }
   if (!processed.byteLength || processed.byteLength > 512 * 1024) throw new CampusEngineError("VALIDATION_ERROR", "This photo is too complex. Try a simpler image.", 400);
   await ensureTable();

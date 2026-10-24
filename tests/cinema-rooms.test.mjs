@@ -34,7 +34,7 @@ const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at",
 function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
-  if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
+  if (/^(CREATE (TABLE|INDEX|UNIQUE INDEX)|DROP INDEX)/.test(sql)) return ok(empty);
   if (/^PRAGMA table_info\(notification_outbox\)/.test(sql)) return ok(table(["name"], ["subject", "read_at", "sensitive", "expires_at"].map(name => ({ name }))));
   if (/^UPDATE notification_outbox SET subject='Authentication message'/.test(sql)) return affected(0);
   if (/^INSERT INTO notification_outbox/.test(sql)) {
@@ -75,6 +75,12 @@ function handle(sql, args) {
     const profile = [...state.profiles.values()].find((item) => item.current_session_id === args[2]);
     if (profile) { profile[key] = args[0]; profile.updated_at = args[1]; }
     return affected(profile ? 1 : 0);
+  }
+  if (/^UPDATE cinema_reusable_rooms SET title=\?,visibility=\?,updated_at=\? WHERE id=\?/.test(sql)) {
+    const profile = state.profiles.get(args[3]);
+    if (!profile || profile.host_student_id !== args[4] || profile.current_session_id !== args[5]) return affected(0);
+    Object.assign(profile, { title: args[0], visibility: args[1], updated_at: args[2] });
+    return affected(1);
   }
   if (/^INSERT OR IGNORE INTO cinema_reusable_room_guests\(room_id,student_id,invited_by,created_at\) VALUES/.test(sql)) {
     if (!state.profileGuests.some((item) => item.room_id === args[0] && item.student_id === args[1])) state.profileGuests.push({ room_id: args[0], student_id: args[1], invited_by: args[2], created_at: args[3] });
@@ -344,6 +350,17 @@ function handle(sql, args) {
     if (room) Object.assign(room, { title, updated_at: updatedAt });
     return affected(room ? 1 : 0);
   }
+  if (/^UPDATE cinema_sessions SET title=\?,visibility=\?,updated_at=\?/.test(sql)) {
+    const room = state.rooms.find((row) => row.id === args[3] && row.host_student_id === args[4] && ["CREATED", "LIVE", "ENDED"].includes(row.status));
+    if (room) Object.assign(room, { title: args[0], visibility: args[1], updated_at: args[2] });
+    return affected(room ? 1 : 0);
+  }
+  if (/FROM cinema_uploads WHERE session_id = \? AND status <> 'DELETED'/.test(sql)) return ok(empty);
+  if (/^UPDATE cinema_sessions SET status='DELETED',deleted_at=\?,updated_at=\?/.test(sql)) {
+    const room = state.rooms.find((row) => row.id === args[2] && row.host_student_id === args[3] && ["ENDED", "EXPIRED"].includes(row.status));
+    if (room) Object.assign(room, { status: "DELETED", deleted_at: args[0], updated_at: args[1] });
+    return affected(room ? 1 : 0);
+  }
   if (/^SELECT student_id FROM cinema_room_invites WHERE session_id = \? AND student_id = \? LIMIT 1$/.test(sql)) {
     const row = state.invites.find((invite) => invite.session_id === args[0] && invite.student_id === args[1]);
     return ok(row ? table(["student_id"], [row]) : empty);
@@ -378,7 +395,7 @@ function handle(sql, args) {
     const joined = new Set(state.members.filter((member) => member.student_id === studentId).map((member) => member.session_id));
     const invited = new Set(state.invites.filter((invite) => invite.student_id === studentId).map((invite) => invite.session_id));
     const rows = state.rooms
-      .filter((room) => room.status !== "DELETED" && (joined.has(room.id) || invited.has(room.id)) && (!sql.includes("NOT EXISTS (SELECT 1 FROM cinema_events") || !state.eventRooms.has(room.id)))
+      .filter((room) => room.status !== "DELETED" && (joined.has(room.id) || invited.has(room.id)) && (!sql.includes("NOT EXISTS (SELECT 1 FROM cinema_events") || !state.eventRooms.has(room.id)) && (!sql.includes("s.status IN ('CREATED','LIVE')") || ["CREATED", "LIVE"].includes(room.status)))
       .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
       .slice(Number(sql.match(/OFFSET (\d+)/)?.[1] || 0), Number(sql.match(/OFFSET (\d+)/)?.[1] || 0) + Number(sql.match(/LIMIT (\d+)/)?.[1] || 20))
       .map((room) => ({ ...room, member: joined.has(room.id) ? 1 : 0, host_name: state.members.find(member => member.session_id === room.id && member.student_id === room.host_student_id)?.display_name || "", invited: invited.has(room.id) ? 1 : 0 }));
@@ -389,6 +406,12 @@ function handle(sql, args) {
   if (/^SELECT se\.\* FROM cinema_streaming_entitlements se[\s\S]*JOIN cinema_events e/.test(sql)) {
     return ok(empty);
   }
+  if (/^SELECT id,session_id,recorder_id,/.test(sql) && /FROM cinema_recordings WHERE session_id = \?/.test(sql)) return ok(empty);
+  if (/^UPDATE cinema_whiteboards SET status = 'DELETED'/.test(sql)) return affected(0);
+  if (/^DELETE FROM cinema_(messages|bookmarks|transcript_segments|caption_translations|session_privacy|poll_votes|polls|study_packs|study_jobs) WHERE/.test(sql)) return affected(0);
+  if (/^DELETE FROM cinema_waiting_members WHERE session_id = \?$/.test(sql)) { state.waiting = state.waiting.filter(row => row.session_id !== args[0]); return affected(1); }
+  if (/^DELETE FROM cinema_participants WHERE session_id = \?$/.test(sql)) { state.members = state.members.filter(row => row.session_id !== args[0]); return affected(1); }
+  if (/^DELETE FROM cinema_room_invites WHERE session_id = \?$/.test(sql)) { state.invites = state.invites.filter(row => row.session_id !== args[0]); return affected(1); }
 
   throw new Error(`Unhandled SQL in the cinema test: ${sql}`);
 }
@@ -440,7 +463,7 @@ after(async () => vite.close());
 
 const { parseYouTubeId } = await vite.ssrLoadModule("/lib/cinema-engine/youtube.ts");
 const {
-  CINEMA_TITLE_MAX, createRoom, decideWaitingMember, inviteToRoom, joinRoom, listMyRooms, listRoomInvites, listWaitingMembers,
+  CINEMA_TITLE_MAX, createRoom, decideWaitingMember, deleteRoom, inviteToRoom, joinRoom, listMyRooms, listRoomInvites, listWaitingMembers,
   patchRoom, readRoom, removeRoomGuest, removeRoomInvite, setRoomMemberRole,
 } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
 const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
@@ -453,6 +476,7 @@ const socketRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/ws/r
 const reuseRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/reuse/route.ts");
 const forgetRoute = await vite.ssrLoadModule("/app/api/cinema/reusable-rooms/[id]/route.ts");
 const { reuseCinemaRoom } = await vite.ssrLoadModule("/lib/cinema-engine/reuse.ts");
+const { editReusableCinemaRoom, reusableRoomById } = await vite.ssrLoadModule("/lib/cinema-engine/reusable-rooms.ts");
 
 const host = { id: "student-host", name: "Ama Host" };
 const guest = { id: "student-guest", name: "Kwesi Guest" };
@@ -974,6 +998,20 @@ test("a reusable public file room keeps its visibility and starts with no file",
   assert.equal(next.visibility, "PUBLIC");
   assert.equal(next.videoId, "");
   assert.equal(next.stableRoomId, original.id);
+});
+
+test("the host can edit and delete a reusable watch room; guests cannot", async () => {
+  const room = await createRoom({ student: host, title: "Study room", video: VIDEO, reusable: true });
+  await expectRefusal(editReusableCinemaRoom({ id: room.id, hostStudentId: guest.id, title: "Changed", visibility: "PRIVATE" }), "FORBIDDEN", 403);
+  const edited = await editReusableCinemaRoom({ id: room.id, hostStudentId: host.id, title: "  Weekly study  ", visibility: "PRIVATE" });
+  assert.equal(edited.title, "Weekly study");
+  assert.equal((await readRoom({ id: room.id, studentId: host.id })).isPrivate, true);
+  assert.deepEqual((await listMyRooms(host.id, { status: "CURRENT" })).map(item => item.id), [room.id]);
+  await expectRefusal(deleteRoom({ id: room.id, studentId: guest.id }), "FORBIDDEN", 403);
+  assert.deepEqual(await deleteRoom({ id: room.id, studentId: host.id }), { deleted: true });
+  assert.equal(await reusableRoomById(room.id), null);
+  assert.deepEqual(await listMyRooms(host.id, { status: "CURRENT" }), []);
+  await expectRefusal(readRoom({ id: room.id, studentId: host.id }), "NOT_FOUND", 404);
 });
 
 test("an event playback session cannot become a reusable watch room", async () => {

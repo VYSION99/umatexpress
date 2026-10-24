@@ -28,6 +28,17 @@ export function StudentProfileWorkspace() {
   const [signingOut, setSigningOut] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [consoleLink, setConsoleLink] = useState<{ linked: boolean; role?: string } | null>(null);
+
+  useEffect(() => {
+    if (!account?.emailVerified) return;
+    let active = true;
+    void fetch("/api/auth/student/link", { credentials: "same-origin", cache: "no-store" })
+      .then(response => response.ok ? response.json() : null)
+      .then((data: { console?: { linked: boolean; role?: string } } | null) => { if (active && data?.console) setConsoleLink(data.console); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [account?.id, account?.emailVerified]);
 
   useEffect(() => {
     const fromHash = () => {
@@ -99,6 +110,7 @@ export function StudentProfileWorkspace() {
         {tab === "overview" && <>
           <section className="student-profile-card"><span className="student-profile-eyebrow">ACCOUNT OVERVIEW</span><h3>Welcome, {account.name.split(/\s+/)[0] || "friend"}</h3><p>Your profile helps us prepare your bookings and protect your account. Your account photo is private and does not appear to other Cinema participants.</p><div className="student-profile-summary"><div><small>Account type</small><strong>{student ? "UMaT student" : "Cinema member"}</strong></div><div><small>Email</small><strong>{verified ? "Verified" : "Needs verification"}</strong></div><div><small>Last sign-in</small><strong>{account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleDateString() : "Not available"}</strong></div></div></section>
           {!verified && <section className="student-profile-card student-profile-attention"><h3>Verify your email</h3><p>Verification is needed before you can add a passkey or join activities that require a verified account.</p><Link href="/account?next=%2Fprofile">Open verification <ArrowRight size={16} aria-hidden /></Link></section>}
+          {verified && <section className="student-profile-card student-linked-card"><span className="student-profile-eyebrow">CONNECTED PROFILE</span><h3>Console account</h3><p>{consoleLink === null ? "Checking for a console profile…" : consoleLink.linked ? `Your verified email also belongs to an active ${consoleLink.role} console account.` : "No active console account is linked to this verified email."} Student and console sign-ins stay separate; this profile does not grant staff access.</p></section>}
           <div className="student-profile-shortcuts"><button onClick={() => setTab("personal")}><User size={19} aria-hidden /><span><strong>Personal details</strong><small>Contact details and photo</small></span><ArrowRight size={16} aria-hidden /></button><button onClick={() => setTab("security")}><Key size={19} aria-hidden /><span><strong>Security</strong><small>Password and passkeys</small></span><ArrowRight size={16} aria-hidden /></button></div>
           <button className="student-profile-signout" type="button" disabled={signingOut} onClick={() => void signOut()}><SignOut size={16} aria-hidden />{signingOut ? "Signing out…" : "Sign out on this device"}</button>
         </>}

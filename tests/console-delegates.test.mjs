@@ -27,6 +27,8 @@ after(async () => {
 const { createConsoleAccount, createConsoleSession, consoleAccountFromRequest, requireConsoleRole, setConsolePassword, delegateServiceForPath } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const { createAdminDelegate, updateAdminDelegate, listAdminDelegates } = await vite.ssrLoadModule("/lib/console-delegates.ts");
 const { turso } = await vite.ssrLoadModule("/lib/turso.ts");
+const { ensureStudentAccountsTable } = await vite.ssrLoadModule("/lib/student-auth.ts");
+const { linkedStudentForConsole, linkedConsoleForStudent } = await vite.ssrLoadModule("/lib/account-links.ts");
 const delegateRoute = await vite.ssrLoadModule("/app/api/console/delegates/route.ts");
 const { consoleServicesForRole } = await vite.ssrLoadModule("/components/admin/console-services.ts");
 const ownerId = await createConsoleAccount({ name: "Primary Admin", email: "admin@example.com", password: "Admin-Password-123!", role: "ADMIN", status: "ACTIVE" });
@@ -90,4 +92,16 @@ test("a missing grant record never turns a delegate into a primary admin", async
   await turso("DELETE FROM console_admin_delegates WHERE account_id=?", [delegate.id]);
   assert.equal(await consoleAccountFromRequest(request("/api/console/session", delegateSession)), null);
   assert.equal(await consoleAccountFromRequest(request("/api/console/delegates", delegateSession)), null);
+});
+
+test("matching verified email links profiles without sharing sign-in or granting a console role", async () => {
+  await ensureStudentAccountsTable();
+  await turso("INSERT INTO student_accounts (id,email,name,password_hash,password_salt,password_iterations,email_verified,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", ["student-1", "ADMIN@example.com", "Student Name", "hash", "salt", 1, 0, "2026-01-01", "2026-01-01"]);
+  assert.deepEqual(await linkedStudentForConsole("admin@example.com"), { linked: false });
+  await turso("UPDATE student_accounts SET email_verified=1 WHERE id=?", ["student-1"]);
+  assert.deepEqual(await linkedStudentForConsole("admin@example.com"), { linked: true, name: "Student Name" });
+  assert.deepEqual(await linkedConsoleForStudent("ADMIN@example.com"), { linked: true, role: "admin" });
+  assert.equal(await consoleAccountFromRequest(new Request("https://console.example.test/api/console/account/link")), null);
+  await turso("UPDATE student_accounts SET active=0 WHERE id=?", ["student-1"]);
+  assert.deepEqual(await linkedStudentForConsole("admin@example.com"), { linked: false });
 });

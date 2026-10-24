@@ -30,7 +30,7 @@ import { CinemaReactionOverlay, CinemaReactionPicker } from "./CinemaReactions";
 import { CinemaStageRequestsPanel } from "./CinemaStageRequestsPanel";
 import { CinemaStudyPanel } from "./CinemaStudyPanel";
 import { CinemaTranscriptPanel } from "./CinemaTranscriptPanel";
-import type { CinemaTranscriptPrivacy, CinemaTranscriptSegment } from "@/lib/cinema-engine/transcripts";
+import { CinemaCaptionTranslation, useCinemaCaptions } from "./CinemaCaptionTranslation";
 import { SheetHandle } from "@/components/ui/SheetHandle";
 import "./cinema.css";
 
@@ -91,9 +91,6 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const [bookmarks, setBookmarks] = useState<CinemaBookmark[]>([]);
   const [bookmarkLabel, setBookmarkLabel] = useState("");
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
-  const [transcriptPrivacy, setTranscriptPrivacy] = useState<CinemaTranscriptPrivacy | null>(null);
-  const [captionSegments, setCaptionSegments] = useState<CinemaTranscriptSegment[]>([]);
-  const [captionNow, setCaptionNow] = useState(0);
   const [boardPrompt, setBoardPrompt] = useState("");
   /** Set for a moment after a mute-all goes out, so the host sees the ask land. */
   const [muteSent, setMuteSent] = useState(false);
@@ -464,43 +461,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   };
 
   const playheadSeconds = useCallback(() => live.playback ? Math.max(0, Math.round(expectedPosition(live.playback, live.clock.now()))) : 0, [live.playback, live.clock]);
-
-  // Caption visibility is independent of the transcript sheet: once the host
-  // enables it, every room member receives the newest line over the player.
-  useEffect(() => {
-    if (!room.isMember || !account) return;
-    let disposed = false;
-    const refresh = async () => {
-      const at = live.playback ? Math.max(0, Math.round(expectedPosition(live.playback, live.clock.now()))) : 0;
-      const response = await fetch(`/api/cinema/sessions/${room.id}/transcript?captions=1&at=${at}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
-      if (!response?.ok || disposed) return;
-      const data = await response.json() as { privacy?: CinemaTranscriptPrivacy; segments?: CinemaTranscriptSegment[] };
-      if (data.privacy) setTranscriptPrivacy(data.privacy);
-      if (data.privacy?.transcriptEnabled) setCaptionSegments(data.segments || []);
-      if (data.privacy?.transcriptEnabled === false) setCaptionSegments([]);
-    };
-    void refresh(); const timer = setInterval(() => void refresh(), 3_000);
-    return () => { disposed = true; clearInterval(timer); };
-  }, [room.id, room.isMember, account, live.playback, live.clock]);
-
-  useEffect(() => {
-    if (!transcriptPrivacy?.transcriptEnabled) return;
-    const timer = setInterval(() => setCaptionNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [transcriptPrivacy?.transcriptEnabled]);
-
-  const currentCaption = (() => {
-    if (!transcriptPrivacy?.transcriptEnabled) return null;
-    const recentCall = captionSegments.filter((segment) => segment.source === "CALL" && captionNow - Date.parse(segment.createdAt) < 8_000).at(-1);
-    if (recentCall) return recentCall;
-    const at = playheadSeconds();
-    const uploads = captionSegments.filter((segment) => segment.source === "UPLOAD");
-    const index = uploads.findLastIndex((segment) => segment.atSeconds <= at);
-    if (index < 0) return null;
-    const current = uploads[index];
-    const next = uploads[index + 1];
-    return (!next && at - current.atSeconds < 15) || (next && at < next.atSeconds) ? current : null;
-  })();
+  const { privacy: transcriptPrivacy, setPrivacy: setTranscriptPrivacy, currentCaption } = useCinemaCaptions(room.id, Boolean(room.isMember && account), playheadSeconds);
   const screenMember = live.members.find((member) => member.screen);
   const screenStream = screenMember
     ? screenMember.studentId === account?.id ? media.localStream : media.remote.find((peer) => peer.studentId === screenMember.studentId)?.stream || null
@@ -595,7 +556,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
                 : roomActive ? live.closedReason || "The room connection has closed." : "This room has ended."}
             </p>}
         {roomActive && needsEmailVerification && <Link className="cinema-verify-link" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}><Envelope size={18} aria-hidden /> Verify your email</Link>}
-        {currentCaption && <div className="cinema-live-caption" aria-live="polite"><strong>{currentCaption.source === "CALL" ? currentCaption.speakerName : "Captions"}</strong> {currentCaption.text}</div>}
+        {room.isMember && <CinemaCaptionTranslation roomId={room.id} caption={currentCaption} enabled={transcriptPrivacy?.transcriptEnabled === true} allowTranslation={transcriptPrivacy?.translationEnabled === true} />}
         {!active && <Link className="cinema-cta" href={initialRoom.eventSlug ? `/cinema/events/${initialRoom.eventSlug}` : "/cinema/rooms"}>{initialRoom.eventSlug ? "Back to event" : "Back to your rooms"}</Link>}
         {!active && room.isHost && !initialRoom.eventSlug && room.status === "ENDED" && <CinemaReuseButton stableId={initialRoom.stableRoomId} />}
         {active && account && room.waitingState === "REJECTED" && <button type="button" className="cinema-cta" onClick={() => void requestAdmissionAgain()}>Request admission again</button>}

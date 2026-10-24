@@ -38,7 +38,7 @@ export function CinemaLobby() {
   const { ready, account } = useStudentAccount();
   const canHost = Boolean(account && validStudentEmail(account.email));
   const [dialog, setDialog] = useState<"" | "create" | "join">("");
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState("CURRENT");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -57,7 +57,10 @@ export function CinemaLobby() {
   const [link, setLink] = useState("");
   const [rooms, setRooms] = useState<CinemaRoom[]>([]);
   const [savedRooms, setSavedRooms] = useState<ReusableCinemaRoom[]>([]);
-  const [savedToForget, setSavedToForget] = useState<ReusableCinemaRoom | null>(null);
+  const [editing, setEditing] = useState<{ id: string; sessionId: string; title: string; visibility: CinemaDoor; saved: boolean; status: string } | null>(null);
+  const [deleting, setDeleting] = useState<{ sessionId: string; title: string; status: string } | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDoor, setEditDoor] = useState<CinemaDoor>("PRIVATE");
   /** The room waiting for its file; the upload step runs here, not in the room. */
   const [uploadRoom, setUploadRoom] = useState<CinemaRoom | null>(null);
   const [busy, setBusy] = useState(false);
@@ -86,25 +89,52 @@ export function CinemaLobby() {
   }, [offset, filter]);
 
   useEffect(() => { if (account) queueMicrotask(load); }, [account, load]);
-  useEffect(() => {
+  const loadSaved = useCallback(async () => {
     if (!canHost) return;
-    let active = true;
-    void fetch("/api/cinema/reusable-rooms", { credentials: "same-origin", cache: "no-store" })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data: { rooms?: ReusableCinemaRoom[] } | null) => { if (active) setSavedRooms(data?.rooms || []); })
-      .catch(() => undefined);
-    return () => { active = false; };
+    const response = await fetch("/api/cinema/reusable-rooms", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) throw new Error("Reusable rooms could not be loaded.");
+    const data = await response.json() as { rooms?: ReusableCinemaRoom[] };
+    setSavedRooms(data.rooms || []);
   }, [canHost]);
-  const forgetSaved = async () => {
-    if (!savedToForget) return;
-    setRoomBusy(savedToForget.id); setListError("");
+  useEffect(() => { if (canHost) queueMicrotask(() => void loadSaved().catch(() => undefined)); }, [canHost, loadSaved]);
+
+  const beginEdit = (room: { id: string; sessionId: string; title: string; visibility: CinemaDoor; saved: boolean; status: string }) => {
+    setEditing(room); setEditTitle(room.title); setEditDoor(room.visibility); setListError("");
+  };
+  const saveEdit = async () => {
+    if (!editing) return;
+    const trimmed = editTitle.trim().replace(/\s+/g, " ");
+    if (!trimmed || trimmed.length > 80) { setListError("Enter a room name of up to 80 characters."); return; }
+    setRoomBusy(editing.sessionId); setListError("");
     try {
-      const response = await fetch(`/api/cinema/reusable-rooms/${savedToForget.id}`, { method: "DELETE", credentials: "same-origin" });
+      if (editing.saved) {
+        const response = await fetch(`/api/cinema/reusable-rooms/${editing.id}`, { method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: trimmed, visibility: editDoor }) });
+        const data = await response.json() as { error?: string };
+        if (!response.ok) throw new Error(data.error || "The room could not be updated.");
+      } else {
+        for (const change of [{ action: "RETITLE", title: trimmed }, ...(editDoor !== editing.visibility ? [{ action: editDoor }] : [])]) {
+          const response = await fetch(`/api/cinema/sessions/${editing.sessionId}`, { method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(change) });
+          const data = await response.json() as { error?: string };
+          if (!response.ok) throw new Error(data.error || "The room could not be updated.");
+        }
+      }
+      setEditing(null);
+      await Promise.all([load(), loadSaved()]);
+    } catch (problem) { setListError(problem instanceof Error ? problem.message : "The room could not be updated."); }
+    finally { setRoomBusy(""); }
+  };
+  const deleteChosen = async () => {
+    if (!deleting) return;
+    setRoomBusy(deleting.sessionId); setListError("");
+    try {
+      const response = await fetch(`/api/cinema/sessions/${deleting.sessionId}`, { method: "DELETE", credentials: "same-origin" });
       const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error || "The saved room could not be removed.");
-      setSavedRooms((current) => current.filter((room) => room.id !== savedToForget.id));
-      setSavedToForget(null);
-    } catch (problem) { setListError(problem instanceof Error ? problem.message : "The saved room could not be removed."); }
+      if (!response.ok) throw new Error(data.error || "The room could not be deleted.");
+      setDeleting(null);
+      setRooms(current => current.filter(room => room.id !== deleting.sessionId));
+      setSavedRooms(current => current.filter(room => room.currentSessionId !== deleting.sessionId));
+      await Promise.all([load(), loadSaved()]);
+    } catch (problem) { setListError(problem instanceof Error ? problem.message : "The room could not be deleted."); }
     finally { setRoomBusy(""); }
   };
 
@@ -261,9 +291,16 @@ export function CinemaLobby() {
     <Link className="cinema-cta cinema-sub" href="/account?next=%2Fcinema%2Frooms">Verify your email</Link>
   </section>;
 
+  const savedSessionIds = new Set(savedRooms.map(room => room.currentSessionId));
+  const visibleRooms = rooms.filter(room => !savedSessionIds.has(room.id));
+  const visibleSaved = savedRooms.filter(room => filter === "CURRENT" || !filter
+    || filter === "LIVE" && room.currentStatus === "LIVE"
+    || filter === "SCHEDULED" && room.currentStatus === "CREATED"
+    || filter === "RECENT" && !["LIVE", "CREATED"].includes(room.currentStatus));
+
   return <div className="cinema-lobby">
     <section className="cinema-lobby-head">
-      <div><span className="cinema-eyebrow">WATCH ROOMS · LINK OR INVITATION</span><h2>Watch together.<br />Study with your group.</h2><p>A room is a smaller space opened by one host. Join from a shared link or private invitation; it is separate from the scheduled event catalogue and does not use event RSVPs.</p></div>
+      <div><span className="cinema-eyebrow">WATCH ROOMS · LINK OR INVITATION</span><h2>Watch together.<br />Study with your group.</h2><p>Open a room from a link, or create one for your group.</p></div>
       <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Browse scheduled events</Link>{canHost && <button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create a room</button>}<button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join with a link</button></div>
     </section>
     <CinemaDialog open={Boolean(publicRoom)} title="Make this room public?" busy={Boolean(roomBusy)} onClose={() => setPublicRoom(null)}>
@@ -401,24 +438,21 @@ export function CinemaLobby() {
 
       {error && <p className="cinema-error" role="alert">{error}</p>}
     </CinemaDialog>
-    {savedRooms.length > 0 && <section className="cinema-card cinema-room-list" aria-label="Reusable rooms">
-      <div className="cinema-list-heading"><div><h2>Your reusable rooms</h2><p className="cinema-note">Keep the same room link. Each new session starts with fresh chat and, for file rooms, a new playlist.</p></div></div>
-      <ul className="cinema-rooms">{savedRooms.map((saved) => <li className="cinema-room-row" key={saved.id}>
-        <div className="cinema-room-info"><div className="cinema-room-tags"><span className="cinema-chip">{saved.currentStatus === "LIVE" ? "Live now" : saved.currentStatus === "CREATED" ? "Ready" : "Between sessions"}</span>{saved.sourceType === "UPLOAD" && <span className="cinema-chip is-private">{saved.visibility === "PRIVATE" ? "Invite-only files" : "Public file room"}</span>}</div><h3><Link href={`/cinema/${saved.id}`}>{saved.title}</Link></h3><p>{saved.sourceType === "UPLOAD" ? "Upload a fresh playlist each time" : "YouTube watch room"} · stable link</p></div>
-        <div className="cinema-room-actions">{saved.currentStatus === "LIVE" || saved.currentStatus === "CREATED" ? <Link className="cinema-room-open" href={`/cinema/${saved.id}`}>Open room</Link> : <><CinemaReuseButton stableId={saved.id} /><button type="button" className="cinema-chip is-button" onClick={() => setSavedToForget(saved)}>Remove saved room</button></>}</div>
-      </li>)}</ul>
-    </section>}
-    <CinemaDialog open={Boolean(savedToForget)} title="Remove saved room?" busy={Boolean(roomBusy)} onClose={() => setSavedToForget(null)}>
-      <p>The reusable link and saved guest list will be removed. This does not delete a past session before its normal retention deadline.</p>
-      <div className="cinema-controls"><button type="button" className="danger" disabled={Boolean(roomBusy)} onClick={() => void forgetSaved()}>{roomBusy ? "Removing…" : "Remove saved room"}</button><button type="button" className="secondary" onClick={() => setSavedToForget(null)}>Keep room</button></div>
+    <CinemaDialog open={Boolean(editing)} title="Edit room" busy={Boolean(roomBusy)} onClose={() => { setEditing(null); setListError(""); }}>
+      <div className="cinema-create cinema-room-edit"><label>Room name<input value={editTitle} maxLength={80} onChange={event => setEditTitle(event.target.value)} /></label><fieldset><legend>Who can join?</legend><label><input type="radio" name="edit-room-door" checked={editDoor === "PUBLIC"} onChange={() => setEditDoor("PUBLIC")} /> Anyone with the link</label><label><input type="radio" name="edit-room-door" checked={editDoor === "PRIVATE"} onChange={() => setEditDoor("PRIVATE")} /> Invite only</label></fieldset>{listError && <p className="cinema-error" role="alert">{listError}</p>}<div className="cinema-controls"><button type="button" disabled={Boolean(roomBusy) || !editTitle.trim()} onClick={() => void saveEdit()}>{roomBusy ? "Saving…" : "Save changes"}</button><button type="button" className="secondary" onClick={() => setEditing(null)}>Cancel</button></div></div>
+    </CinemaDialog>
+    <CinemaDialog open={Boolean(deleting)} title="Delete this room?" busy={Boolean(roomBusy)} onClose={() => { setDeleting(null); setListError(""); }}>
+      <p><strong>{deleting?.title}</strong> will disappear from room lists. Its invitation link and uploaded files will be removed. If it is live, the session will end for everyone.</p>{listError && <p className="cinema-error" role="alert">{listError}</p>}<div className="cinema-controls"><button type="button" className="danger" disabled={Boolean(roomBusy)} onClick={() => void deleteChosen()}>{roomBusy ? "Deleting…" : "Delete room"}</button><button type="button" className="secondary" onClick={() => setDeleting(null)}>Keep room</button></div>
     </CinemaDialog>
     <section className="cinema-card cinema-room-list">
-      <div className="cinema-list-heading"><h2>Your rooms</h2><button className="cinema-text-button" disabled={loading} onClick={() => void load()}>Refresh</button></div>
-      <nav className="cinema-filters" aria-label="Filter your rooms">{[['', 'All'], ['LIVE', 'Live'], ['SCHEDULED', 'Scheduled'], ['RECENT', 'Recent']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setOffset(0); setFilter(value); }}>{label}</button>)}</nav>
-      {loading ? <p className="cinema-note" role="status">Loading your rooms…</p> : listError ? <div className="cinema-error" role="alert">{listError} <button onClick={() => void load()}>Retry</button></div> : rooms.length === 0
-        ? <p className="cinema-note">Rooms you host or join appear here, newest first.</p>
+      <div className="cinema-list-heading"><div><h2>Your rooms</h2><p className="cinema-note">Current rooms and reusable links appear once. Open Recent to see past sessions.</p></div><button className="cinema-text-button" disabled={loading} onClick={() => { void load(); void loadSaved().catch(() => undefined); }}>Refresh</button></div>
+      <nav className="cinema-filters" aria-label="Filter your rooms">{[['CURRENT', 'Current'], ['LIVE', 'Live'], ['SCHEDULED', 'Scheduled'], ['RECENT', 'Recent']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setOffset(0); setFilter(value); }}>{label}</button>)}</nav>
+      {listError && !editing && !deleting && <div className="cinema-error" role="alert">{listError} <button onClick={() => { void load(); void loadSaved().catch(() => undefined); }}>Retry</button></div>}
+      {loading ? <p className="cinema-note" role="status">Loading your rooms…</p> : !visibleSaved.length && !visibleRooms.length
+        ? <p className="cinema-note">{filter === "RECENT" ? "No past sessions yet." : "Rooms you host or join will appear here."}</p>
         : <ul className="cinema-rooms">
-          {rooms.map((room) => {
+          {visibleSaved.map(saved => <li className="cinema-room-row is-saved" key={`saved-${saved.id}`}><div className="cinema-room-info"><div className="cinema-room-tags"><span className="cinema-chip">{saved.currentStatus === "LIVE" ? "Live now" : saved.currentStatus === "CREATED" ? "Scheduled" : "Ready to reuse"}</span><span className="cinema-chip">Reusable link</span>{saved.visibility === "PRIVATE" && <span className="cinema-chip is-private">Invite only</span>}</div><h3><Link href={`/cinema/${saved.id}`}>{saved.title}</Link></h3><p>{saved.sourceType === "UPLOAD" ? "File room" : "YouTube room"} · same invitation link each session</p></div><div className="cinema-room-actions">{saved.currentStatus === "LIVE" || saved.currentStatus === "CREATED" ? <Link className="cinema-room-open" href={`/cinema/${saved.id}`}>Open room</Link> : <CinemaReuseButton stableId={saved.id} onStarted={() => { void load(); void loadSaved().catch(() => undefined); }} />}<button type="button" className="cinema-chip is-button" disabled={roomBusy === saved.currentSessionId} onClick={() => beginEdit({ id: saved.id, sessionId: saved.currentSessionId, title: saved.title, visibility: saved.visibility, saved: true, status: saved.currentStatus })}>Edit</button><button type="button" className="cinema-chip is-button is-delete" disabled={roomBusy === saved.currentSessionId} onClick={() => setDeleting({ sessionId: saved.currentSessionId, title: saved.title, status: saved.currentStatus })}>Delete</button></div></li>)}
+          {visibleRooms.map((room) => {
             const thumbnail = room.sourceType === "YOUTUBE" && /^[A-Za-z0-9_-]{11}$/.test(room.videoId)
               ? `https://i.ytimg.com/vi/${room.videoId}/hqdefault.jpg`
               : room.sourceType === "UPLOAD" && room.videoId
@@ -452,11 +486,13 @@ export function CinemaLobby() {
                   className="cinema-chip is-button is-upload"
                   onClick={() => { setError(""); setUploadRoom(room); }}
                 ><UploadSimple size={11} aria-hidden /> Manage playlist</button>}
+                {room.isHost && room.status !== "EXPIRED" && <button type="button" className="cinema-chip is-button" onClick={() => beginEdit({ id: room.id, sessionId: room.id, title: room.title, visibility: room.visibility, saved: false, status: room.status })}>Edit</button>}
+                {room.isHost && <button type="button" className="cinema-chip is-button is-delete" onClick={() => setDeleting({ sessionId: room.id, title: room.title, status: room.status })}>Delete</button>}
               </div>
             </li>;
           })}
         </ul>}
-      <nav className="cinema-pagination" aria-label="Room pages"><button disabled={!offset || loading} onClick={() => setOffset(value => Math.max(0, value - 20))}>Previous</button><span>Page {Math.floor(offset / 20) + 1}</span><button disabled={!hasMore || loading} onClick={() => setOffset(value => value + 20)}>Next</button></nav>
+      {(hasMore || offset > 0) && <nav className="cinema-pagination" aria-label="Room pages"><button disabled={!offset || loading} onClick={() => setOffset(value => Math.max(0, value - 20))}>Previous</button><span>Page {Math.floor(offset / 20) + 1}</span><button disabled={!hasMore || loading} onClick={() => setOffset(value => value + 20)}>Next</button></nav>}
     </section>
   </div>;
 }

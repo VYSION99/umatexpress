@@ -113,9 +113,16 @@ export async function entitlementByEvent(eventId: string) {
 
 export async function entitlementBySession(sessionId: string) {
   await ensureCinemaStreamingEntitlements();
-  const row = rowsToObjects(await turso(`SELECT se.* FROM cinema_streaming_entitlements se
-    JOIN cinema_events e ON e.id=se.event_id WHERE e.session_id=? LIMIT 1`, [sessionId]))[0];
-  return row ? entitlementView(row) : null;
+  try {
+    const row = rowsToObjects(await turso(`SELECT se.* FROM cinema_streaming_entitlements se
+      JOIN cinema_events e ON e.id=se.event_id WHERE e.session_id=? LIMIT 1`, [sessionId]))[0];
+    return row ? entitlementView(row) : null;
+  } catch (error) {
+    // A watch room can be created before the first Cinema event initializes
+    // the event table. It has no event entitlement to end.
+    if (error instanceof Error && /no such table: cinema_events/i.test(error.message)) return null;
+    throw error;
+  }
 }
 
 export async function cancelReservedFreeJaasEntitlement(eventId: string) {

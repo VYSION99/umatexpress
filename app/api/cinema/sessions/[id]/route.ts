@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
-import { patchRoom, readRoom } from "@/lib/cinema-engine/rooms";
+import { deleteRoom, patchRoom, readRoom } from "@/lib/cinema-engine/rooms";
 import { requireCinemaAccount } from "@/lib/student-auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -33,4 +33,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     return fail(error, request);
   }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const student = await requireCinemaAccount(request);
+    const { id } = await context.params;
+    return ok(await deleteRoom({ id, studentId: student.id }), { headers: NO_STORE }, request);
+  } catch (error) { return fail(error, request); }
 }

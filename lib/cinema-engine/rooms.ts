@@ -18,7 +18,7 @@ import { incrementMetric, logEvent } from "@/lib/observability";
 import { endStreamingEntitlementBySession, ensureCinemaStreamingEntitlements } from "@/lib/cinema-streaming/entitlements";
 import { validPlatformEmail } from "@/lib/student-email";
 import { activeCinemaRoomPlan, snapshotCinemaRoomAllowance } from "@/lib/cinema-engine/room-plans";
-import { registerReusableCinemaRoom, reusableRoomForSession, syncReusableRoomGuest, updateReusableRoomProfile } from "@/lib/cinema-engine/reusable-rooms";
+import { forgetReusableCinemaRoom, registerReusableCinemaRoom, reusableRoomForSession, syncReusableRoomGuest, updateReusableRoomProfile } from "@/lib/cinema-engine/reusable-rooms";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
 
 /**
@@ -618,7 +618,7 @@ export async function listMyRooms(studentId: string, options: { offset?: number;
   await ensureCinemaTables();
   const offset = Math.max(0, Math.min(100_000, Math.floor(Number(options.offset) || 0)));
   const limit = Math.max(1, Math.min(21, Math.floor(Number(options.limit) || LIST_LIMIT)));
-  const status = options.status === "LIVE" ? " AND s.status = 'LIVE'" : options.status === "SCHEDULED" ? " AND s.status = 'CREATED'" : options.status === "RECENT" ? " AND s.status IN ('ENDED','EXPIRED')" : "";
+  const status = options.status === "CURRENT" ? " AND s.status IN ('CREATED','LIVE')" : options.status === "LIVE" ? " AND s.status = 'LIVE'" : options.status === "SCHEDULED" ? " AND s.status = 'CREATED'" : options.status === "RECENT" ? " AND s.status IN ('ENDED','EXPIRED')" : "";
   const query = (excludeEvents: boolean) => `SELECT s.id,s.host_student_id,s.title,s.video_source_type,s.video_id,s.status,s.join_locked,s.visibility,
             CASE WHEN i.student_id IS NULL THEN 0 ELSE 1 END AS invited,
             CASE WHEN p.student_id IS NULL THEN 0 ELSE 1 END AS member,
@@ -848,6 +848,32 @@ export async function patchRoom(input: { id: string; studentId: string; action: 
   const updated = (await roomRow(id)) || row;
   updated.waiting_room = await waitingRoomEnabled(id);
   return roomView(updated, { studentId: input.studentId, participants: fresh });
+}
+
+/** Host-only removal of a watch room; event rooms retain their event lifecycle. */
+export async function deleteRoom(input: { id: string; studentId: string }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await roomRow(String(input.id || "").trim());
+  if (!row || String(row.status) === "DELETED") throw new CampusEngineError("NOT_FOUND", "That room does not exist.", 404);
+  const id = String(row.id);
+  if (String(row.host_student_id) !== input.studentId) throw new CampusEngineError("FORBIDDEN", "Only the host can delete this room.", 403);
+  try {
+    const event = rowsToObjects(await turso("SELECT id FROM cinema_events WHERE session_id=? LIMIT 1", [id]))[0];
+    if (event) throw new CampusEngineError("INVALID_STATE", "Delete an event from its event workspace.", 409);
+  } catch (error) {
+    if (!(error instanceof Error && /no such table: cinema_events/i.test(error.message))) throw error;
+  }
+  if (isRoomActive(row.status)) await patchRoom({ id, studentId: input.studentId, action: "END" });
+  const { purgeCinemaRoomContents } = await import("@/lib/cinema-engine/cleanup");
+  if (!await purgeCinemaRoomContents(id)) throw new CampusEngineError("ENGINE_ERROR", "The room media could not be removed from storage. Try deleting again.", 502);
+  const saved = await reusableRoomForSession(id);
+  if (saved?.currentSessionId === id) await forgetReusableCinemaRoom(saved.id, input.studentId);
+  const stamp = new Date().toISOString();
+  const changed = await turso("UPDATE cinema_sessions SET status='DELETED',deleted_at=?,updated_at=? WHERE id=? AND host_student_id=? AND status IN ('ENDED','EXPIRED')", [stamp, stamp, id, input.studentId]);
+  if (Number(changed.affected_row_count || 0) !== 1) throw new CampusEngineError("CONFLICT", "This room changed. Refresh and try again.", 409);
+  logEvent("info", "cinema_room_deleted_by_host", { roomId: id });
+  return { deleted: true };
 }
 
 /** The guest list is bounded like every other list in the room. */

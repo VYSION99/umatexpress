@@ -1,7 +1,7 @@
 "use client";
 
 import { putCinemaPart } from "./transfer";
-import { captureVideoThumbnails } from "./video-thumbnail";
+import { capturePosterImage, captureVideoThumbnails } from "./video-thumbnail";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadSimple } from "@/components/ui/MaterialIcon";
@@ -30,6 +30,9 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
   const [owned, setOwned] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [posterNotice, setPosterNotice] = useState("");
+  const [posterBusy, setPosterBusy] = useState("");
+  const [posterRevision, setPosterRevision] = useState(0);
   const [sent, setSent] = useState(0);
   const [total, setTotal] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -114,16 +117,25 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
       const completion = await finished.json() as { error?: string; upload?: { id: string } };
       if (!finished.ok) throw new Error(completion.error || "The upload could not be finished.");
       // Artwork is optional: unsupported video decoders must never undo a
-      // completed multipart upload.
+      // completed multipart upload, but the host must be told how to repair it.
       if (completion.upload?.id) {
         try {
           const candidates = await thumbnails;
-          if (candidates.length) await fetch(`/api/cinema/sessions/${input.roomId}/thumbnail`, {
+          if (!candidates.length) throw new Error("Your browser could not capture a frame from this video.");
+          const response = await fetch(`/api/cinema/sessions/${input.roomId}/thumbnail`, {
             method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
             body: JSON.stringify({ uploadId: completion.upload.id, candidates }),
             signal: AbortSignal.timeout(15_000),
           });
-        } catch { /* The room uses its film icon when no frame can be captured. */ }
+          if (!response.ok) {
+            const result = await response.json().catch(() => ({})) as { error?: string };
+            throw new Error(result.error || "The poster could not be saved.");
+          }
+          setPosterNotice("");
+          setPosterRevision(value => value + 1);
+        } catch (cause) {
+          setPosterNotice(`${cause instanceof Error ? cause.message : "The poster could not be saved."} Choose Set poster on the uploaded file to add one.`);
+        }
       }
       setFile(null);
       setOwned(false);
@@ -146,6 +158,23 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
   const readyUploads = uploads.filter((entry) => entry.status === "READY");
   const full = Boolean(allowance && readyUploads.length >= allowance.maxFiles);
   const currentIndex = readyUploads.findIndex((entry) => entry.id === currentUploadId);
+  const savePoster = async (uploadId: string, selected: File | undefined) => {
+    if (!selected) return;
+    setPosterBusy(uploadId); setPosterNotice(""); setError("");
+    try {
+      const candidate = await capturePosterImage(selected);
+      const response = await fetch(`/api/cinema/sessions/${input.roomId}/thumbnail`, {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ uploadId, candidates: [candidate] }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "The poster could not be saved.");
+      setPosterRevision(value => value + 1);
+      setPosterNotice("Poster saved. The thumbnail will appear when the image refreshes.");
+      input.onUploaded();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The poster could not be saved."); }
+    finally { setPosterBusy(""); }
+  };
   const move = async (index: number, direction: -1 | 1) => {
     const target = index + direction;
     if (busy || currentIndex < 0 || index <= currentIndex || target <= currentIndex || target >= readyUploads.length) return;
@@ -171,7 +200,8 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
     </p>
     {!input.isPrivate && <p className="cinema-note">Anyone with the link and a verified account can join this room and watch its files. Upload only content you may share with them.</p>}
     {upload?.status === "UPLOADING" && !busy && <p className="cinema-note">An upload is in progress. Cancel it before choosing another file.</p>}
-    {readyUploads.length > 0 && <ol className="cinema-upload-queue">{readyUploads.map((entry, index) => <li key={entry.id}><img className="cinema-file-thumb" src={`/api/cinema/sessions/${input.roomId}/thumbnail?uploadId=${encodeURIComponent(entry.id)}`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{entry.filename}</strong><span>{entry.id === currentUploadId ? "Playing" : humanSize(entry.sizeBytes)}</span>{index > currentIndex && currentIndex >= 0 && <span className="cinema-queue-actions"><button type="button" aria-label={`Move ${entry.filename} earlier`} disabled={busy || index <= currentIndex + 1} onClick={() => void move(index, -1)}>↑</button><button type="button" aria-label={`Move ${entry.filename} later`} disabled={busy || index >= readyUploads.length - 1} onClick={() => void move(index, 1)}>↓</button></span>}</li>)}</ol>}
+    {readyUploads.length > 0 && <ol className="cinema-upload-queue">{readyUploads.map((entry, index) => <li key={entry.id}><img className="cinema-file-thumb" src={`/api/cinema/sessions/${input.roomId}/thumbnail?uploadId=${encodeURIComponent(entry.id)}&v=${posterRevision}`} alt="" onLoad={(event) => { event.currentTarget.hidden = false; }} onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{entry.filename}</strong><span>{entry.id === currentUploadId ? "Playing" : humanSize(entry.sizeBytes)}</span><label className="cinema-poster-action">{posterBusy === entry.id ? "Saving…" : "Set poster"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || !!posterBusy} aria-label={`Set poster for ${entry.filename}`} onChange={(event) => { const selected = event.target.files?.[0]; event.target.value = ""; void savePoster(entry.id, selected); }} /></label>{index > currentIndex && currentIndex >= 0 && <span className="cinema-queue-actions"><button type="button" aria-label={`Move ${entry.filename} earlier`} disabled={busy || index <= currentIndex + 1} onClick={() => void move(index, -1)}>↑</button><button type="button" aria-label={`Move ${entry.filename} later`} disabled={busy || index >= readyUploads.length - 1} onClick={() => void move(index, 1)}>↓</button></span>}</li>)}</ol>}
+    {posterNotice && <p className="cinema-note" role="status">{posterNotice}</p>}
     {full ? <p className="cinema-note">This room has reached its file allowance.</p> : <>
     <input
       className="cinema-upload-file"

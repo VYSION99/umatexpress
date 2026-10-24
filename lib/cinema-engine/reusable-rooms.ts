@@ -127,6 +127,22 @@ export async function updateReusableRoomProfile(sessionId: string, fields: { tit
   if (fields.visibility) await turso("UPDATE cinema_reusable_rooms SET visibility=?,updated_at=? WHERE current_session_id=?", [fields.visibility, new Date().toISOString(), sessionId]);
 }
 
+export async function editReusableCinemaRoom(input: { id: string; hostStudentId: string; title: unknown; visibility: unknown }) {
+  const profile = await reusableRoomById(input.id);
+  if (!profile || profile.hostStudentId !== input.hostStudentId) throw new CampusEngineError("FORBIDDEN", "Only the host can edit this room.", 403);
+  const title = String(input.title ?? "").trim().replace(/\s+/g, " ");
+  const visibility = String(input.visibility ?? "").toUpperCase();
+  if (!title || title.length > 80) throw new CampusEngineError("VALIDATION_ERROR", "Enter a room name of up to 80 characters.", 400);
+  if (visibility !== "PUBLIC" && visibility !== "PRIVATE") throw new CampusEngineError("VALIDATION_ERROR", "Choose public or invite-only access.", 400);
+  const stamp = new Date().toISOString();
+  const [changed] = await tursoTransaction([
+    { sql: "UPDATE cinema_reusable_rooms SET title=?,visibility=?,updated_at=? WHERE id=? AND host_student_id=? AND current_session_id=?", args: [title, visibility, stamp, profile.id, input.hostStudentId, profile.currentSessionId] },
+    { sql: "UPDATE cinema_sessions SET title=?,visibility=?,updated_at=? WHERE id=? AND host_student_id=? AND status IN ('CREATED','LIVE','ENDED')", args: [title, visibility, stamp, profile.currentSessionId, input.hostStudentId] },
+  ]);
+  if (Number(changed.affected_row_count || 0) !== 1) throw new CampusEngineError("CONFLICT", "This room changed. Refresh and try again.", 409);
+  return { ...profile, title, visibility: visibility as "PUBLIC" | "PRIVATE" };
+}
+
 export async function syncReusableRoomGuest(sessionId: string, studentId: string, invitedBy: string, add: boolean) {
   await ensureReusableCinemaRooms();
   const profile = await reusableRoomForSession(sessionId);

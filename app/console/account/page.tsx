@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Buildings, FloppyDisk, GearSix, LockKey, SignOut, UserCircle } from "@/components/ui/MaterialIcon";
@@ -40,6 +40,16 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [studentLink, setStudentLink] = useState<{ linked: boolean; name?: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/console/account/link", { credentials: "same-origin", cache: "no-store" })
+      .then(response => response.ok ? response.json() : null)
+      .then((data: { student?: { linked: boolean; name?: string } } | null) => { if (active && data?.student) setStudentLink(data.student); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [session.account.id]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -89,6 +99,13 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <button type="submit" disabled={busy || (name.trim() === session.account.name && phone.trim() === (session.account.phone || ""))}><FloppyDisk size={18}/>{busy ? "Saving…" : "Save profile"}</button>
         </form>
         <div id="photo" className="console-profile-photo"><ProfilePhotoEditor scope="CONSOLE" name={session.account.name} /></div>
+      </section>
+
+      <section className="console-profile-card console-linked-card" aria-labelledby="console-linked-title">
+        <span className="console-profile-kicker">CONNECTED PROFILE</span>
+        <h2 id="console-linked-title">Student account</h2>
+        <p>{studentLink === null ? "Checking for a verified student profile…" : studentLink.linked ? `Linked to ${studentLink.name} through ${session.account.email}.` : `No verified student account is linked to ${session.account.email}.`}</p>
+        <small>Student and console accounts use separate passwords and sign-ins. Linking a verified email does not change console permissions.</small>
       </section>
 
       <section className="console-profile-card" id="settings" aria-labelledby="console-settings-title">

@@ -639,7 +639,7 @@ export async function takeDownCinemaUpload(input: {
   if (upload.status === "UPLOADING") await abortMultipart(bucket, upload.objectKey, String(row.r2_upload_id || ""));
   if (bucket) {
     try {
-      await bucket.delete([upload.objectKey, `cinema/${roomId}/video/${upload.id}/thumbnail.webp`]);
+      await bucket.delete([upload.objectKey, `cinema/${roomId}/video/${upload.id}/thumbnail.webp`, `cinema/${roomId}/video/${upload.id}/thumbnail.jpg`]);
     } catch (error) {
       logEvent("warn", "cinema_upload_takedown_failed", { roomId, uploadId: upload.id, reason: error instanceof Error ? error.message : "unknown" });
       throw new CampusEngineError("ENGINE_ERROR", "The bucket refused the deletion, so the video is still there. Try again.", 502);
@@ -725,7 +725,7 @@ export async function purgeCinemaUploadForRoom(sessionId: string, options: { buc
       await abortMultipart(bucket, String(row.r2_object_key || ""), String(row.r2_upload_id || ""));
     }
     if (bucket) {
-      try { await bucket.delete([String(row.r2_object_key || ""), `cinema/${sessionId}/video/${id}/thumbnail.webp`]); }
+      try { await bucket.delete([String(row.r2_object_key || ""), `cinema/${sessionId}/video/${id}/thumbnail.webp`, `cinema/${sessionId}/video/${id}/thumbnail.jpg`]); }
       catch (error) {
         logEvent("warn", "cinema_upload_delete_failed", { roomId: String(sessionId), uploadId: id, reason: error instanceof Error ? error.message : "unknown" });
         return { status: "retry" as const };

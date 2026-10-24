@@ -74,6 +74,7 @@ export async function runCinemaCleanup(input: CleanupInput = {}): Promise<Cinema
     await ensureCinemaStudyTables();
     await generatePendingCinemaStudyPack();
     await turso("DELETE FROM cinema_transcript_segments WHERE expires_at != '' AND expires_at <= ?", [new Date(now).toISOString()]);
+    await turso("DELETE FROM cinema_caption_translations WHERE expires_at != '' AND expires_at <= ?", [new Date(now).toISOString()]);
     const idleMinutes = await platformSettingNumber("cinema_room_idle_minutes");
     const retentionHours = await platformSettingNumber("cinema_retention_hours");
     const presence = input.presence ?? cinemaRoomPresence;
@@ -204,26 +205,7 @@ async function deleteExpiredRooms(input: { limit: number; now: number; retention
     // object is still in the bucket would be a retention promise the platform
     // did not keep, so a bucket that refuses leaves the room EXPIRED and the
     // next tick tries the whole purge again.
-    const upload = await purgeCinemaUploadForRoom(id, { now: input.now });
-    if (upload.status === "retry") continue;
-    // Every take made in the room goes with it, for the same reason: a room
-    // tombstone over bytes still in the bucket would be a retention promise
-    // the platform did not keep.
-    const recordings = await purgeCinemaRecordingsForRoom(id, { now: input.now });
-    if (recordings.status === "retry") continue;
-    await purgeCinemaWhiteboardsForRoom(id, { now: input.now });
-    await purgeCinemaMessages(id);
-    await turso("DELETE FROM cinema_bookmarks WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_transcript_segments WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_session_privacy WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_poll_votes WHERE poll_id IN (SELECT id FROM cinema_polls WHERE session_id = ?)", [id]);
-    await turso("DELETE FROM cinema_polls WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_study_packs WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_study_jobs WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_waiting_members WHERE session_id = ?", [id]);
-    await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
-    // The guest list goes with the membership it was written for.
-    await turso("DELETE FROM cinema_room_invites WHERE session_id = ?", [id]);
+    if (!await purgeCinemaRoomContents(id, input.now)) continue;
     const result = await turso(
       "UPDATE cinema_sessions SET status = 'DELETED', deleted_at = ?, updated_at = ? WHERE id = ? AND status = 'EXPIRED'",
       [stamp, stamp, id],
@@ -234,4 +216,34 @@ async function deleteExpiredRooms(input: { limit: number; now: number; retention
     await incrementMetric("cinema_rooms_deleted");
   }
   return { deleted };
+}
+
+/** Shared by retention cleanup and an explicit host deletion. A failed R2
+ * purge leaves the room EXPIRED for the next maintenance pass to retry. */
+export async function purgeCinemaRoomContents(id: string, now = Date.now()): Promise<boolean> {
+  await ensureCinemaTables();
+  await ensureCinemaMessageTables();
+  await ensureCinemaRecordingTables();
+  await ensureCinemaWhiteboardTables();
+  await ensureCinemaTranscriptTables();
+  await ensureCinemaPollTables();
+  await ensureCinemaStudyTables();
+  const upload = await purgeCinemaUploadForRoom(id, { now });
+  if (upload.status === "retry") return false;
+  const recordings = await purgeCinemaRecordingsForRoom(id, { now });
+  if (recordings.status === "retry") return false;
+  await purgeCinemaWhiteboardsForRoom(id, { now });
+  await purgeCinemaMessages(id);
+  await turso("DELETE FROM cinema_bookmarks WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_transcript_segments WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_caption_translations WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_session_privacy WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_poll_votes WHERE poll_id IN (SELECT id FROM cinema_polls WHERE session_id = ?)", [id]);
+  await turso("DELETE FROM cinema_polls WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_study_packs WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_study_jobs WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_waiting_members WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_room_invites WHERE session_id = ?", [id]);
+  return true;
 }

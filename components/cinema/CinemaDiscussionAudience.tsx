@@ -9,6 +9,7 @@ import { CinemaPollsPanel } from "./CinemaPollsPanel";
 import { useCinemaAudienceUpdates } from "./useCinemaAudienceUpdates";
 import { CinemaReactionOverlay, CinemaReactionPicker } from "./CinemaReactions";
 import { CinemaFullscreenButton, type CinemaFullscreenState } from "./CinemaFullscreenButton";
+import { CinemaCaptionTranslation, useCinemaCaptions } from "./CinemaCaptionTranslation";
 
 type StageState = { status: string; title: string; videoId: string; role: string };
 
@@ -25,6 +26,8 @@ export function CinemaDiscussionAudience({ initialRoom, onStageRole }: { initial
   const [fullscreen, setFullscreen] = useState<CinemaFullscreenState>({ active: false, fallback: false });
   const playerRef = useRef<HTMLDivElement>(null);
   const updates = useCinemaAudienceUpdates(room.id, Boolean(room.isMember && account?.emailVerified && ["CREATED", "LIVE"].includes(state.status)));
+  const livePosition = useCallback(() => 0, []);
+  const { privacy: captionPrivacy, currentCaption } = useCinemaCaptions(room.id, Boolean(room.isMember && account?.emailVerified), livePosition);
   const joining = useRef(false);
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/cinema/sessions/${room.id}/stage`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
@@ -89,6 +92,7 @@ export function CinemaDiscussionAudience({ initialRoom, onStageRole }: { initial
       <div className="cinema-discussion-broadcast-head"><div><span className="cinema-eyebrow">PUBLIC DISCUSSION</span><h2>{state.title}</h2></div><span className={`cinema-event-state is-${state.status.toLowerCase()}`}>{state.status === "LIVE" ? "Live now" : state.status === "ENDED" ? "Ended" : "Upcoming"}</span></div>
       <div className={`cinema-discussion-player cinema-player${fullscreen.fallback ? " is-theater-fullscreen" : ""}`} ref={playerRef}>
         <div className="cinema-discussion-video">{room.isMember && state.status !== "ENDED" && state.videoId ? <iframe src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(state.videoId)}?autoplay=1&playsinline=1&fs=0`} title={`${state.title} live broadcast`} allow="autoplay; encrypted-media; picture-in-picture" /> : <p className="cinema-discussion-video-message">{state.status === "ENDED" ? "This discussion has ended." : "Confirming your reserved place…"}</p>}</div>
+        {room.isMember && <CinemaCaptionTranslation roomId={room.id} caption={currentCaption} enabled={captionPrivacy?.transcriptEnabled === true} allowTranslation={captionPrivacy?.translationEnabled === true} />}
         <div className="cinema-discussion-player-foot"><CinemaReactionOverlay reactions={updates.reactions} placement="rail" /><CinemaFullscreenButton playerRef={playerRef} state={fullscreen} onChange={setFullscreen} /></div>
       </div>
       <div className="cinema-discussion-broadcast-foot"><p>You are watching the broadcast. The host invites speakers onto the separate stage.</p><div className="cinema-discussion-actions"><button className="secondary" disabled={state.status !== "LIVE" || !room.isMember || !updates.connected} onClick={() => setReactionOpen((open) => !open)}>React <span aria-hidden>👏</span></button><button className="secondary" disabled={busy || requestPending || state.status === "ENDED" || !room.isMember} onClick={() => void requestToSpeak()}>{requestPending ? "Speaking request sent" : "Request to speak"}</button></div></div>
