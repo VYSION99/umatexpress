@@ -45,7 +45,7 @@ const CONSOLE_SURFACE_EXACT = new Set(["/api/campus/ai", "/api/maps/config", "/a
  * the Worker (Cloudflare serves the asset directory first), but local dev and
  * preview paths do, and a console page without its CSS is not a page.
  */
-const ASSET_PREFIXES = ["/assets", "/_next", "/_vinext", "/.well-known"];
+const ASSET_PREFIXES = ["/assets", "/fonts", "/_next", "/_vinext", "/.well-known"];
 const ASSET_FILES = new Set([
   "/favicon.ico", "/favicon.svg", "/logo.png", "/logo-web.png", "/logo-mark.png",
   "/icon-192.png", "/icon-512.png", "/icon-maskable-192.png", "/icon-maskable-512.png",

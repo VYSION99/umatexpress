@@ -90,3 +90,18 @@ test("static assets receive headers and aliases redirect before asset lookup", a
   assert.equal(redirect.headers.get("location"), "https://example.test/assets/site.css?v=2");
   assert.equal(calls, 1);
 });
+
+test("the console host serves its self-hosted icon font", async () => {
+  const worker = await loadWorker();
+  assert.ok(worker, "Build the Worker first");
+  const assetPath = "/fonts/material-symbols-rounded-app.woff2";
+  const response = await worker.fetch(new Request(`https://console.example.test${assetPath}`), {
+    CONSOLE_HOSTS: "console.example.test",
+    ASSETS: { fetch: async (request) => {
+      assert.equal(new URL(request.url).pathname, assetPath);
+      return new Response("font", { headers: { "Content-Type": "font/woff2" } });
+    } },
+  }, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "font/woff2");
+});

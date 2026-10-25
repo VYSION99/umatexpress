@@ -142,3 +142,18 @@
 @media(max-width:1100px){.console-profile-trigger{max-width:180px}.console-topbar-actions{display:none}}
 @media(max-width:800px){.console-profile-trigger{min-height:44px}.console-profile-trigger-copy{display:none}.console-profile-trigger>.material-icon{display:none}.console-profile-trigger-avatar{width:34px;height:34px}.console-profile-dropdown{margin-left:auto}}
 @media(max-width:540px){.console-profile-dropdown{order:2}.console-profile-popover{right:0}}
+
+/* Data-heavy console pages use the available desktop width. */
+.console-launcher main.launch-main{width:min(1440px,calc(100% - 64px));max-width:none}
+.console-launcher main.launch-main .console-hero,
+.console-launcher main.launch-main .console-panel,
+.console-launcher main.launch-main .console-group,
+.console-launcher main.launch-main .console-alert,
+.console-launcher main.launch-main .console-home-intro,
+.console-launcher main.launch-main .console-home-directory{max-width:none}
+.console-launcher .console-hero{padding-top:30px;padding-bottom:20px}
+.console-launcher .console-topbar{min-height:76px;padding-block:14px}
+.console-sidebar{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#6a7b89 transparent}
+.console-sidebar .launch-brand{flex:none}
+.console-sidebar nav a[aria-current="page"]{font-weight:750}
+@media(max-width:800px){.console-launcher main.launch-main{width:calc(100% - 32px)}.console-launcher .console-topbar{min-height:72px}}

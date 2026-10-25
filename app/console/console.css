@@ -182,6 +182,7 @@
 }
 
 .console-panel h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 16px; font-size: 16px; letter-spacing: -.01em; }
+
 .console-panel-close { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 13px; border: 1px solid var(--ui-line, #e3eae5); border-radius: 999px; background: #ffffff; color: var(--ui-muted, #57675f); font-size: 12px; font-weight: 800; cursor: pointer; }
 .console-panel-close:hover { border-color: var(--ui-green, #0d694d); color: var(--ui-green, #0d694d); }
 .console-reason { display: block; margin-top: 4px; color: #9c3026; font-size: 11px; font-weight: 600; }
@@ -431,3 +432,53 @@
 .console-notifications-panel li small { display: block; color: #657382; }
 .console-notifications-panel li a { display: inline-block; margin-top: 6px; color: #146b68; font-weight: 600; }
 @media (max-width: 600px) { .console-notifications-panel { position: fixed; top: 64px; right: 12px; left: 12px; width: auto; } }
+
+/* Cinema operations: the list is the primary content, not a stack of cards. */
+.cinema-rooms-panel{overflow:visible}
+.cinema-rooms-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.cinema-rooms-heading>div{display:flex;align-items:center;gap:12px;min-width:0}
+.cinema-rooms-heading-icon{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:13px;background:#e7f3eb;color:#0d694d}
+.cinema-rooms-heading h2{margin:0 0 3px;font-size:18px}
+.cinema-rooms-heading p{margin:0;color:var(--ui-muted,#57675f);font-size:12px}
+.cinema-rooms-heading .console-panel-close{margin:0;min-height:40px;font-size:12px}
+.cinema-rooms-heading .console-panel-close:disabled{opacity:.55;cursor:wait}
+.cinema-room-summary{display:flex;align-items:center;flex-wrap:wrap;gap:10px 26px;margin-bottom:20px;padding:13px 16px;border:1px solid #dfebe2;border-radius:14px;background:#f6faf7;color:#52685a;font-size:12px;font-weight:700}
+.cinema-room-summary span{display:inline-flex;align-items:center;gap:7px}
+.cinema-room-summary strong{color:#103e2d;font-size:19px;line-height:1;font-variant-numeric:tabular-nums}
+.cinema-room-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.cinema-room-filters button{min-height:38px;padding:0 15px;border:1px solid #dce7df;border-radius:10px;background:#fff;color:#52685a;font:inherit;font-size:12px;font-weight:750;cursor:pointer}
+.cinema-room-filters button:hover{border-color:#8cbea0;color:#0d694d}
+.cinema-room-filters button.is-active{border-color:#0d694d;background:#0d694d;color:#fff}
+.cinema-room-search{display:flex;align-items:end;gap:9px;margin-bottom:18px}
+.cinema-room-search label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.cinema-room-search>div{display:flex;align-items:center;gap:9px;flex:1;min-width:0;height:44px;padding:0 12px;border:1px solid #dce7df;border-radius:11px;background:#fff;color:#6a7a70}
+.cinema-room-search>div:focus-within{outline:2px solid #0d694d;outline-offset:1px}
+.cinema-room-search input{width:100%;min-width:0;height:100%;border:0;outline:0;background:transparent;color:#162d23;font:inherit;font-size:13px}
+.cinema-room-search button{min-width:90px;height:44px;padding:0 16px;border:0;border-radius:11px;background:#0d694d;color:#fff;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+.cinema-room-search button:hover{background:#0a563e}
+.cinema-rooms-table-wrap{width:100%;overflow-x:auto;border:1px solid #e2eae4;border-radius:14px}
+.cinema-rooms-table{min-width:750px}
+.cinema-rooms-table th{padding:12px 14px;background:#f5f8f6}
+.cinema-rooms-table td{padding:15px 14px}
+.cinema-rooms-table tr:hover td{background:#fbfdfb}
+.cinema-rooms-table td:first-child strong{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cinema-room-people{display:inline-flex;align-items:center;gap:5px;font-weight:750}
+.cinema-room-pages{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px;color:#52685a;font-size:12px;font-weight:700}
+.cinema-room-pages button{min-height:38px;padding:0 13px;border:1px solid #dce7df;border-radius:10px;background:#fff;color:#244a35;font:inherit;font-size:12px;font-weight:750;cursor:pointer}
+.cinema-room-pages button:disabled{opacity:.45;cursor:default}
+@media(max-width:760px){
+  .cinema-rooms-panel{padding:16px}
+  .cinema-room-summary{gap:8px 16px}
+  .cinema-rooms-table-wrap{border:0;overflow:visible}
+  .cinema-rooms-table,.cinema-rooms-table tbody{display:block;min-width:0}
+  .cinema-rooms-table thead{display:none}
+  .cinema-rooms-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-bottom:10px;padding:14px;border:1px solid #e2eae4;border-radius:14px;background:#fff}
+  .cinema-rooms-table td{display:block;min-width:0;padding:0;border:0;font-size:12px}
+  .cinema-rooms-table tr:hover td{background:transparent}
+  .cinema-rooms-table td::before{content:attr(data-label);display:block;margin-bottom:3px;color:#708176;font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}
+  .cinema-rooms-table td:first-child,.cinema-rooms-table td:last-child{grid-column:1/-1}
+  .cinema-rooms-table td:first-child strong{max-width:none;white-space:normal}
+  .cinema-rooms-table td:last-child{padding-top:9px;border-top:1px solid #edf1ee}
+  .cinema-rooms-table td:last-child::before{display:none}
+}
+@media(max-width:480px){.cinema-rooms-heading{align-items:flex-start}.cinema-rooms-heading p{max-width:190px}.cinema-room-search button{min-width:74px}.cinema-room-summary span:last-child{flex-basis:100%}}
