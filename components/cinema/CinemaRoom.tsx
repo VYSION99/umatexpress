@@ -2,19 +2,23 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Bookmark, Chats, ClosedCaption, Envelope, Flag, Hand, Lock, MicrophoneSlash, Notebook, PaperPlaneTilt, Play, Poll, Radio, ScreenShare, Smile, Sparkle, Square, SquaresFour, Timer, UserPlus, X } from "@/components/ui/MaterialIcon";
+import { Bookmark, Chats, ClosedCaption, Envelope, Flag, Hand, Lock, MicrophoneSlash, Notebook, Play, Poll, Radio, ScreenShare, Smile, Sparkle, Square, SquaresFour, Timer, UserPlus, X } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import type { CinemaBookmark, CinemaRoom as Room } from "@/lib/cinema-engine/rooms";
 import { CINEMA_CALL_MEMBER_LIMIT } from "@/lib/cinema-engine/protocol";
+import { matchesCinemaVideo, type CinemaVideoReference } from "@/lib/cinema-engine/video-reference";
 import { expectedPosition } from "@/lib/cinema-engine/sync";
 import { useCinemaSocket } from "./useCinemaSocket";
+import { useCinemaRoomAccess } from "./useCinemaRoomAccess";
 import { CinemaCallButtons } from "./CinemaCallButtons";
 import { CinemaInvites } from "./CinemaInvites";
 import { CinemaMediaStrip } from "./CinemaMediaStrip";
 import { MediaStreamVideo } from "./CinemaMediaVideo";
+import type { CinemaPreparedShare } from "./CinemaShareReview";
 import { CinemaNotes } from "./CinemaNotes";
 import { CinemaRecorderPanel } from "./CinemaRecorderPanel";
 import { CinemaWhiteboardPanel } from "./CinemaWhiteboardPanel";
+import { CinemaChatPanel } from "./CinemaChatPanel";
 import { UploadPlayer } from "./UploadPlayer";
 import { UploadPanel } from "./UploadPanel";
 import { YouTubePlayer } from "./YouTubePlayer";
@@ -46,6 +50,16 @@ const TOAST_MS = 15_000;
 const TOAST_KEEP = 3;
 
 export function CinemaRoom({ initialRoom }: { initialRoom: Room }) {
+  const access = useCinemaRoomAccess(initialRoom.id);
+  if (!access.ready) return <section className="cinema-card">Checking your account…</section>;
+  if (!access.account) return <section className="cinema-card"><p>Sign in to join this room.</p><Link href={`/account?next=${encodeURIComponent(`/cinema/${initialRoom.id}`)}`}>Sign in</Link></section>;
+  if (!access.account.emailVerified) return <section className="cinema-card"><p>Verify your email before joining this room.</p><Link href={`/account?next=${encodeURIComponent(`/cinema/${initialRoom.id}`)}`}>Verify your email</Link></section>;
+  if (access.error) return <section className="cinema-card"><p className="cinema-error" role="alert">{access.error}</p><Link href="/cinema/rooms">Browse rooms</Link></section>;
+  if (!access.room) return <section className="cinema-card">Checking your room access…</section>;
+  return <CinemaAuthorizedRoom key={`${access.room.id}:${access.account.id}`} initialRoom={access.room} />;
+}
+
+function CinemaAuthorizedRoom({ initialRoom }: { initialRoom: Room }) {
   const [stageRole, setStageRole] = useState(initialRoom.currentRole);
   const onStageRole = useCallback((role: string) => setStageRole(role as Room["currentRole"]), []);
   const stage = ["HOST", "COHOST", "PRESENTER"].includes(stageRole);
@@ -71,7 +85,6 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
-  const [draft, setDraft] = useState("");
   const [report, setReport] = useState<{ messageId?: string; video?: boolean; label: string } | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
@@ -81,13 +94,11 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const [playlistOpen, setPlaylistOpen] = useState(false);
   const [playlistRevision, setPlaylistRevision] = useState(0);
   const [playlistFiles, setPlaylistFiles] = useState<Array<{ id: string; filename: string; position: number }>>([]);
-  const [chatBusy, setChatBusy] = useState(false);
-  const [chatError, setChatError] = useState("");
-  const chatRequest = useRef<{ text: string; id: string } | null>(null);
   const [sheet, setSheet] = useState<CinemaSheet>("");
   const [reactionOpen, setReactionOpen] = useState(false);
   const [waitingMembers, setWaitingMembers] = useState<Array<{ studentId: string; displayName: string; requestedAt: string }>>([]);
   const [stageRequestCount, setStageRequestCount] = useState(0);
+  const [preparedShare, setPreparedShare] = useState<CinemaPreparedShare | null>(null);
   const [bookmarks, setBookmarks] = useState<CinemaBookmark[]>([]);
   const [bookmarkLabel, setBookmarkLabel] = useState("");
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
@@ -97,14 +108,13 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   /** Automatic-board notices; the room's summaries arrive here, not in a panel. */
   const [toasts, setToasts] = useState<CinemaToast[]>([]);
   const joined = useRef(false);
-  const chatEndRef = useRef<HTMLLIElement | null>(null);
   const muteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const enteredStatus = useRef(initialRoom.status);
   const roomActive = room.status === "CREATED" || room.status === "LIVE";
   // The socket is the room's live voice: it opens once the page knows who the
   // student is, and closes the moment the room stops being open.
-  const live = useCinemaSocket({ roomId: room.id, enabled: Boolean(ready && account && roomActive && room.isMember) });
+  const live = useCinemaSocket({ roomId: room.id, accountId: account?.id || "", enabled: Boolean(ready && account && roomActive && room.isMember) });
   // A live presence heartbeat keeps the durable participant record aligned
   // with actual time in the room. Certificates use this record, not RSVP.
   useEffect(() => {
@@ -300,11 +310,6 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
     await load();
   };
 
-  // A chat that does not follow its own tail is a chat nobody reads.
-  useEffect(() => {
-    if (selected === "chat") chatEndRef.current?.scrollIntoView({ block: "nearest" });
-  }, [live.messages.length, selected]);
-
   const load = useCallback(async () => {
     try {
       const response = await fetch(`/api/cinema/sessions/${initialRoom.id}`, { credentials: "same-origin", cache: "no-store" });
@@ -343,7 +348,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       const atSeconds = Math.round(expectedPosition(live.playback, live.clock.now()));
       const response = await fetch(`/api/cinema/sessions/${room.id}/bookmarks`, {
         method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ label: bookmarkLabel, atSeconds }),
+        body: JSON.stringify({ label: bookmarkLabel, atSeconds, expectedVideo: { sourceType, videoId } }),
       });
       const data = await response.json() as { bookmark?: CinemaBookmark; error?: string };
       if (!response.ok) throw new Error(data.error || "The bookmark could not be saved.");
@@ -447,21 +452,22 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
   const chatTimestamp = () => {
     if (!live.playback) return null;
     const at = Math.round(expectedPosition(live.playback, live.clock.now()));
-    return at > 0 ? at : null;
+    return at >= 0 ? at : null;
   };
 
-  const seekTo = (seconds: number) => {
-    if (!canSeek || !live.playback) return;
+  const seekTo = (seconds: number, reference?: CinemaVideoReference) => {
+    if (!canSeek || !live.playback || (reference && !matchesCinemaVideo(reference, { sourceType, videoId }))) return;
     live.send({
       type: "seek",
       time: seconds,
+      ...(reference ? { video: reference } : {}),
       duration: live.playback.durationSeconds || undefined,
       stateAt: live.playback.updatedAt,
     });
   };
 
   const playheadSeconds = useCallback(() => live.playback ? Math.max(0, Math.round(expectedPosition(live.playback, live.clock.now()))) : 0, [live.playback, live.clock]);
-  const { privacy: transcriptPrivacy, setPrivacy: setTranscriptPrivacy, currentCaption } = useCinemaCaptions(room.id, Boolean(room.isMember && account), playheadSeconds);
+  const { privacy: transcriptPrivacy, setPrivacy: setTranscriptPrivacy, currentCaption } = useCinemaCaptions(room.id, Boolean(room.isMember && account), playheadSeconds, { sourceType, videoId });
   const screenMember = live.members.find((member) => member.screen);
   const screenStream = screenMember
     ? screenMember.studentId === account?.id ? media.localStream : media.remote.find((peer) => peer.studentId === screenMember.studentId)?.stream || null
@@ -517,8 +523,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
               : "This room has ended."}
           </span>
         </div>
+        <div className="cinema-video-surface">
         {room.discussionMode && room.managedStage && active && roomMember
-          ? <div className="cinema-stage-reaction-host"><CinemaJaasStage roomId={room.id} active={active} /><CinemaReactionOverlay reactions={live.reactions} /></div>
+          ? <div className="cinema-stage-reaction-host"><CinemaJaasStage roomId={room.id} active={active} muteAllSignal={live.muteAllSignal} send={live.send} /><CinemaReactionOverlay reactions={live.reactions} /></div>
           : room.discussionMode && active
           ? <div className="cinema-discussion-stage-note"><span className="cinema-eyebrow">SPEAKING STAGE</span><h2>Host broadcast check</h2><p>The stage call is separate from the audience broadcast. Stage audio and video are not sent to YouTube automatically.</p><ol><li>Connect the speakers to your broadcast software.</li><li>Start the YouTube broadcast and check that viewers can hear it.</li><li>Keep the broadcast running while this room is live.</li></ol>{videoId && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`} target="_blank" rel="noopener noreferrer">Open audience broadcast monitor</a>}<small>Broadcast connection is not verified by UMaTeXPRESS.</small></div>
           : active && live.state === "live" && sourceType === "YOUTUBE" && videoId
@@ -556,7 +563,8 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
                 : roomActive ? live.closedReason || "The room connection has closed." : "This room has ended."}
             </p>}
         {roomActive && needsEmailVerification && <Link className="cinema-verify-link" href={`/account?next=${encodeURIComponent(`/cinema/${room.id}`)}`}><Envelope size={18} aria-hidden /> Verify your email</Link>}
-        {room.isMember && <CinemaCaptionTranslation roomId={room.id} caption={currentCaption} enabled={transcriptPrivacy?.transcriptEnabled === true} allowTranslation={transcriptPrivacy?.translationEnabled === true} />}
+        {room.isMember && <CinemaCaptionTranslation roomId={room.id} caption={currentCaption} enabled={active && live.state === "live" && transcriptPrivacy?.transcriptEnabled === true} allowTranslation={transcriptPrivacy?.translationEnabled === true} />}
+        </div>
         {!active && <Link className="cinema-cta" href={initialRoom.eventSlug ? `/cinema/events/${initialRoom.eventSlug}` : "/cinema/rooms"}>{initialRoom.eventSlug ? "Back to event" : "Back to your rooms"}</Link>}
         {!active && room.isHost && !initialRoom.eventSlug && room.status === "ENDED" && <CinemaReuseButton stableId={initialRoom.stableRoomId} />}
         {active && account && room.waitingState === "REJECTED" && <button type="button" className="cinema-cta" onClick={() => void requestAdmissionAgain()}>Request admission again</button>}
@@ -571,7 +579,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
 
       {screenMember && screenStream && <section className="cinema-presentation" aria-label={`${screenMember.displayName || "Presenter"}'s shared screen`}>
         <header><strong>{screenMember.studentId === account?.id ? "You are presenting" : `${screenMember.displayName || "Presenter"} is presenting`}</strong><span>Live screen</span></header>
-        <MediaStreamVideo stream={screenStream} muted={screenMember.studentId === account?.id} className="cinema-presentation-stream" pictureInPicture />
+        <MediaStreamVideo stream={screenStream} muted className="cinema-presentation-stream" pictureInPicture />
       </section>}
 
       {roomMember && !room.managedStage && <CinemaMediaStrip
@@ -612,7 +620,11 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       {/* The old Voice & video card is gone; what it had to say that the
           buttons cannot is one line here, where the call's pictures live. */}
       {roomMember && !room.managedStage && !callEligible && <p className="cinema-note">{room.discussionMode ? "You are in the audience. Raise your hand to request a speaking place; the host controls the stage." : `The call supports ${CINEMA_CALL_MEMBER_LIMIT} people. You can still watch and use chat, notes and the whiteboard.`}</p>}
-      {roomMember && !room.managedStage && media.error && <p className="cinema-error">{media.error}</p>}
+      {roomMember && !room.managedStage && callEligible && <div className="cinema-media-health" role="status">
+        <span>Mic: {media.devices.audio} · Camera: {media.devices.video} · Connection: {media.connectionStatus}</span>
+        {(media.error || media.connectionStatus === "failed") && <button type="button" onClick={media.reconnect}>Reconnect media</button>}
+      </div>}
+      {roomMember && !room.managedStage && media.error && <p className="cinema-error" role="alert">{media.error}</p>}
       {roomMember && !room.managedStage && !media.error && media.policyLoaded && !media.policy.voice && !media.policy.camera && <p className="cinema-note">
         Voice and camera are switched off on this deployment. Chat and the video still work.
       </p>}
@@ -699,11 +711,11 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       </Sheet>
 
       <Sheet open={selected === "notes"} mobile={mobile} id="cinema-sheet-notes" label="My notes" onClose={closeSheet}>
-        <CinemaNotes roomId={room.id} />
+        <CinemaNotes key={`${room.id}:${account?.id || "device"}`} roomId={room.id} accountId={account?.id} onShare={memberAccount ? text => { setPreparedShare({ id: crypto.randomUUID(), accountId: account!.id, text, origin: "NOTE" }); setSheet("chat"); } : undefined} />
       </Sheet>
 
       <Sheet open={selected === "captions"} mobile={mobile} id="cinema-sheet-captions" label="Captions and transcript" onClose={closeSheet}>
-        {memberAccount && <CinemaTranscriptPanel roomId={room.id} isHost={room.isHost} active={active} atSeconds={playheadSeconds} onSeek={seekTo} canSeek={canSeek} onPrivacy={setTranscriptPrivacy} />}
+        {memberAccount && <CinemaTranscriptPanel roomId={room.id} video={videoId && ["UPLOAD", "YOUTUBE"].includes(sourceType) ? { sourceType: sourceType as "UPLOAD" | "YOUTUBE", videoId } : undefined} isHost={room.isHost} active={active} atSeconds={playheadSeconds} onSeek={seekTo} canSeek={canSeek} onPrivacy={setTranscriptPrivacy} />}
       </Sheet>
 
       <Sheet open={selected === "polls"} mobile={mobile} id="cinema-sheet-polls" label="Polls and quizzes" onClose={closeSheet}>
@@ -714,7 +726,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
       </Sheet>
 
       <Sheet open={selected === "study"} mobile={mobile} id="cinema-sheet-study" label="Study intelligence" onClose={closeSheet}>
-        {memberAccount && <CinemaStudyPanel roomId={room.id} aiEnabled={transcriptPrivacy?.aiStudyEnabled === true} roomEnded={room.status === "ENDED"} canGenerate={canManage} onSeek={seekTo} canSeek={canSeek} />}
+        {memberAccount && <CinemaStudyPanel revision={live.assistantRevision + live.chatConnection} roomId={room.id} aiEnabled={transcriptPrivacy?.aiStudyEnabled === true} roomEnded={room.status === "ENDED"} canGenerate={canManage} onSeek={seekTo} canSeek={canSeek} video={{ sourceType, videoId }} />}
       </Sheet>
 
       <Sheet open={selected === "bookmarks"} mobile={mobile} id="cinema-sheet-bookmarks" label="Shared bookmarks" onClose={closeSheet}>
@@ -730,8 +742,8 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
           {bookmarks.length ? <ol>{bookmarks.map((bookmark) => {
             const canRemove = bookmark.studentId === account?.id || canManage;
             return <li key={bookmark.id}>
-              <button type="button" className="cinema-bookmark-jump" disabled={!canSeek} onClick={() => seekTo(bookmark.atSeconds)}>
-                <strong>{clockTime(bookmark.atSeconds)}</strong><span>{bookmark.label}</span><small>Added by {bookmark.displayName}</small>
+              <button type="button" className="cinema-bookmark-jump" disabled={!canSeek || !matchesCinemaVideo(bookmark.video, { sourceType, videoId })} title={!bookmark.video ? "Original video is unknown" : !matchesCinemaVideo(bookmark.video, { sourceType, videoId }) ? "Switch to the referenced video to use this timestamp" : "Go to this moment"} onClick={() => seekTo(bookmark.atSeconds, bookmark.video)}>
+                <strong>{clockTime(bookmark.atSeconds)}</strong><span>{bookmark.label}</span><small>Added by {bookmark.displayName}</small>{!matchesCinemaVideo(bookmark.video, { sourceType, videoId }) && <small className="cinema-reference-note">{bookmark.video ? "Moment from another video" : "Original video is unknown"}</small>}
               </button>
               {canRemove && <button type="button" className="cinema-bookmark-remove" aria-label={`Remove ${bookmark.label}`} onClick={() => void removeBookmark(bookmark.id)}><X size={16} aria-hidden /></button>}
             </li>;
@@ -813,72 +825,9 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
 
       <Sheet open={selected === "chat"} mobile={mobile} id="cinema-sheet-chat" label="Room chat" onClose={closeSheet}>
       <section className="cinema-chat">
-        <div className="cinema-presence-head">
-          <h2>Room chat</h2>
-          {account && live.messages.length > 0 && <span className="cinema-link">{live.messages.length} message{live.messages.length === 1 ? "" : "s"}</span>}
-        </div>
-        {!account
-          ? <p className="cinema-note">Sign in with a verified account to read and send messages with the room.</p>
-          : <>
-            {live.messages.length === 0
-              ? <p className="cinema-note">No messages yet. Ask about a moment in the video and the room attaches where you were.</p>
-              : <ul className="cinema-messages">
-                {live.messages.map((message) => <li key={message.id} className={message.senderId === account.id ? "is-mine" : ""}>
-                  <header>
-                    <strong>{message.senderId === account.id ? "You" : message.senderName || "Member"}</strong>
-                    {message.atSeconds !== null && (canSeek
-                      ? <button
-                        type="button"
-                        className="cinema-timestamp"
-                        title="Bring the room to this moment"
-                        onClick={() => seekTo(message.atSeconds as number)}
-                      >{clockTime(message.atSeconds)}</button>
-                      : <span className="cinema-timestamp is-static">{clockTime(message.atSeconds)}</span>)}
-                    {message.senderId !== account.id && <button
-                      type="button"
-                      className="cinema-report-flag"
-                      title="Report this message to the moderators"
-                      aria-label="Report this message"
-                      onClick={() => { setReport({ messageId: message.id, label: "Report a message" }); setReportReason(""); setReportNotice(""); }}
-                    ><Flag size={12} aria-hidden /></button>}
-                  </header>
-                  <p>{message.content}</p>
-                </li>)}
-                <li ref={chatEndRef} className="cinema-chat-end" aria-hidden />
-              </ul>}
-            <form
-              className="cinema-chat-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (chatBusy) return;
-                const text = draft;
-                if (chatRequest.current?.text !== text) chatRequest.current = { text, id: crypto.randomUUID() };
-                setChatBusy(true); setChatError("");
-                void live.sendChat(text, chatTimestamp(), chatRequest.current.id).then(() => {
-                  setDraft(current => current === text ? "" : current);
-                  chatRequest.current = null;
-                }).catch(error => setChatError(error instanceof Error ? error.message : "Message failed. Please retry.")).finally(() => setChatBusy(false));
-              }}
-            >
-              <input
-                value={draft}
-                maxLength={500}
-                placeholder={live.state === "live" ? "Ask the room…" : "Chat returns with the connection"}
-                aria-label="Message the room"
-                disabled={chatBusy}
-                onChange={(event) => setDraft(event.target.value)}
-              />
-              <button type="submit" aria-label="Send the message" disabled={chatBusy || !draft.trim() || live.state !== "live"}>
-                <PaperPlaneTilt size={15} aria-hidden />
-              </button>
-            </form>
-            {chatBusy && <p role="status">Sending…</p>}
-            {chatError && <p className="cinema-error" role="alert">{chatError} Your text is kept above.</p>}
-            <p className="cinema-note cinema-sub">
-              {room.isHost
-                ? "Tap a timestamp chip to bring everyone to that moment."
-                : "A timestamp chip shows where the sender was in the video; the host can jump the room to it."}
-            </p>
+        <CinemaChatPanel key={`${room.id}:${account?.id || "anonymous"}`} roomId={room.id} accountId={account?.id || ""} enabled={Boolean(account && room.isMember)} live={live}
+          video={videoId && ["UPLOAD", "YOUTUBE"].includes(sourceType) ? { sourceType: sourceType as "UPLOAD" | "YOUTUBE", videoId } : undefined}
+          timestamp={chatTimestamp} canSeek={canSeek} canManage={canManage} preparedShare={preparedShare} onShareUsed={id => setPreparedShare(current => current?.id === id ? null : current)} onReport={messageId => { setReport({ messageId, label: "Report a message" }); setReportReason(""); setReportNotice(""); }} />
             {reportNotice && <p className="cinema-report-notice" role="status">{reportNotice}</p>}
             {report
               ? <form className="cinema-report" onSubmit={(event) => { event.preventDefault(); void sendReport(); }}>
@@ -905,7 +854,7 @@ function CinemaStageRoom({ initialRoom }: { initialRoom: Room }) {
                   <Flag size={13} aria-hidden /> Report the video
                 </button>}
               </div>}
-          </>}
+
       </section>
       </Sheet>
     </aside>

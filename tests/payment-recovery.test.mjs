@@ -103,6 +103,19 @@ test('webhook responds after durable persistence and before settlement work', as
   assert.equal(deliveries, 1);
 });
 
+test('signed refunds without a top-level reference retain their refund ID and charge reference', async () => {
+  globalThis.fetch = sql.fetch;
+  const { POST } = await vite.ssrLoadModule('/app/api/payments/webhook/route.ts');
+  const body = JSON.stringify({ event: 'refund.processed', data: { id: 104, amount: 500, currency: 'GHS', transaction: { reference: 'CRP-ORIGINAL', authorization: 'must-not-be-stored' } } });
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.PAYSTACK_SECRET_KEY), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
+  const signature = Array.from(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))), byte => byte.toString(16).padStart(2, '0')).join('');
+  const response = await POST(new Request('https://app.test/api/payments/webhook', { method: 'POST', headers: { 'x-paystack-signature': signature }, body }));
+  assert.equal(response.status, 200);
+  const { payload } = sql.db.prepare("SELECT payload FROM payment_inbox WHERE id='PAYSTACK:refund.processed:104'").get();
+  assert.equal(JSON.parse(payload).data.transaction_reference, 'CRP-ORIGINAL');
+  assert.doesNotMatch(payload, /must-not-be-stored/);
+});
+
 test('finance health counts all records and excludes fresh activity', async () => {
   globalThis.fetch = sql.fetch;
   const { ensureFinanceSchema } = await vite.ssrLoadModule('/lib/payments/schema.ts');

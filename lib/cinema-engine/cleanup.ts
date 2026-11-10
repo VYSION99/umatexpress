@@ -17,7 +17,7 @@ import {
 } from "@/lib/cinema-engine/whiteboard";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { platformSettingNumber } from "@/lib/platform-settings";
-import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
+import { isTursoConfiguredRuntime, rowsToObjects, turso, tursoTransaction } from "@/lib/turso";
 
 /**
  * Cinema cleanup, riding the Worker's existing reconciliation trigger.
@@ -73,8 +73,31 @@ export async function runCinemaCleanup(input: CleanupInput = {}): Promise<Cinema
     await ensureCinemaPollTables();
     await ensureCinemaStudyTables();
     await generatePendingCinemaStudyPack();
-    await turso("DELETE FROM cinema_transcript_segments WHERE expires_at != '' AND expires_at <= ?", [new Date(now).toISOString()]);
-    await turso("DELETE FROM cinema_caption_translations WHERE expires_at != '' AND expires_at <= ?", [new Date(now).toISOString()]);
+    // Expire evidence and its derived answers together, fencing concurrent publication.
+    const expiredAt = new Date(now).toISOString();
+    await tursoTransaction([
+      { sql: `UPDATE cinema_study_jobs SET status='FAILED',error='Study evidence expired. Generate a new pack.',updated_at=? WHERE status='DONE' AND session_id IN (
+        SELECT e.session_id FROM cinema_study_pack_evidence e LEFT JOIN cinema_transcript_segments t ON t.id=e.source_id AND t.session_id=e.session_id
+        WHERE e.kind='TRANSCRIPT' AND ((e.expires_at<>'' AND e.expires_at<=?) OR t.id IS NULL OR (t.expires_at<>'' AND t.expires_at<=?)))`, args: [expiredAt, expiredAt, expiredAt] },
+      { sql: `DELETE FROM cinema_study_packs WHERE id IN (SELECT e.pack_id FROM cinema_study_pack_evidence e
+        LEFT JOIN cinema_transcript_segments t ON t.id=e.source_id AND t.session_id=e.session_id
+        WHERE e.kind='TRANSCRIPT' AND ((e.expires_at<>'' AND e.expires_at<=?) OR t.id IS NULL OR (t.expires_at<>'' AND t.expires_at<=?)))`, args: [expiredAt, expiredAt] },
+      { sql: "DELETE FROM cinema_study_pack_evidence WHERE NOT EXISTS(SELECT 1 FROM cinema_study_packs p WHERE p.id=pack_id)", args: [] },
+      { sql: `DELETE FROM cinema_messages WHERE id IN (SELECT j.answer_id FROM cinema_chat_ai_jobs j
+        JOIN cinema_chat_ai_evidence e ON e.job_id=j.id AND e.kind='TRANSCRIPT'
+        JOIN cinema_transcript_segments t ON t.id=e.source_id WHERE t.expires_at<>'' AND t.expires_at<=?)`, args: [expiredAt] },
+      { sql: `UPDATE cinema_chat_ai_jobs SET status='CANCELLED',claim_token='',lease_until='',error='Transcript evidence expired.'
+        WHERE id IN (SELECT e.job_id FROM cinema_chat_ai_evidence e JOIN cinema_transcript_segments t ON t.id=e.source_id
+          WHERE e.kind='TRANSCRIPT' AND t.expires_at<>'' AND t.expires_at<=?)`, args: [expiredAt] },
+      { sql: `UPDATE cinema_private_study_requests SET status='CANCELLED',answer='',citations='[]',dependencies='[]',claim_token='',lease_until='',error='Transcript evidence expired.'
+        WHERE status<>'DELETED' AND id IN (SELECT e.request_id FROM cinema_private_study_evidence e JOIN cinema_transcript_segments t ON t.id=e.source_id WHERE e.kind='TRANSCRIPT' AND t.expires_at<>'' AND t.expires_at<=?)`, args: [expiredAt] },
+      { sql: "DELETE FROM cinema_private_study_evidence WHERE request_id IN (SELECT id FROM cinema_private_study_requests WHERE expires_at<=?)", args: [expiredAt] },
+      { sql: "DELETE FROM cinema_host_assistance WHERE request_id IN (SELECT id FROM cinema_private_study_requests WHERE expires_at<=?)", args: [expiredAt] },
+      { sql: "DELETE FROM cinema_private_study_requests WHERE expires_at<=?", args: [expiredAt] },
+      { sql: "DELETE FROM cinema_transcript_video_context WHERE segment_id IN (SELECT id FROM cinema_transcript_segments WHERE expires_at<>'' AND expires_at<=?)", args: [expiredAt] },
+      { sql: "DELETE FROM cinema_transcript_segments WHERE expires_at != '' AND expires_at <= ?", args: [expiredAt] },
+      { sql: "DELETE FROM cinema_caption_translations WHERE expires_at != '' AND expires_at <= ?", args: [expiredAt] },
+    ]);
     const idleMinutes = await platformSettingNumber("cinema_room_idle_minutes");
     const retentionHours = await platformSettingNumber("cinema_retention_hours");
     const presence = input.presence ?? cinemaRoomPresence;
@@ -234,7 +257,9 @@ export async function purgeCinemaRoomContents(id: string, now = Date.now()): Pro
   if (recordings.status === "retry") return false;
   await purgeCinemaWhiteboardsForRoom(id, { now });
   await purgeCinemaMessages(id);
+  await turso("DELETE FROM cinema_bookmark_video_context WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_bookmarks WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_transcript_video_context WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_transcript_segments WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_caption_translations WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_session_privacy WHERE session_id = ?", [id]);
@@ -242,6 +267,8 @@ export async function purgeCinemaRoomContents(id: string, now = Date.now()): Pro
   await turso("DELETE FROM cinema_polls WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_study_packs WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_study_jobs WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_study_pack_evidence WHERE session_id = ?", [id]);
+  await turso("DELETE FROM cinema_study_job_claims WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_waiting_members WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_participants WHERE session_id = ?", [id]);
   await turso("DELETE FROM cinema_room_invites WHERE session_id = ?", [id]);

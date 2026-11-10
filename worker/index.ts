@@ -1,3 +1,4 @@
+import { nudgePendingCinemaAssistantJobs } from "@/lib/cinema-engine/chat-assistant";
 import { runFinanceMaintenance } from "@/lib/payments/reconcile";
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
@@ -157,7 +158,7 @@ const worker = {
     // per run, so the payment sweep and the deletion job together stay inside
     // one invocation's subrequest budget. It never throws; a bad run is logged
     // and the next tick retries.
-    ctx.waitUntil(Promise.all([runCampusReconcile(), runCinemaCleanup({ limit: 4 })]));
+    ctx.waitUntil(Promise.all([runCampusReconcile(), runCinemaCleanup({ limit: 4 }), nudgePendingCinemaAssistantJobs().catch(() => logEvent("warn", "cinema_assistant_sweep_deferred", {}))]));
   },
 
   /**

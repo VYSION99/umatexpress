@@ -12,7 +12,7 @@ export function ensureCinemaPollTables() { ready ??= runSchemaPass({ metaTable: 
 
 async function member(id: string, studentId: string) { const room = await readRoom({ id, studentId }); if (!room.isMember) throw new CampusEngineError("FORBIDDEN", "Join this room to use polls.", 403); return room; }
 
-export type CinemaPoll = { id: string; question: string; options: string[]; kind: "POLL" | "QUIZ"; correctIndex: number; status: "OPEN" | "CLOSED"; votes: number[]; myVote: number; createdAt: string };
+export type CinemaPoll = { id: string; question: string; options: string[]; kind: "POLL" | "QUIZ"; correctIndex: number; status: "OPEN" | "CLOSED"; votes: number[]; myVote: number; createdAt: string; aiAssisted?: boolean };
 
 export async function listCinemaPolls(id: string, studentId: string): Promise<CinemaPoll[]> {
   await ensureCinemaPollTables(); await member(id, studentId);
@@ -28,7 +28,7 @@ export async function listCinemaPolls(id: string, studentId: string): Promise<Ci
     const options = JSON.parse(String(row.options || "[]")) as string[];
     const votes = options.map(() => 0);
     for (const count of countsByPoll.get(String(row.id)) || []) if (votes[Number(count.option_index)] !== undefined) votes[Number(count.option_index)] = Number(count.count || 0);
-    result.push({ id: String(row.id), question: String(row.question), options, kind: row.kind === "QUIZ" ? "QUIZ" : "POLL", correctIndex: row.status === "CLOSED" ? Number(row.correct_index) : -1, status: row.status === "CLOSED" ? "CLOSED" : "OPEN", votes, myVote: Number(row.my_vote ?? -1), createdAt: String(row.created_at) });
+    result.push({ id: String(row.id), question: String(row.question), options, kind: row.kind === "QUIZ" ? "QUIZ" : "POLL", correctIndex: row.status === "CLOSED" ? Number(row.correct_index) : -1, status: row.status === "CLOSED" ? "CLOSED" : "OPEN", votes, myVote: Number(row.my_vote ?? -1), createdAt: String(row.created_at), aiAssisted: String(row.id).startsWith("hostpoll-") });
   }
   return result;
 }
@@ -38,11 +38,13 @@ export async function createCinemaPoll(input: { id: string; studentId: string; q
   if (!["HOST", "COHOST"].includes(room.currentRole)) throw new CampusEngineError("FORBIDDEN", "Only a host or co-host can create a poll.", 403);
   if (!isRoomActive(room.status)) throw new CampusEngineError("INVALID_STATE", "This session has ended, so it cannot open a new poll.", 409);
   const question = String(input.question || "").replace(/\s+/g, " ").trim().slice(0, 240);
-  const options = Array.isArray(input.options) ? input.options.map((v) => String(v).trim().slice(0, 100)).filter(Boolean).slice(0, 6) : [];
+  const choices = Array.isArray(input.options) ? input.options.map((value, index) => ({ text: String(value).trim().slice(0, 100), index })).filter(choice => choice.text).slice(0, 6) : [];
+  const options = choices.map(choice => choice.text);
   if (!question || options.length < 2) throw new CampusEngineError("VALIDATION_ERROR", "Add a question and at least two choices.", 400);
   const kind = String(input.kind).toUpperCase() === "QUIZ" ? "QUIZ" : "POLL";
-  const correct = kind === "QUIZ" ? Math.floor(Number(input.correctIndex)) : -1;
-  if (kind === "QUIZ" && (correct < 0 || correct >= options.length)) throw new CampusEngineError("VALIDATION_ERROR", "Choose the correct quiz answer.", 400);
+  const selected = Number(input.correctIndex);
+  const correct = kind === "QUIZ" ? choices.findIndex(choice => choice.index === selected) : -1;
+  if (kind === "QUIZ" && (!Number.isInteger(selected) || correct < 0)) throw new CampusEngineError("VALIDATION_ERROR", "Choose a non-empty quiz answer as correct.", 400);
   const id = crypto.randomUUID(), stamp = new Date().toISOString();
   await turso("INSERT INTO cinema_polls (id,session_id,question,options,kind,correct_index,status,created_by,created_at) VALUES (?,?,?,?,?,?, 'OPEN',?,?)", [id, input.id, question, JSON.stringify(options), kind, correct, input.studentId, stamp]);
   return { id };
@@ -54,8 +56,16 @@ export async function voteCinemaPoll(input: { id: string; studentId: string; pol
   const pollId = String(input.pollId || ""); const index = Math.floor(Number(input.optionIndex));
   const poll = rowsToObjects(await turso("SELECT options,status FROM cinema_polls WHERE id=? AND session_id=? LIMIT 1", [pollId, input.id]))[0];
   const options = poll ? JSON.parse(String(poll.options || "[]")) as string[] : [];
-  if (!poll || poll.status !== "OPEN" || index < 0 || index >= options.length) throw new CampusEngineError("INVALID_STATE", "That poll is closed or the choice is invalid.", 409);
-  await turso("INSERT INTO cinema_poll_votes (poll_id,student_id,option_index,created_at) VALUES (?,?,?,?) ON CONFLICT(poll_id,student_id) DO UPDATE SET option_index=excluded.option_index,created_at=excluded.created_at", [pollId, input.studentId, index, new Date().toISOString()]);
+  if (!poll || poll.status !== "OPEN" || !Number.isInteger(index) || index < 0 || index >= options.length) throw new CampusEngineError("INVALID_STATE", "That poll is closed or the choice is invalid.", 409);
+  // Check closure, room lifetime and membership in the write itself, including
+  // vote changes. A separate preflight read cannot fence a concurrent close.
+  const result = await turso(`INSERT INTO cinema_poll_votes (poll_id,student_id,option_index,created_at)
+    SELECT p.id,?,?,? FROM cinema_polls p JOIN cinema_sessions s ON s.id=p.session_id
+    WHERE p.id=? AND p.session_id=? AND p.status='OPEN' AND s.status IN ('CREATED','LIVE')
+      AND EXISTS(SELECT 1 FROM cinema_participants m WHERE m.session_id=s.id AND m.student_id=?)
+    ON CONFLICT(poll_id,student_id) DO UPDATE SET option_index=excluded.option_index,created_at=excluded.created_at`,
+  [input.studentId, index, new Date().toISOString(), pollId, input.id, input.studentId]);
+  if (!Number(result.affected_row_count || 0)) throw new CampusEngineError("INVALID_STATE", "That poll is closed or your room access changed.", 409);
   return { voted: true };
 }
 

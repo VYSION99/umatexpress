@@ -9,7 +9,7 @@ import { requireStudent } from "@/lib/student-auth";
 const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
- * The room's one upload: read its state, start it, or give it up.
+ * The room's upload queue. A host can start or cancel the file in progress.
  *
  * Starting is the host's word only, and the ownership question is answered
  * before a byte is accepted — the platform will not be the place a video
@@ -34,7 +34,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const student = await requireStudent(request);
-    const limited = await rateLimitSubject("cinema-upload-start", student.id, { limit: 10, windowMs: 60 * 60_000 });
+    // Leave room for retries when filling a 15-video playlist.
+    const limited = await rateLimitSubject("cinema-upload-start", student.id, { limit: 20, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
     const body = await request.json() as { filename?: unknown; sizeBytes?: unknown; contentType?: unknown; ownershipConfirmed?: unknown };
@@ -56,7 +57,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   try {
     const student = await requireStudent(request);
     const { id } = await context.params;
-    const result = await abortCinemaUpload({ roomId: id, studentId: student.id });
+    const result = await abortCinemaUpload({ roomId: id, studentId: student.id, uploadId: new URL(request.url).searchParams.get("uploadId") || undefined });
     return ok({ aborted: result.aborted }, { headers: NO_STORE }, request);
   } catch (error) {
     return fail(error, request);

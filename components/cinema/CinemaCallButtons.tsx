@@ -38,7 +38,8 @@ export function CinemaCallButtons(input: {
     <button
       type="button"
       className={media.micOn ? "is-active" : ""}
-      disabled={!media.policy.voice}
+      disabled={!media.policyLoaded || !media.policy.voice}
+      aria-busy={media.devices.audio === "requesting"}
       aria-pressed={media.micOn}
       aria-label={media.micOn ? "Turn my microphone off" : "Turn my microphone on"}
       data-tip={media.policy.voice ? (media.micOn ? "Mic on — tap to mute" : "Mic off — tap to talk") : "Voice is switched off on this deployment"}
@@ -47,7 +48,8 @@ export function CinemaCallButtons(input: {
     <button
       type="button"
       className={media.cameraOn ? "is-active" : ""}
-      disabled={!media.policy.camera}
+      disabled={!media.policyLoaded || !media.policy.camera}
+      aria-busy={media.devices.video === "requesting"}
       aria-pressed={media.cameraOn}
       aria-label={media.cameraOn ? "Turn my camera off" : "Turn my camera on"}
       data-tip={media.policy.camera ? (media.cameraOn ? "Camera on — tap to turn it off" : "Camera off — tap to appear") : "Camera is switched off on this deployment"}

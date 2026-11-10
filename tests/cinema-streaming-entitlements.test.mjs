@@ -129,3 +129,38 @@ test("monthly JaaS guard keeps existing identities working and refuses a new ide
     (error) => error.status === 409 && /monthly allowance is full/.test(error.message),
   );
 });
+
+test("active stage leases renew, reject takeover after expiry, and fence delayed release", async () => {
+  const eventId = "event-renewal-fencing";
+  await entitlements.reserveFreeJaasEntitlement(reservation({ eventId, organizerType: "CLUB", organizerId: "lease-club" }));
+  const studentId = "lease-speaker", first = "lease-first-123456789", second = "lease-second-12345678";
+  const at = minutes => new Date(now.getTime() + minutes * 60000);
+  const initial = await entitlements.claimFreeStageDevice({ eventId, studentId, deviceSessionId: first, now });
+  assert.equal(initial.activeUntil, at(5).toISOString());
+  const renewed = await entitlements.renewFreeStageDevice({ eventId, studentId, deviceSessionId: first, now: at(4) });
+  assert.equal(renewed.activeUntil, at(9).toISOString());
+  await assert.rejects(entitlements.claimFreeStageDevice({ eventId, studentId, deviceSessionId: second, now: at(6) }), error => error.status === 409);
+  await assert.rejects(entitlements.renewFreeStageDevice({ eventId, studentId, deviceSessionId: second, now: at(6) }), error => error.status === 409);
+  await assert.rejects(entitlements.claimFreeStageDevice({ eventId, studentId, deviceSessionId: second, now: at(10) }), error => error.status === 409,
+    "an expired lease is not proof that the previous conference disconnected");
+  await assert.rejects(entitlements.renewFreeStageDevice({ eventId, studentId, deviceSessionId: first, now: at(10) }), error => error.status === 409);
+  assert.deepEqual(await entitlements.releaseFreeStageDevice({ eventId, studentId, deviceSessionId: first }), { released: true });
+  await entitlements.claimFreeStageDevice({ eventId, studentId, deviceSessionId: second, now: at(10) });
+  assert.deepEqual(await entitlements.releaseFreeStageDevice({ eventId, studentId, deviceSessionId: first }), { released: false });
+  const latest = await entitlements.renewFreeStageDevice({ eventId, studentId, deviceSessionId: second, now: at(11) });
+  assert.equal(latest.activeUntil, at(16).toISOString());
+  sql.db.prepare("UPDATE cinema_streaming_entitlements SET status='ENDED' WHERE event_id=?").run(eventId);
+  await assert.rejects(entitlements.renewFreeStageDevice({ eventId, studentId, deviceSessionId: second, now: at(12) }), error => error.status === 409);
+});
+
+test("lease renewal stops at the entitlement deadline", async () => {
+  const eventId = "event-lease-deadline";
+  const entitlement = await entitlements.reserveFreeJaasEntitlement(reservation({ eventId, organizerType: "CLUB", organizerId: "deadline-club", startsAt: now.toISOString() }));
+  const expires = Date.parse(entitlement.expiresAt);
+  const nearEnd = new Date(expires - 60000), deviceSessionId = "lease-near-end-123456";
+  const claim = await entitlements.claimFreeStageDevice({ eventId, studentId: "speaker-end", deviceSessionId, now: nearEnd });
+  assert.equal(claim.activeUntil, entitlement.expiresAt);
+  const renewed = await entitlements.renewFreeStageDevice({ eventId, studentId: "speaker-end", deviceSessionId, now: new Date(expires - 30000) });
+  assert.equal(renewed.activeUntil, entitlement.expiresAt);
+  await assert.rejects(entitlements.renewFreeStageDevice({ eventId, studentId: "speaker-end", deviceSessionId, now: new Date(expires) }), error => error.status === 409);
+});

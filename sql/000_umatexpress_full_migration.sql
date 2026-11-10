@@ -1802,3 +1802,122 @@ CREATE TABLE IF NOT EXISTS cinema_reusable_room_guests (
   room_id TEXT NOT NULL, student_id TEXT NOT NULL, invited_by TEXT NOT NULL,
   created_at TEXT NOT NULL, PRIMARY KEY(room_id,student_id)
 );
+
+-- Monotonic chat cursors and reply relationships. Rows without a message are
+-- moderation placeholders; removed message text is not retained here.
+CREATE TABLE IF NOT EXISTS cinema_message_order (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT NOT NULL UNIQUE,
+  session_id TEXT NOT NULL,
+  parent_id TEXT NOT NULL DEFAULT '',
+  thread_id TEXT NOT NULL DEFAULT ''
+);
+INSERT OR IGNORE INTO cinema_message_order(message_id,session_id,thread_id)
+  SELECT id,session_id,id FROM cinema_messages ORDER BY created_at,rowid;
+CREATE INDEX IF NOT EXISTS idx_cinema_chat_order ON cinema_message_order(session_id,sequence);
+CREATE INDEX IF NOT EXISTS idx_cinema_chat_thread ON cinema_message_order(session_id,thread_id,sequence);
+
+-- 052: Evidence-linked cinema chat assistant.
+-- Explicit Ask Cinema requests and evidence references; no source text is copied here.
+CREATE TABLE IF NOT EXISTS cinema_chat_ai_jobs (
+  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, requested_by TEXT NOT NULL, status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0, claim_token TEXT NOT NULL DEFAULT '', lease_until TEXT NOT NULL DEFAULT '',
+  answer_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cinema_chat_ai_queue ON cinema_chat_ai_jobs(status,lease_until,created_at);
+CREATE INDEX IF NOT EXISTS idx_cinema_chat_ai_room ON cinema_chat_ai_jobs(session_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_cinema_chat_ai_requester ON cinema_chat_ai_jobs(requested_by,created_at);
+CREATE TABLE IF NOT EXISTS cinema_chat_ai_evidence (
+  job_id TEXT NOT NULL, kind TEXT NOT NULL, source_id TEXT NOT NULL, digest TEXT NOT NULL,
+  PRIMARY KEY(job_id,kind,source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cinema_chat_ai_source ON cinema_chat_ai_evidence(kind,source_id);
+-- Legacy transcript rows stay unbound; do not guess which playlist entry they describe.
+CREATE TABLE IF NOT EXISTS cinema_transcript_video_context (
+  segment_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, source_type TEXT NOT NULL, video_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cinema_transcript_video ON cinema_transcript_video_context(session_id,source_type,video_id);
+
+-- 053: Private cinema study requests and evidence.
+-- Private AI explanations: owner-only endpoints; never room chat or socket payloads.
+CREATE TABLE IF NOT EXISTS cinema_private_study_requests (
+    id TEXT PRIMARY KEY,session_id TEXT NOT NULL,owner_id TEXT NOT NULL,question TEXT NOT NULL,
+    anchor_id TEXT NOT NULL DEFAULT '',video_context TEXT NOT NULL DEFAULT '',through_sequence INTEGER NOT NULL,
+    status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,claim_token TEXT NOT NULL DEFAULT '',lease_until TEXT NOT NULL DEFAULT '',
+    answer TEXT NOT NULL DEFAULT '',citations TEXT NOT NULL DEFAULT '[]',dependencies TEXT NOT NULL DEFAULT '[]',error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,updated_at TEXT NOT NULL,expires_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_cinema_private_owner ON cinema_private_study_requests(owner_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_cinema_private_room ON cinema_private_study_requests(session_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_cinema_private_queue ON cinema_private_study_requests(status,lease_until,created_at);
+CREATE INDEX IF NOT EXISTS idx_cinema_private_expiry ON cinema_private_study_requests(expires_at);
+CREATE TABLE IF NOT EXISTS cinema_private_study_evidence (
+    request_id TEXT NOT NULL,kind TEXT NOT NULL,source_id TEXT NOT NULL,digest TEXT NOT NULL,
+    PRIMARY KEY(request_id,kind,source_id));
+CREATE INDEX IF NOT EXISTS idx_cinema_private_source ON cinema_private_study_evidence(kind,source_id);
+
+-- 054: Host-reviewed cinema assistance.
+-- Host-only AI draft purpose and explicit review records. Generated content stays in private study storage.
+CREATE TABLE IF NOT EXISTS cinema_host_assistance (
+    request_id TEXT PRIMARY KEY,kind TEXT NOT NULL,review_status TEXT NOT NULL DEFAULT 'REVIEW',
+    result_id TEXT NOT NULL DEFAULT '',reviewed_by TEXT NOT NULL DEFAULT '',reviewed_at TEXT NOT NULL DEFAULT '');
+
+-- 055: Video context for shared bookmarks; unknown historical context stays unbound.
+CREATE TABLE IF NOT EXISTS cinema_bookmark_video_context (bookmark_id TEXT PRIMARY KEY,session_id TEXT NOT NULL,source_type TEXT NOT NULL,video_id TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_cinema_bookmark_video ON cinema_bookmark_video_context(session_id,source_type,video_id);
+
+-- Cinema study evidence and worker leases (056).
+-- Dependency hashes do not extend the retention of the source text.
+-- Existing packs without evidence are invalidated when read and require regeneration.
+CREATE TABLE IF NOT EXISTS cinema_study_pack_evidence (
+  pack_id TEXT NOT NULL,session_id TEXT NOT NULL,kind TEXT NOT NULL,source_id TEXT NOT NULL,
+  digest TEXT NOT NULL,expires_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(pack_id,kind,source_id));
+CREATE INDEX IF NOT EXISTS idx_cinema_study_evidence_session ON cinema_study_pack_evidence(session_id,pack_id);
+CREATE INDEX IF NOT EXISTS idx_cinema_study_evidence_source ON cinema_study_pack_evidence(kind,source_id);
+CREATE TABLE IF NOT EXISTS cinema_study_job_claims (
+  session_id TEXT PRIMARY KEY,claim_token TEXT NOT NULL DEFAULT '',lease_until TEXT NOT NULL DEFAULT '',attempts INTEGER NOT NULL DEFAULT 0);
+
+-- Cinema room plan checkout and current seeded prices (048 and 057).
+CREATE TABLE IF NOT EXISTS cinema_room_plan_prices (
+  plan TEXT PRIMARY KEY,
+  price_pesewas INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS cinema_room_plan_orders (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  plan TEXT NOT NULL,
+  base_amount INTEGER NOT NULL,
+  checkout_amount INTEGER NOT NULL,
+  reference TEXT NOT NULL UNIQUE,
+  checkout_url TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  valid_until TEXT NOT NULL,
+  paid_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cinema_room_orders_account ON cinema_room_plan_orders(account_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cinema_room_orders_one_pending ON cinema_room_plan_orders(account_id) WHERE status = 'PENDING';
+-- Update the seeded prices while preserving console overrides and checkout switches.
+INSERT INTO cinema_room_plan_prices(plan,price_pesewas,enabled)
+VALUES ('STUDENT_PLUS',3700,1),('ORGANIZER_PRO',8600,1)
+ON CONFLICT(plan) DO UPDATE SET price_pesewas=excluded.price_pesewas
+WHERE cinema_room_plan_prices.updated_by=''
+  AND ((excluded.plan='STUDENT_PLUS' AND cinema_room_plan_prices.price_pesewas=2900)
+    OR (excluded.plan='ORGANIZER_PRO' AND cinema_room_plan_prices.price_pesewas=7900));
+
+-- Cinema room-plan tiers and purchase eligibility (058).
+CREATE TABLE IF NOT EXISTS cinema_room_plan_politics_approvals (
+  account_id TEXT PRIMARY KEY, valid_until TEXT NOT NULL DEFAULT '');
+
+INSERT OR IGNORE INTO cinema_room_plan_prices(plan,price_pesewas,enabled)
+VALUES ('STUDENT_POLITICS_PLUS',5900,1),('PRO_PLUS',11900,1);
+
+-- Processed Cinema plan refunds (059).
+CREATE TABLE IF NOT EXISTS cinema_room_plan_refunds (
+  refund_id TEXT PRIMARY KEY, order_reference TEXT NOT NULL, amount INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_cinema_plan_refunds_order ON cinema_room_plan_refunds(order_reference);

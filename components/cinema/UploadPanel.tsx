@@ -1,14 +1,26 @@
 "use client";
 
+import { CINEMA_UPLOAD_ACCEPT, CINEMA_UPLOAD_FORMAT_LABEL, cinemaUploadContentType } from "@/lib/cinema-engine/upload-formats";
+
 import { putCinemaPart } from "./transfer";
 import { capturePosterImage, captureVideoThumbnails } from "./video-thumbnail";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { UploadSimple } from "@/components/ui/MaterialIcon";
 
 type UploadLimits = { maxBytes: number; partBytes: number; maxParts: number; types: string[] };
 type UploadState = { id: string; status: string; filename: string; sizeBytes: number; mimeType: string; durationSeconds: number; playlistPosition: number } | null;
 type Allowance = { plan: string; maxFiles: number; maxBytes: number; maxMinutes: number };
+
+type UploadCheckpoint = {
+  roomId: string;
+  uploadId: string;
+  file: File;
+  partBytes: number;
+  total: number;
+  parts: Array<{ partNumber: number; etag: string }>;
+};
 
 /**
  * The host's one upload, as a lobby step rather than a room control.
@@ -29,6 +41,7 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
   const [file, setFile] = useState<File | null>(null);
   const [owned, setOwned] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
   const [posterNotice, setPosterNotice] = useState("");
   const [posterBusy, setPosterBusy] = useState("");
@@ -36,6 +49,15 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
   const [sent, setSent] = useState(0);
   const [total, setTotal] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  const checkpoint = useRef<UploadCheckpoint | null>(null);
+  const [resumableId, setResumableId] = useState("");
+  const [retryAt, setRetryAt] = useState(0);
+
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = setTimeout(() => setRetryAt(0), Math.max(0, retryAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [retryAt]);
 
   /** The panel's state, as data; effects and handlers decide when to apply it. */
   const requestState = useCallback(async () => {
@@ -65,45 +87,65 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
     ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
     : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
 
-  const start = async () => {
-    if (!file || !limits) return;
+  const start = async (resume = false) => {
+    if (!file || !limits || busy || cancelling || (retryAt && retryAt > Date.now())) return;
+    const saved = resume ? checkpoint.current : null;
+    if (resume && (!saved || saved.file !== file || saved.roomId !== input.roomId || saved.uploadId !== upload?.id || upload.status !== "UPLOADING")) return;
+    if (!resume && upload?.status === "UPLOADING") return;
     setError("");
-    if (!limits.types.includes(file.type)) {
-      setError("That file type is not one this room plays. Use MP4, MOV or WebM.");
+    const contentType = cinemaUploadContentType(file.name, file.type);
+    if (!contentType || !limits.types.includes(contentType)) {
+      setError(`Choose a supported video file: ${CINEMA_UPLOAD_FORMAT_LABEL}.`);
       return;
     }
     const remaining = allowance ? allowance.maxBytes - uploads.filter((entry) => entry.status === "READY").reduce((sum, entry) => sum + entry.sizeBytes, 0) : limits.maxBytes;
     const allowed = Math.min(limits.maxBytes, remaining);
-    if (file.size > allowed) {
+    if (!saved && file.size > allowed) {
       setError(`That file is ${humanSize(file.size)}; this room has ${humanSize(Math.max(0, allowed))} available.`);
       return;
     }
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const thumbnails = captureVideoThumbnails(file).catch(() => []);
+    let startedId = saved?.uploadId || "";
+    const checkThrottle = (response: Response) => {
+      if (response.status !== 429) return;
+      const retrySeconds = Number(response.headers.get("Retry-After"));
+      if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+        setRetryAt(Date.now() + Math.min(retrySeconds, 3600) * 1000);
+      }
+      throw new Error(startedId ? "Upload paused by the transfer limit. Your progress is saved while this tab stays open." : "Upload limit reached. Try again after the wait.");
+    };
     try {
-      const opened = await fetch(`/api/cinema/sessions/${input.roomId}/upload`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ filename: file.name, sizeBytes: file.size, contentType: file.type, ownershipConfirmed: owned }),
-        signal: controller.signal,
-      });
-      const opening = await opened.json() as { partBytes?: number; parts?: number; error?: string };
-      if (!opened.ok || !opening.partBytes || !opening.parts) throw new Error(opening.error || "The upload could not be started.");
-      setUpload({ id: "pending", status: "UPLOADING", filename: file.name, sizeBytes: file.size, mimeType: file.type, durationSeconds: 0, playlistPosition: 0 });
-      setTotal(opening.parts);
-      setSent(0);
-
-      const parts: Array<{ partNumber: number; etag: string }> = [];
-      for (let index = 0; index < opening.parts; index += 1) {
-        const offset = index * opening.partBytes;
-        const chunk = file.slice(offset, Math.min(file.size, offset + opening.partBytes));
-        const response = await putCinemaPart(`/api/cinema/sessions/${input.roomId}/upload/part?n=${index + 1}`, chunk, controller.signal);
+      let transfer = saved;
+      if (!transfer) {
+        const opened = await fetch(`/api/cinema/sessions/${input.roomId}/upload`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, sizeBytes: file.size, contentType, ownershipConfirmed: owned }),
+          signal: controller.signal,
+        });
+        checkThrottle(opened);
+        const opening = await opened.json() as { upload?: { id: string }; partBytes?: number; parts?: number; error?: string };
+        if (!opened.ok || !opening.upload?.id || !opening.partBytes || !opening.parts) throw new Error(opening.error || "The upload could not be started.");
+        startedId = opening.upload.id;
+        transfer = { roomId: input.roomId, uploadId: startedId, file, partBytes: opening.partBytes, total: opening.parts, parts: [] };
+        checkpoint.current = transfer;
+        setResumableId(startedId);
+        setUpload({ id: startedId, status: "UPLOADING", filename: file.name, sizeBytes: file.size, mimeType: contentType, durationSeconds: 0, playlistPosition: 0 });
+      }
+      setTotal(transfer.total);
+      setSent(transfer.parts.length);
+      for (let index = transfer.parts.length; index < transfer.total; index += 1) {
+        const offset = index * transfer.partBytes;
+        const chunk = file.slice(offset, Math.min(file.size, offset + transfer.partBytes));
+        const query = new URLSearchParams({ n: String(index + 1), uploadId: startedId });
+        const response = await putCinemaPart(`/api/cinema/sessions/${input.roomId}/upload/part?${query}`, chunk, controller.signal);
+        checkThrottle(response);
         const data = await response.json() as { part?: { partNumber: number; etag: string }; error?: string };
-        if (!response.ok || !data.part) throw new Error(data.error || `Part ${index + 1} did not arrive.`);
-        parts.push(data.part);
+        if (!response.ok || data.part?.partNumber !== index + 1 || !data.part.etag) throw new Error(data.error || `Part ${index + 1} did not arrive.`);
+        transfer.parts.push(data.part);
         setSent(index + 1);
       }
 
@@ -111,16 +153,19 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ parts }),
+        body: JSON.stringify({ uploadId: startedId, parts: transfer.parts }),
         signal: controller.signal,
       });
+      checkThrottle(finished);
       const completion = await finished.json() as { error?: string; upload?: { id: string } };
       if (!finished.ok) throw new Error(completion.error || "The upload could not be finished.");
+      checkpoint.current = null;
+      setResumableId("");
       // Artwork is optional: unsupported video decoders must never undo a
       // completed multipart upload, but the host must be told how to repair it.
       if (completion.upload?.id) {
         try {
-          const candidates = await thumbnails;
+          const candidates = await captureVideoThumbnails(file);
           if (!candidates.length) throw new Error("Your browser could not capture a frame from this video.");
           const response = await fetch(`/api/cinema/sessions/${input.roomId}/thumbnail`, {
             method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
@@ -147,14 +192,40 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
       const aborted = controller.signal.aborted;
       setError(aborted ? "Upload cancelled. Temporary parts are queued for cleanup." : uploadError instanceof Error ? uploadError.message : "The upload failed.");
       // A cancelled upload is given up on the server too, so the room is clean.
-      if (aborted) await fetch(`/api/cinema/sessions/${input.roomId}/upload`, { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
-      acceptState(await requestState());
+      if (aborted && startedId) await fetch(`/api/cinema/sessions/${input.roomId}/upload?uploadId=${encodeURIComponent(startedId)}`, { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
+      const state = await requestState();
+      if (startedId && state && (state.upload?.id !== startedId || state.upload.status !== "UPLOADING")) {
+        checkpoint.current = null;
+        setResumableId("");
+        setRetryAt(0);
+        if (state.uploads?.some(item => item.id === startedId && item.status === "READY")) {
+          setError(""); setFile(null); setOwned(false); setSent(0); setTotal(0); input.onUploaded();
+        }
+      }
+      acceptState(state);
     } finally {
       abortRef.current = null;
       setBusy(false);
     }
   };
 
+  const cancelInterrupted = async () => {
+    if (!upload?.id || upload.status !== "UPLOADING" || busy || cancelling) return;
+    setCancelling(true); setError("");
+    try {
+      const response = await fetch(`/api/cinema/sessions/${input.roomId}/upload?uploadId=${encodeURIComponent(upload.id)}`, { method: "DELETE", credentials: "same-origin" });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "The interrupted upload could not be cancelled. Try again.");
+      const state = await requestState();
+      if (!state) throw new Error("Could not refresh the upload. Reload before starting another file.");
+      checkpoint.current = null;
+      setResumableId(""); setRetryAt(0);
+      acceptState(state); setSent(0); setTotal(0);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The upload could not be cancelled."); }
+    finally { setCancelling(false); }
+  };
+
+  const canResume = upload?.status === "UPLOADING" && upload.id === resumableId;
   const readyUploads = uploads.filter((entry) => entry.status === "READY");
   const full = Boolean(allowance && readyUploads.length >= allowance.maxFiles);
   const currentIndex = readyUploads.findIndex((entry) => entry.id === currentUploadId);
@@ -194,23 +265,23 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
   };
 
   return <section className="cinema-upload-panel">
-    <p className="cinema-note">
-      {allowance?.plan.replaceAll("_", " ") || "Free"}: {readyUploads.length} of {allowance?.maxFiles || 1} files · {allowance ? humanSize(allowance.maxBytes) : "500 MB"} total · up to {allowance?.maxMinutes || 60} minutes.
-      Videos play in this order, then the room stays open for discussion until you end it.
-    </p>
+    <div className="cinema-upload-overview"><div><strong>Playback order</strong><p>Videos play one after another. The room stays open for discussion afterward.</p></div><span>{readyUploads.length} / {allowance?.maxFiles || 1} files</span></div>
+    <p className="cinema-note cinema-upload-allowance">{allowance?.plan.replaceAll("_", " ") || "Free"} allowance · {allowance ? humanSize(allowance.maxBytes) : "500 MB"} total · up to {allowance?.maxMinutes || 60} minutes</p>
     {!input.isPrivate && <p className="cinema-note">Anyone with the link and a verified account can join this room and watch its files. Upload only content you may share with them.</p>}
-    {upload?.status === "UPLOADING" && !busy && <p className="cinema-note">An upload is in progress. Cancel it before choosing another file.</p>}
-    {readyUploads.length > 0 && <ol className="cinema-upload-queue">{readyUploads.map((entry, index) => <li key={entry.id}><img className="cinema-file-thumb" src={`/api/cinema/sessions/${input.roomId}/thumbnail?uploadId=${encodeURIComponent(entry.id)}&v=${posterRevision}`} alt="" onLoad={(event) => { event.currentTarget.hidden = false; }} onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{entry.filename}</strong><span>{entry.id === currentUploadId ? "Playing" : humanSize(entry.sizeBytes)}</span><label className="cinema-poster-action">{posterBusy === entry.id ? "Saving…" : "Set poster"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || !!posterBusy} aria-label={`Set poster for ${entry.filename}`} onChange={(event) => { const selected = event.target.files?.[0]; event.target.value = ""; void savePoster(entry.id, selected); }} /></label>{index > currentIndex && currentIndex >= 0 && <span className="cinema-queue-actions"><button type="button" aria-label={`Move ${entry.filename} earlier`} disabled={busy || index <= currentIndex + 1} onClick={() => void move(index, -1)}>↑</button><button type="button" aria-label={`Move ${entry.filename} later`} disabled={busy || index >= readyUploads.length - 1} onClick={() => void move(index, 1)}>↓</button></span>}</li>)}</ol>}
+    {upload?.status === "UPLOADING" && !busy && <div><p className="cinema-note">{canResume ? "Your progress is saved in this tab. Resume or cancel this upload." : "An unfinished upload is saved for this room. Cancel it before choosing another file."}</p>{canResume && <button type="button" disabled={cancelling || !!retryAt} onClick={() => void start(true)}>Resume upload</button>} <button type="button" className="secondary" disabled={cancelling} onClick={() => void cancelInterrupted()}>{cancelling ? "Cancelling…" : "Cancel unfinished upload"}</button></div>}
+    {readyUploads.length > 0 ? <ol className="cinema-upload-queue">{readyUploads.map((entry, index) => <li key={entry.id}><span className="cinema-file-position" aria-label={`Video ${index + 1}`}>{index + 1}</span><img className="cinema-file-thumb" src={`/api/cinema/sessions/${input.roomId}/thumbnail?uploadId=${encodeURIComponent(entry.id)}&v=${posterRevision}`} alt="" onLoad={(event) => { event.currentTarget.hidden = false; }} onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{entry.filename}</strong><span>{entry.id === currentUploadId ? "Playing" : humanSize(entry.sizeBytes)}</span><label className="cinema-poster-action">{posterBusy === entry.id ? "Saving…" : "Set poster"}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || !!posterBusy} aria-label={`Set poster for ${entry.filename}`} onChange={(event) => { const selected = event.target.files?.[0]; event.target.value = ""; void savePoster(entry.id, selected); }} /></label>{index > currentIndex && currentIndex >= 0 && <span className="cinema-queue-actions"><button type="button" aria-label={`Move ${entry.filename} earlier`} disabled={busy || index <= currentIndex + 1} onClick={() => void move(index, -1)}>↑</button><button type="button" aria-label={`Move ${entry.filename} later`} disabled={busy || index >= readyUploads.length - 1} onClick={() => void move(index, 1)}>↓</button></span>}</li>)}</ol> : <p className="cinema-upload-empty">No videos yet. Choose the first file to start your playlist.</p>}
     {posterNotice && <p className="cinema-note" role="status">{posterNotice}</p>}
-    {full ? <p className="cinema-note">This room has reached its file allowance.</p> : <>
+    {full ? <p className="cinema-note">This room has reached its file allowance. <Link href="/cinema/rooms/plans">Compare room plans</Link> for future rooms.</p> : <>
     <input
       className="cinema-upload-file"
       type="file"
-      accept={limits?.types.join(",") || "video/mp4,video/quicktime,video/webm"}
-      disabled={busy || full}
+      accept={CINEMA_UPLOAD_ACCEPT}
+      disabled={busy || cancelling || full || upload?.status === "UPLOADING"}
       aria-label="Choose a video file"
-      onChange={(event) => { setFile(event.target.files?.[0] ?? null); setError(""); }}
+      onChange={(event) => { setFile(event.target.files?.[0] ?? null); event.target.value = ""; setError(""); }}
     />
+    <p className="cinema-note">Supported: {CINEMA_UPLOAD_FORMAT_LABEL}. Playback depends on each viewer’s browser and the video codecs. MP4 with H.264 video and AAC audio offers broad compatibility.</p>
+    {file && <p className="cinema-upload-selection" role="status"><strong>Selected:</strong> {file.name} <span>{humanSize(file.size)}</span></p>}
     <label className="cinema-upload-consent">
       <input type="checkbox" checked={owned} disabled={busy} onChange={(event) => setOwned(event.target.checked)} />
       I recorded this, or I have the right to share it with everyone who can join this room.
@@ -220,12 +291,13 @@ export function UploadPanel(input: { roomId: string; onUploaded: () => void; isP
       <span>{Math.round((sent / total) * 100)}% — part {sent} of {total}</span>
     </div>}
     <div className="cinema-controls cinema-sub">
-      <button type="button" disabled={busy || full || !file || !owned} onClick={() => void start()}>
+      <button type="button" disabled={busy || cancelling || !!retryAt || full || upload?.status === "UPLOADING" || !file || !owned} onClick={() => void start()}>
         <UploadSimple size={14} aria-hidden /> {busy ? "Uploading…" : "Upload the video"}
       </button>
       {busy && <button type="button" className="secondary" onClick={() => abortRef.current?.abort()}>Cancel</button>}
     </div>
     </>}
+    {!!retryAt && <p className="cinema-note" role="status">Try again after {new Date(retryAt).toLocaleTimeString()}.</p>}
     {error && <p className="cinema-error">{error}</p>}
   </section>;
 }

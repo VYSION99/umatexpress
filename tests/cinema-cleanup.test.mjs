@@ -109,9 +109,21 @@ globalThis.fetch = async (url, init) => {
   const target = String(typeof url === "string" ? url : url?.url || "");
   if (target.startsWith("https://cinema-cleanup-test.turso.io")) {
     const body = JSON.parse(init.body);
-    const results = body.requests
-      .filter((request) => request.type === "execute")
-      .map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value))));
+    const results = body.requests.map(request => {
+      const execute = stmt => handle(stmt.sql, (stmt.args || []).map(arg => arg.type === "null" ? null : arg.value));
+      if (request.type === "execute") return execute(request.stmt);
+      if (request.type === "batch") {
+        const step_results = [], step_errors = [];
+        const condition = value => !value || (value.type === "ok" ? step_results[value.step] != null : value.type === "not" ? !condition(value.cond) : value.conds.every(condition));
+        for (const step of request.batch.steps) {
+          if (!condition(step.condition)) { step_results.push(null); step_errors.push(null); continue; }
+          const result = execute(step.stmt);
+          step_results.push(result.response?.result || null); step_errors.push(result.error || null);
+        }
+        return ok({ step_results, step_errors });
+      }
+      return ok({});
+    });
     return { ok: true, json: async () => ({ results }) };
   }
   throw new Error(`Unhandled request to ${target}`);

@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { verifyPaystackWebhookSignature } from "@/lib/paystack";
 import { actionablePaystackEvent, type PaystackWebhook } from "@/lib/payments/paystack-events";
-import { receivePaymentEvent, processPaymentInboxEvent } from "@/lib/payments/inbox";
+import { receivePaymentEvent, processPaymentInboxEvent, paymentEventIdentity } from "@/lib/payments/inbox";
 import { requestIdFromRequest, withRequestId, logEvent } from "@/lib/observability";
 
 export async function POST(request: Request) {
@@ -26,7 +26,8 @@ export async function POST(request: Request) {
     return respond({ error: "Invalid webhook payload." }, 400);
   }
   if (!actionablePaystackEvent(event)) return respond({ message: "Event is not actionable." });
-  if (!String(event.data?.reference || "").trim()) return respond({ error: "Missing payment reference." }, 400);
+  try { paymentEventIdentity(event); }
+  catch { return respond({ error: "Missing payment reference." }, 400); }
   let id: string;
   try {
     id = await receivePaymentEvent(event);

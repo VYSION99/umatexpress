@@ -8,25 +8,29 @@ const STORAGE_KEY = "cinema-caption-language";
 const SPEECH_KEY = "cinema-caption-speech";
 const speechLocale: Record<CinemaCaptionLanguage, string> = { en: "en-GH", tw: "ak-GH", fat: "ak-GH", ee: "ee-GH", gaa: "gaa-GH", fr: "fr-FR", es: "es-ES", pt: "pt-PT", ar: "ar" };
 
-export function useCinemaCaptions(roomId: string, enabled: boolean, atSeconds: () => number) {
+export function useCinemaCaptions(roomId: string, enabled: boolean, atSeconds: () => number, video: { sourceType: string; videoId: string }) {
   const [privacy, setPrivacy] = useState<CinemaTranscriptPrivacy | null>(null);
-  const [segments, setSegments] = useState<CinemaTranscriptSegment[]>([]);
+  const sourceType = video.sourceType, videoId = video.videoId;
+  const scope = JSON.stringify([roomId, sourceType, videoId]);
+  const [captions, setCaptions] = useState<{ scope: string; segments: CinemaTranscriptSegment[] } | null>(null);
+  const segments = enabled && captions?.scope === scope ? captions.segments : [];
   const [now, setNow] = useState(0);
   useEffect(() => {
     if (!enabled) return;
     let disposed = false;
     const refresh = async () => {
-      const response = await fetch(`/api/cinema/sessions/${roomId}/transcript?captions=1&at=${atSeconds()}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
+      const search = new URLSearchParams({ captions: "1", at: String(atSeconds()), source: sourceType, video: videoId });
+      const response = await fetch(`/api/cinema/sessions/${roomId}/transcript?${search}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
       if (!response?.ok || disposed) return;
       const data = await response.json() as { privacy?: CinemaTranscriptPrivacy; segments?: CinemaTranscriptSegment[] };
       if (disposed) return;
       if (data.privacy) setPrivacy(data.privacy);
-      setSegments(data.privacy?.transcriptEnabled ? data.segments || [] : []);
+      setCaptions({ scope, segments: data.privacy?.transcriptEnabled ? data.segments || [] : [] });
     };
     void refresh();
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3_000);
     return () => { disposed = true; clearInterval(timer); };
-  }, [roomId, enabled, atSeconds]);
+  }, [roomId, enabled, atSeconds, sourceType, videoId, scope]);
   useEffect(() => {
     if (!privacy?.transcriptEnabled) return;
     const timer = setInterval(() => setNow(Date.now()), 500);

@@ -43,6 +43,7 @@ function handle(sql, args) {
     state.notifications.push({ id, channel, recipient, template, subject, message, reference });
     return affected(1);
   }
+  if (/^INSERT OR IGNORE INTO cinema_message_order/.test(sql)) return affected(0);
   if (/^ALTER TABLE/.test(sql)) return ok(empty);
   if (/^INSERT (OR IGNORE )?INTO cinema_reusable_rooms/.test(sql)) {
     const [id, host_student_id, current_session_id, title, source_type, video_id, visibility, duration_minutes, created_at, updated_at] = args;
@@ -125,7 +126,8 @@ function handle(sql, args) {
     if (profile && profile.busy_token === args[1]) { profile.busy_token = ""; profile.busy_until = ""; return affected(1); }
     return affected(0);
   }
-  if (/^SELECT plan FROM cinema_room_plan_grants/.test(sql)) return ok(empty);
+  if (/^SELECT plan,valid_until FROM cinema_room_plan_grants/.test(sql)) return ok(empty);
+  if (/^INSERT INTO cinema_room_plan_prices/.test(sql)) return affected(2);
   if (/^INSERT OR IGNORE INTO cinema_room_allowances/.test(sql)) return affected(1);
   if (/^SELECT plan,max_files,max_bytes,max_minutes FROM cinema_room_allowances/.test(sql)) return ok(table(["plan", "max_files", "max_bytes", "max_minutes"], [{ plan: "FREE", max_files: 1, max_bytes: 500 * 1024 ** 2, max_minutes: 60 }]));
 
@@ -408,7 +410,7 @@ function handle(sql, args) {
   }
   if (/^SELECT id,session_id,recorder_id,/.test(sql) && /FROM cinema_recordings WHERE session_id = \?/.test(sql)) return ok(empty);
   if (/^UPDATE cinema_whiteboards SET status = 'DELETED'/.test(sql)) return affected(0);
-  if (/^DELETE FROM cinema_(messages|bookmarks|transcript_segments|caption_translations|session_privacy|poll_votes|polls|study_packs|study_jobs) WHERE/.test(sql)) return affected(0);
+  if (/^DELETE FROM cinema_(messages|message_order|chat_ai_evidence|chat_ai_jobs|private_study_evidence|private_study_requests|host_assistance|transcript_video_context|bookmark_video_context|bookmarks|transcript_segments|caption_translations|session_privacy|poll_votes|polls|study_packs|study_jobs|study_pack_evidence|study_job_claims) WHERE/.test(sql)) return affected(0);
   if (/^DELETE FROM cinema_waiting_members WHERE session_id = \?$/.test(sql)) { state.waiting = state.waiting.filter(row => row.session_id !== args[0]); return affected(1); }
   if (/^DELETE FROM cinema_participants WHERE session_id = \?$/.test(sql)) { state.members = state.members.filter(row => row.session_id !== args[0]); return affected(1); }
   if (/^DELETE FROM cinema_room_invites WHERE session_id = \?$/.test(sql)) { state.invites = state.invites.filter(row => row.session_id !== args[0]); return affected(1); }

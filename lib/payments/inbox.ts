@@ -1,5 +1,6 @@
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 import { processPaystackEvent, type PaystackWebhook } from "@/lib/payments/paystack-events";
+import { isRefundEvent, paystackRefundIdentity } from "@/lib/payments/paystack-refund-identity";
 import { logEvent } from "@/lib/observability";
 
 export const PAYMENT_INBOX_SCHEMA = `CREATE TABLE IF NOT EXISTS payment_inbox (
@@ -26,8 +27,9 @@ async function ensureInbox() {
 }
 
 export function paymentEventIdentity(event: PaystackWebhook) {
-  const reference = String(event.data?.reference || "").trim();
-  const resource = String(event.data?.id || event.data?.transfer_code || reference);
+  const refund = isRefundEvent(event.event) ? paystackRefundIdentity(event.data) : null;
+  const reference = String(event.data?.reference || event.data?.refund_reference || refund?.refundId || "").trim();
+  const resource = refund ? refund.refundId : String(event.data?.id || event.data?.transfer_code || reference);
   if (!event.event || !resource || !reference) throw new Error("Incomplete payment event identity.");
   return { id: `PAYSTACK:${event.event}:${resource}`, resource, reference };
 }
@@ -42,6 +44,7 @@ export async function receivePaymentEvent(event: PaystackWebhook) {
     id: data.id, reference, amount: data.amount, currency: data.currency,
     status: data.status, fees: data.fees, transfer_code: data.transfer_code,
     gateway_response: data.gateway_response, reason: data.reason,
+    ...(isRefundEvent(event.event) ? { transaction_reference: paystackRefundIdentity(data).chargeReference, refund_reference: data.refund_reference } : {}),
   } });
   const now = new Date().toISOString();
   await turso(`INSERT INTO payment_inbox

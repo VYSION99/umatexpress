@@ -37,12 +37,18 @@ const WHITEBOARD_REMOVED_KEEP = 50;
  * may ask the board — because both are facts about the room that only the room
  * can change.
  */
-export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
-  const { roomId, enabled } = input;
+export function useCinemaSocket(input: { roomId: string; accountId: string; enabled: boolean }) {
+  const { roomId, accountId } = input;
+  const enabled = input.enabled && Boolean(accountId);
+  const scope = JSON.stringify([roomId, accountId]);
+  const [cacheScope, setCacheScope] = useState(scope);
   const [state, setState] = useState<CinemaConnectionState>(enabled ? "connecting" : "closed");
   const [members, setMembers] = useState<CinemaPresenceMember[]>([]);
   const [playback, setPlayback] = useState<CinemaPlaybackState | null>(null);
   const [messages, setMessages] = useState<CinemaChatMessage[]>([]);
+  const [removedChatIds, setRemovedChatIds] = useState<string[]>([]);
+  const [chatConnection, setChatConnection] = useState(0);
+  const [assistantRevision, setAssistantRevision] = useState(0);
   const [source, setSource] = useState<{ sourceType: string; videoId: string } | null>(null);
   const [questionsRevision, setQuestionsRevision] = useState(0);
   const [pollsRevision, setPollsRevision] = useState(0);
@@ -57,9 +63,10 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   const [boardPolicy, setBoardPolicy] = useState<CinemaBoardPolicy>("MEMBERS");
   const [reactions, setReactions] = useState<CinemaReactionEvent[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
+  const socketScopeRef = useRef("");
   const [clock] = useState(() => createCinemaClock());
   const [socketError, setSocketError] = useState("");
-  const pendingChat = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>());
+  const pendingChat = useRef(new Map<string, { resolve: (message: CinemaChatMessage) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>());
   const failPending = useCallback((reason: string) => {
     for (const request of pendingChat.current.values()) { clearTimeout(request.timer); request.reject(new Error(reason)); }
     pendingChat.current.clear();
@@ -77,6 +84,18 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
    */
   const boardHandlersRef = useRef(new Set<CinemaBoardHandler>());
 
+  // Reset before rendering consumers, rather than waiting for an effect that
+  // could expose the old cache for a frame during an identity/room change.
+  if (cacheScope !== scope) {
+    setCacheScope(scope);
+    setState(enabled ? "connecting" : "closed");
+    setMessages([]); setMembers([]); setPlayback(null); setSource(null);
+    setRemovedChatIds([]); setRemovedWhiteboards([]); setWhiteboard(null);
+    setChatConnection(0); setAssistantRevision(0); setQuestionsRevision(0); setPollsRevision(0);
+    setScheduleEndsAt(null); setClosedReason(""); setMuteAllSignal(0);
+    setBoardPolicy("MEMBERS"); setReactions([]); setSocketError("");
+  }
+
   const subscribeSignals = useCallback((handler: CinemaSignalHandler) => {
     const handlers = signalHandlersRef.current;
     handlers.add(handler);
@@ -91,19 +110,20 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
   }, []);
 
   const send = useCallback((message: CinemaClientMessage) => {
+    if (!enabled || socketScopeRef.current !== scope) return false;
     const socket = socketRef.current;
     if (socket?.readyState !== WebSocket.OPEN) return false;
     try { socket.send(JSON.stringify(message)); return true; } catch { return false; }
-  }, []);
+  }, [enabled, scope]);
 
-  const sendChat = useCallback((message: string, atSeconds: number | null, requestId: string) => new Promise<void>((resolve, reject) => {
+  const sendChat = useCallback((message: string, atSeconds: number | null, requestId: string, context?: { parentMessageId?: string; video?: CinemaChatMessage["video"] }) => new Promise<CinemaChatMessage>((resolve, reject) => {
     if (!message.trim()) { reject(new Error("Write a message first.")); return; }
     const timer = setTimeout(() => {
       pendingChat.current.delete(requestId);
       reject(new Error("Delivery was not confirmed. Retry to check or send this message."));
     }, 12_000);
     pendingChat.current.set(requestId, { resolve, reject, timer });
-    if (!send({ type: "chat_message", message: message.trim(), requestId, ...(atSeconds !== null ? { timestamp: atSeconds } : {}) })) {
+    if (!send({ type: "chat_message", message: message.trim(), requestId, ...context, ...(atSeconds !== null ? { timestamp: atSeconds } : {}) })) {
       clearTimeout(timer); pendingChat.current.delete(requestId);
       reject(new Error("You are offline. Your message is kept here; retry when connected."));
     }
@@ -142,11 +162,13 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
       const instance = new WebSocket(`${scheme}://${window.location.host}/api/cinema/sessions/${encodeURIComponent(roomId)}/ws`);
       socket = instance;
       socketRef.current = instance;
+      socketScopeRef.current = scope;
 
       instance.onopen = () => {
-        if (socket !== instance) return;
+        if (disposed || socket !== instance) return;
         attempts = 0;
         setState("live");
+        setChatConnection(value => value + 1);
         setSocketError("");
         setClosedReason("");
         lastPong = performance.now();
@@ -158,7 +180,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
       };
 
       instance.onmessage = (event) => {
-        if (socket !== instance) return;
+        if (disposed || socket !== instance) return;
         if (typeof event.data !== "string") return;
         let message: CinemaServerMessage;
         try {
@@ -166,6 +188,8 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         } catch {
           return;
         }
+        if (message.type === "assistant_job") setAssistantRevision(value => value + 1);
+        if (message.type === "chat_refresh") { setChatConnection(value => value + 1); setAssistantRevision(value => value + 1); }
         if (message.type === "presence") setMembers(message.members || []);
         if (message.type === "interaction_changed") {
           if (message.kind === "questions") setQuestionsRevision((value) => value + 1);
@@ -178,7 +202,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (message.type === "pong") { lastPong = performance.now(); clock.sample(message.at, message.sentAt); }
         if (message.type === "chat_ack") {
           const pending = pendingChat.current.get(message.requestId);
-          if (pending) { clearTimeout(pending.timer); pendingChat.current.delete(message.requestId); pending.resolve(); }
+          if (pending) { clearTimeout(pending.timer); pendingChat.current.delete(message.requestId); pending.resolve(message.message); }
         }
         if (message.type === "error") {
           setSocketError(message.message);
@@ -193,6 +217,7 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         if (message.type === "signal" && message.from) {
           for (const handler of signalHandlersRef.current) handler(message.from, message.payload);
         }
+        if ((message.type === "chat" || message.type === "chat_ack") && message.message?.assistant) setAssistantRevision(value => value + 1);
         if (message.type === "chat" || message.type === "chat_ack") setMessages((current) => {
           const incoming = message.message;
           // A reconnect replays the last fifty, and the page may already have
@@ -203,7 +228,11 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
         });
         // A moderator removed a message: the open room drops it too, so the
         // screens and the replay agree about what the room now contains.
-        if (message.type === "chat_removed") setMessages((current) => current.filter((item) => item.id !== message.id));
+        if (message.type === "chat_removed") {
+          setChatConnection(value => value + 1); setAssistantRevision(value => value + 1);
+          setRemovedChatIds(current => current.includes(message.id) ? current : [...current, message.id]);
+          setMessages(current => current.filter(item => item.id !== message.id));
+        }
         // The room's AI answered: the scene is already parsed and bounded, so
         // the panel renders it without another round trip.
         if (message.type === "whiteboard") {
@@ -269,9 +298,9 @@ export function useCinemaSocket(input: { roomId: string; enabled: boolean }) {
       socketRef.current = null;
       socket = null;
     };
-  }, [roomId, enabled, clock, failPending]);
+  }, [roomId, accountId, scope, enabled, clock, failPending]);
 
   return enabled
-    ? { clock, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, questionsRevision, pollsRevision, scheduleEndsAt, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
-    : { clock, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, questionsRevision, pollsRevision, scheduleEndsAt: null as string | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
+    ? { clock, removedChatIds, chatConnection, assistantRevision, socketError, state, closedReason, muteAllSignal, boardPolicy, reactions, members, playback, messages, source, questionsRevision, pollsRevision, scheduleEndsAt, whiteboard, removedWhiteboards, send, sendChat, subscribeSignals, subscribeBoards }
+    : { clock, removedChatIds, chatConnection, assistantRevision, socketError, state: "closed" as CinemaConnectionState, closedReason, muteAllSignal, boardPolicy, reactions: [] as CinemaReactionEvent[], members: [], playback: null, messages: [] as CinemaChatMessage[], source: null as { sourceType: string; videoId: string } | null, questionsRevision, pollsRevision, scheduleEndsAt: null as string | null, whiteboard: null as CinemaWhiteboardView | null, removedWhiteboards: [] as string[], send, sendChat, subscribeSignals, subscribeBoards };
 }

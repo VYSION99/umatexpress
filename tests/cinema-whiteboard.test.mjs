@@ -70,7 +70,7 @@ function handle(sql, args) {
     const rows = state.members.filter((row) => args.includes(row.session_id));
     return ok(rows.length ? table(MEMBER_COLUMNS, rows) : empty);
   }
-  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE session_id = \? ORDER BY created_at DESC, rowid DESC LIMIT/.test(query)) {
+  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE session_id = \? ORDER BY created_at DESC, rowid DESC LIMIT/.test(query) || (query.includes("FROM cinema_message_order o LEFT JOIN cinema_messages") && query.includes("WHERE o.session_id = ?"))) {
     const rows = state.messages.filter((row) => row.session_id === args[0]);
     return ok(rows.length ? table(MESSAGE_COLUMNS, rows) : empty);
   }

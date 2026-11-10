@@ -270,3 +270,10 @@ export async function cinemaBoardPolicy(roomId: string): Promise<CinemaBoardPoli
     return null;
   }
 }
+
+/** Refetch chat after derived answers or their evidence were invalidated. */
+export async function announceCinemaChatRefresh(roomId: string) {
+  const namespace = await cinemaRoomNamespace(); if (!namespace) return;
+  try { await namespace.get(namespace.idFromName(roomId)).fetch("https://cinema-room/chat-refresh", { method: "POST" }); }
+  catch { logEvent("warn", "cinema_chat_refresh_deferred", { roomId }); }
+}

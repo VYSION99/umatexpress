@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDots, FilmSlate, MagnifyingGlass, Plus, SealCheck, Star, Ticket, UsersThree } from "@/components/ui/MaterialIcon";
+import { ArrowRight, CalendarDots, FilmSlate, MagnifyingGlass, Plus, SealCheck, Star, Ticket, UsersThree } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
 import { validStudentEmail } from "@/lib/student-email";
 import type { CinemaEvent } from "@/lib/cinema-engine/events";
@@ -85,17 +85,18 @@ export function CinemaEvents() {
   const visible = events;
   return <div className="cinema-events-page">
     <section className="cinema-events-hero">
-      <div><span className="cinema-eyebrow">SCHEDULED EVENTS · RSVP · LIVE &amp; REPLAY</span><h2>Live video, real conversations.</h2><p>Events are published by an organizer for a set time and audience. Reserve your place, then join the event room to watch, ask questions, vote or request the speaking stage.</p></div>
-      <div className="cinema-controls">{account && validStudentEmail(account.email) ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">UMaT student organizers can publish events.</span>}{account?.emailVerified && <Link className="cinema-rooms-link" href="/cinema/rooms"><FilmSlate size={18} /> Your rooms</Link>}</div>
+      <div><span className="cinema-eyebrow">CAMPUS CINEMA</span><h2>Watch the event.<br />Join the conversation.</h2><p>Discover screenings, tutorials and moderated discussions. Reserve a place for a scheduled event, or catch up with a replay.</p></div>
+      <div className="cinema-controls">{account && validStudentEmail(account.email) ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">UMaT student organizers can publish events.</span>}</div>
     </section>
     <div className="cinema-event-tools">
       <nav className="cinema-filters" aria-label="Event sections">{SECTIONS.map((value) => <button key={value} aria-pressed={section === value} onClick={() => setSection(value)}>{value === "REPLAY" ? "Replays" : value === "LIVE" ? "Live now" : "Upcoming"}</button>)}</nav>
       <label className="cinema-search"><MagnifyingGlass size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search events or organizers" aria-label="Search events" /></label>
     </div>
+    <div className="cinema-event-section-heading"><h2>{section === "LIVE" ? "Live now" : section === "REPLAY" ? "Watch again" : "Coming up"}</h2><span aria-live="polite">{loading ? "Loading events…" : `${events.length} ${events.length === 1 ? "event" : "events"}`}</span></div>
     {error && <p className="cinema-error" role="alert">{error}</p>}
     {loading ? <div className="cinema-event-grid" aria-label="Loading events">{[1,2,3].map((key) => <div className="cinema-event-card is-loading" key={key} />)}</div>
       : visible.length ? <div className="cinema-event-grid">{visible.map((event) => <EventCard event={event} key={event.id} />)}</div>
-      : <section className="cinema-card cinema-event-empty"><CalendarDots size={30} /><h3>No {section.toLowerCase()} events</h3><p>Try another section or search, or publish the first one.</p></section>}
+      : <section className="cinema-card cinema-event-empty"><CalendarDots size={30} /><h3>{query.trim() ? "No matching events" : section === "LIVE" ? "Nothing is live right now" : section === "REPLAY" ? "No replays available yet" : "No upcoming events yet"}</h3><p>{query.trim() ? "Try another title or organizer." : section === "LIVE" ? "Check the upcoming schedule for the next conversation." : section === "REPLAY" ? "Replays appear here when an organizer keeps a recording available." : "New screenings and discussions will appear here when organizers publish them."}</p><div className="cinema-event-empty-actions">{query.trim() ? <button type="button" onClick={() => setQuery("")}>Clear search</button> : section !== "UPCOMING" ? <button type="button" onClick={() => setSection("UPCOMING")}>See upcoming events</button> : <Link href="/cinema/rooms">Open your watch rooms <ArrowRight size={16} aria-hidden /></Link>}</div></section>}
     <CinemaDialog open={createOpen} busy={busy} title="Publish a Cinema event" onClose={() => setCreateOpen(false)}>
       <div className="cinema-create cinema-event-form">
         <div className="cinema-form-pair"><label>Organizer name<input value={form.organizerName} maxLength={100} placeholder="UMaT Robotics Club" onChange={(e) => setForm({ ...form, organizerName: e.target.value })} /></label><label>Organizer type<select value={form.organizerType} onChange={(e) => setForm({ ...form, organizerType: e.target.value })}><option value="CLUB">Club</option><option value="DEPARTMENT">Department</option><option value="STUDENT_GROUP">Student group</option></select></label></div>
@@ -118,9 +119,13 @@ export function CinemaEvents() {
 }
 
 function EventCard({ event }: { event: CinemaEvent }) {
+  const image = event.posterUrl || event.thumbnailUrl;
+  const starts = new Date(event.startsAt);
+  const hasDate = !Number.isNaN(starts.getTime());
+  const format = event.format === "DEBATE" ? "Debate" : event.format === "PANEL" ? "Panel" : "Screening";
   return <article className="cinema-event-card">
-    <Link className="cinema-event-poster" href={`/cinema/events/${event.slug}`} style={event.posterUrl ? { backgroundImage: `url(${event.posterUrl})` } : undefined}>{!event.posterUrl && <FilmSlate size={38} />}<span className={`cinema-event-state is-${event.state.toLowerCase()}`}>{event.state === "LIVE" ? "Live now" : event.state === "REPLAY" ? "Replay" : dateBadge(event.startsAt)}</span></Link>
-    <div className="cinema-event-copy"><span className="cinema-event-organizer">{event.organizer.name} · {event.format === "SCREENING" ? event.organizer.type.replace("_", " ").toLowerCase() : event.format === "DEBATE" ? "Student debate" : "Panel discussion"}</span><h3><Link href={`/cinema/events/${event.slug}`}>{event.title}</Link></h3><p>{event.description || "Open the event page for session details."}</p><div className="cinema-event-meta"><span><Ticket size={15} /> {event.capacity ? `${event.rsvpCount}/${event.capacity} going` : `${event.rsvpCount} going`}</span>{event.managedStage && <span><UsersThree size={15} /> Managed stage</span>}{event.waitlistCount > 0 && <span>{event.waitlistCount} waiting</span>}{event.certificatesEnabled && <span><SealCheck size={15} /> Certificate</span>}{event.ratingCount > 0 && <span><Star size={15} /> {event.averageRating}</span>}{event.recurrenceCount > 1 && <span><UsersThree size={15} /> {event.recurrenceIndex}/{event.recurrenceCount}</span>}</div></div>
+    <Link className="cinema-event-poster" href={`/cinema/events/${event.slug}`} aria-label={`View ${event.title}`}><span className="cinema-event-poster-fallback"><FilmSlate size={38} aria-hidden /><small>CINEMA</small></span>{image && <img src={image} alt="" loading="lazy" onError={(error) => { error.currentTarget.hidden = true; }} />}<span className={`cinema-event-state is-${event.state.toLowerCase()}`}>{event.state === "LIVE" ? "Live now" : event.state === "REPLAY" ? "Replay" : dateBadge(event.startsAt)}</span></Link>
+    <div className="cinema-event-copy"><div className="cinema-event-kicker"><span className="cinema-event-organizer">{event.organizer.name}</span><span className="cinema-event-format">{format}</span></div><h3><Link href={`/cinema/events/${event.slug}`}>{event.title}</Link></h3><p>{event.description || "Open the event page for session details."}</p><div className="cinema-event-meta">{hasDate && <time dateTime={event.startsAt}><CalendarDots size={15} aria-hidden /> {starts.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>}<span><Ticket size={15} aria-hidden /> {event.capacity ? `${event.rsvpCount}/${event.capacity} going` : `${event.rsvpCount} going`}</span>{event.managedStage && <span><UsersThree size={15} aria-hidden /> Managed stage</span>}{event.waitlistCount > 0 && <span>{event.waitlistCount} waiting</span>}{event.certificatesEnabled && <span><SealCheck size={15} aria-hidden /> Certificate</span>}{event.ratingCount > 0 && <span><Star size={15} aria-hidden /> {event.averageRating}</span>}{event.recurrenceCount > 1 && <span>{event.recurrenceIndex} of {event.recurrenceCount} in series</span>}</div><div className="cinema-event-card-footer"><span>{event.viewerRsvp === "GOING" ? "You’re going" : event.viewerRsvp === "WAITLIST" ? "On the waitlist" : event.state === "REPLAY" ? "Available to watch" : event.availablePlaces === 0 ? "Join the waitlist" : event.availablePlaces !== null ? `${event.availablePlaces} places left` : "Open to everyone"}</span><Link href={`/cinema/events/${event.slug}`}>View event <ArrowRight size={16} aria-hidden /></Link></div></div>
   </article>;
 }
 

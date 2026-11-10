@@ -16,8 +16,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const limited = await rateLimitSubject("cinema-upload-finish", student.id, { limit: 20, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
-    const body = await request.json() as { parts?: unknown };
-    const result = await completeCinemaUpload({ roomId: id, studentId: student.id, parts: body.parts });
+    const body = await request.json() as { parts?: unknown; uploadId?: unknown };
+    const result = await completeCinemaUpload({ roomId: id, studentId: student.id, uploadId: typeof body.uploadId === "string" ? body.uploadId : undefined, parts: body.parts });
     return ok({
       upload: {
         id: result.upload.id,

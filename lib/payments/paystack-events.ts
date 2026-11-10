@@ -7,6 +7,8 @@ import { applyHostelRefundEvent } from "@/lib/hostel-engine/refunds";
 import { applyPaystackTransferEvent } from "@/lib/organizer-payouts";
 import { markSuccessful, markFailed } from "@/lib/payments/vacation";
 import { applyFoodRefundEvent, failFoodPayment, settleFoodPayment } from "@/lib/food/payments";
+import { failCinemaRoomPlanPayment, refundCinemaRoomPlanPayment, settleCinemaRoomPlanPayment } from "@/lib/cinema-engine/room-plan-subscriptions";
+import { isRefundEvent, paystackRefundIdentity } from "@/lib/payments/paystack-refund-identity";
 
 export type PaystackWebhook = {
   event?: string;
@@ -23,20 +25,16 @@ export type PaystackWebhook = {
     reason?: string;
     /** Refund payloads carry the refund's own reference and its charge. */
     transaction?: string | { reference?: string };
+    transaction_reference?: string;
+    refund_reference?: string;
   };
 };
 
 /** Paystack sends payout results to the same endpoint as payments. */
 const TRANSFER_EVENTS = ["transfer.success", "transfer.failed", "transfer.reversed"] as const;
-/** Refunds are their own family: the payload reference belongs to the refund. */
-const REFUND_EVENTS = ["refund.processed", "refund.pending", "refund.processing", "refund.failed"] as const;
 
 function isTransferEvent(event: string | undefined): event is (typeof TRANSFER_EVENTS)[number] {
   return (TRANSFER_EVENTS as readonly string[]).includes(String(event || ""));
-}
-
-function isRefundEvent(event: string | undefined): event is (typeof REFUND_EVENTS)[number] {
-  return (REFUND_EVENTS as readonly string[]).includes(String(event || ""));
 }
 
 export async function processPaystackEvent(event: PaystackWebhook) {
@@ -44,6 +42,11 @@ export async function processPaystackEvent(event: PaystackWebhook) {
   const transactionId = event.data?.id ? String(event.data.id) : "";
   const amount = Number(event.data?.amount || 0);
   if (isRefundEvent(event.event)) {
+    if (event.event === "refund.processed") {
+      const { chargeReference, refundId } = paystackRefundIdentity(event.data);
+      const cinema = await refundCinemaRoomPlanPayment({ reference: chargeReference, refundId, amount, currency: String(event.data?.currency || "MISSING") });
+      if (cinema.handled) return cinema;
+    }
     const input = { event: String(event.event), reference, status: event.data?.status, amount, currency: String(event.data?.currency || "MISSING") };
     const food = await applyFoodRefundEvent(input);
     if (food.handled) return food;
@@ -60,6 +63,8 @@ export async function processPaystackEvent(event: PaystackWebhook) {
     // GHS quote. Passing an explicit sentinel sends it to the product's review
     // state rather than treating missing data as an implicit match.
     const currency = String(event.data?.currency || "MISSING").toUpperCase();
+    const cinema = await settleCinemaRoomPlanPayment({ reference, amount, currency });
+    if (cinema.handled) return cinema;
     const vacation = await markSuccessful(reference, amount, currency, transactionId);
     if (vacation.handled) return vacation;
     const campus = await markCampusRidePaymentSuccessful(reference, amount, transactionId, "payment-inbox", Number(event.data?.fees || 0), currency);
@@ -69,6 +74,8 @@ export async function processPaystackEvent(event: PaystackWebhook) {
     return settleHostelWebhookPayment({ reference, amount, currency, transactionId, source: "webhook" });
   }
   const reason = event.data?.gateway_response || "PAYSTACK_PAYMENT_FAILED";
+  const cinema = await failCinemaRoomPlanPayment(reference);
+  if (cinema.handled) return cinema;
   const vacation = await markFailed(reference, reason, transactionId);
   if (vacation.handled) return vacation;
   const campus = await markCampusRidePaymentFailed(reference, reason, transactionId, "payment-inbox");

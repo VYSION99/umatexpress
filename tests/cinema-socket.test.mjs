@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
+import { sqliteTurso } from "./helpers/sqlite-turso.mjs";
+
+process.env.TURSO_DATABASE_URL = "https://cinema-socket.test";
+process.env.TURSO_AUTH_TOKEN = "test-token";
+const database = sqliteTurso(), originalFetch = globalThis.fetch;
+globalThis.fetch = database.fetch;
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
-after(async () => vite.close());
+after(async () => { await vite.close(); database.db.close(); globalThis.fetch = originalFetch; });
 
 // workerd's Response accepts a 101 carrying `webSocket`; Node's rejects any
 // status outside 200-599. The double permits exactly that case — everything
@@ -102,6 +108,13 @@ function upgrade(headers = {}) {
 }
 
 async function newRoom() {
+  const { ensureCinemaTables } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
+  await ensureCinemaTables();
+  database.db.exec("DELETE FROM cinema_participants; DELETE FROM cinema_sessions;");
+  const stamp = new Date().toISOString();
+  database.db.prepare("INSERT INTO cinema_sessions(id,host_student_id,title,video_id,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(SNAPSHOT.roomId, SNAPSHOT.hostStudentId, SNAPSHOT.title, SNAPSHOT.videoId, stamp, stamp);
+  for (const studentId of ["host-1", "guest-2", "guest-3", "viewer-1"]) database.db.prepare("INSERT INTO cinema_participants(session_id,student_id,joined_at) VALUES (?,?,?)").run(SNAPSHOT.roomId, studentId, stamp);
+  if (database.db.prepare("SELECT name FROM sqlite_master WHERE name='rate_limit_windows'").get()) database.db.exec("DELETE FROM rate_limit_windows;");
   const { CinemaRoom } = await vite.ssrLoadModule("/worker/cinema-room.ts");
   const state = fakeState();
   const room = new CinemaRoom(state);
@@ -753,6 +766,7 @@ test("the room's run time ends it, and every screen is told why", async () => {
   await room.fetch(upgrade());
   const socket = state.sockets[0];
   state.stored.set("schedule", { liveAt: 0, endsAt: Date.now() - 1_000 });
+  database.db.prepare("UPDATE cinema_sessions SET ends_at=? WHERE id=?").run(new Date(Date.now() - 1_000).toISOString(), SNAPSHOT.roomId);
 
   await room.alarm();
 

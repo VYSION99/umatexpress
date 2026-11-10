@@ -3,6 +3,7 @@ export async function putCinemaPart(url: string, body: Blob, signal?: AbortSigna
   for (let attempt = 0; ; attempt += 1) {
     try {
       const response = await fetch(url, { method: "PUT", credentials: "same-origin", headers: { "content-type": "application/octet-stream" }, body, signal });
+      if (response.status === 429 && Number(response.headers.get("Retry-After")) > 2) return response;
       if (attempt >= 2 || (response.status !== 429 && response.status < 500)) return response;
     } catch (error) {
       if (signal?.aborted || attempt >= 2) throw error;

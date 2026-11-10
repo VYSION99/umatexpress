@@ -39,10 +39,11 @@ function handle(sql, args) {
   if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
   if (/^ALTER TABLE/.test(sql)) return ok(empty);
   if (/^DROP INDEX/.test(sql)) return ok(empty);
-  if (/^SELECT plan FROM cinema_room_plan_grants/.test(sql)) {
+  if (/^SELECT plan,valid_until FROM cinema_room_plan_grants/.test(sql)) {
     const grant = state.grants.get(args[0]);
-    return ok(grant ? table(["plan"], [{ plan: grant }]) : empty);
+    return ok(grant ? table(["plan", "valid_until"], [{ plan: grant, valid_until: "" }]) : empty);
   }
+  if (/^INSERT INTO cinema_room_plan_prices/.test(sql)) return affected(2);
   if (/^INSERT OR IGNORE INTO cinema_room_allowances/.test(sql)) {
     if (!state.allowances.has(args[0])) state.allowances.set(args[0], { plan: args[1], max_files: args[2], max_bytes: args[3], max_minutes: args[4] });
     return affected(1);
@@ -51,7 +52,6 @@ function handle(sql, args) {
     const row = state.allowances.get(args[0]);
     return ok(row ? table(["plan", "max_files", "max_bytes", "max_minutes"], [row]) : empty);
   }
-  if (/^SELECT COALESCE\(MAX\(playlist_position\),0\)/.test(sql)) return ok(table(["last_position"], [{ last_position: Math.max(0, ...state.uploads.filter((upload) => upload.session_id === args[0]).map((upload) => upload.playlist_position || 1)) }]));
   if (/^SELECT key, value, COALESCE\(updated_by,''\) AS updated_by/.test(sql)) {
     const rows = [...state.settings].map(([key, value]) => ({ key, value, updated_by: "", updated_at: "" }));
     return ok(rows.length ? table(["key", "value", "updated_by", "updated_at"], rows) : empty);
@@ -132,12 +132,19 @@ function handle(sql, args) {
     return affected(1);
   }
 
-  if (/^UPDATE cinema_sessions SET video_id = \?, updated_at = \? WHERE id = \? AND video_id = \?/.test(sql)) {
-    const [videoId, updatedAt, id, expected] = args;
+  if (sql.startsWith("UPDATE cinema_sessions SET video_id = COALESCE((SELECT u.id")) {
+    const [updatedAt, id, expected] = args;
     const room = state.rooms.find((row) => row.id === id && row.video_id === expected);
-    if (!room) return affected(0);
+    const queue = state.uploads.filter(upload => upload.session_id === id && upload.status === "READY").sort((a,b) => a.playlist_position - b.playlist_position);
+    const current = queue.find(upload => upload.id === expected);
+    if (!room || !current) return ok(empty);
+    const videoId = queue.find(upload => upload.playlist_position > current.playlist_position)?.id || "";
     Object.assign(room, { video_id: videoId, updated_at: updatedAt });
-    return affected(1);
+    return ok(table(["video_id"], [room]));
+  }
+  if (sql.startsWith("UPDATE cinema_sessions SET video_id=video_id WHERE id=?")) {
+    const [id, host, videoId] = args;
+    return affected(state.rooms.some(room => room.id === id && room.host_student_id === host && room.video_id === videoId) ? 1 : 0);
   }
   if (/^UPDATE cinema_sessions SET video_id = \?, updated_at = \? WHERE id = \? AND video_source_type = 'UPLOAD' AND video_id = \?/.test(sql)) {
     const [videoId, updatedAt, id, expected] = args;
@@ -161,7 +168,12 @@ function handle(sql, args) {
     return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
   }
   if (/^INSERT INTO cinema_uploads/.test(sql)) {
-    const [id, sessionId, uploaderId, objectKey, uploadId, filename, sizeBytes, mimeType, expiresAt, createdAt, updatedAt, position] = args;
+    const [id, sessionId, uploaderId, objectKey, uploadId, filename, sizeBytes, mimeType, expiresAt, createdAt, updatedAt, , maxFiles, addedBytes, maxBytes] = args;
+    const queue = state.uploads.filter(upload => upload.session_id === sessionId);
+    const ready = queue.filter(upload => upload.status === "READY");
+    const totalBytes = ready.reduce((total, upload) => total + Number(upload.file_size_bytes), Number(addedBytes));
+    if (queue.some(upload => upload.status === "UPLOADING") || ready.length >= Number(maxFiles) || totalBytes > Number(maxBytes)) return affected(0);
+    const position = Math.max(0, ...queue.map(upload => upload.playlist_position)) + 1;
     state.uploads.push({
       id, session_id: sessionId, uploader_id: uploaderId, r2_object_key: objectKey, r2_upload_id: uploadId,
       original_filename: filename, file_size_bytes: sizeBytes, mime_type: mimeType, duration_seconds: 0,
@@ -226,7 +238,7 @@ function handle(sql, args) {
   }
   if (/^UPDATE cinema_uploads SET status = 'FAILED', updated_at = \? WHERE id = \?/.test(sql)) {
     const [updatedAt, id] = args;
-    const upload = state.uploads.find((row) => row.id === id);
+    const upload = state.uploads.find((row) => row.id === id && (!sql.includes("AND status = 'UPLOADING'") || row.status === "UPLOADING"));
     if (upload) Object.assign(upload, { status: "FAILED", updated_at: updatedAt });
     return affected(upload ? 1 : 0);
   }
@@ -474,7 +486,8 @@ test("an upload uses a private key, and a second cannot start while one is in fl
 
   const limits = await cinemaUploadLimits();
   assert.equal(limits.maxBytes, 2 * 1024 ** 3);
-  assert.deepEqual(limits.types, ["video/mp4", "video/quicktime", "video/webm"]);
+  assert.ok(limits.types.includes("video/x-matroska"));
+  assert.ok(limits.types.includes("video/mp4"));
 
   const blocked = await begin({ sizeBytes: CINEMA_UPLOAD_PART_BYTES + 100, bucket }).then(() => null, (error) => error);
   assert.equal(blocked?.code, "INVALID_STATE");
@@ -625,6 +638,20 @@ test("an upload can be given up on, and nothing of it is left to complete", asyn
   assert.equal(state.uploads[0].status, "FAILED");
   assert.equal(bucket.handles.size, 0, "the multipart upload was aborted");
   assert.equal(state.uploads[0].id, started.upload.id);
+});
+
+test("a stale cancellation cannot abort a newer upload, and an interrupted upload can be replaced", async () => {
+  const bucket = fakeBucket();
+  const first = await begin({ bucket });
+  await abortCinemaUpload({ roomId: "room-1", studentId: "host-a", uploadId: first.upload.id, bucket });
+  const replacement = await begin({ bucket });
+  assert.notEqual(replacement.upload.id, first.upload.id);
+  const stale = await abortCinemaUpload({ roomId: "room-1", studentId: "host-a", uploadId: first.upload.id, bucket });
+  assert.equal(stale.aborted, false);
+  assert.equal(state.uploads.find(upload => upload.id === replacement.upload.id).status, "UPLOADING");
+  assert.equal(bucket.handles.size, 1);
+  assert.equal((await abortCinemaUpload({ roomId: "room-1", studentId: "host-a", uploadId: replacement.upload.id, bucket })).aborted, true);
+  assert.equal(bucket.handles.size, 0);
 });
 
 test("retention deletes the object first, and a refusing bucket leaves the work for the next tick", async () => {
@@ -880,4 +907,23 @@ test("repeated takedowns end a student's upload rights, and retention is not a s
   resetPlatformSettingsCache();
   const stricter = await begin({ bucket: fakeBucket() }).then(() => null, (error) => error);
   assert.equal(stricter?.code, "FORBIDDEN");
+});
+
+for (const [filename, contentType, expected, extension] of [
+  ["movie.MKV", "", "video/x-matroska", "mkv"],
+  ["movie.mkv", "application/octet-stream", "video/x-matroska", "mkv"],
+  ["movie.mkv", "video/matroska", "video/x-matroska", "mkv"],
+  ["movie.avi", "video/avi", "video/x-msvideo", "avi"],
+  ["movie.m2ts", "", "video/mp2t", "ts"],
+]) {
+  test(`upload accepts ${filename} with MIME ${contentType || "missing"}`, async () => {
+    const started = await begin({ filename, contentType, bucket: fakeBucket() });
+    assert.equal(started.upload.mimeType, expected);
+    assert.ok(started.upload.objectKey.endsWith(`.${extension}`));
+  });
+}
+test("unknown extensions and explicit non-video MIME types remain rejected", async () => {
+  for (const [filename, contentType] of [["document.pdf", ""], ["movie.mkv", "application/pdf"]]) {
+    await assert.rejects(begin({ filename, contentType, bucket: fakeBucket() }), { code: "VALIDATION_ERROR" });
+  }
 });

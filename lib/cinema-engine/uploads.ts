@@ -1,3 +1,5 @@
+import { CINEMA_UPLOAD_TYPES, CINEMA_UPLOAD_FORMAT_LABEL, cinemaUploadContentType, cinemaUploadExtension } from "./upload-formats";
+export { CINEMA_UPLOAD_TYPES } from "./upload-formats";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { privateBucket } from "@/lib/cloudflare-bindings";
 import { consoleAudit } from "@/lib/console-audit";
@@ -29,7 +31,7 @@ export const CINEMA_UPLOAD_STATUSES = ["UPLOADING", "READY", "DELETING", "DELETE
 export type CinemaUploadStatus = (typeof CINEMA_UPLOAD_STATUSES)[number];
 
 /** Formats the documented browser-playable set, and no others. */
-export const CINEMA_UPLOAD_TYPES = ["video/mp4", "video/quicktime", "video/webm"] as const;
+
 
 /** Eight mebibytes per part: far under the Worker request limit, few enough parts for 2 GB. */
 export const CINEMA_UPLOAD_PART_BYTES = 8 * 1024 * 1024;
@@ -228,19 +230,21 @@ export async function advanceCinemaPlaylist(input: { roomId: string; studentId: 
     if (String(member?.role || "") !== "COHOST") throw new CampusEngineError("FORBIDDEN", "Only the host or a co-host can advance this playlist.", 403);
   }
   await ensureCinemaUploadTables();
-  const current = await cinemaUploadForRoom(input.roomId);
-  if (!current || current.id !== input.currentUploadId) {
-    throw new CampusEngineError("INVALID_STATE", "The playlist has already moved on.", 409);
-  }
-  const uploads = await cinemaUploadsForRoom(input.roomId);
-  const next = uploads.find((entry) => entry.status === "READY" && entry.playlistPosition > current.playlistPosition) || null;
-  const result = await turso(
-    "UPDATE cinema_sessions SET video_id = ?, updated_at = ? WHERE id = ? AND video_id = ? AND status IN ('CREATED','LIVE')",
-    [next?.id || "", new Date().toISOString(), input.roomId, current.id],
-  );
-  if (Number(result.affected_row_count || 0) !== 1) throw new CampusEngineError("INVALID_STATE", "The playlist changed. Refresh the room.", 409);
-  await announceCinemaSource(input.roomId, { sourceType: "UPLOAD", videoId: next?.id || "" });
-  return { next: next ? { id: next.id, filename: next.originalFilename } : null, phase: next ? "SCREENING" : "DISCUSSION" };
+  // Resolve the next clip inside the write, using whichever reorder committed first.
+  const moved = rowsToObjects(await turso(
+    `UPDATE cinema_sessions SET video_id = COALESCE((SELECT u.id FROM cinema_uploads u JOIN cinema_uploads c ON c.id=cinema_sessions.video_id
+       WHERE u.session_id=cinema_sessions.id AND u.status='READY' AND u.playlist_position>c.playlist_position
+       ORDER BY u.playlist_position,u.created_at LIMIT 1),''), updated_at=?
+     WHERE id=? AND video_id=? AND status IN ('CREATED','LIVE') AND video_source_type='UPLOAD'
+       AND EXISTS(SELECT 1 FROM cinema_uploads c WHERE c.session_id=cinema_sessions.id AND c.id=cinema_sessions.video_id AND c.status='READY')
+     RETURNING video_id`,
+    [new Date().toISOString(), input.roomId, input.currentUploadId],
+  ))[0];
+  if (!moved) throw new CampusEngineError("INVALID_STATE", "The playlist has already moved on.", 409);
+  const nextId = String(moved.video_id || "");
+  const next = nextId ? (await cinemaUploadsForRoom(input.roomId)).find(entry => entry.id === nextId) : undefined;
+  await announceCinemaSource(input.roomId, { sourceType: "UPLOAD", videoId: nextId });
+  return { next: nextId ? { id: nextId, filename: next?.originalFilename || "" } : null, phase: nextId ? "SCREENING" : "DISCUSSION" };
 }
 
 /** The host may reorder files that have not started; the active file stays put. */
@@ -257,10 +261,23 @@ export async function reorderCinemaPlaylist(input: { roomId: string; studentId: 
   }
   const base = current.playlistPosition;
   const stamp = new Date().toISOString();
-  await tursoTransaction([
-    ...ids.map((id, index) => ({ sql: "UPDATE cinema_uploads SET playlist_position = ?, updated_at = ? WHERE id = ? AND session_id = ? AND status = 'READY'", args: [-(index + 1), stamp, id, input.roomId] })),
-    ...ids.map((id, index) => ({ sql: "UPDATE cinema_uploads SET playlist_position = ?, updated_at = ? WHERE id = ? AND session_id = ? AND status = 'READY'", args: [base + index + 1, stamp, id, input.roomId] })),
+  const updatePosition = "UPDATE cinema_uploads SET playlist_position = ?, updated_at = ? WHERE id = ? AND session_id = ? AND status = 'READY' AND changes()=1";
+  const [guard] = await tursoTransaction([
+    // The no-op write sets changes() for the first position update. With the
+    // write lock held, every validated position update then changes one row.
+    { sql: `UPDATE cinema_sessions SET video_id=video_id WHERE id=? AND host_student_id=? AND video_id=?
+      AND status IN ('CREATED','LIVE') AND video_source_type='UPLOAD'
+      AND EXISTS(SELECT 1 FROM cinema_uploads WHERE id=cinema_sessions.video_id AND session_id=cinema_sessions.id AND status='READY' AND playlist_position=?)
+      AND NOT EXISTS(SELECT 1 FROM cinema_uploads WHERE session_id=cinema_sessions.id AND status='UPLOADING')
+      AND (SELECT COUNT(*) FROM cinema_uploads WHERE session_id=cinema_sessions.id AND status='READY' AND playlist_position>?)=?
+      AND NOT EXISTS(SELECT 1 FROM json_each(?) saved WHERE NOT EXISTS(
+        SELECT 1 FROM cinema_uploads u WHERE u.session_id=cinema_sessions.id AND u.status='READY'
+          AND u.id=json_extract(saved.value,'$[0]') AND u.playlist_position=json_extract(saved.value,'$[1]')))`,
+    args: [input.roomId, input.studentId, current.id, base, base, pending.length, JSON.stringify(pending.map(item => [item.id, item.playlistPosition]))] },
+    ...ids.map((id, index) => ({ sql: updatePosition, args: [-(index + 1), stamp, id, input.roomId] })),
+    ...ids.map((id, index) => ({ sql: updatePosition, args: [base + index + 1, stamp, id, input.roomId] })),
   ]);
+  if (!Number(guard.affected_row_count)) throw new CampusEngineError("CONFLICT", "The playlist changed. Refresh the room before reordering.", 409);
   return { uploads: (await cinemaUploadsForRoom(input.roomId)).filter((entry) => entry.status === "READY").map((entry) => ({ id: entry.id, filename: entry.originalFilename, position: entry.playlistPosition })) };
 }
 
@@ -302,15 +319,8 @@ export async function cinemaUploadLeaseAccess(input: { roomId: string; uploadId:
   };
 }
 
-function uploadExtension(contentType: string) {
-  if (contentType === "video/quicktime") return ".mov";
-  if (contentType === "video/webm") return ".webm";
-  return ".mp4";
-}
-
-/** `cinema/{session}/video/{upload}/original.mp4`, exactly as §5 documents. */
 export function cinemaUploadKey(sessionId: string, uploadId: string, contentType: string) {
-  return `cinema/${sessionId}/video/${uploadId}/original${uploadExtension(contentType)}`;
+  return `cinema/${sessionId}/video/${uploadId}/original.${cinemaUploadExtension(contentType)}`;
 }
 
 /**
@@ -346,9 +356,9 @@ export async function beginCinemaUpload(input: {
     throw new CampusEngineError("FORBIDDEN", "Uploading is turned off for this account after repeated takedowns.", 403);
   }
 
-  const contentType = String(input.contentType || "").trim().toLowerCase();
-  if (!(CINEMA_UPLOAD_TYPES as readonly string[]).includes(contentType)) {
-    throw new CampusEngineError("VALIDATION_ERROR", "Upload an MP4, MOV or WebM file.", 400);
+  const contentType = cinemaUploadContentType(input.filename, input.contentType);
+  if (!contentType) {
+    throw new CampusEngineError("VALIDATION_ERROR", `Upload a supported video file: ${CINEMA_UPLOAD_FORMAT_LABEL}.`, 400);
   }
   const sizeBytes = Math.floor(Number(input.sizeBytes) || 0);
   const limits = await cinemaUploadLimits();
@@ -384,15 +394,21 @@ export async function beginCinemaUpload(input: {
   const stamp = new Date(input.now ?? Date.now()).toISOString();
   const retentionHours = Math.max(1, Math.floor(await platformSettingNumber("cinema_retention_hours")));
   const filename = String(input.filename || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 160);
-  const positionRow = rowsToObjects(await turso("SELECT COALESCE(MAX(playlist_position),0) AS last_position FROM cinema_uploads WHERE session_id = ?", [String(input.roomId)]))[0];
-  const position = Number(positionRow?.last_position || 0) + 1;
   try {
-    await turso(
+    // Multipart setup can overlap between tabs. Reserve the queue slot against
+    // the latest playlist in the same write that assigns its position.
+    const inserted = await turso(
       `INSERT INTO cinema_uploads (id,session_id,uploader_id,r2_object_key,r2_upload_id,original_filename,file_size_bytes,mime_type,duration_seconds,ownership_confirmed,status,expires_at,deleted_at,created_at,updated_at,playlist_position)
-       VALUES (?,?,?,?,?,?,?,?,0,1,'UPLOADING',?,'',?,?,?)`,
+       SELECT ?,?,?,?,?,?,?,?,0,1,'UPLOADING',?,'',?,?,COALESCE(MAX(playlist_position),0)+1
+       FROM cinema_uploads WHERE session_id=?
+       HAVING COUNT(CASE WHEN status='READY' THEN 1 END) < ?
+          AND COUNT(CASE WHEN status='UPLOADING' THEN 1 END) = 0
+          AND COALESCE(SUM(CASE WHEN status='READY' THEN file_size_bytes END),0) + ? <= ?`,
       [uploadId, String(input.roomId), String(input.studentId), key, String(multipart.uploadId || ""), filename, sizeBytes, contentType,
-        new Date((input.now ?? Date.now()) + retentionHours * 3_600_000).toISOString(), stamp, stamp, position],
+        new Date((input.now ?? Date.now()) + retentionHours * 3_600_000).toISOString(), stamp, stamp,
+        String(input.roomId), allowance.maxFiles, sizeBytes, allowance.maxBytes],
     );
+    if (!Number(inserted.affected_row_count)) throw new CampusEngineError("CONFLICT", "The playlist changed while the upload was starting. Refresh and try again.", 409);
   } catch (error) {
     await abortMultipart(bucket, key, String(multipart.uploadId || ""));
     throw error;
@@ -400,13 +416,9 @@ export async function beginCinemaUpload(input: {
   logEvent("info", "cinema_upload_started", { roomId: String(input.roomId), uploadId, sizeBytes, contentType, parts });
   await incrementMetric("cinema_uploads_started");
   const created = (await cinemaUploadsForRoom(String(input.roomId))).find((entry) => entry.id === uploadId);
+  if (!created) throw new CampusEngineError("CONFLICT", "The upload is no longer queued. Refresh and try again.", 409);
   return {
-    upload: created || uploadView({
-      id: uploadId, session_id: String(input.roomId), uploader_id: String(input.studentId), r2_object_key: key,
-      original_filename: filename, file_size_bytes: sizeBytes, mime_type: contentType, duration_seconds: 0,
-      ownership_confirmed: 1, status: "UPLOADING", expires_at: "", deleted_at: "", removed_by: "", removed_reason: "",
-      created_at: stamp, updated_at: stamp, playlist_position: position,
-    }),
+    upload: created,
     partBytes: CINEMA_UPLOAD_PART_BYTES,
     parts,
   };
@@ -420,6 +432,7 @@ export async function beginCinemaUpload(input: {
 export async function putCinemaUploadPart(input: {
   roomId: string;
   studentId: string;
+  uploadId?: string;
   partNumber?: unknown;
   body?: ArrayBuffer | null;
   bucket?: CinemaUploadBucket | null;
@@ -428,6 +441,7 @@ export async function putCinemaUploadPart(input: {
   await ensureCinemaUploadTables();
   await requireUploadRoom(input.roomId, input.studentId);
   const row = await activeUploadRow(input.roomId);
+  if (input.uploadId && row.id !== input.uploadId) throw new CampusEngineError("CONFLICT", "This upload was replaced. Refresh the queue.", 409);
   const sizeBytes = Number(row.file_size_bytes || 0);
   const parts = cinemaUploadPartCount(sizeBytes);
   const partNumber = Math.floor(Number(input.partNumber) || 0);
@@ -457,6 +471,7 @@ export async function putCinemaUploadPart(input: {
 export async function completeCinemaUpload(input: {
   roomId: string;
   studentId: string;
+  uploadId?: string;
   parts?: unknown;
   bucket?: CinemaUploadBucket | null;
 }): Promise<{ upload: CinemaUpload; durationSeconds: number }> {
@@ -465,6 +480,7 @@ export async function completeCinemaUpload(input: {
   await requireUploadRoom(input.roomId, input.studentId);
   const row = await activeUploadRow(input.roomId);
   const uploadId = String(row.id || "");
+  if (input.uploadId && uploadId !== input.uploadId) throw new CampusEngineError("CONFLICT", "This upload was replaced. Refresh the queue.", 409);
   const sizeBytes = Number(row.file_size_bytes || 0);
   const key = String(row.r2_object_key || "");
   const expectedParts = cinemaUploadPartCount(sizeBytes);
@@ -517,16 +533,19 @@ export async function completeCinemaUpload(input: {
     throw new CampusEngineError("VALIDATION_ERROR", "The playlist would exceed this room's playback allowance.", 413);
   }
 
-  await turso(
-    "UPDATE cinema_uploads SET status = 'READY', duration_seconds = ?, updated_at = ? WHERE id = ? AND status = 'UPLOADING'",
-    [durationSeconds, stamp, uploadId],
-  );
-  // Completing a file never changes the host's public or invite-only choice.
-  // Playback still requires a signed lease for an active room member.
-  const selected = await turso(
-    "UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = ?, updated_at = ? WHERE id = ? AND video_id = ''",
-    [uploadId, stamp, String(input.roomId)],
-  );
+  // Completion and cancellation compete for the same UPLOADING row. Only
+  // the winner can publish the file; selection commits with that transition.
+  const [completed, selected] = await tursoTransaction([
+    { sql: "UPDATE cinema_uploads SET status = 'READY', duration_seconds = ?, updated_at = ? WHERE id = ? AND status = 'UPLOADING'", args: [durationSeconds, stamp, uploadId] },
+    { sql: "UPDATE cinema_sessions SET video_source_type = 'UPLOAD', video_id = ?, updated_at = ? WHERE id = ? AND video_id = '' AND changes()=1 AND EXISTS(SELECT 1 FROM cinema_uploads u WHERE u.id=? AND u.session_id=cinema_sessions.id AND u.status='READY')", args: [uploadId, stamp, String(input.roomId), uploadId] },
+  ]);
+  if (!Number(completed.affected_row_count || 0)) {
+    const current = rowsToObjects(await turso("SELECT status FROM cinema_uploads WHERE id=? LIMIT 1", [uploadId]))[0];
+    if (current?.status !== "READY") {
+      try { await bucket.delete(key); } catch { /* the failed row remains eligible for retention cleanup */ }
+    }
+    throw new CampusEngineError("CONFLICT", "This upload was cancelled or already finished. Refresh the playlist before trying again.", 409);
+  }
   if (Number(selected.affected_row_count || 0) > 0) {
     const room = rowsToObjects(await turso(
       "SELECT host_student_id,title,starts_at,ends_at,duration_minutes,status FROM cinema_sessions WHERE id = ? LIMIT 1",
@@ -556,6 +575,7 @@ export async function completeCinemaUpload(input: {
 export async function abortCinemaUpload(input: {
   roomId: string;
   studentId: string;
+  uploadId?: string;
   bucket?: CinemaUploadBucket | null;
 }): Promise<{ aborted: boolean }> {
   await requireTurso();
@@ -566,10 +586,15 @@ export async function abortCinemaUpload(input: {
     [String(input.roomId)],
   ))[0];
   if (!row) return { aborted: false };
+  // A delayed cancellation from another tab must not cancel a newer upload.
+  if (input.uploadId && String(row.id) !== input.uploadId) return { aborted: false };
+  // Claim cancellation before touching storage. If completion already won,
+  // its READY object must never be deleted by this delayed request.
+  const cancelled = await turso("UPDATE cinema_uploads SET status = 'FAILED', updated_at = ? WHERE id = ? AND status = 'UPLOADING'", [new Date().toISOString(), String(row.id)]);
+  if (!Number(cancelled.affected_row_count || 0)) return { aborted: false };
   const bucket = input.bucket === undefined ? await cinemaUploadBucket() : input.bucket;
   await abortMultipart(bucket, String(row.r2_object_key || ""), String(row.r2_upload_id || ""));
   if (bucket) { try { await bucket.delete(String(row.r2_object_key || "")); } catch { /* best effort */ } }
-  await turso("UPDATE cinema_uploads SET status = 'FAILED', updated_at = ? WHERE id = ? AND status = 'UPLOADING'", [new Date().toISOString(), String(row.id)]);
   logEvent("info", "cinema_upload_aborted", { roomId: String(input.roomId), uploadId: String(row.id) });
   await incrementMetric("cinema_uploads_failed");
   return { aborted: true };

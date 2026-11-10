@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarDots, Clock, FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
+import type { StudentAccount } from "@/lib/student-auth";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
 import { validStudentEmail } from "@/lib/student-email";
@@ -34,8 +35,13 @@ type CinemaDoor = "PUBLIC" | "PRIVATE";
  * sends them through sign-in and back.
  */
 export function CinemaLobby() {
-  const router = useRouter();
   const { ready, account } = useStudentAccount();
+  return <CinemaAccountLobby key={`${account?.id || "anonymous"}:${Boolean(account?.emailVerified)}`} ready={ready} account={account} />;
+}
+
+/** Account changes discard every room snapshot, dialog and pending draft. */
+function CinemaAccountLobby({ ready, account }: { ready: boolean; account: StudentAccount | null }) {
+  const router = useRouter();
   const canHost = Boolean(account && validStudentEmail(account.email));
   const [dialog, setDialog] = useState<"" | "create" | "join">("");
   const [filter, setFilter] = useState("CURRENT");
@@ -300,8 +306,8 @@ export function CinemaLobby() {
 
   return <div className="cinema-lobby">
     <section className="cinema-lobby-head">
-      <div><span className="cinema-eyebrow">WATCH ROOMS · LINK OR INVITATION</span><h2>Watch together.<br />Study with your group.</h2><p>Open a room from a link, or create one for your group.</p></div>
-      <div className="cinema-controls"><Link className="cinema-cta" href="/cinema/events">Browse scheduled events</Link>{canHost && <button className="secondary" onClick={() => { setError(""); setDialog("create"); }}>Create a room</button>}<button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join with a link</button></div>
+      <div><span className="cinema-eyebrow">YOUR WATCH SPACE</span><h2>Make room for a good conversation.</h2><p>Bring your group together around a video. Keep the same invitation link for future sessions.</p></div>
+      <div className="cinema-controls">{canHost && <button className="cinema-cta" onClick={() => { setError(""); setDialog("create"); }}>Create a room</button>}<button className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join with a link</button></div>
     </section>
     <CinemaDialog open={Boolean(publicRoom)} title="Make this room public?" busy={Boolean(roomBusy)} onClose={() => setPublicRoom(null)}>
       <p>Any signed-in account with a verified email and the link will be able to join {publicRoom?.title}.</p>
@@ -310,17 +316,18 @@ export function CinemaLobby() {
     <CinemaDialog open={(dialog === "create" && canHost) || Boolean(uploadRoom)} title={uploadRoom ? "Build your playlist" : "Create a room"} busy={busy} onClose={() => { setDialog(""); setUploadRoom(null); void load(); }}>
 
     {uploadRoom
-      ? <section className="cinema-card">
-        <h2>Add your files</h2>
+      ? <section className="cinema-card cinema-file-setup">
+        <ol className="cinema-file-steps" aria-label="File room setup"><li className="is-complete">Room ready</li><li aria-current="step">Add videos</li><li>Open &amp; share</li></ol>
+        <h2>Build your playlist</h2>
         <p className="cinema-note">
-          <strong>{uploadRoom.title}</strong> is {uploadRoom.isPrivate ? "invite-only" : "open to verified accounts with the link"}. Add files in playback order, then share the room link.
+          Add videos to <strong>{uploadRoom.title}</strong> in playback order. The room is {uploadRoom.isPrivate ? "invite-only" : "open to verified accounts with the link"}.
         </p>
         <UploadPanel
           roomId={uploadRoom.id}
           isPrivate={uploadRoom.isPrivate}
           onUploaded={() => { void load(); }}
         />
-        <button type="button" className="cinema-cta" onClick={() => router.push(`/cinema/${uploadRoom.id}`)}>Open room</button>
+        <button type="button" className="cinema-cta cinema-file-open" onClick={() => router.push(`/cinema/${uploadRoom.id}`)}>Open room and share link</button>
         <p className="cinema-note cinema-sub">
           No file right now?{" "}
           <button type="button" className="cinema-text-button" onClick={() => router.push(`/cinema/${uploadRoom.id}`)}>Open the room without it</button>
@@ -380,7 +387,7 @@ export function CinemaLobby() {
             ? <label>YouTube link
               <input value={video} placeholder="https://youtu.be/…" onChange={(event) => setVideo(event.target.value)} />
             </label>
-            : <p className="cinema-note">Upload an MP4, MOV or WebM file in the next step.</p>}
+            : <p className="cinema-note">Upload an MP4, MOV or WebM file in the next step. <Link href="/cinema/rooms/plans">Compare room plans</Link> for larger playlists.</p>}
           <div className="cinema-choice" role="radiogroup" aria-label="Who can join">
             <button
               type="button"
@@ -445,11 +452,11 @@ export function CinemaLobby() {
       <p><strong>{deleting?.title}</strong> will disappear from room lists. Its invitation link and uploaded files will be removed. If it is live, the session will end for everyone.</p>{listError && <p className="cinema-error" role="alert">{listError}</p>}<div className="cinema-controls"><button type="button" className="danger" disabled={Boolean(roomBusy)} onClick={() => void deleteChosen()}>{roomBusy ? "Deleting…" : "Delete room"}</button><button type="button" className="secondary" onClick={() => setDeleting(null)}>Keep room</button></div>
     </CinemaDialog>
     <section className="cinema-card cinema-room-list">
-      <div className="cinema-list-heading"><div><h2>Your rooms</h2><p className="cinema-note">Current rooms and reusable links appear once. Open Recent to see past sessions.</p></div><button className="cinema-text-button" disabled={loading} onClick={() => { void load(); void loadSaved().catch(() => undefined); }}>Refresh</button></div>
+      <div className="cinema-list-heading"><div><h2>Your rooms</h2><p className="cinema-note">Current rooms and reusable links appear once. Open Recent to see past sessions.</p><Link className="cinema-plan-inline-link" href="/cinema/rooms/plans">View room plans and your allowance</Link></div><button className="cinema-text-button" disabled={loading} onClick={() => { void load(); void loadSaved().catch(() => undefined); }}>Refresh</button></div>
       <nav className="cinema-filters" aria-label="Filter your rooms">{[['CURRENT', 'Current'], ['LIVE', 'Live'], ['SCHEDULED', 'Scheduled'], ['RECENT', 'Recent']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setOffset(0); setFilter(value); }}>{label}</button>)}</nav>
       {listError && !editing && !deleting && <div className="cinema-error" role="alert">{listError} <button onClick={() => { void load(); void loadSaved().catch(() => undefined); }}>Retry</button></div>}
       {loading ? <p className="cinema-note" role="status">Loading your rooms…</p> : !visibleSaved.length && !visibleRooms.length
-        ? <p className="cinema-note">{filter === "RECENT" ? "No past sessions yet." : "Rooms you host or join will appear here."}</p>
+        ? <div className="cinema-room-empty"><FilmSlate size={28} aria-hidden /><h3>{filter === "RECENT" ? "No past sessions yet" : filter === "LIVE" ? "No rooms are live" : filter === "SCHEDULED" ? "Nothing scheduled yet" : "Your watch rooms will appear here"}</h3><p>{filter === "RECENT" ? "Finished sessions appear here after you use a room." : "Create a room for your group, or open an invitation link from a host."}</p><div>{filter !== "CURRENT" && <button type="button" className="secondary" onClick={() => setFilter("CURRENT")}>See current rooms</button>}{canHost && <button type="button" onClick={() => { setError(""); setDialog("create"); }}>Create a room</button>}<button type="button" className="secondary" onClick={() => { setError(""); setDialog("join"); }}>Join with a link</button></div></div>
         : <ul className="cinema-rooms">
           {visibleSaved.map(saved => <li className="cinema-room-row is-saved" key={`saved-${saved.id}`}><div className="cinema-room-info"><div className="cinema-room-tags"><span className="cinema-chip">{saved.currentStatus === "LIVE" ? "Live now" : saved.currentStatus === "CREATED" ? "Scheduled" : "Ready to reuse"}</span><span className="cinema-chip">Reusable link</span>{saved.visibility === "PRIVATE" && <span className="cinema-chip is-private">Invite only</span>}</div><h3><Link href={`/cinema/${saved.id}`}>{saved.title}</Link></h3><p>{saved.sourceType === "UPLOAD" ? "File room" : "YouTube room"} · same invitation link each session</p></div><div className="cinema-room-actions">{saved.currentStatus === "LIVE" || saved.currentStatus === "CREATED" ? <Link className="cinema-room-open" href={`/cinema/${saved.id}`}>Open room</Link> : <CinemaReuseButton stableId={saved.id} onStarted={() => { void load(); void loadSaved().catch(() => undefined); }} />}<button type="button" className="cinema-chip is-button" disabled={roomBusy === saved.currentSessionId} onClick={() => beginEdit({ id: saved.id, sessionId: saved.currentSessionId, title: saved.title, visibility: saved.visibility, saved: true, status: saved.currentStatus })}>Edit</button><button type="button" className="cinema-chip is-button is-delete" disabled={roomBusy === saved.currentSessionId} onClick={() => setDeleting({ sessionId: saved.currentSessionId, title: saved.title, status: saved.currentStatus })}>Delete</button></div></li>)}
           {visibleRooms.map((room) => {

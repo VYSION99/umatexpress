@@ -46,6 +46,46 @@ export type CinemaPlaybackState = {
  * sender attached, or null when they attached none; it travels in the row's
  * `metadata` so the room can render a seek chip without parsing prose.
  */
+export type CinemaAssistantCitation = {
+  key: string; kind: "MESSAGE" | "TRANSCRIPT"; id: string;
+  atSeconds: number | null; video?: { sourceType: "YOUTUBE" | "UPLOAD"; videoId: string };
+  threadId?: string;
+};
+export type CinemaChatOverviewMode = "CATCH_UP" | "REPEATED" | "UNANSWERED";
+export type CinemaChatOverview = {
+  mode: CinemaChatOverviewMode;
+  scope: {
+    fromSequence: number; throughSequence: number; asOf: string;
+    scannedMessages: number; includedMessages: number; limited: boolean;
+    video?: { sourceType: "YOUTUBE" | "UPLOAD"; videoId: string };
+  };
+  totalItems: number;
+  items: Array<{ text: string; citations: string[] }>;
+};
+export type CinemaAssistantJob = {
+  id: string; requestedBy: string; status: "QUEUED" | "RUNNING" | "DONE" | "FAILED" | "CANCELLED";
+  attempts: number; answerId: string; error: string;
+};
+
+/** Returned only by the authenticated owner's private study endpoints. */
+export type CinemaPrivateStudyRequest = {
+  id: string; question: string; anchorId: string; status: CinemaAssistantJob["status"];
+  attempts: number; answer: string; citations: CinemaAssistantCitation[]; dependencies: string[];
+  error: string; createdAt: string; expiresAt: string;
+};
+
+export type CinemaHostAssistanceKind = "POLL" | "PROMPT" | "MODERATION";
+export type CinemaHostProposal =
+  | { kind: "POLL"; question: string; options: string[]; citations: string[] }
+  | { kind: "PROMPT"; text: string; citations: string[] }
+  | { kind: "MODERATION"; items: Array<{ observation: string; reminder: string; citations: string[] }> };
+export type CinemaHostDraft = {
+  id: string; kind: CinemaHostAssistanceKind; brief: string; status: CinemaAssistantJob["status"]; attempts: number; error: string;
+  reviewStatus: "REVIEW" | "APPLIED" | "DISMISSED"; resultId: string; createdAt: string; expiresAt: string;
+  proposal: CinemaHostProposal | null; scope?: { asOf: string; sourceCount: number; video?: { sourceType: "YOUTUBE" | "UPLOAD"; videoId: string } };
+  citations: CinemaAssistantCitation[]; dependencies: string[];
+};
+
 export type CinemaChatMessage = {
   id: string;
   sessionId: string;
@@ -53,6 +93,13 @@ export type CinemaChatMessage = {
   senderName: string;
   content: string;
   atSeconds: number | null;
+  sequence?: number;
+  parentMessageId?: string;
+  threadId?: string;
+  video?: { sourceType: "YOUTUBE" | "UPLOAD"; videoId: string };
+  removed?: boolean;
+  aiAssisted?: boolean;
+  assistant?: { jobId: string; citations: CinemaAssistantCitation[]; dependencies?: string[]; overview?: CinemaChatOverview };
   createdAt: string;
 };
 
@@ -86,6 +133,8 @@ export type CinemaServerMessage =
   | { type: "chat_ack"; requestId: string; message: CinemaChatMessage }
   | { type: "chat"; message: CinemaChatMessage }
   | { type: "chat_removed"; id: string }
+  | { type: "assistant_job"; job: CinemaAssistantJob }
+  | { type: "chat_refresh" }
   | { type: "source"; sourceType: string; videoId: string }
   /** A stored poll or question changed; clients refetch their own authorized view. */
   | { type: "interaction_changed"; kind: "questions" | "polls" }
@@ -114,6 +163,7 @@ export type CinemaPlaybackAction = {
   time: number;
   duration?: number;
   stateAt?: number;
+  video?: CinemaChatMessage["video"];
 };
 
 export type CinemaChatMessageInput = {
@@ -122,6 +172,8 @@ export type CinemaChatMessageInput = {
   /** The video position the sender wants the chip to seek to. */
   timestamp?: number;
   requestId?: string;
+  parentMessageId?: string;
+  video?: { sourceType: "YOUTUBE" | "UPLOAD"; videoId: string };
 };
 
 /**
@@ -129,9 +181,9 @@ export type CinemaChatMessageInput = {
  * SDP: it checks that the sender is attached and that the target is a member,
  * rewrites `from` from the attachment, and hands the payload to that one peer.
  */
-export type CinemaSignalPayload =
+export type CinemaSignalPayload = { connectionId?: string; replyTo?: string } & (
   | { kind: "offer" | "answer"; sdp: string }
-  | { kind: "candidate"; candidate: string; sdpMid?: string; sdpMLineIndex?: number };
+  | { kind: "candidate"; candidate: string; sdpMid?: string; sdpMLineIndex?: number });
 
 export type CinemaSignalInput = {
   type: "signal";
@@ -208,20 +260,26 @@ const SIGNAL_KINDS = new Set<CinemaSignalPayload["kind"]>(["offer", "answer", "c
 /** One signaling payload, or null when it is not one this version relays. */
 function parseSignalPayload(value: unknown): CinemaSignalPayload | null {
   if (!value || typeof value !== "object") return null;
-  const source = value as { kind?: unknown; sdp?: unknown; candidate?: unknown; sdpMid?: unknown; sdpMLineIndex?: unknown };
+  const source = value as { kind?: unknown; sdp?: unknown; candidate?: unknown; sdpMid?: unknown; sdpMLineIndex?: unknown; connectionId?: unknown; replyTo?: unknown };
   const kind = String(source.kind || "") as CinemaSignalPayload["kind"];
   if (!SIGNAL_KINDS.has(kind)) return null;
+  const generation: { connectionId?: string; replyTo?: string } = {};
+  for (const key of ["connectionId", "replyTo"] as const) {
+    if (source[key] === undefined) continue;
+    if (typeof source[key] !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(source[key])) return null;
+    generation[key] = source[key];
+  }
   if (kind === "offer" || kind === "answer") {
     const sdp = typeof source.sdp === "string" ? source.sdp.trim() : "";
     if (!sdp || sdp.length > CINEMA_SIGNAL_MAX_BYTES) return null;
-    return { kind, sdp };
+    return { kind, sdp, ...generation };
   }
   const candidate = typeof source.candidate === "string" ? source.candidate.trim() : "";
   if (!candidate || candidate.length > 2_000) return null;
   const sdpMid = typeof source.sdpMid === "string" ? source.sdpMid.trim().slice(0, 64) : "";
   const rawLine = Math.floor(Number(source.sdpMLineIndex));
   const sdpMLineIndex = Number.isFinite(rawLine) && rawLine >= 0 && rawLine <= 255 ? rawLine : undefined;
-  return { kind: "candidate", candidate, ...(sdpMid ? { sdpMid } : {}), ...(sdpMLineIndex === undefined ? {} : { sdpMLineIndex }) };
+  return { kind: "candidate", candidate, ...generation, ...(sdpMid ? { sdpMid } : {}), ...(sdpMLineIndex === undefined ? {} : { sdpMLineIndex }) };
 }
 
 /**
@@ -256,30 +314,47 @@ export function parseClientMessage(raw: unknown): CinemaClientMessage | null {
       : null;
   }
   if (type === "chat_message") {
-    const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown; requestId?: unknown };
+    const source = value as { message?: unknown; content?: unknown; timestamp?: unknown; atSeconds?: unknown; requestId?: unknown; parentMessageId?: unknown; video?: unknown };
     const content = String(source.message ?? source.content ?? "").trim();
     if (!content || content.length > CINEMA_CHAT_MAX_LENGTH) return null;
     const requestId = typeof source.requestId === "string" ? source.requestId : "";
     if (requestId && !/^[A-Za-z0-9-]{8,64}$/.test(requestId)) return null;
+    const parentMessageId = typeof source.parentMessageId === "string" ? source.parentMessageId : "";
+    if (source.parentMessageId !== undefined && !/^[A-Za-z0-9-]{1,80}$/.test(parentMessageId)) return null;
+    let video: CinemaChatMessageInput["video"];
+    if (source.video !== undefined) {
+      const reference = source.video as { sourceType?: unknown; videoId?: unknown } | null;
+      if (!reference || !["YOUTUBE", "UPLOAD"].includes(String(reference.sourceType)) || typeof reference.videoId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(reference.videoId)) return null;
+      video = { sourceType: reference.sourceType as "YOUTUBE" | "UPLOAD", videoId: reference.videoId };
+    }
     const rawTimestamp = Number(source.timestamp ?? source.atSeconds);
     return {
       type: "chat_message",
       message: content,
       ...(requestId ? { requestId } : {}),
+      ...(parentMessageId ? { parentMessageId } : {}),
+      ...(video ? { video } : {}),
       ...(Number.isFinite(rawTimestamp) && rawTimestamp >= 0 ? { timestamp: rawTimestamp } : {}),
     };
   }
   if (typeof type === "string" && PLAYBACK_TYPES.has(type as CinemaPlaybackActionType)) {
-    const source = value as { time?: unknown; duration?: unknown; stateAt?: unknown };
+    const source = value as { time?: unknown; duration?: unknown; stateAt?: unknown; video?: unknown };
     const time = Number(source.time);
     if (!Number.isFinite(time)) return null;
     const duration = Number(source.duration);
     const stateAt = Number(source.stateAt);
+    let video: CinemaPlaybackAction["video"];
+    if (source.video !== undefined) {
+      const reference = source.video as { sourceType?: unknown; videoId?: unknown } | null;
+      if (!reference || !["YOUTUBE", "UPLOAD"].includes(String(reference.sourceType)) || typeof reference.videoId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(reference.videoId)) return null;
+      video = { sourceType: reference.sourceType as "YOUTUBE" | "UPLOAD", videoId: reference.videoId };
+    }
     return {
       type: type as CinemaPlaybackActionType,
       time,
       ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}),
       ...(Number.isFinite(stateAt) && stateAt > 0 ? { stateAt } : {}),
+      ...(video ? { video } : {}),
     };
   }
   if (type === "signal") {

@@ -161,7 +161,7 @@ function handle(sql, args) {
     return ok(rows.length ? table(["session_id", "members"], rows) : empty);
   }
 
-  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE id = \?/.test(sql)) {
+  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE id = \?/.test(sql) || sql.includes("FROM cinema_message_order o LEFT JOIN cinema_messages")) {
     const row = state.messages.find((message) => message.id === args[0]);
     return ok(row ? table(MESSAGE_COLUMNS, [row]) : empty);
   }
@@ -215,9 +215,13 @@ globalThis.fetch = async (url, init) => {
   const target = String(typeof url === "string" ? url : url?.url || "");
   if (target.startsWith("https://cinema-console-test.turso.io")) {
     const body = JSON.parse(init.body);
-    const results = body.requests
-      .filter((request) => request.type === "execute")
-      .map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value))));
+    const run = stmt => handle(stmt.sql, (stmt.args || []).map(arg => arg.type === "null" ? null : arg.value));
+    const results = body.requests.filter(request => request.type !== "close").map(request => {
+      if (request.type === "execute") return run(request.stmt);
+      assert.equal(request.type, "batch");
+      const step_results = request.batch.steps.map(({ stmt }) => /^(BEGIN|COMMIT)/.test(stmt.sql) ? {} : /^ROLLBACK/.test(stmt.sql) ? null : run(stmt).response.result);
+      return ok({ step_results, step_errors: step_results.map(() => null) });
+    });
     return { ok: true, json: async () => ({ results }) };
   }
   throw new Error(`Unhandled request to ${target}`);

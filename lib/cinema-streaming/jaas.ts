@@ -1,5 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { claimFreeJaasMonthlyIdentity, claimFreeStageDevice, entitlementBySession, releaseFreeStageDevice } from "@/lib/cinema-streaming/entitlements";
+import { claimFreeJaasMonthlyIdentity, claimFreeStageDevice, entitlementBySession, releaseFreeStageDevice, renewFreeStageDevice } from "@/lib/cinema-streaming/entitlements";
 import { platformSettingEnabled } from "@/lib/platform-settings";
 import { envValue } from "@/lib/runtime-env";
 import { rowsToObjects, turso } from "@/lib/turso";
@@ -121,13 +121,7 @@ export async function signJaasStageToken(input: JaasTokenInput, credentials: Jaa
 
 function roomAlias(eventId: string) { return `umx-${eventId.replace(/[^A-Za-z0-9]/g, "").slice(0, 64)}`; }
 
-export async function issueJaasStageAccess(input: {
-  sessionId: string;
-  account: { id: string; name: string; email: string };
-  deviceSessionId: string;
-  now?: Date;
-  credentials?: JaasCredentials;
-}) {
+async function managedStageContext(input: { sessionId: string; account: { id: string }; now?: Date }) {
   const entitlement = await entitlementBySession(input.sessionId);
   if (!entitlement || entitlement.provider !== "JAAS") throw new CampusEngineError("NOT_FOUND", "This room uses the standard Cinema stage.", 404);
   const row = rowsToObjects(await turso(`SELECT e.id AS event_id,e.status AS event_status,o.status AS organizer_status,o.organizer_type,o.verified_at,
@@ -145,18 +139,34 @@ export async function issueJaasStageAccess(input: {
   const now = input.now ?? new Date();
   if (now.getTime() < Date.parse(entitlement.startsAt) - 30 * 60_000) throw new CampusEngineError("INVALID_STATE", "The managed stage opens thirty minutes before the event.", 409);
   if (now.getTime() >= Date.parse(entitlement.expiresAt)) throw new CampusEngineError("INVALID_STATE", "This managed-stage entitlement has expired.", 409);
+  return { entitlement, role: role as StageRole, now };
+}
+
+export async function issueJaasStageAccess(input: {
+  sessionId: string;
+  account: { id: string; name: string; email: string };
+  deviceSessionId: string;
+  now?: Date;
+  credentials?: JaasCredentials;
+}) {
+  const { entitlement, role, now } = await managedStageContext(input);
   const credentials = input.credentials ?? await serverCredentials();
   const alias = roomAlias(entitlement.eventId);
   const tokenExpiresAt = new Date(Math.min(now.getTime() + 15 * 60_000, Date.parse(entitlement.expiresAt)));
   const token = await signJaasStageToken({ roomAlias: alias, user: input.account, role: role as StageRole, expiresAt: tokenExpiresAt, now }, credentials);
-  await claimFreeStageDevice({ eventId: entitlement.eventId, studentId: input.account.id, deviceSessionId: input.deviceSessionId, now });
+  const lease = await claimFreeStageDevice({ eventId: entitlement.eventId, studentId: input.account.id, deviceSessionId: input.deviceSessionId, now });
   try {
     const usage = await claimFreeJaasMonthlyIdentity({ studentId: input.account.id, now });
-    return { provider: "JAAS" as const, domain: credentials.domain, roomName: `${credentials.appId}/${alias}`, token, role: role as StageRole, expiresAt: tokenExpiresAt.toISOString(), usage };
+    return { provider: "JAAS" as const, domain: credentials.domain, roomName: `${credentials.appId}/${alias}`, token, role: role as StageRole, expiresAt: tokenExpiresAt.toISOString(), activeUntil: lease.activeUntil, usage };
   } catch (error) {
     await releaseFreeStageDevice({ eventId: entitlement.eventId, studentId: input.account.id, deviceSessionId: input.deviceSessionId });
     throw error;
   }
+}
+
+export async function renewJaasStageAccess(input: { sessionId: string; account: { id: string }; deviceSessionId: string; now?: Date }) {
+  const { entitlement, now } = await managedStageContext(input);
+  return renewFreeStageDevice({ eventId: entitlement.eventId, studentId: input.account.id, deviceSessionId: input.deviceSessionId, now });
 }
 
 export async function releaseJaasStageAccess(input: { sessionId: string; accountId: string; deviceSessionId: string }) {

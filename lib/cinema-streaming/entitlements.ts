@@ -220,15 +220,15 @@ export async function claimFreeStageDevice(input: {
   if (!studentId || deviceSessionId.length < 16 || deviceSessionId.length > 160) throw new CampusEngineError("VALIDATION_ERROR", "A valid account and stage device session are required.", 400);
   const now = input.now ?? new Date();
   const stamp = now.toISOString();
-  const activeUntil = new Date(now.getTime() + Math.max(2, Math.min(15, Math.floor(input.claimMinutes ?? 5))) * 60_000).toISOString();
+  const activeUntil = new Date(Math.min(Date.parse(entitlement.expiresAt), now.getTime() + Math.max(2, Math.min(15, Math.floor(input.claimMinutes ?? 5))) * 60_000)).toISOString();
   const results = await tursoTransaction([
     { sql: `INSERT INTO cinema_stage_admissions(entitlement_id,student_id,first_admitted_at,status)
       SELECT ?,?,?,'ADMITTED' WHERE (SELECT COUNT(*) FROM cinema_stage_admissions WHERE entitlement_id=? AND status='ADMITTED')<?
       ON CONFLICT(entitlement_id,student_id) DO NOTHING`, args: [entitlement.id, studentId, stamp, entitlement.id, entitlement.maxStageUnique] },
     { sql: `UPDATE cinema_stage_admissions SET active_device_id=?,active_until=?,last_claimed_at=?
       WHERE entitlement_id=? AND student_id=? AND status='ADMITTED'
-        AND (active_device_id='' OR active_device_id=? OR active_until<=?)`,
-      args: [deviceSessionId, activeUntil, stamp, entitlement.id, studentId, deviceSessionId, stamp] },
+        AND (active_device_id='' OR active_device_id=?)`,
+      args: [deviceSessionId, activeUntil, stamp, entitlement.id, studentId, deviceSessionId] },
     { sql: "UPDATE cinema_streaming_entitlements SET status='ACTIVE',updated_at=? WHERE id=? AND status='RESERVED'", args: [stamp, entitlement.id] },
   ]);
   if (Number(results[1]?.affected_row_count || 0) !== 1) {
@@ -238,6 +238,23 @@ export async function claimFreeStageDevice(input: {
   }
   const count = rowsToObjects(await turso("SELECT COUNT(*) AS count FROM cinema_stage_admissions WHERE entitlement_id=? AND status='ADMITTED'", [entitlement.id]))[0];
   return { entitlement: { ...entitlement, status: "ACTIVE" }, uniqueStageParticipants: Number(count?.count || 0), activeUntil };
+}
+
+/** An expired claim is not proof that the provider disconnected its owner. */
+export async function renewFreeStageDevice(input: { eventId: string; studentId: string; deviceSessionId: string; now?: Date }) {
+  await ensureCinemaStreamingEntitlements();
+  const entitlement = await entitlementByEvent(input.eventId);
+  const now = input.now ?? new Date();
+  const stamp = now.toISOString();
+  if (!entitlement || entitlement.provider !== "JAAS" || !["RESERVED", "ACTIVE"].includes(entitlement.status) || Date.parse(entitlement.expiresAt) <= now.getTime()) {
+    throw new CampusEngineError("INVALID_STATE", "This managed stage has ended.", 409);
+  }
+  const activeUntil = new Date(Math.min(Date.parse(entitlement.expiresAt), now.getTime() + 5 * 60_000)).toISOString();
+  const result = await turso(`UPDATE cinema_stage_admissions SET active_until=?,last_claimed_at=?
+    WHERE entitlement_id=? AND student_id=? AND active_device_id=? AND active_device_id<>'' AND active_until>? AND status='ADMITTED'`,
+    [activeUntil, stamp, entitlement.id, input.studentId, input.deviceSessionId, stamp]);
+  if (Number(result.affected_row_count || 0) !== 1) throw new CampusEngineError("CONFLICT", "Your managed-stage session is no longer active. Rejoin the stage.", 409);
+  return { activeUntil };
 }
 
 export async function releaseFreeStageDevice(input: { eventId: string; studentId: string; deviceSessionId: string }) {

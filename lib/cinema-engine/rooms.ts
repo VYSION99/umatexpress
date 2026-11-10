@@ -1,5 +1,5 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { closeCinemaRoom, removeCinemaMemberFromRoom, scheduleCinemaRoom, setCinemaMemberRoleInRoom } from "@/lib/cinema-engine/realtime";
+import { announceCinemaChatRefresh, closeCinemaRoom, removeCinemaMemberFromRoom, scheduleCinemaRoom, setCinemaMemberRoleInRoom } from "@/lib/cinema-engine/realtime";
 import {
   CINEMA_DURATION_MAX_MINUTES,
   CINEMA_DURATION_MIN_MINUTES,
@@ -20,6 +20,7 @@ import { validPlatformEmail } from "@/lib/student-email";
 import { activeCinemaRoomPlan, snapshotCinemaRoomAllowance } from "@/lib/cinema-engine/room-plans";
 import { forgetReusableCinemaRoom, registerReusableCinemaRoom, reusableRoomForSession, syncReusableRoomGuest, updateReusableRoomProfile } from "@/lib/cinema-engine/reusable-rooms";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
+import type { CinemaVideoReference } from "./video-reference";
 
 /**
  * Cinema rooms: the phase-one half of docs/Cinema.
@@ -35,7 +36,7 @@ import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, runS
  * membership row rather than being joined in from the account on every read.
  */
 
-export const CINEMA_SCHEMA_VERSION = "042_cinema_attendance_seconds";
+export const CINEMA_SCHEMA_VERSION = "055_cinema_bookmark_video_context";
 
 export const CINEMA_ROOM_STATUSES = ["CREATED", "LIVE", "ENDED", "EXPIRED", "DELETED"] as const;
 export type CinemaRoomStatus = (typeof CINEMA_ROOM_STATUSES)[number];
@@ -116,6 +117,9 @@ const CINEMA_SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cinema_bookmarks_session ON cinema_bookmarks(session_id, at_seconds, created_at)`,
+  `CREATE TABLE IF NOT EXISTS cinema_bookmark_video_context (
+    bookmark_id TEXT PRIMARY KEY,session_id TEXT NOT NULL,source_type TEXT NOT NULL,video_id TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_cinema_bookmark_video ON cinema_bookmark_video_context(session_id,source_type,video_id)`,
   // Last, because a database created from the statement above already has the
   // column and `runSchemaPass` tolerates exactly this duplicate-column reply.
   `ALTER TABLE cinema_sessions ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC'`,
@@ -1129,7 +1133,7 @@ export async function setRoomMemberRole(input: { id: string; studentId: string; 
   return { updated: true, studentId: guestId, role };
 }
 
-export type CinemaBookmark = { id: string; studentId: string; displayName: string; label: string; atSeconds: number; createdAt: string };
+export type CinemaBookmark = { id: string; studentId: string; displayName: string; label: string; atSeconds: number; createdAt: string; video?: CinemaVideoReference };
 
 async function requireRoomMember(sessionId: string, studentId: string) {
   const room = await requireVisibleRoom(sessionId);
@@ -1145,8 +1149,9 @@ export async function listCinemaBookmarks(input: { id: string; studentId: string
   await ensureCinemaTables();
   const room = await requireRoomMember(input.id, input.studentId);
   return rowsToObjects(await turso(
-    `SELECT id,student_id,display_name,label,at_seconds,created_at FROM cinema_bookmarks
-     WHERE session_id=? ORDER BY at_seconds ASC,created_at ASC LIMIT 200`,
+    `SELECT b.id,b.student_id,b.display_name,b.label,b.at_seconds,b.created_at,v.source_type,v.video_id FROM cinema_bookmarks b
+     LEFT JOIN cinema_bookmark_video_context v ON v.bookmark_id=b.id AND v.session_id=b.session_id
+     WHERE b.session_id=? ORDER BY b.at_seconds ASC,b.created_at ASC LIMIT 200`,
     [String(room.id)],
   )).map((row) => ({
     id: String(row.id || ""),
@@ -1155,14 +1160,19 @@ export async function listCinemaBookmarks(input: { id: string; studentId: string
     label: String(row.label || ""),
     atSeconds: Math.max(0, Math.floor(Number(row.at_seconds || 0))),
     createdAt: String(row.created_at || ""),
+    video: row.video_id && ["YOUTUBE", "UPLOAD"].includes(String(row.source_type)) ? { sourceType: row.source_type as CinemaVideoReference["sourceType"], videoId: String(row.video_id) } : undefined,
   }));
 }
 
-export async function addCinemaBookmark(input: { id: string; studentId: string; displayName?: string; label: unknown; atSeconds: unknown }) {
+export async function addCinemaBookmark(input: { id: string; studentId: string; displayName?: string; label: unknown; atSeconds: unknown; expectedVideo?: unknown }) {
   await requireTurso();
   await ensureCinemaTables();
   const room = await requireRoomMember(input.id, input.studentId);
   if (!isRoomActive(room.status)) throw new CampusEngineError("INVALID_STATE", "This room has ended.", 409);
+  const video = { sourceType: String(room.video_source_type || ""), videoId: String(room.video_id || "") };
+  const expected = input.expectedVideo as Partial<CinemaVideoReference> | null | undefined;
+  if (input.expectedVideo !== undefined && (!expected || expected.sourceType !== video.sourceType || expected.videoId !== video.videoId)) throw new CampusEngineError("CONFLICT", "The video changed. Check the selected video before bookmarking it.", 409);
+  if (!video.videoId || !["YOUTUBE", "UPLOAD"].includes(video.sourceType)) throw new CampusEngineError("INVALID_STATE", "Choose a video before bookmarking a moment.", 409);
   const label = String(input.label || "").replace(/\s+/g, " ").trim().slice(0, 100);
   const atSeconds = Number(input.atSeconds);
   if (!label || !Number.isInteger(atSeconds) || atSeconds < 0 || atSeconds > 86_400) {
@@ -1173,13 +1183,16 @@ export async function addCinemaBookmark(input: { id: string; studentId: string; 
     displayName: String(input.displayName || "Student").trim().slice(0, 80) || "Student",
     label, atSeconds, createdAt: new Date().toISOString(),
   };
-  const inserted = await turso(
-    `INSERT INTO cinema_bookmarks (id,session_id,student_id,display_name,label,at_seconds,created_at)
-     SELECT ?,?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM cinema_bookmarks WHERE session_id=?) < 200`,
-    [bookmark.id, String(room.id), bookmark.studentId, bookmark.displayName, label, atSeconds, bookmark.createdAt, String(room.id)],
-  );
-  if (Number(inserted?.affected_row_count || 0) !== 1) throw new CampusEngineError("VALIDATION_ERROR", "This room has reached its bookmark limit.", 400);
-  return bookmark;
+  const [inserted] = await tursoTransaction([
+    { sql: `INSERT INTO cinema_bookmarks (id,session_id,student_id,display_name,label,at_seconds,created_at)
+      SELECT ?,?,?,?,?,?,? FROM cinema_sessions s WHERE s.id=? AND s.status IN ('CREATED','LIVE') AND s.video_source_type=? AND s.video_id=?
+      AND (SELECT COUNT(*) FROM cinema_bookmarks WHERE session_id=s.id)<200
+      AND EXISTS(SELECT 1 FROM cinema_participants p WHERE p.session_id=s.id AND p.student_id=?)`,
+    args: [bookmark.id, String(room.id), bookmark.studentId, bookmark.displayName, label, atSeconds, bookmark.createdAt, String(room.id), video.sourceType, video.videoId, input.studentId] },
+    { sql: "INSERT INTO cinema_bookmark_video_context(bookmark_id,session_id,source_type,video_id) SELECT id,session_id,?,? FROM cinema_bookmarks WHERE id=?", args: [video.sourceType, video.videoId, bookmark.id] },
+  ]);
+  if (Number(inserted?.affected_row_count || 0) !== 1) throw new CampusEngineError("CONFLICT", "The room, selected video or bookmark allowance changed. Refresh and try again.", 409);
+  return { ...bookmark, video: video as CinemaVideoReference };
 }
 
 export async function deleteCinemaBookmark(input: { id: string; studentId: string; bookmarkId: unknown }) {
@@ -1189,11 +1202,18 @@ export async function deleteCinemaBookmark(input: { id: string; studentId: strin
   const bookmarkId = String(input.bookmarkId || "").trim();
   if (!bookmarkId) throw new CampusEngineError("VALIDATION_ERROR", "Choose a bookmark to remove.", 400);
   const elevated = String(room.host_student_id || "") === input.studentId || await memberRole(String(room.id), input.studentId) === "COHOST";
-  const result = await turso(
-    `DELETE FROM cinema_bookmarks WHERE id=? AND session_id=?${elevated ? "" : " AND student_id=?"}`,
-    elevated ? [bookmarkId, String(room.id)] : [bookmarkId, String(room.id), input.studentId],
-  );
-  if (Number(result?.affected_row_count || 0) !== 1) throw new CampusEngineError("NOT_FOUND", "That bookmark could not be removed.", 404);
+  const { ensureCinemaStudyTables } = await import("./study"); await ensureCinemaStudyTables();
+  const result = await tursoTransaction([
+    { sql: `DELETE FROM cinema_bookmarks WHERE id=? AND session_id=?${elevated ? "" : " AND student_id=?"}`, args: elevated ? [bookmarkId, String(room.id)] : [bookmarkId, String(room.id), input.studentId] },
+    { sql: `UPDATE cinema_study_jobs SET status='FAILED',error='A shared moment was removed. Generate a new pack.',updated_at=?
+      WHERE session_id=? AND status='DONE' AND NOT EXISTS(SELECT 1 FROM cinema_bookmarks WHERE id=? AND session_id=?) AND EXISTS(SELECT 1 FROM cinema_study_pack_evidence e JOIN cinema_study_packs p ON p.id=e.pack_id WHERE e.session_id=? AND e.kind='BOOKMARK' AND e.source_id=?)`, args: [new Date().toISOString(), input.id, bookmarkId, input.id, input.id, bookmarkId] },
+    { sql: `DELETE FROM cinema_study_packs WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM cinema_bookmarks WHERE id=? AND session_id=?)
+      AND id IN (SELECT pack_id FROM cinema_study_pack_evidence WHERE session_id=? AND kind='BOOKMARK' AND source_id=?)`, args: [input.id, bookmarkId, input.id, input.id, bookmarkId] },
+    { sql: "DELETE FROM cinema_study_pack_evidence WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM cinema_study_packs p WHERE p.id=pack_id)", args: [input.id] },
+    { sql: "DELETE FROM cinema_bookmark_video_context WHERE bookmark_id=? AND session_id=? AND NOT EXISTS(SELECT 1 FROM cinema_bookmarks WHERE id=? AND session_id=?)", args: [bookmarkId, input.id, bookmarkId, input.id] },
+  ]);
+  if (Number(result[0].affected_row_count || 0) !== 1) throw new CampusEngineError("NOT_FOUND", "That bookmark could not be removed.", 404);
+  await announceCinemaChatRefresh(input.id);
   return { removed: true };
 }
 

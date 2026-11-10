@@ -1,14 +1,20 @@
+import { announceCinemaChatRefresh } from "./realtime";
+import { ensureCinemaMessageTables } from "./messages";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { callCloudflareAi, isCloudflareAiConfigured } from "@/lib/cloudflare-ai";
 import { CINEMA_CAPTION_LANGUAGES, type CinemaCaptionLanguage } from "@/lib/cinema-engine/caption-languages";
 import { isRoomActive, readRoom } from "@/lib/cinema-engine/rooms";
 import { rowsToObjects, runSchemaPass, turso, tursoTransaction } from "@/lib/turso";
+import type { CinemaVideoReference } from "./video-reference";
 
 const TRANSCRIPT_SCHEMA_VERSION = "037_cinema_transcripts";
 const MAX_SEGMENTS = 2_000;
 const MAX_TEXT = 1_000;
 
 const statements = [
+  `CREATE TABLE IF NOT EXISTS cinema_transcript_video_context (
+    segment_id TEXT PRIMARY KEY,session_id TEXT NOT NULL,source_type TEXT NOT NULL,video_id TEXT NOT NULL)`,
+  "CREATE INDEX IF NOT EXISTS idx_cinema_transcript_video ON cinema_transcript_video_context(session_id,source_type,video_id)",
   `CREATE TABLE IF NOT EXISTS cinema_session_privacy (
     session_id TEXT PRIMARY KEY,
     transcript_enabled INTEGER NOT NULL DEFAULT 0,
@@ -40,7 +46,7 @@ const statements = [
 
 let ready: Promise<void> | null = null;
 export function ensureCinemaTranscriptTables() {
-  ready ??= runSchemaPass({ metaTable: "campus_schema_meta", id: "cinemaTranscripts", version: `${TRANSCRIPT_SCHEMA_VERSION}_translations`, statements }).catch((error) => {
+  ready ??= runSchemaPass({ metaTable: "campus_schema_meta", id: "cinemaTranscripts", version: `${TRANSCRIPT_SCHEMA_VERSION}_chat_context`, statements }).catch((error) => {
     ready = null;
     throw error;
   });
@@ -63,6 +69,7 @@ export type CinemaTranscriptSegment = {
   atSeconds: number;
   source: "CALL" | "UPLOAD";
   createdAt: string;
+  video?: CinemaVideoReference;
 };
 
 export async function translateCinemaCaption(input: { id: string; studentId: string; segmentId: unknown; language: unknown; translate?: typeof callCloudflareAi }) {
@@ -113,6 +120,12 @@ async function memberRoom(id: string, studentId: string) {
   return room;
 }
 
+function checkTranscriptVideo(room: Awaited<ReturnType<typeof readRoom>>, expected: unknown) {
+  if (expected === undefined) return;
+  const video = expected && typeof expected === "object" ? expected as Record<string, unknown> : null;
+  if (!video || video.sourceType !== room.sourceType || video.videoId !== room.videoId) throw new CampusEngineError("CONFLICT", "The selected video changed. Check it before adding captions.", 409);
+}
+
 export async function readCinemaTranscriptPrivacy(id: string, studentId: string): Promise<CinemaTranscriptPrivacy> {
   await ensureCinemaTranscriptTables();
   await memberRoom(id, studentId);
@@ -138,6 +151,7 @@ export async function updateCinemaTranscriptPrivacy(input: { id: string; student
      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET transcript_enabled=excluded.transcript_enabled,ai_study_enabled=excluded.ai_study_enabled,translation_enabled=excluded.translation_enabled,caption_language=excluded.caption_language,retention_hours=excluded.retention_hours,updated_by=excluded.updated_by,updated_at=excluded.updated_at`,
     [input.id, input.transcriptEnabled === true ? 1 : 0, input.aiStudyEnabled === true ? 1 : 0, input.translationEnabled === true ? 1 : 0, language, retention, input.studentId, stamp],
   );
+  await announceCinemaChatRefresh(input.id);
   return readCinemaTranscriptPrivacy(input.id, input.studentId);
 }
 
@@ -146,6 +160,7 @@ function segmentView(row: Record<string, unknown>): CinemaTranscriptSegment {
     id: String(row.id || ""), speakerId: String(row.speaker_id || ""), speakerName: String(row.speaker_name || "") || "Speaker",
     text: String(row.text || ""), atSeconds: Math.max(0, Number(row.at_seconds || 0)),
     source: String(row.source || "CALL") === "UPLOAD" ? "UPLOAD" : "CALL", createdAt: String(row.created_at || ""),
+    video: row.video_id && ["YOUTUBE", "UPLOAD"].includes(String(row.source_type)) ? { sourceType: row.source_type as CinemaVideoReference["sourceType"], videoId: String(row.video_id) } : undefined,
   };
 }
 
@@ -153,29 +168,37 @@ export async function listCinemaTranscript(input: { id: string; studentId: strin
   await ensureCinemaTranscriptTables();
   await memberRoom(input.id, input.studentId);
   const query = String(input.query || "").trim().slice(0, 100);
+  const stamp = new Date().toISOString();
+  const select = `SELECT t.id,t.speaker_id,t.speaker_name,t.text,t.at_seconds,t.source,t.created_at,v.source_type,v.video_id FROM cinema_transcript_segments t
+    LEFT JOIN cinema_transcript_video_context v ON v.segment_id=t.id AND v.session_id=t.session_id
+    WHERE t.session_id=? AND (t.expires_at='' OR t.expires_at>?)`;
   const rows = query
-    ? await turso("SELECT id,speaker_id,speaker_name,text,at_seconds,source,created_at FROM cinema_transcript_segments WHERE session_id=? AND text LIKE ? ORDER BY at_seconds,created_at LIMIT 300", [input.id, `%${query.replace(/[%_]/g, "")}%`])
-    : await turso("SELECT id,speaker_id,speaker_name,text,at_seconds,source,created_at FROM cinema_transcript_segments WHERE session_id=? ORDER BY at_seconds,created_at LIMIT 500", [input.id]);
+    ? await turso(`${select} AND t.text LIKE ? ORDER BY t.at_seconds,t.created_at LIMIT 300`, [input.id, stamp, `%${query.replace(/[%_]/g, "")}%`])
+    : await turso(`${select} ORDER BY t.at_seconds,t.created_at LIMIT 500`, [input.id, stamp]);
   return rowsToObjects(rows).map(segmentView);
 }
 
 /** A small playback window for the always-on caption overlay. */
-export async function listCinemaCaptionWindow(input: { id: string; studentId: string; atSeconds: unknown }): Promise<CinemaTranscriptSegment[]> {
+export async function listCinemaCaptionWindow(input: { id: string; studentId: string; atSeconds: unknown; expectedVideo?: unknown }): Promise<CinemaTranscriptSegment[]> {
   await ensureCinemaTranscriptTables();
-  await memberRoom(input.id, input.studentId);
+  const room = await memberRoom(input.id, input.studentId);
+  checkTranscriptVideo(room, input.expectedVideo);
   const at = Number.isFinite(Number(input.atSeconds)) ? Math.min(604_800, Math.max(0, Math.floor(Number(input.atSeconds)))) : 0;
   const recent = new Date(Date.now() - 15_000).toISOString();
   return rowsToObjects(await turso(
-    `SELECT id,speaker_id,speaker_name,text,at_seconds,source,created_at FROM cinema_transcript_segments
-     WHERE session_id=? AND ((source='CALL' AND created_at>=?) OR (source='UPLOAD' AND at_seconds BETWEEN ? AND ?))
-     ORDER BY at_seconds,created_at LIMIT 50`,
-    [input.id, recent, Math.max(0, at - 15), at + 15],
+    `SELECT t.id,t.speaker_id,t.speaker_name,t.text,t.at_seconds,t.source,t.created_at,v.source_type,v.video_id FROM cinema_transcript_segments t
+     JOIN cinema_transcript_video_context v ON v.segment_id=t.id AND v.session_id=t.session_id
+     WHERE t.session_id=? AND v.source_type=? AND v.video_id=? AND (t.expires_at='' OR t.expires_at>?)
+       AND ((t.source='CALL' AND t.created_at>=?) OR (t.source='UPLOAD' AND t.at_seconds BETWEEN ? AND ?))
+     ORDER BY t.at_seconds,t.created_at LIMIT 50`,
+    [input.id, room.sourceType, room.videoId, new Date().toISOString(), recent, Math.max(0, at - 15), at + 15],
   )).map(segmentView);
 }
 
-export async function addCinemaTranscriptSegment(input: { id: string; studentId: string; speakerName: string; text: unknown; atSeconds: unknown; source?: unknown }) {
+export async function addCinemaTranscriptSegment(input: { id: string; studentId: string; speakerName: string; text: unknown; atSeconds: unknown; source?: unknown; expectedVideo?: unknown }) {
   await ensureCinemaTranscriptTables();
   const room = await memberRoom(input.id, input.studentId);
+  checkTranscriptVideo(room, input.expectedVideo);
   const privacy = await readCinemaTranscriptPrivacy(input.id, input.studentId);
   if (!privacy.transcriptEnabled) throw new CampusEngineError("INVALID_STATE", "The host has not enabled transcripts for this session.", 409);
   const text = String(input.text || "").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
@@ -193,12 +216,14 @@ export async function addCinemaTranscriptSegment(input: { id: string; studentId:
     [id, input.id, input.studentId, String(input.speakerName || "Speaker").slice(0, 80), text, atSeconds, source, stamp.toISOString(), expires, input.id, MAX_SEGMENTS],
   );
   if (Number(inserted.affected_row_count || 0) !== 1) throw new CampusEngineError("CONFLICT", "This transcript has reached its 2,000-line limit.", 409);
+  if (room.videoId) await turso("INSERT OR IGNORE INTO cinema_transcript_video_context(segment_id,session_id,source_type,video_id) SELECT id,session_id,?,? FROM cinema_transcript_segments WHERE id=?", [room.sourceType, room.videoId, id]);
   return { id, speakerId: input.studentId, speakerName: input.speakerName, text, atSeconds, source, createdAt: stamp.toISOString() } as CinemaTranscriptSegment;
 }
 
-export async function importCinemaVtt(input: { id: string; studentId: string; speakerName: string; content: unknown }) {
+export async function importCinemaVtt(input: { id: string; studentId: string; speakerName: string; content: unknown; expectedVideo?: unknown }) {
   await ensureCinemaTranscriptTables();
   const room = await memberRoom(input.id, input.studentId);
+  checkTranscriptVideo(room, input.expectedVideo);
   if (!room.isHost) throw new CampusEngineError("FORBIDDEN", "Only the host can import video captions.", 403);
   const privacy = await readCinemaTranscriptPrivacy(input.id, input.studentId);
   if (!privacy.transcriptEnabled) throw new CampusEngineError("INVALID_STATE", "Enable transcripts before importing captions.", 409);
@@ -221,21 +246,36 @@ export async function importCinemaVtt(input: { id: string; studentId: string; sp
   const expires = new Date(stamp.getTime() + privacy.retentionHours * 3_600_000).toISOString();
   let imported = 0;
   for (let index = 0; index < captions.length; index += 80) {
-    const results = await tursoTransaction(captions.slice(index, index + 80).map((caption) => ({
+    const results = await tursoTransaction(captions.slice(index, index + 80).flatMap((caption) => {
+      const segmentId = crypto.randomUUID();
+      return [{
       sql: `INSERT INTO cinema_transcript_segments (id,session_id,speaker_id,speaker_name,text,at_seconds,source,created_at,expires_at)
         SELECT ?,?,?,?,?,?,'UPLOAD',?,? WHERE (SELECT COUNT(*) FROM cinema_transcript_segments WHERE session_id=?) < ?`,
-      args: [crypto.randomUUID(), input.id, input.studentId, String(input.speakerName || "Host").slice(0, 80), caption.text, caption.atSeconds, stamp.toISOString(), expires, input.id, MAX_SEGMENTS],
-    })));
-    imported += results.reduce((sum, result) => sum + Number(result.affected_row_count || 0), 0);
+      args: [segmentId, input.id, input.studentId, String(input.speakerName || "Host").slice(0, 80), caption.text, caption.atSeconds, stamp.toISOString(), expires, input.id, MAX_SEGMENTS],
+    }, ...(room.videoId ? [{ sql: "INSERT OR IGNORE INTO cinema_transcript_video_context(segment_id,session_id,source_type,video_id) SELECT id,session_id,?,? FROM cinema_transcript_segments WHERE id=?", args: [room.sourceType, room.videoId, segmentId] }] : [])];
+    }));
+    imported += results.filter((_, index) => !room.videoId || index % 2 === 0).reduce((sum, result) => sum + Number(result.affected_row_count || 0), 0);
   }
   return { imported };
 }
 
 export async function clearCinemaTranscript(id: string, studentId: string) {
-  await ensureCinemaTranscriptTables();
+  await ensureCinemaTranscriptTables(); await ensureCinemaMessageTables();
+  const { ensureCinemaStudyTables } = await import("./study"); await ensureCinemaStudyTables();
   const room = await memberRoom(id, studentId);
   if (!room.isHost) throw new CampusEngineError("FORBIDDEN", "Only the host can clear the transcript.", 403);
-  await turso("DELETE FROM cinema_caption_translations WHERE session_id=?", [id]);
-  await turso("DELETE FROM cinema_transcript_segments WHERE session_id=?", [id]);
+  await tursoTransaction([
+    { sql: "DELETE FROM cinema_study_packs WHERE session_id=?", args: [id] },
+    { sql: "DELETE FROM cinema_study_pack_evidence WHERE session_id=?", args: [id] },
+    { sql: "UPDATE cinema_study_jobs SET status='FAILED',error='Transcript sources were cleared.',updated_at=? WHERE session_id=?", args: [new Date().toISOString(), id] },
+    { sql: "UPDATE cinema_study_job_claims SET claim_token='',lease_until='' WHERE session_id=?", args: [id] },
+    { sql: "DELETE FROM cinema_caption_translations WHERE session_id=?", args: [id] },
+    { sql: "DELETE FROM cinema_messages WHERE id IN (SELECT answer_id FROM cinema_chat_ai_jobs WHERE session_id=? AND id IN (SELECT job_id FROM cinema_chat_ai_evidence WHERE kind='TRANSCRIPT'))", args: [id] },
+    { sql: "UPDATE cinema_chat_ai_jobs SET status='CANCELLED',claim_token='',lease_until='',error='Transcript sources were cleared.' WHERE session_id=? AND id IN (SELECT job_id FROM cinema_chat_ai_evidence WHERE kind='TRANSCRIPT')", args: [id] },
+    { sql: "UPDATE cinema_private_study_requests SET status='CANCELLED',answer='',citations='[]',dependencies='[]',claim_token='',lease_until='',error='Transcript sources were cleared.' WHERE session_id=? AND status<>'DELETED' AND id IN (SELECT request_id FROM cinema_private_study_evidence WHERE kind='TRANSCRIPT')", args: [id] },
+    { sql: "DELETE FROM cinema_transcript_video_context WHERE session_id=?", args: [id] },
+    { sql: "DELETE FROM cinema_transcript_segments WHERE session_id=?", args: [id] },
+  ]);
+  await announceCinemaChatRefresh(id);
   return { cleared: true };
 }

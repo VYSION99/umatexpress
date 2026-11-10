@@ -27,7 +27,7 @@ export function CinemaDiscussionAudience({ initialRoom, onStageRole }: { initial
   const playerRef = useRef<HTMLDivElement>(null);
   const updates = useCinemaAudienceUpdates(room.id, Boolean(room.isMember && account?.emailVerified && ["CREATED", "LIVE"].includes(state.status)));
   const livePosition = useCallback(() => 0, []);
-  const { privacy: captionPrivacy, currentCaption } = useCinemaCaptions(room.id, Boolean(room.isMember && account?.emailVerified), livePosition);
+  const { privacy: captionPrivacy, currentCaption } = useCinemaCaptions(room.id, Boolean(room.isMember && account?.emailVerified), livePosition, { sourceType: room.sourceType, videoId: state.videoId });
   const joining = useRef(false);
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/cinema/sessions/${room.id}/stage`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);

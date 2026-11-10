@@ -171,7 +171,7 @@ export async function fileCinemaReport(input: {
   let message = null;
   if (messageId) {
     message = await readCinemaMessage(messageId);
-    if (!message || message.sessionId !== sessionId) {
+    if (!message || message.removed || message.sessionId !== sessionId) {
       throw new CampusEngineError("NOT_FOUND", "That message is not in this room.", 404);
     }
   }

@@ -18,13 +18,13 @@ export default function CinemaRoomsPage() {
         session={session}
         service="cinema"
         label="ENTERTAINMENT · WATCH"
-        title="Study rooms"
-        blurb="Every collaborative watch room, live or recently ended, with the host and the people in it."
+        title="OnlineCinema"
+        blurb="Manage active and recently ended watch rooms, hosts and participants."
       >
         <CinemaRoomsPanel />
         {session.account.role === "ADMIN" && <CinemaOrganizerRequests />}
         {session.account.role === "ADMIN" && <CinemaRoomPlans />}
       </ConsoleShell>
-      : <ConsoleUnavailable session={session} service="cinema" label="STUDY ROOMS" blurb="Watch rooms belong to platform staff." />}
+      : <ConsoleUnavailable session={session} service="cinema" label="STUDY ROOMS" blurb="Watch room management requires platform staff access." />}
   </ConsoleSessionGate>;
 }

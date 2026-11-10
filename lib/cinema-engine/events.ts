@@ -65,7 +65,7 @@ export type CinemaEvent = {
   id: string; slug: string; sessionId: string; seriesId: string; title: string; description: string;
   startsAt: string; endsAt: string; capacity: number; rsvpCount: number; availablePlaces: number | null;
   format: CinemaEventFormat; stageLimit: number; waitlistCount: number; waitlistPosition: number;
-  posterUrl: string; certificatesEnabled: boolean; status: string; state: "UPCOMING" | "LIVE" | "REPLAY";
+  posterUrl: string; thumbnailUrl: string; certificatesEnabled: boolean; status: string; state: "UPCOMING" | "LIVE" | "REPLAY";
   replayVideoId: string;
   recurrenceIndex: number; recurrenceCount: number; organizer: { id: string; name: string; type: CinemaOrganizerType };
   averageRating: number; ratingCount: number; viewerRsvp: "" | "GOING" | "WAITLIST" | "CANCELLED"; canManage: boolean;
@@ -94,9 +94,12 @@ function eventView(row: Record<string, unknown>, studentId = ""): CinemaEvent {
     id: String(row.id || ""), slug: String(row.slug || ""), sessionId: String(row.session_id || ""), seriesId: String(row.series_id || ""),
     title: String(row.title || "Cinema event"), description: String(row.description || ""), startsAt: String(row.starts_at || ""), endsAt: String(row.ends_at || ""),
     capacity, rsvpCount, availablePlaces: capacity > 0 ? Math.max(0, capacity - rsvpCount) : null,
-    format: CINEMA_EVENT_FORMATS.includes(String(row.event_format || "SCREENING") as CinemaEventFormat) ? String(row.event_format) as CinemaEventFormat : "SCREENING",
+    format: CINEMA_EVENT_FORMATS.includes(String(row.event_format || "SCREENING") as CinemaEventFormat) ? String(row.event_format || "SCREENING") as CinemaEventFormat : "SCREENING",
     stageLimit: Number(row.stage_limit || 6), waitlistCount: Number(row.waitlist_count || 0), waitlistPosition: Number(row.waitlist_position || 0),
-    posterUrl: row.poster_key ? `/api/cinema/events/${String(row.id)}/poster` : "", certificatesEnabled: Number(row.certificates_enabled || 0) === 1,
+    posterUrl: row.poster_key ? `/api/cinema/events/${String(row.id)}/poster` : "",
+    thumbnailUrl: String(row.room_source_type || "") === "YOUTUBE" && /^[A-Za-z0-9_-]{11}$/.test(String(row.room_video_id || ""))
+      ? `https://i.ytimg.com/vi/${String(row.room_video_id)}/hqdefault.jpg` : "",
+    certificatesEnabled: Number(row.certificates_enabled || 0) === 1,
     replayVideoId: state === "REPLAY" && String(row.room_source_type) === "YOUTUBE" ? String(row.room_video_id || "") : "",
     status: String(row.status || "PUBLISHED"), state, recurrenceIndex: Number(row.recurrence_index || 1), recurrenceCount: Number(row.recurrence_count || 1),
     organizer: { id: String(row.organizer_id || ""), name: String(row.organizer_name || "Student group"), type: String(row.organizer_type || "STUDENT_GROUP") as CinemaOrganizerType },

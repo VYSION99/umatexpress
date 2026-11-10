@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
 import { deleteRoom, patchRoom, readRoom } from "@/lib/cinema-engine/rooms";
 import { requireCinemaAccount } from "@/lib/student-auth";
+import { CampusEngineError } from "@/lib/campus-engine/errors";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -15,6 +16,8 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const student = await requireCinemaAccount(request);
+    const expectedAccount = request.headers.get("x-cinema-account");
+    if (expectedAccount && expectedAccount !== student.id) throw new CampusEngineError("CONFLICT", "Your account changed. Reopen the room.", 409);
     const { id } = await context.params;
     const room = await readRoom({ id, studentId: student.id });
     return ok({ room }, { headers: NO_STORE }, request);

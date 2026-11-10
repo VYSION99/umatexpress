@@ -88,6 +88,12 @@ test("managed event reservation, role claims and device enforcement stay server 
   assert.equal(hostAccess.role, "HOST");
   assert.equal(speakerAccess.role, "PRESENTER");
 
+  assert.ok(hostAccess.activeUntil);
+  const renewedLease = await jaas.renewJaasStageAccess({ sessionId: event.sessionId, account: speaker, deviceSessionId: "speaker-device-session-123", now: new Date(Date.now() + 60000) });
+  assert.ok(Date.parse(renewedLease.activeUntil) > Date.parse(speakerAccess.activeUntil));
+  await assert.rejects(jaas.renewJaasStageAccess({ sessionId: event.sessionId, account: viewer, deviceSessionId: "viewer-device-session-1234" }), error => error.status === 403);
+  await assert.rejects(jaas.renewJaasStageAccess({ sessionId: event.sessionId, account: speaker, deviceSessionId: "wrong-session-123456789" }), error => error.status === 409);
+
   const [headerPart, payloadPart, signaturePart] = hostAccess.token.split(".");
   const header = decodeJwtPart(headerPart);
   const payload = decodeJwtPart(payloadPart);

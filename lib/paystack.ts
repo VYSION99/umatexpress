@@ -138,6 +138,8 @@ async function initializePaystackTransactionRaw(input: {
   };
 }
 
+export class PaystackTransactionNotFound extends Error {}
+
 export async function verifyPaystackTransaction(reference: string) {
   const { secretKey, baseUrl } = await getRuntimeConfig();
   const response = await fetch(`${baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
@@ -146,6 +148,9 @@ export async function verifyPaystackTransaction(reference: string) {
   });
   const result = await response.json().catch(() => ({})) as PaystackVerifyResponse;
   if (!response.ok || !result.status || !result.data) {
+    if ([400, 404].includes(response.status) && result.status === false && /^transaction(?: reference)? not found\.?$/i.test(result.message?.trim() || "")) {
+      throw new PaystackTransactionNotFound(result.message);
+    }
     throw new Error(result.message || `Paystack verify failed (${response.status}).`);
   }
   return {

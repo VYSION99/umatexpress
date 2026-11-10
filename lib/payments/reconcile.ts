@@ -1,5 +1,6 @@
 import { rowsToObjects, turso, tursoTransaction, isTursoConfiguredRuntime } from "@/lib/turso";
-import { readPaystackPage, verifyPaystackTransaction, verifyPaystackTransfer } from "@/lib/paystack";
+import { PaystackTransactionNotFound, readPaystackPage, verifyPaystackTransaction, verifyPaystackTransfer } from "@/lib/paystack";
+import { expireMissingCinemaRoomPlanCheckout } from "@/lib/cinema-engine/room-plan-subscriptions";
 import { ensureFinanceSchema } from "@/lib/payments/schema";
 import { installFinancialCapture, drainFinancialOutbox } from "@/lib/payments/accounting";
 import { processPaystackEvent } from "@/lib/payments/paystack-events";
@@ -16,7 +17,12 @@ export async function recordReconciliation(input:{id:string;reference:string;kin
 
 export async function reconcilePaymentReference(reference:string) {
   await ensureFinanceSchema();
-  const payment=await verifyPaystackTransaction(reference);
+  let payment;
+  try { payment=await verifyPaystackTransaction(reference); }
+  catch (error) {
+    if (error instanceof PaystackTransactionNotFound && await expireMissingCinemaRoomPlanCheckout(reference)) return {handled:true,status:'EXPIRED'};
+    throw error;
+  }
   const attempt=rowsToObjects(await turso('SELECT amount,currency FROM payment_attempts WHERE reference=?',[reference]))[0];
   const mismatch=attempt && (Number(attempt.amount)!==payment.amount || attempt.currency!==payment.currency);
   const success=payment.status==='SUCCESSFUL';
@@ -28,7 +34,7 @@ export async function reconcilePaymentReference(reference:string) {
   }
   if(success || payment.status==='FAILED') {
     const result=await processPaystackEvent({event:success?'charge.success':'charge.failed',data:{id:Number(payment.financialTransactionId)||undefined,reference,amount:payment.amount,currency:payment.currency,status:success?'success':'failed',fees:payment.fees}});
-    const review=mismatch || !result.handled || ('status' in result && ['PAID_REVIEW','PAYMENT_REVIEW','REVERSAL_REVIEW','NOT_PENDING'].includes(String(result.status)));
+    const review=mismatch || !result.handled || ('status' in result && ['REVIEW','PAID_REVIEW','PAYMENT_REVIEW','REVERSAL_REVIEW','NOT_PENDING'].includes(String(result.status)));
     const state=review?'REVIEW':payment.status;
     await turso("UPDATE payment_attempts SET state=?,updated_at=? WHERE reference=? AND (state NOT IN ('SUCCESSFUL','REVIEW') OR ?='REVIEW')",[state,new Date().toISOString(),reference,state]);
     if(review) await turso("UPDATE finance_reconciliation SET status='REVIEW' WHERE id=?",[`charge:${reference}`]);
@@ -46,6 +52,7 @@ export async function reconcileUnknownOperations(limit=2) {
     try {
       if(row.kind==='INITIALIZE') {
         const result=await reconcilePaymentReference(String(row.reference));
+        if ('status' in result && result.status==='EXPIRED') { resolved++; continue; }
         if(('status' in result && result.status==='PENDING') || !result.handled) continue;
         // Verification result is not an authorization URL; don't replay it as initialization.
         await recordReconciliation({id:`operation:${row.id}`,reference:String(row.reference),kind:'INITIALIZE',expected:null,observed:null,currency:'GHS',status:'VERIFIED',details:'Charge outcome recovered; the original checkout must not be restarted.'});

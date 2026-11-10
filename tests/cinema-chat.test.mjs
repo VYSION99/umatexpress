@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { after, beforeEach } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { sqliteTurso } from "./helpers/sqlite-turso.mjs";
 
 /**
  * Cinema chat: stored before it is broadcast, replayed to a newcomer, capped
@@ -15,84 +16,23 @@ import { createServer } from "vite";
 process.env.TURSO_DATABASE_URL = "https://cinema-chat-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 
-const state = { messages: [], schema: new Map(), windows: new Map() };
-
-function cell(value) {
-  if (value === null || value === undefined) return { type: "null" };
-  if (typeof value === "number") return { type: Number.isInteger(value) ? "integer" : "real", value: String(value) };
-  return { type: "text", value: String(value) };
+const database = sqliteTurso();
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (...args) => {
+  const response = await database.fetch(...args);
+  const body = await response.json();
+  // Hrana integer cells are strings in production, unlike node:sqlite numbers.
+  return Response.json(JSON.parse(JSON.stringify(body, (key, value) => key === "value" && typeof value === "number" ? String(value) : value)));
+};
+function clearTable(name) {
+  if (database.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)) database.db.prepare(`DELETE FROM ${name}`).run();
 }
-const ok = (result) => ({ type: "ok", response: { result: result || {} } });
-const empty = { cols: [], rows: [] };
-const affected = (count) => ok({ affected_row_count: count });
-const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), rows: rows.map((row) => columns.map((name) => cell(row[name]))) });
-
-export const MESSAGE_COLUMNS = ["id", "session_id", "sender_id", "sender_name", "content", "metadata", "created_at"];
-
-function handle(sql, args) {
-  if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) {
-    const version = state.schema.get(String(args[0] || ""));
-    return version ? ok(table(["version"], [{ version }])) : ok(empty);
-  }
-  if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) {
-    state.schema.set(String(args[0] || ""), String(args[1] || ""));
-    return affected(1);
-  }
-  if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
-
-  if (/^DELETE FROM rate_limit_windows/.test(sql)) return affected(0);
-  if (/^INSERT INTO rate_limit_windows/.test(sql)) {
-    const [scope, subject, windowKey] = args;
-    const key = `${scope}:${subject}:${windowKey}`;
-    const count = (state.windows.get(key) || 0) + 1;
-    state.windows.set(key, count);
-    return ok(table(["count"], [{ count }]));
-  }
-  if (/^SELECT count FROM rate_limit_windows/.test(sql)) {
-    const count = state.windows.get(`${args[0]}:${args[1]}:${args[2]}`) || 1;
-    return ok(table(["count"], [{ count }]));
-  }
-
-  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages WHERE id =/.test(sql)) {
-    const row = state.messages.find(row => row.id === args[0]);
-    return ok(row ? table(MESSAGE_COLUMNS, [row]) : empty);
-  }
-  if (/^INSERT INTO cinema_messages/.test(sql)) {
-    const [id, session_id, sender_id, sender_name, content, metadata, created_at] = args;
-    if (state.messages.some(row => row.id === id)) return affected(0);
-    state.messages.push({ id, session_id, sender_id, sender_name, content, metadata, created_at, seq: state.messages.length });
-    return affected(1);
-  }
-  if (/^SELECT id,session_id,sender_id,sender_name,content,metadata,created_at FROM cinema_messages/.test(sql)) {
-    const limit = Number((sql.match(/LIMIT (\d+)/) || [])[1] || 50);
-    const rows = state.messages
-      .filter((row) => row.session_id === args[0])
-      .slice()
-      // Same shape as SQLite's ORDER BY created_at DESC, rowid DESC.
-      .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)) || right.seq - left.seq)
-      .slice(0, limit);
-    return ok(rows.length ? table(MESSAGE_COLUMNS, rows) : empty);
-  }
-  if (/^DELETE FROM cinema_messages WHERE session_id/.test(sql)) {
-    const before = state.messages.length;
-    state.messages = state.messages.filter((row) => row.session_id !== args[0]);
-    return affected(before - state.messages.length);
-  }
-
-  if (/^INSERT INTO metrics_counters/.test(sql)) return ok(table(["count"], [{ count: 1 }]));
-  return ok(empty);
-}
-
-globalThis.fetch = async (url, init) => {
-  const target = String(typeof url === "string" ? url : url?.url || "");
-  if (target.startsWith("https://cinema-chat-test.turso.io")) {
-    const body = JSON.parse(init.body);
-    const results = body.requests
-      .filter((request) => request.type === "execute")
-      .map(({ stmt }) => handle(stmt.sql, (stmt.args || []).map((arg) => (arg.type === "null" ? null : arg.value))));
-    return { ok: true, json: async () => ({ results }) };
-  }
-  throw new Error(`Unhandled request to ${target}`);
+const state = {
+  get messages() {
+    try { return database.db.prepare("SELECT * FROM cinema_messages").all(); } catch { return []; }
+  },
+  set messages(_value) { clearTable("cinema_messages"); clearTable("cinema_message_order"); },
+  windows: { clear() { clearTable("rate_limit_windows"); } },
 };
 
 // The DO reads WebSocketPair from the global, exactly as it does in workerd.
@@ -160,9 +100,9 @@ function upgrade(studentId = "host-1", displayName = "Ama Host", role) {
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
-after(async () => vite.close());
+after(async () => { await vite.close(); database.db.close(); globalThis.fetch = originalFetch; });
 
-const { writeCinemaMessage, recentCinemaMessages, purgeCinemaMessages } = await vite.ssrLoadModule("/lib/cinema-engine/messages.ts");
+const { writeCinemaMessage, recentCinemaMessages, purgeCinemaMessages, readCinemaMessage, cinemaMessagePage, removeCinemaMessage } = await vite.ssrLoadModule("/lib/cinema-engine/messages.ts");
 const { parseClientMessage, CINEMA_CHAT_MAX_LENGTH } = await vite.ssrLoadModule("/lib/cinema-engine/protocol.ts");
 const { CinemaRoom } = await vite.ssrLoadModule("/worker/cinema-room.ts");
 
@@ -174,6 +114,13 @@ beforeEach(() => {
 });
 
 async function newRoom() {
+  const { ensureCinemaTables } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
+  await ensureCinemaTables();
+  const stamp = new Date().toISOString();
+  database.db.prepare("INSERT OR IGNORE INTO cinema_sessions(id,host_student_id,title,video_id,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(SNAPSHOT.roomId, SNAPSHOT.hostStudentId, SNAPSHOT.title, SNAPSHOT.videoId, stamp, stamp);
+  for (const studentId of ["host-1", "guest-2", "guest-3", "cohost-2", "presenter-3", "student-1", "flood-student"]) database.db.prepare("INSERT OR IGNORE INTO cinema_participants(session_id,student_id,joined_at) VALUES (?,?,?)").run(SNAPSHOT.roomId, studentId, stamp);
+  database.db.prepare("UPDATE cinema_participants SET role='COHOST' WHERE session_id=? AND student_id='cohost-2'").run(SNAPSHOT.roomId);
+  database.db.prepare("UPDATE cinema_participants SET role='PRESENTER' WHERE session_id=? AND student_id='presenter-3'").run(SNAPSHOT.roomId);
   const stateDouble = fakeState();
   return { room: new CinemaRoom(stateDouble), state: stateDouble };
 }
@@ -392,12 +339,123 @@ test("socket confirms persisted messages, and retries do not add a second row", 
 });
 
 test("a storage outage is reported instead of pretending the message was delivered", async () => {
-  delete process.env.TURSO_DATABASE_URL;
   const { room, state: roomState } = await newRoom();
   await room.fetch(upgrade("student-1", "Ama"));
   const [socket] = roomState.sockets;
+  socket.sent.length = 0;
+  delete process.env.TURSO_DATABASE_URL;
   await room.webSocketMessage(socket, JSON.stringify({ type: "chat_message", message: "Keep this draft", requestId: "failed-delivery-123" }));
   assert.equal(socket.sent.filter(frame => frame.type === "chat_ack" || frame.type === "chat").length, 0);
-  assert.equal(socket.sent.at(-1).requestId, "failed-delivery-123");
-  assert.match(socket.sent.at(-1).message, /retry/i);
+  assert.equal(socket.closed.code, 1013, "access cannot be assumed while membership storage is unavailable");
+});
+
+test("replies preserve their immediate parent and root thread in the same room", async () => {
+  const root = await writeCinemaMessage({ sessionId: "thread-room", sender: { id: "s-1" }, content: "Root" });
+  const reply = await writeCinemaMessage({ sessionId: "thread-room", sender: { id: "s-2" }, content: "Reply", parentMessageId: root.id });
+  const nested = await writeCinemaMessage({ sessionId: "thread-room", sender: { id: "s-3" }, content: "Nested", parentMessageId: reply.id });
+  assert.equal(reply.parentMessageId, root.id); assert.equal(nested.parentMessageId, reply.id);
+  assert.equal(reply.threadId, root.id); assert.equal(nested.threadId, root.id);
+  const page = await cinemaMessagePage({ sessionId: "thread-room", threadId: root.id });
+  assert.deepEqual(page.messages.map(message => message.id), [root.id, reply.id, nested.id]);
+  await assert.rejects(writeCinemaMessage({ sessionId: "other-room", sender: { id: "s-1" }, content: "Cross room", parentMessageId: root.id }), error => error.status === 404);
+});
+
+test("removed parent text is absent from history and reply previews while structure survives", async () => {
+  const root = await writeCinemaMessage({ sessionId: "remove-room", sender: { id: "s-1", name: "Ama" }, content: "Remove this text" });
+  const reply = await writeCinemaMessage({ sessionId: "remove-room", sender: { id: "s-2" }, content: "A reply", parentMessageId: root.id });
+  await removeCinemaMessage(root.id, "remove-room");
+  const page = await cinemaMessagePage({ sessionId: "remove-room", threadId: root.id, limit: 1 });
+  assert.equal(page.messages[0].id, reply.id);
+  assert.equal(page.context[0].id, root.id); assert.equal(page.context[0].removed, true);
+  assert.equal(page.context[0].content, ""); assert.equal(page.context[0].senderName, "");
+  assert.equal(JSON.stringify(page).includes("Remove this text"), false);
+  await assert.rejects(writeCinemaMessage({ sessionId: "remove-room", sender: { id: "s-1" }, content: "Reply", parentMessageId: root.id }), error => error.status === 404);
+});
+
+test("monotonic pagination covers timestamp ties, offline gaps and deleted messages", async () => {
+  for (let index = 0; index < 125; index++) await writeCinemaMessage({ sessionId: "page-room", sender: { id: "s-1" }, content: `Message ${index}` });
+  database.db.prepare("UPDATE cinema_messages SET created_at='2026-11-09T00:00:00.000Z' WHERE session_id=?").run("page-room");
+  const latest = await cinemaMessagePage({ sessionId: "page-room" });
+  assert.equal(latest.messages.length, 50); assert.equal(latest.hasMore, true);
+  const older = await cinemaMessagePage({ sessionId: "page-room", before: latest.before });
+  const oldest = await cinemaMessagePage({ sessionId: "page-room", before: older.before });
+  assert.equal(oldest.messages.length, 25); assert.equal(oldest.hasMore, false);
+  assert.equal(new Set([...oldest.messages, ...older.messages, ...latest.messages].map(message => message.id)).size, 125);
+  const removed = latest.messages.at(-1); await removeCinemaMessage(removed.id, "page-room");
+  const newMessage = await writeCinemaMessage({ sessionId: "page-room", sender: { id: "s-1" }, content: "After deletion" });
+  assert.ok(newMessage.sequence > removed.sequence);
+  let after = oldest.before - 1, through, collected = [];
+  do {
+    const page = await cinemaMessagePage({ sessionId: "page-room", after, through });
+    through ??= page.through; collected.push(...page.messages); after = page.after;
+    if (!page.hasMore) break;
+  } while (true);
+  assert.equal(collected.length, 126); assert.equal(collected.find(message => message.id === removed.id).removed, true);
+});
+
+test("video references remain immutable through playlist changes and acknowledgement retries", async () => {
+  const original = { sourceType: "UPLOAD", videoId: "first-file" }, current = { sourceType: "UPLOAD", videoId: "second-file" };
+  const input = { sessionId: "video-room", sender: { id: "s-1" }, content: "This step", atSeconds: 0, requestId: "video-reference-123", video: original, expectedVideo: original };
+  const first = await writeCinemaMessage(input);
+  assert.equal(first.atSeconds, 0); assert.deepEqual(first.video, original);
+  const retry = await writeCinemaMessage({ ...input, video: current });
+  assert.equal(retry.id, first.id); assert.deepEqual(retry.video, original);
+  await assert.rejects(writeCinemaMessage({ ...input, requestId: "new-reference-123", video: current }), error => error.status === 409);
+  assert.deepEqual((await readCinemaMessage(first.id)).video, original);
+});
+
+test("thread and source context are validated on the wire and stamped by the room", async () => {
+  assert.equal(parseClientMessage(JSON.stringify({ type: "chat_message", message: "Hi", parentMessageId: "../other" })), null);
+  assert.equal(parseClientMessage(JSON.stringify({ type: "chat_message", message: "Hi", video: { sourceType: "UPLOAD", videoId: "../object" } })), null);
+  const { room, state: roomState } = await newRoom(); await room.fetch(upgrade());
+  const [socket] = roomState.sockets;
+  await room.webSocketMessage(socket, JSON.stringify({ type: "chat_message", message: "Root", timestamp: 5, requestId: "root-wire-12345" }));
+  const root = socket.sent.filter(frame => frame.type === "chat").at(-1).message;
+  assert.deepEqual(root.video, { sourceType: "YOUTUBE", videoId: SNAPSHOT.videoId });
+  await room.webSocketMessage(socket, JSON.stringify({ type: "chat_message", message: "Reply", parentMessageId: root.id, timestamp: 6, requestId: "reply-wire-1234" }));
+  const reply = socket.sent.filter(frame => frame.type === "chat").at(-1).message;
+  assert.equal(reply.parentMessageId, root.id); assert.equal(reply.threadId, root.id);
+});
+
+test("legacy messages migrate in their original order and keep unbound timestamps static", async () => {
+  await writeCinemaMessage({ sessionId: "initialize", sender: { id: "s-1" }, content: "Initialize schema" });
+  const insert = database.db.prepare("INSERT INTO cinema_messages(id,session_id,sender_id,sender_name,content,metadata,created_at) VALUES (?,?,?,?,?,?,?)");
+  insert.run("legacy-z", "legacy-room", "s-1", "Ama", "First", '{"atSeconds":320}', "2026-11-09T00:00:00.000Z");
+  insert.run("legacy-a", "legacy-room", "s-1", "Ama", "Second", "", "2026-11-09T00:00:00.000Z");
+  const { readFileSync } = await import("node:fs");
+  database.db.exec(readFileSync(new URL("../sql/051_cinema_chat_threads.sql", import.meta.url), "utf8"));
+  const page = await cinemaMessagePage({ sessionId: "legacy-room" });
+  assert.deepEqual(page.messages.map(message => message.id), ["legacy-z", "legacy-a"]);
+  assert.equal(page.messages[0].atSeconds, 320); assert.equal(page.messages[0].video, undefined);
+  assert.equal(page.messages[0].removed, false);
+});
+
+test("a failure to persist ordering rolls back message content", async () => {
+  await writeCinemaMessage({ sessionId: "initialize", sender: { id: "s-1" }, content: "Initialize schema" });
+  database.db.exec("CREATE TRIGGER refuse_chat_order BEFORE INSERT ON cinema_message_order WHEN NEW.session_id='fail-room' BEGIN SELECT RAISE(ABORT,'Ordering storage failed'); END");
+  try {
+    await assert.rejects(writeCinemaMessage({ sessionId: "fail-room", sender: { id: "s-1" }, content: "Must not remain stored" }), /Ordering storage failed/);
+    assert.equal(database.db.prepare("SELECT COUNT(*) AS n FROM cinema_messages WHERE session_id='fail-room'").get().n, 0);
+  } finally { database.db.exec("DROP TRIGGER refuse_chat_order"); }
+});
+
+test("simultaneous acknowledgement retries persist one message and one ordering record", async () => {
+  const input = { sessionId: "concurrent-room", sender: { id: "s-1" }, content: "One message", requestId: "simultaneous-retry-1234" };
+  const messages = await Promise.all(Array.from({ length: 5 }, () => writeCinemaMessage(input)));
+  assert.equal(new Set(messages.map(message => message.id)).size, 1);
+  assert.equal(database.db.prepare("SELECT COUNT(*) AS n FROM cinema_messages WHERE session_id='concurrent-room'").get().n, 1);
+  assert.equal(database.db.prepare("SELECT COUNT(*) AS n FROM cinema_message_order WHERE session_id='concurrent-room'").get().n, 1);
+});
+
+test("a room-wide overview stays unlinked through the real socket delivery path", async () => {
+  const { room, state: roomState } = await newRoom(); await room.fetch(upgrade());
+  const [socket] = roomState.sockets;
+  await writeCinemaMessage({ sessionId: SNAPSHOT.roomId, sender: { id: "host-1" }, content: "Discussion of the first video", atSeconds: 10, video: { sourceType: "YOUTUBE", videoId: SNAPSHOT.videoId } });
+  await writeCinemaMessage({ sessionId: SNAPSHOT.roomId, sender: { id: "host-1" }, content: "Discussion of an earlier video", atSeconds: 12, video: { sourceType: "UPLOAD", videoId: "another-upload" } });
+  await room.webSocketMessage(socket, JSON.stringify({ type: "chat_message", message: "@Cinema catch up on the recent conversation", requestId: "room-wide-overview-123", timestamp: null }));
+  const frame = socket.sent.at(-1);
+  assert.equal(frame.type, "chat"); assert.equal(frame.message.atSeconds, null); assert.equal(frame.message.video, undefined);
+  const { readCinemaOverviewContext } = await vite.ssrLoadModule("/lib/cinema-engine/chat-overviews.ts");
+  const context = await readCinemaOverviewContext(frame.message, "CATCH_UP");
+  assert.equal(context.sources.length, 2); assert.equal(context.scope.video, undefined);
 });

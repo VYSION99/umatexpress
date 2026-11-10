@@ -1,3 +1,7 @@
+import { processCinemaPrivateStudy } from "@/lib/cinema-engine/private-study";
+import { isCinemaAssistantRequest, requestCinemaAssistant, processCinemaAssistantJob } from "@/lib/cinema-engine/chat-assistant";
+import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { activateCinemaChatMoment } from "@/lib/cinema-engine/chat-history";
 /**
  * The Cinema room Durable Object: one object per room, named by the room id.
  *
@@ -38,6 +42,7 @@ import { acceptableTime, isStaleAction } from "@/lib/cinema-engine/sync";
 import { logEvent } from "@/lib/observability";
 import { rateLimitSubject } from "@/lib/rate-limit";
 import type { CinemaMemberRole } from "@/lib/cinema-engine/rooms";
+import { rowsToObjects, turso } from "@/lib/turso";
 
 /** What the Worker route learned from the database before it forwarded here. */
 export type CinemaRoomSnapshot = {
@@ -86,6 +91,7 @@ export type CinemaRoomStorage = {
 };
 
 export type CinemaRoomState = {
+  waitUntil?(promise: Promise<unknown>): void;
   acceptWebSocket(socket: CinemaRoomSocket): void;
   getWebSockets(): CinemaRoomSocket[];
   storage: CinemaRoomStorage;
@@ -171,6 +177,18 @@ export class CinemaRoom {
     if (url.pathname === "/close") return this.closeRoom();
     if (url.pathname === "/purge-message") return this.purgeMessage(request);
     if (url.pathname === "/source") return this.updateSource(request);
+    if (url.pathname === "/chat-seek") return this.seekChatMoment(request);
+    if (url.pathname === "/assistant-run" || url.pathname === "/private-study-run") {
+      const body = await request.json().catch(() => null) as { id?: unknown; roomId?: unknown } | null;
+      if (!body?.id || typeof body.id !== "string") return jsonResponse({ error: "A request ID is required." }, 400);
+      const room = await this.roomSnapshot();
+      const roomId = room?.roomId || (typeof body.roomId === "string" && /^[A-Za-z0-9-]{1,80}$/.test(body.roomId) ? body.roomId : "");
+      if (roomId && this.state.waitUntil) this.state.waitUntil(url.pathname === "/private-study-run" ? this.runPrivateStudy(body.id, roomId) : this.runAssistant(body.id, roomId));
+      return jsonResponse({ queued: true }, 202);
+    }
+    if (url.pathname === "/chat-refresh") {
+      await this.broadcast({ type: "chat_refresh" }); return jsonResponse({ refreshed: true }, 200);
+    }
     if (url.pathname === "/interaction-changed") return this.interactionChanged(request);
     if (url.pathname === "/whiteboard") return this.publishWhiteboard(request);
     if (url.pathname === "/whiteboard-remove") return this.removeWhiteboard(request);
@@ -219,6 +237,7 @@ export class CinemaRoom {
     const server = pair[1];
     this.state.acceptWebSocket(server);
     server.serializeAttachment(attachment.studentId === snapshot.hostStudentId ? { ...attachment, role: "HOST" } : attachment);
+    if (!(await this.authorizedSockets()).includes(server)) return new Response(null, { status: 101, webSocket: client } as ResponseInit);
 
     if (attachment.audienceOnly) {
       // The audience watches the broadcast separately. Do not replay chat,
@@ -236,7 +255,7 @@ export class CinemaRoom {
 
     // The whole room learns about the arrival, the newcomer included: its first
     // frame is the current presence rather than an empty list.
-    this.broadcast({ type: "presence", members: await this.presence() });
+    await this.broadcast({ type: "presence", members: await this.presence() });
     // Only the newcomer needs the current playback: everyone else already has
     // it, and a page that just loaded is exactly what M3 has to catch up.
     this.send(server, { type: "state", playback: await this.playbackState(), serverAt: Date.now() });
@@ -258,7 +277,9 @@ export class CinemaRoom {
   private async replayChat(socket: CinemaRoomSocket, sessionId: string) {
     if (!sessionId) return;
     try {
-      for (const message of await recentCinemaMessages(sessionId, CINEMA_CHAT_REPLAY_LIMIT)) {
+      const messages = await recentCinemaMessages(sessionId, CINEMA_CHAT_REPLAY_LIMIT);
+      if (!(await this.authorizedSockets()).includes(socket)) return;
+      for (const message of messages) {
         this.send(socket, { type: "chat", message });
       }
     } catch (error) {
@@ -303,7 +324,7 @@ export class CinemaRoom {
     const body = await request.json().catch(() => null) as { messageId?: unknown } | null;
     const id = String(body?.messageId || "").trim();
     if (!id) return jsonResponse({ error: "A message id is required." }, 400);
-    this.broadcast({ type: "chat_removed", id });
+    await this.broadcast({ type: "chat_removed", id });
     return jsonResponse({ ok: true, id }, 200);
   }
 
@@ -311,7 +332,7 @@ export class CinemaRoom {
     const body = await request.json().catch(() => null) as { kind?: unknown; moderatorsOnly?: unknown } | null;
     if (body?.kind !== "questions" && body?.kind !== "polls") return jsonResponse({ error: "Invalid interaction kind." }, 400);
     const frame = JSON.stringify({ type: "interaction_changed", kind: body.kind });
-    for (const socket of this.state.getWebSockets()) {
+    for (const socket of await this.authorizedSockets()) {
       const role = readAttachment(socket)?.role;
       if (body.moderatorsOnly === true && role !== "HOST" && role !== "COHOST") continue;
       try { socket.send(frame); } catch { /* a disconnected client uses its next fetch */ }
@@ -330,7 +351,7 @@ export class CinemaRoom {
     if (!board || typeof board !== "object" || typeof board.id !== "string" || !Array.isArray(board.blocks)) {
       return jsonResponse({ error: "A parsed board is required." }, 400);
     }
-    this.broadcast({ type: "whiteboard", board });
+    await this.broadcast({ type: "whiteboard", board });
     return jsonResponse({ ok: true, id: board.id }, 200);
   }
 
@@ -339,7 +360,7 @@ export class CinemaRoom {
     const body = await request.json().catch(() => null) as { id?: unknown } | null;
     const id = String(body?.id || "").trim();
     if (!id) return jsonResponse({ error: "A board id is required." }, 400);
-    this.broadcast({ type: "whiteboard_removed", id });
+    await this.broadcast({ type: "whiteboard_removed", id });
     return jsonResponse({ ok: true, id }, 200);
   }
 
@@ -348,6 +369,21 @@ export class CinemaRoom {
    * that connects later carries the new source, and everyone attached now is
    * told to switch players without a reload.
    */
+  private async seekChatMoment(request: Request): Promise<Response> {
+    const input = await request.json().catch(() => null) as { roomId?: string; studentId?: string; messageId?: string } | null;
+    const snapshot = await this.roomSnapshot();
+    if (!input || !snapshot || input.roomId !== snapshot.roomId) return jsonResponse({ error: "Invalid room reference." }, 400);
+    try {
+      const moment = await activateCinemaChatMoment({ roomId: snapshot.roomId, studentId: String(input.studentId || ""), messageId: String(input.messageId || "") });
+      await this.state.storage.put(ROOM_KEY, { ...snapshot, sourceType: moment.sourceType, videoId: moment.videoId });
+      const playback: CinemaPlaybackState = { positionSeconds: moment.positionSeconds, durationSeconds: moment.durationSeconds, isPlaying: false, updatedAt: Date.now() };
+      this.playback = playback; await this.state.storage.put(PLAYBACK_KEY, playback);
+      await this.broadcast({ type: "source", sourceType: moment.sourceType, videoId: moment.videoId });
+      await this.broadcast({ type: "state", playback, serverAt: Date.now() });
+      return jsonResponse({ opened: true }, 200);
+    } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "This reference is unavailable." }, Number((error as { status?: number })?.status || 500)); }
+  }
+
   private async updateSource(request: Request): Promise<Response> {
     const body = await request.json().catch(() => null) as { sourceType?: unknown; videoId?: unknown } | null;
     const sourceType = String(body?.sourceType || "").trim().toUpperCase();
@@ -360,8 +396,8 @@ export class CinemaRoom {
     const reset: CinemaPlaybackState = { positionSeconds: 0, isPlaying: false, updatedAt: 0, durationSeconds: 0 };
     this.playback = reset;
     await this.state.storage.put(PLAYBACK_KEY, reset);
-    this.broadcast({ type: "source", sourceType, videoId });
-    this.broadcast({ type: "state", playback: reset, serverAt: Date.now() });
+    await this.broadcast({ type: "source", sourceType, videoId });
+    await this.broadcast({ type: "state", playback: reset, serverAt: Date.now() });
     // The file landed after the room's minute, so the room starts it now and
     // from the top: nothing has watched a frame of it yet, which is exactly
     // what makes an upload's auto-play different from a YouTube link's.
@@ -372,7 +408,7 @@ export class CinemaRoom {
   /** The host ended the room over HTTP; the sockets should not outlive it. */
   private async closeRoom(): Promise<Response> {
     await this.clearSchedule();
-    this.broadcast({ type: "closed", reason: "The host ended this room." });
+    await this.broadcast({ type: "closed", reason: "The host ended this room." });
     for (const socket of this.state.getWebSockets()) {
       try {
         socket.close(CLOSE_NORMAL, "The room ended");
@@ -409,7 +445,7 @@ export class CinemaRoom {
       await this.state.storage.put(SCHEDULE_KEY, schedule);
     }
     await this.armAlarm(schedule);
-    this.broadcast({ type: "schedule", endsAt: snapshot.endsAt });
+    await this.broadcast({ type: "schedule", endsAt: snapshot.endsAt });
     return jsonResponse({ ok: true, liveAt: schedule.liveAt, endsAt: schedule.endsAt }, 200);
   }
 
@@ -442,7 +478,7 @@ export class CinemaRoom {
       }
       if (!ended) return; // A host may have extended the row before this stale alarm ran.
       logEvent("info", "cinema_room_auto_ended", { roomId: snapshot?.roomId || "" });
-      this.broadcast({ type: "closed", reason: SCHEDULE_CLOSE_REASON });
+      await this.broadcast({ type: "closed", reason: SCHEDULE_CLOSE_REASON });
       for (const socket of this.state.getWebSockets()) {
         try {
           socket.close(CLOSE_NORMAL, SCHEDULE_CLOSE_REASON);
@@ -484,7 +520,7 @@ export class CinemaRoom {
     };
     this.playback = next;
     await this.state.storage.put(PLAYBACK_KEY, next);
-    this.broadcast({ type: "state", playback: next, serverAt: Date.now() });
+    await this.broadcast({ type: "state", playback: next, serverAt: Date.now() });
     logEvent("info", "cinema_room_auto_play", { roomId: snapshot.roomId, positionSeconds: Math.round(positionSeconds) });
   }
 
@@ -528,8 +564,8 @@ export class CinemaRoom {
    * this is the part the database cannot do: close the sockets that still
    * belong to that student, which is what stops a removed guest from hearing
    * the room until their next reconnection. Best-effort like every other nudge
-   * — a socket that fails to close still cannot rejoin, because the route
-   * checks membership again before it upgrades anything.
+   * — current membership is also rechecked before frames and broadcasts, so
+   * losing this nudge cannot grant continued access to a connected socket.
    */
   private async removeMember(request: Request): Promise<Response> {
     let studentId = "";
@@ -541,11 +577,6 @@ export class CinemaRoom {
     if (studentId === await this.hostId()) {
       return jsonResponse({ error: "The host is not a guest of their own room." }, 400);
     }
-    // The runtime's close handler updates presence; broadcasting here as well
-    // means the list is right in every runtime, and an identical frame is
-    // harmless to a client that has already applied it.
-    const remaining = (await this.presence()).filter((member) => member.studentId !== studentId);
-    this.broadcast({ type: "presence", members: remaining });
     let closed = 0;
     for (const socket of this.state.getWebSockets()) {
       const attachment = readAttachment(socket);
@@ -554,11 +585,15 @@ export class CinemaRoom {
       // say why; the close then makes it true. A client that only saw the
       // close would retry a socket the Worker will keep refusing.
       this.send(socket, { type: "closed", reason: "The host removed you from this room." });
+      socket.serializeAttachment(null);
       try {
         socket.close(CLOSE_NORMAL, "The host removed you from this room");
         closed += 1;
       } catch { /* an already-closing socket is not an error worth surfacing */ }
     }
+    // Detach before reading presence so generic membership revalidation does
+    // not replace the host-removal explanation or count these sockets twice.
+    await this.broadcast({ type: "presence", members: await this.presence() });
     return jsonResponse({ ok: true, closed }, 200);
   }
 
@@ -582,7 +617,7 @@ export class CinemaRoom {
         screen: role === "VIEWER" ? false : attachment.screen });
       updated += 1;
     }
-    if (updated) this.broadcast({ type: "presence", members: await this.presence() });
+    if (updated) await this.broadcast({ type: "presence", members: await this.presence() });
     return jsonResponse({ ok: true, updated }, 200);
   }
 
@@ -597,6 +632,7 @@ export class CinemaRoom {
       this.send(socket, { type: "error", message: "That is not a message this room understands." });
       return;
     }
+    if (!(await this.authorizedSockets()).includes(socket)) return;
     if (parsed.type === "ping") {
       this.send(socket, { type: "pong", at: Date.now(), ...(parsed.sentAt ? { sentAt: parsed.sentAt } : {}) });
       return;
@@ -645,7 +681,7 @@ export class CinemaRoom {
     if (!attachment) return;
     const limited = await rateLimitSubject("cinema-reaction", attachment.studentId, { limit: REACTION_LIMIT, windowMs: REACTION_WINDOW_MS });
     if (!limited.ok) return;
-    this.broadcast({ type: "reaction", id: crypto.randomUUID(), from: attachment.studentId, name: attachment.displayName || "Student", emoji: frame.emoji, at: Date.now() });
+    await this.broadcast({ type: "reaction", id: crypto.randomUUID(), from: attachment.studentId, name: attachment.displayName || "Student", emoji: frame.emoji, at: Date.now() });
   }
 
   private async applyHandState(socket: CinemaRoomSocket, frame: CinemaHandStateInput): Promise<void> {
@@ -654,7 +690,7 @@ export class CinemaRoom {
     const limited = await rateLimitSubject("cinema-hand", attachment.studentId, { limit: STATE_LIMIT, windowMs: STATE_WINDOW_MS });
     if (!limited.ok) return;
     socket.serializeAttachment({ ...attachment, handRaised: frame.raised });
-    this.broadcast({ type: "presence", members: await this.presence() });
+    await this.broadcast({ type: "presence", members: await this.presence() });
   }
 
   /**
@@ -690,7 +726,7 @@ export class CinemaRoom {
       this.send(socket, { type: "error", message: "Too many connection frames. Try again in a moment." });
       return;
     }
-    this.send(target, { type: "signal", from: attachment.studentId, payload: frame.payload });
+    if ((await this.authorizedSockets()).includes(target)) this.send(target, { type: "signal", from: attachment.studentId, payload: frame.payload });
   }
 
   /** A member's mic and camera switches, written to their attachment. */
@@ -718,7 +754,7 @@ export class CinemaRoom {
     }
     if (attachment.mic === frame.mic && attachment.camera === frame.camera && attachment.screen === (frame.screen === true)) return;
     socket.serializeAttachment({ ...attachment, mic: frame.mic, camera: frame.camera, screen: frame.screen === true });
-    this.broadcast({ type: "presence", members: await this.presence() });
+    await this.broadcast({ type: "presence", members: await this.presence() });
   }
 
   /** The recorder announcing itself; the room is told, and that is the point. */
@@ -732,7 +768,7 @@ export class CinemaRoom {
     if (!limited.ok) return;
     if (attachment.recording === frame.active) return;
     socket.serializeAttachment({ ...attachment, recording: frame.active });
-    this.broadcast({ type: "presence", members: await this.presence() });
+    await this.broadcast({ type: "presence", members: await this.presence() });
   }
 
   /**
@@ -750,7 +786,7 @@ export class CinemaRoom {
     }
     const limited = await rateLimitSubject("cinema-mute-all", attachment.studentId, { limit: MUTE_LIMIT, windowMs: MUTE_WINDOW_MS });
     if (!limited.ok) return;
-    this.broadcast({ type: "mute_all", by: attachment.studentId });
+    await this.broadcast({ type: "mute_all", by: attachment.studentId });
     logEvent("info", "cinema_mute_all", { roomId: (await this.roomSnapshot())?.roomId || "" });
   }
 
@@ -774,7 +810,7 @@ export class CinemaRoom {
     if (!limited.ok) return;
     this.boardPolicyValue = frame.policy;
     await this.state.storage.put(BOARD_POLICY_KEY, frame.policy);
-    this.broadcast({ type: "board_policy", policy: frame.policy });
+    await this.broadcast({ type: "board_policy", policy: frame.policy });
     logEvent("info", "cinema_board_policy", {
       roomId: (await this.roomSnapshot())?.roomId || "",
       policy: frame.policy,
@@ -797,6 +833,21 @@ export class CinemaRoom {
    * boundary: if storage is unavailable, the sender receives an error and keeps
    * the draft rather than seeing a message that reconnecting members cannot.
    */
+  private async runPrivateStudy(id: string, roomId: string) {
+    try { await processCinemaPrivateStudy(id, { roomId }); }
+    catch { logEvent("warn", "cinema_private_study_deferred", { roomId }); }
+  }
+
+  private async runAssistant(id: string, roomId: string) {
+    try {
+      await processCinemaAssistantJob(id, {
+        roomId,
+        onAnswer: async message => await this.broadcast({ type: "chat", message }),
+        onJob: async job => await this.broadcast({ type: "assistant_job", job }),
+      });
+    } catch { logEvent("warn", "cinema_assistant_job_deferred", { roomId }); }
+  }
+
   private async applyChat(socket: CinemaRoomSocket, frame: CinemaChatMessageInput): Promise<void> {
     const attachment = readAttachment(socket);
     if (!attachment) {
@@ -808,7 +859,8 @@ export class CinemaRoom {
       this.send(socket, { type: "error", message: `You are sending messages too fast. Try again in ${Math.max(1, limited.retryAfter)} seconds.`, requestId: frame.requestId });
       return;
     }
-    const sessionId = String((await this.roomSnapshot())?.roomId || "");
+    const snapshot = await this.roomSnapshot();
+    const sessionId = String(snapshot?.roomId || "");
     if (!sessionId) {
       this.send(socket, { type: "error", message: "This room is missing its identity." });
       return;
@@ -822,17 +874,30 @@ export class CinemaRoom {
         content: frame.message,
         requestId: frame.requestId,
         atSeconds,
+        parentMessageId: frame.parentMessageId,
+        video: snapshot?.videoId && ["YOUTUBE", "UPLOAD"].includes(snapshot.sourceType) ? { sourceType: snapshot.sourceType as "YOUTUBE" | "UPLOAD", videoId: snapshot.videoId } : undefined,
+        expectedVideo: frame.video,
+        requireMembership: true,
       });
     } catch (error) {
       logEvent("warn", "cinema_chat_store_failed", {
         roomId: sessionId,
         reason: error instanceof Error ? error.message : "unknown",
       });
-      this.send(socket, { type: "error", requestId: frame.requestId, message: "Your message could not be saved. Please retry." });
+      this.send(socket, { type: "error", requestId: frame.requestId, message: error instanceof CampusEngineError && ["VALIDATION_ERROR", "NOT_FOUND", "CONFLICT"].includes(error.code) ? error.message : "Your message could not be saved. Please retry." });
       return;
     }
     if (frame.requestId) this.send(socket, { type: "chat_ack", requestId: frame.requestId, message });
-    this.broadcast({ type: "chat", message });
+    await this.broadcast({ type: "chat", message });
+    if (!message.assistant && isCinemaAssistantRequest(message.content) && this.state.waitUntil) {
+      this.state.waitUntil((async () => {
+        try {
+          const job = await requestCinemaAssistant({ roomId: sessionId, studentId: attachment.studentId, messageId: message.id });
+          await this.broadcast({ type: "assistant_job", job });
+          if (job.status === "QUEUED") await this.runAssistant(job.id, sessionId);
+        } catch { await this.broadcast({ type: "chat_refresh" }); }
+      })());
+    }
   }
 
   /**
@@ -858,6 +923,20 @@ export class CinemaRoom {
     }
 
     const current = await this.playbackState();
+    if (action.video) {
+      const snapshot = await this.roomSnapshot();
+      let selected: Record<string, unknown> | undefined;
+      try {
+        selected = snapshot ? rowsToObjects(await turso("SELECT video_source_type,video_id FROM cinema_sessions WHERE id=? AND status IN ('CREATED','LIVE') LIMIT 1", [snapshot.roomId]))[0] : undefined;
+      } catch {
+        this.send(socket, { type: "error", message: "The selected video could not be checked. Try this timestamp again." });
+        return;
+      }
+      if (action.video.sourceType !== selected?.video_source_type || action.video.videoId !== selected?.video_id || action.video.sourceType !== snapshot?.sourceType || action.video.videoId !== snapshot?.videoId) {
+        this.send(socket, { type: "error", message: "That timestamp belongs to a different video. Select its video before seeking." });
+        return;
+      }
+    }
     if (isStaleAction(action.stateAt, current.updatedAt)) {
       this.send(socket, { type: "state", playback: current, serverAt: Date.now() });
       return;
@@ -882,7 +961,7 @@ export class CinemaRoom {
     await this.state.storage.put(PLAYBACK_KEY, next);
     // Back to everyone, the sender included: its echo is how it learns the
     // instant the room accepted, which is the anchor every client derives from.
-    this.broadcast({ type: "state", playback: next, serverAt: Date.now() });
+    await this.broadcast({ type: "state", playback: next, serverAt: Date.now() });
   }
 
   /** A closed tab is not a message, but it changes presence just the same. */
@@ -892,7 +971,7 @@ export class CinemaRoom {
     // it has to be excluded by hand or the room would keep seeing the person
     // who just left until the next arrival.
     const remaining = await this.presence(socket);
-    if (!audienceOnly) this.broadcast({ type: "presence", members: remaining }, socket);
+    if (!audienceOnly) await this.broadcast({ type: "presence", members: remaining }, socket);
     // The room is idle once nobody is attached. Recording the instant here —
     // rather than inferring it from stale rows later — is what lets the
     // cleanup job end an abandoned room without guessing.
@@ -907,7 +986,7 @@ export class CinemaRoom {
   async presence(exclude?: CinemaRoomSocket): Promise<CinemaPresenceMember[]> {
     const hostStudentId = await this.hostId();
     const members = new Map<string, CinemaPresenceMember>();
-    for (const socket of this.state.getWebSockets()) {
+    for (const socket of await this.authorizedSockets()) {
       if (socket === exclude) continue;
       const attachment = readAttachment(socket);
       if (!attachment || attachment.audienceOnly) continue;
@@ -931,16 +1010,70 @@ export class CinemaRoom {
   }
 
   private send(socket: CinemaRoomSocket, message: CinemaServerMessage) {
+    if (!readAttachment(socket) && message.type !== "closed" && message.type !== "error") return;
     try {
       socket.send(JSON.stringify(message));
     } catch { /* the close handler will run; a failed send is not fatal */ }
   }
 
-  private broadcast(message: CinemaServerMessage, except?: CinemaRoomSocket) {
+  /** Attachments identify a socket; current database membership authorizes it.
+   * No authorization cache: a lost removal nudge must never grant continued
+   * access. One bounded read covers all connected recipients, including idle
+   * and audience sockets, before any room content is sent. */
+  private async authorizedSockets(): Promise<CinemaRoomSocket[]> {
+    // Capture identities before the first await. Removal can detach a socket
+    // while either storage or the database is answering this request.
+    const candidates = this.state.getWebSockets().flatMap(socket => {
+      const attachment = readAttachment(socket);
+      return attachment ? [{ socket, studentId: attachment.studentId }] : [];
+    });
+    if (!candidates.length) return [];
+    const snapshot = await this.roomSnapshot();
+    let allowed = new Map<string, CinemaMemberRole>();
+    let unavailable = false;
+    try {
+      const ids = [...new Set(candidates.map(candidate => candidate.studentId))];
+      const rows = snapshot ? rowsToObjects(await turso(`SELECT p.student_id,CASE WHEN p.student_id=s.host_student_id THEN 'HOST' ELSE COALESCE(p.role,'VIEWER') END AS role FROM cinema_participants p
+        JOIN cinema_sessions s ON s.id=p.session_id WHERE s.id=? AND s.status IN ('CREATED','LIVE')
+        AND p.student_id IN (SELECT value FROM json_each(?))`, [snapshot.roomId, JSON.stringify(ids)])) : [];
+      allowed = new Map(rows.map(row => [String(row.student_id), ["HOST", "COHOST", "PRESENTER"].includes(String(row.role)) ? row.role as CinemaMemberRole : "VIEWER"]));
+    } catch {
+      unavailable = true;
+      logEvent("warn", "cinema_socket_access_unavailable", { roomId: snapshot?.roomId || "" });
+    }
+    const active: CinemaRoomSocket[] = [];
+    let revoked = false;
+    let roleChanged = false;
+    for (const { socket, studentId } of candidates) {
+      const attachment = readAttachment(socket);
+      if (!attachment || attachment.studentId !== studentId) continue;
+      const role = allowed.get(studentId);
+      if (role) {
+        if (role !== attachment.role) {
+          socket.serializeAttachment({ ...attachment, role, ...(role === "VIEWER" ? { mic: false, camera: false, screen: false } : {}) });
+          roleChanged = true;
+        }
+        active.push(socket); continue;
+      }
+      revoked = true;
+      if (!unavailable) this.send(socket, { type: "closed", reason: "Your room access is no longer active." });
+      socket.serializeAttachment(null);
+      try { socket.close(unavailable ? 1013 : CLOSE_NORMAL, unavailable ? "Room access could not be verified" : "Room access ended"); } catch { /* already closing */ }
+    }
+    // Peers must also drop removed members' media, even if /remove-member was
+    // lost. Detached sockets cannot reappear while their close is in flight.
+    if ((revoked || roleChanged) && active.length) await this.broadcast({ type: "presence", members: await this.presence() });
+    return active.filter(socket => readAttachment(socket));
+  }
+
+  private async broadcast(message: CinemaServerMessage, except?: CinemaRoomSocket) {
     const frame = JSON.stringify(message);
-    for (const socket of this.state.getWebSockets()) {
+    const sockets = message.type === "closed" ? this.state.getWebSockets() : await this.authorizedSockets();
+    for (const socket of sockets) {
       if (socket === except) continue;
-      if (readAttachment(socket)?.audienceOnly && message.type !== "closed" && message.type !== "interaction_changed" && message.type !== "reaction") continue;
+      const attachment = readAttachment(socket);
+      if (!attachment && message.type !== "closed") continue;
+      if (attachment?.audienceOnly && message.type !== "closed" && message.type !== "interaction_changed" && message.type !== "reaction") continue;
       try {
         socket.send(frame);
       } catch { /* same as send() */ }

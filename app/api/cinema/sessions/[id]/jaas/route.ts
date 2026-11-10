@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/campus-engine/responses";
-import { issueJaasStageAccess, releaseJaasStageAccess } from "@/lib/cinema-streaming/jaas";
+import { issueJaasStageAccess, releaseJaasStageAccess, renewJaasStageAccess } from "@/lib/cinema-streaming/jaas";
 import { rateLimitResponse, rateLimitSubject } from "@/lib/rate-limit";
 import { requireCinemaAccount } from "@/lib/student-auth";
 
@@ -19,6 +19,18 @@ export async function POST(request: Request, context: Context) {
       deviceSessionId: String(body.deviceSessionId || ""),
     });
     return ok({ access }, { headers: NO_STORE }, request);
+  } catch (error) { return fail(error, request); }
+}
+
+export async function PUT(request: Request, context: Context) {
+  try {
+    const account = await requireCinemaAccount(request);
+    const limited = await rateLimitSubject("cinema-jaas-renew", account.id, { limit: 20, windowMs: 5 * 60_000 });
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+    const { id } = await context.params;
+    const body = await request.json() as { deviceSessionId?: unknown };
+    const lease = await renewJaasStageAccess({ sessionId: id, account, deviceSessionId: String(body.deviceSessionId || "") });
+    return ok({ lease }, { headers: NO_STORE }, request);
   } catch (error) { return fail(error, request); }
 }
 

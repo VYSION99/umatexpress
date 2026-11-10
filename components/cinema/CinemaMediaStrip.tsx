@@ -39,16 +39,9 @@ export function CinemaMediaStrip(input: {
     return () => window.removeEventListener("keydown", onKey);
   }, [more]);
 
-  const memberFor = (studentId: string) => members.find((member) => member.studentId === studentId);
   const others = members.filter((member) => member.studentId !== selfId);
   const inline = others.slice(0, INLINE_TILES - 1);
   const overflow = others.slice(INLINE_TILES - 1);
-  const remoteWithCamera = media.remote.filter((peer) => {
-    const member = memberFor(peer.studentId);
-    return member?.camera === true || member?.screen === true || peer.stream.getVideoTracks().length > 0;
-  });
-  const remoteAudioOnly = media.remote.filter((peer) => !remoteWithCamera.includes(peer));
-
   /** One tile for one person: the picture, the name and the two switches. */
   const tile = (options: {
     key: string;
@@ -92,7 +85,7 @@ export function CinemaMediaStrip(input: {
       key: member.studentId,
       name: member.displayName || "Member",
       stream: (member.camera || member.screen) && peer ? peer.stream : null,
-      muted: false,
+      muted: true,
       mic: member.mic,
       camera: member.camera || member.screen,
       recording: member.recording,
@@ -128,9 +121,9 @@ export function CinemaMediaStrip(input: {
       </div>
     </>}
 
-    {/* Audio-only peers still need an element to play through. */}
-    <div className="cinema-media-audio" aria-hidden>
-      {remoteAudioOnly.map((peer) => <MediaStreamVideo key={peer.studentId} stream={peer.stream} />)}
+    {/* Keep one audio element per peer, including cameras hidden in overflow. */}
+    <div className="cinema-room-audio">
+      {media.remote.map((peer) => <MediaStreamVideo key={peer.studentId} stream={peer.stream} audioOnly />)}
     </div>
   </section>;
 }

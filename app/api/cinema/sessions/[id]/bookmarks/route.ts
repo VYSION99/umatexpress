@@ -21,8 +21,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const limited = await rateLimitSubject("cinema-bookmarks", student.id, { limit: 30, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const { id } = await context.params;
-    const body = await request.json() as { label?: unknown; atSeconds?: unknown };
-    return ok({ bookmark: await addCinemaBookmark({ id, studentId: student.id, displayName: student.name, label: body.label, atSeconds: body.atSeconds }) }, { status: 201, headers: NO_STORE }, request);
+    const body = await request.json() as { label?: unknown; atSeconds?: unknown; expectedVideo?: unknown };
+    return ok({ bookmark: await addCinemaBookmark({ id, studentId: student.id, displayName: student.name, label: body.label, atSeconds: body.atSeconds, expectedVideo: body.expectedVideo }) }, { status: 201, headers: NO_STORE }, request);
   } catch (error) {
     return fail(error, request);
   }
