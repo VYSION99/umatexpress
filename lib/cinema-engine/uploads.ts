@@ -399,11 +399,15 @@ export async function beginCinemaUpload(input: {
     // the latest playlist in the same write that assigns its position.
     const inserted = await turso(
       `INSERT INTO cinema_uploads (id,session_id,uploader_id,r2_object_key,r2_upload_id,original_filename,file_size_bytes,mime_type,duration_seconds,ownership_confirmed,status,expires_at,deleted_at,created_at,updated_at,playlist_position)
-       SELECT ?,?,?,?,?,?,?,?,0,1,'UPLOADING',?,'',?,?,COALESCE(MAX(playlist_position),0)+1
-       FROM cinema_uploads WHERE session_id=?
-       HAVING COUNT(CASE WHEN status='READY' THEN 1 END) < ?
-          AND COUNT(CASE WHEN status='UPLOADING' THEN 1 END) = 0
-          AND COALESCE(SUM(CASE WHEN status='READY' THEN file_size_bytes END),0) + ? <= ?`,
+       SELECT ?,?,?,?,?,?,?,?,0,1,'UPLOADING',?,'',?,?,next_position
+       FROM (
+         SELECT COALESCE(MAX(playlist_position),0)+1 AS next_position,
+                COUNT(CASE WHEN status='READY' THEN 1 END) AS ready_files,
+                COUNT(CASE WHEN status='UPLOADING' THEN 1 END) AS active_uploads,
+                COALESCE(SUM(CASE WHEN status='READY' THEN file_size_bytes END),0) AS ready_bytes
+         FROM cinema_uploads WHERE session_id=?
+       )
+       WHERE ready_files < ? AND active_uploads = 0 AND ready_bytes + ? <= ?`,
       [uploadId, String(input.roomId), String(input.studentId), key, String(multipart.uploadId || ""), filename, sizeBytes, contentType,
         new Date((input.now ?? Date.now()) + retentionHours * 3_600_000).toISOString(), stamp, stamp,
         String(input.roomId), allowance.maxFiles, sizeBytes, allowance.maxBytes],
@@ -411,7 +415,11 @@ export async function beginCinemaUpload(input: {
     if (!Number(inserted.affected_row_count)) throw new CampusEngineError("CONFLICT", "The playlist changed while the upload was starting. Refresh and try again.", 409);
   } catch (error) {
     await abortMultipart(bucket, key, String(multipart.uploadId || ""));
-    throw error;
+    if (error instanceof CampusEngineError) throw error;
+    logEvent("error", "cinema_upload_reservation_failed", {
+      roomId: String(input.roomId), uploadId, reason: error instanceof Error ? error.message : "unknown",
+    });
+    throw new CampusEngineError("ENGINE_ERROR", "The upload could not be started. Try again.", 500);
   }
   logEvent("info", "cinema_upload_started", { roomId: String(input.roomId), uploadId, sizeBytes, contentType, parts });
   await incrementMetric("cinema_uploads_started");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import test, { after, beforeEach } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -32,8 +33,13 @@ const table = (columns, rows) => ({ cols: columns.map((name) => ({ name })), row
 const ROOM_COLUMNS = ["id", "host_student_id", "title", "video_source_type", "video_id", "status", "join_locked", "visibility", "starts_at", "ends_at", "duration_minutes", "started_at", "ended_at", "created_at", "updated_at", "discussion_mode", "stage_limit"];
 const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at", "last_seen_at", "left_at"];
 const UPLOAD_COLUMNS = ["id", "session_id", "uploader_id", "r2_object_key", "r2_upload_id", "original_filename", "file_size_bytes", "mime_type", "duration_seconds", "ownership_confirmed", "status", "expires_at", "deleted_at", "removed_by", "removed_reason", "playlist_position", "created_at", "updated_at"];
+const reservationDb = new DatabaseSync(":memory:");
 
 function handle(sql, args) {
+  if (/^(CREATE TABLE IF NOT EXISTS|ALTER TABLE) cinema_uploads\b/.test(sql)) {
+    reservationDb.exec(sql);
+    return ok(empty);
+  }
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
   if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/.test(sql)) return ok(empty);
@@ -168,19 +174,13 @@ function handle(sql, args) {
     return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
   }
   if (/^INSERT INTO cinema_uploads/.test(sql)) {
-    const [id, sessionId, uploaderId, objectKey, uploadId, filename, sizeBytes, mimeType, expiresAt, createdAt, updatedAt, , maxFiles, addedBytes, maxBytes] = args;
-    const queue = state.uploads.filter(upload => upload.session_id === sessionId);
-    const ready = queue.filter(upload => upload.status === "READY");
-    const totalBytes = ready.reduce((total, upload) => total + Number(upload.file_size_bytes), Number(addedBytes));
-    if (queue.some(upload => upload.status === "UPLOADING") || ready.length >= Number(maxFiles) || totalBytes > Number(maxBytes)) return affected(0);
-    const position = Math.max(0, ...queue.map(upload => upload.playlist_position)) + 1;
-    state.uploads.push({
-      id, session_id: sessionId, uploader_id: uploaderId, r2_object_key: objectKey, r2_upload_id: uploadId,
-      original_filename: filename, file_size_bytes: sizeBytes, mime_type: mimeType, duration_seconds: 0,
-      ownership_confirmed: 1, status: "UPLOADING", expires_at: expiresAt, deleted_at: "", removed_by: "", removed_reason: "",
-      playlist_position: position, created_at: createdAt, updated_at: updatedAt,
-    });
-    return affected(1);
+    // Execute the real reservation SQL against the upload rows from the fake.
+    reservationDb.exec("DELETE FROM cinema_uploads");
+    const seed = reservationDb.prepare(`INSERT INTO cinema_uploads (${UPLOAD_COLUMNS.join(",")}) VALUES (${UPLOAD_COLUMNS.map(() => "?").join(",")})`);
+    for (const row of state.uploads) seed.run(...UPLOAD_COLUMNS.map(column => row[column] ?? null));
+    const { changes } = reservationDb.prepare(sql).run(...args);
+    if (changes) state.uploads.push({ ...reservationDb.prepare("SELECT * FROM cinema_uploads WHERE id=?").get(args[0]) });
+    return affected(changes);
   }
   // The strike count a takedown writes and the upload guard reads.
   if (/^SELECT COUNT\(\*\) AS removals FROM cinema_uploads WHERE uploader_id = \? AND removed_by <> '' AND id <> \?/.test(sql)) {
@@ -279,7 +279,7 @@ function handle(sql, args) {
 
 globalThis.fetch = async (_url, init) => {
   const body = JSON.parse(init.body);
-  const decode = (args = []) => args.map((arg) => arg.type === "null" ? null : arg.value);
+  const decode = (args = []) => args.map((arg) => arg.type === "null" ? null : arg.type === "integer" || arg.type === "float" ? Number(arg.value) : arg.value);
   const results = body.requests.map((request) => {
     if (request.type === "close") return ok(empty);
     if (request.type === "batch") {
@@ -364,7 +364,10 @@ function fakeBucket(options = {}) {
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vite = await createServer({ appType: "custom", configFile: false, root, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false } });
-after(async () => vite.close());
+after(async () => {
+  reservationDb.close();
+  await vite.close();
+});
 
 const {
   CINEMA_UPLOAD_PART_BYTES, abortCinemaUpload, advanceCinemaPlaylist, beginCinemaUpload, cinemaUploadKey,
@@ -494,6 +497,31 @@ test("an upload uses a private key, and a second cannot start while one is in fl
   await abortCinemaUpload({ roomId: "room-1", studentId: "host-a", bucket });
   const multi = await begin({ sizeBytes: CINEMA_UPLOAD_PART_BYTES + 100, bucket });
   assert.equal(multi.parts, 2, "a part-sized file plus a remainder is two parts");
+});
+
+test("concurrent MKV starts reserve one slot and abort the other multipart upload", async () => {
+  const bucket = fakeBucket();
+  const createMultipartUpload = bucket.createMultipartUpload;
+  const { promise: bothStarted, resolve } = Promise.withResolvers();
+  let starts = 0;
+  bucket.createMultipartUpload = async (...args) => {
+    const multipart = await createMultipartUpload(...args);
+    if (++starts === 2) resolve();
+    await bothStarted;
+    return multipart;
+  };
+
+  const input = { filename: "lecture.mkv", contentType: "application/octet-stream", bucket };
+  const results = await Promise.allSettled([begin(input), begin(input)]);
+  const successful = results.filter(result => result.status === "fulfilled");
+  const rejected = results.filter(result => result.status === "rejected");
+  assert.equal(successful.length, 1);
+  assert.equal(successful[0].value.upload.mimeType, "video/x-matroska");
+  assert.equal(successful[0].value.upload.playlistPosition, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason.code, "CONFLICT");
+  assert.equal(state.uploads.length, 1);
+  assert.equal(bucket.handles.size, 1);
 });
 
 test("the free plan allows one ready file, and an in-flight file must be cancelled", async () => {
@@ -879,7 +907,7 @@ test("repeated takedowns end a student's upload rights, and retention is not a s
   const strike = (id, sessionId, removedBy) => ({
     id, session_id: sessionId, uploader_id: "host-a", r2_object_key: `cinema/${sessionId}/video/${id}/original.mp4`,
     r2_upload_id: "", original_filename: "old.mp4", file_size_bytes: 10, mime_type: "video/mp4", duration_seconds: 0,
-    ownership_confirmed: 1, status: "DELETED", expires_at: "", deleted_at: stamp(30),
+    ownership_confirmed: 1, status: "DELETED", expires_at: "", deleted_at: stamp(30), playlist_position: 1,
     removed_by: removedBy, removed_reason: removedBy ? "Copyright complaint" : "", created_at: stamp(90), updated_at: stamp(30),
   });
 
