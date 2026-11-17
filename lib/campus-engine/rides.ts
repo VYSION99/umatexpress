@@ -33,7 +33,9 @@ export async function requestCampusRide(input: { passengerName?: string; phone?:
   const rideId = String(input.rideId || "").trim();
   const matched = await requireNearestRide({ pickupZoneId, destinationZoneId, pickupLatitude: input.pickupLatitude, pickupLongitude: input.pickupLongitude, limit: rideId ? 20 : 1 });
   const match = rideId ? matched.matches.find((item) => item.id === rideId) : matched.match;
-  if (!match) throw new CampusEngineError("NO_DRIVER_FOUND", "The selected campusRide is no longer available. Please refresh and choose another ride.", 409);
+  if (!match || match.corridor?.originZoneId !== pickupZoneId || match.corridor.destinationZoneId !== destinationZoneId) {
+    throw new CampusEngineError("NO_DRIVER_FOUND", "This ride does not serve the selected route. Please refresh and choose another ride.", 409);
+  }
   const quote = quoteCampusFare({ corridor: match.corridor, paystackFeePercent: await getPaystackFeePercentRuntime() });
   // A corridor with no tariff fails closed. The price of a seat is the published
   // corridor fare and there is no safe default for one: the fallback that used

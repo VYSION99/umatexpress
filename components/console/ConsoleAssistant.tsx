@@ -181,7 +181,7 @@ export function ConsoleAssistant({ session, service }: { session: ConsoleSession
     </section>}
     <button type="button" className="console-assistant-toggle" aria-label={open ? "Close assistant" : "Open assistant"} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
       <Sparkle size={18}/> Assistant
-      {!open && actionsWaiting > 0 && <span className="console-assistant-badge" aria-label={`${actionsWaiting} things need attention`}>{actionsWaiting}</span>}
+      {!open && actionsWaiting > 0 && <span className="console-assistant-badge" aria-label={`${actionsWaiting} ${actionsWaiting === 1 ? "item needs" : "items need"} attention`}>{actionsWaiting}</span>}
     </button>
   </div>;
 }

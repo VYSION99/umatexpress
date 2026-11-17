@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cedis } from "@/lib/campus-fare-math";
 import type { CampusFareReport, CampusFareReportRow } from "@/lib/campus-engine/fares";
 import type { CampusCorridor, CampusDriver, CampusVehicle, CampusZone } from "@/lib/campus-ride";
+import "./campus-admin-zones.css";
 
 type CampusData = { zones: CampusZone[]; corridors: CampusCorridor[]; vehicles: CampusVehicle[]; drivers: CampusDriver[]; fareReport?: CampusFareReport };
 
@@ -33,6 +34,8 @@ export function CampusAdminControlPanel({ initialData }: { initialData: CampusDa
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
+  const [editingZoneId, setEditingZoneId] = useState("");
+  const editingZone = data.zones.find((zone) => zone.id === editingZoneId);
 
   const refresh = async () => {
     const response = await fetch("/api/admin/campus/manage", { credentials:"same-origin", cache:"no-store" });
@@ -82,13 +85,15 @@ export function CampusAdminControlPanel({ initialData }: { initialData: CampusDa
     {message && <small className="campus-admin-message">{message}</small>}
     {error && <small className="campus-admin-error">{error}</small>}
     <div className="campus-crud-grid">
-      <form action={(formData)=>submit("zone", formData)} className="campus-crud-card">
-        <h3>Add zone</h3>
-        <input name="name" placeholder="Zone name" required />
-        <input name="landmark" placeholder="Landmark" />
-        <input name="description" placeholder="Description" />
-        <div className="campus-inline-fields"><input name="latitude" placeholder="Latitude" /><input name="longitude" placeholder="Longitude" /></div>
-        <button disabled={saving==="zone"}>{saving==="zone" ? "Saving..." : "Save zone"}</button>
+      <form key={editingZoneId || "new-zone"} action={(formData)=>submit("zone", formData)} className="campus-crud-card campus-zone-form">
+        <div className="campus-zone-form-head"><h3>{editingZone ? `Edit ${editingZone.name}` : "Add pickup or destination zone"}</h3>{editingZone && <button type="button" onClick={() => setEditingZoneId("")}>New zone</button>}</div>
+        {editingZone && <input type="hidden" name="id" value={editingZone.id} />}
+        <label>Zone name<input name="name" placeholder="Zone name" defaultValue={editingZone?.name || ""} required /></label>
+        <label>Pickup landmark<input name="landmark" placeholder="Recognisable meeting point" defaultValue={editingZone?.landmark || ""} /></label>
+        <label>Description<input name="description" placeholder="Where students should wait" defaultValue={editingZone?.description || ""} /></label>
+        <div className="campus-inline-fields"><label>Latitude<input name="latitude" type="number" min="-90" max="90" step="any" placeholder="5.3018" defaultValue={editingZone?.latitude ?? ""} required /></label><label>Longitude<input name="longitude" type="number" min="-180" max="180" step="any" placeholder="-1.9931" defaultValue={editingZone?.longitude ?? ""} required /></label></div>
+        <small>Use the meeting point coordinates. Both coordinates are required for student routes and maps.</small>
+        <button disabled={saving==="zone"}>{saving==="zone" ? "Saving..." : editingZone ? "Update zone" : "Save zone"}</button>
       </form>
 
       <form action={(formData)=>submit("corridor", formData)} className="campus-crud-card">
@@ -123,6 +128,10 @@ export function CampusAdminControlPanel({ initialData }: { initialData: CampusDa
         <button disabled={saving==="driver"}>{saving==="driver" ? "Saving..." : "Save driver"}</button>
       </form>
     </div>
+    <section className="campus-zone-directory" aria-labelledby="campus-zone-directory-title">
+      <div><h3 id="campus-zone-directory-title">Zone directory</h3><span>{data.zones.length} active {data.zones.length === 1 ? "zone" : "zones"}</span></div>
+      <ul>{data.zones.map((zone) => <li key={zone.id}><div><strong>{zone.name}</strong><span>{zone.landmark || "No landmark"} · {zone.latitude ?? "No latitude"}, {zone.longitude ?? "No longitude"}</span></div><button type="button" onClick={() => setEditingZoneId(zone.id)}>Edit coordinates</button></li>)}</ul>
+    </section>
     {data.fareReport && <section className="campus-fare-guard">
       <div className="campus-fare-guard-head">
         <div><p>FARE GUARDRAILS</p><h3>Floor and ceiling by corridor</h3></div>

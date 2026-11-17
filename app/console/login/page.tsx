@@ -40,7 +40,7 @@ export default function ConsoleLoginPage() {
       <img src="/console-logo.svg" alt="UMaTeXPRESS Console" />
       <p>UMATEXPRESS CONSOLE</p>
       <h1>Sign in</h1>
-      <span>One account for admin, moderator, organizer and driver services.</span>
+      <span>Sign in to access the services assigned to your console account.</span>
       <label>Email or phone<input type="text" autoComplete="username" required value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></label>
       <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       {error && <div className="console-auth-error" role="alert">{error}</div>}

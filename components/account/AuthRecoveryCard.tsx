@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { CircleNotch, EnvelopeSimple, Key } from "@/components/ui/MaterialIcon";
 import { CodeBoxes } from "./CodeBoxes";
+import { safeAuthReturnPath } from "@/lib/auth-return";
 import "./account.css";
 
 /** The two account surfaces the recovery endpoints serve. */
@@ -32,7 +33,7 @@ export function AuthRecoveryCard(input: {
 }) {
   const mode = input.mode || "reset";
   const variant = input.variant || "student";
-  const next = input.next && input.next.startsWith("/") && !input.next.startsWith("//") ? input.next : "/";
+  const next = safeAuthReturnPath(input.next);
   const [step, setStep] = useState<Step>(input.token ? "reset" : "request");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -60,7 +61,7 @@ export function AuthRecoveryCard(input: {
       if (mode === "otp") {
         await post("/api/auth/recovery", "PUT", { scope: input.scope, email });
       } else {
-        await post("/api/auth/recovery", "POST", { scope: input.scope, email });
+        await post("/api/auth/recovery", "POST", { scope: input.scope, email, next });
       }
       setResent(step === "reset");
       setCode("");

@@ -304,6 +304,7 @@ export async function ensureRateLimitTable() {
     updated_at TEXT NOT NULL,
     PRIMARY KEY (scope, subject, window_key)
   )`);
+  await turso("CREATE INDEX IF NOT EXISTS idx_rate_limit_expiry ON rate_limit_windows(expires_at)");
 }
 
 export async function ensureAuthFailuresTable() {

@@ -82,3 +82,13 @@ test("separate subjects and separate windows are counted independently", async (
   const rows = db.prepare("SELECT COUNT(*) AS n FROM rate_limit_windows WHERE scope = ? AND subject = ?").get("campus-ai", "ip-a");
   assert.equal(rows.n, 2);
 });
+
+test("a later visitor clears expired windows left by a one-time visitor", async () => {
+  const { consumeRateLimitWindow } = await vite.ssrLoadModule("/lib/rate-limit.ts");
+  const db = newDatabase();
+  const exec = sqliteExecutor(db);
+  const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+  await consumeRateLimitWindow(exec, { scope: "curiosity-feedback", subject: "203.0.113.7", limit: 3, windowMs: 60_000, now });
+  await consumeRateLimitWindow(exec, { scope: "curiosity-feedback", subject: "203.0.113.8", limit: 3, windowMs: 60_000, now: now + 2 * 60_000 + 1 });
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM rate_limit_windows WHERE subject = '203.0.113.7'").get().n, 0);
+});

@@ -1,4 +1,4 @@
-import { Bed, Brain, Bus, Car, FilmSlate, Flask, ForkKnife } from "../ui/MaterialIcon.ts";
+import { Bed, Brain, Bus, Car, Copy, FilmSlate, Flask, ForkKnife } from "../ui/MaterialIcon.ts";
 
 // The launcher registry is deliberately independent of server-only business logic.
 // `accent` is the homepage card tint: the platform's three colours — green for a
@@ -15,6 +15,7 @@ export const services = [
   { id: "vacation", title: "VacationRide", icon: Bus, accent: "green", available: true, destination: "/vacation", action: "Book a seat", description: "Next stop, home.", detail: "Choose a route and travel date", art: "/brand/vacationride-card.webp", category: "Beyond campus" },
   { id: "hostels", title: "Hostel Finder", navLabel: "Hostels", icon: Bed, accent: "gold", available: true, destination: "/hostel", action: "Explore hostels", description: "Find your own corner of campus.", detail: "Places to settle in", art: "/brand/hostelfinder-card.webp", category: "Make yourself at home" },
   { id: "food", title: "Food", icon: ForkKnife, accent: "neutral", available: false, destination: null, action: "Explore food", description: "Good food. Better study breaks.", detail: "Your next favourite bite", category: "A little refuel" },
+  { id: "print-copy", title: "Print & Copy", icon: Copy, accent: "gold", available: false, destination: null, action: "Explore print shops", description: "Print and bind work around campus.", detail: "Verified shops and quotes", category: "Make it print" },
   { id: "cinema", title: "OnlineCinema", navLabel: "Cinema", icon: FilmSlate, accent: "green", available: true, destination: "/cinema", action: "Open a room", description: "Watch together, wherever you are.", detail: "One link, one video, one conversation", art: "/brand/cinema-card.webp", category: "After the lectures" },
   // Partners use their own logos on the same main cards as in-app services.
   { id: "research", title: "ACMD Research", icon: Flask, accent: "gold", available: true, external: true, destination: "https://acmdresearch.com", action: "Open the hub", description: "Research, mentorship and innovation.", detail: "Projects with mentors and industry", logo: "/acmd-logo.png", category: "Research & innovation" },

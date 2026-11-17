@@ -1,0 +1,17 @@
+UMaTeXPRESS tri-fold brochures
+
+Each PDF has two pages: page 1 outside; page 2 inside.
+Finished size: A4 landscape, 297 x 210 mm.
+PDF page size including bleed: 303 x 216 mm.
+Bleed: 3 mm on all sides. TrimBox identifies the finished A4 sheet.
+Outside panels, left to right: 97 / 100 / 100 mm (tuck flap / back / front cover).
+Inside panels, left to right: 100 / 100 / 97 mm.
+Fold indicators appear only in the bleed, outside the finished sheet.
+Text and QR codes are vector objects. Fonts are embedded.
+QR destination: https://console.umatexpress.com
+
+Print at actual size on a sheet large enough for bleed, then trim to the TrimBox.
+For landscape duplex proofing, begin with short-edge flip and check orientation with a folded proof.
+Ask the printer to confirm fold allowance for the chosen paper thickness.
+These are RGB PDFs, not certified PDF/X files. Printer-specific colour conversion is required if CMYK/PDF/X is requested.
+UI captures come from a 364 x 724 px screencast and are lower resolution than the vector text. They are included faithfully; higher-resolution captures would improve fine UI print detail.

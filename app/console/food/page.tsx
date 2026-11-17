@@ -10,11 +10,11 @@ import { FoodPilotManager } from "@/components/console/food/FoodPilotManager";
 import { FoodFinanceManager } from "@/components/console/food/FoodFinanceManager";
 
 export default function FoodConsolePage() {
-  return <ConsoleSessionGate label="Food directory">
+  return <ConsoleSessionGate label="food operations">
     {(session) => session.account.role === "VENDOR"
       ? <ConsoleShell session={session} service="food" label="FOOD VENDOR · OPERATIONS" title="Food operations" blurb="Keep availability truthful, accept only what you can prepare, and record every handover accurately."><FoodVendorOperations /><FoodVendorOrders /></ConsoleShell>
       : session.account.role === "ADMIN" || session.account.role === "MODERATOR"
       ? <ConsoleShell session={session} service="food" label="CAMPUS FOOD · CONTROLLED PILOT" title="Food operations" blurb="Verify providers, control the pilot, monitor fulfilment, and resolve student cases."><FoodDirectoryManager /><FoodPilotManager />{session.account.role === "ADMIN" && <FoodFinanceManager />}</ConsoleShell>
-      : <ConsoleUnavailable session={session} service="food" label="FOOD DIRECTORY" blurb="Food listing management belongs to platform staff." />}
+      : <ConsoleUnavailable session={session} service="food" label="FOOD OPERATIONS" blurb="Food listing management belongs to platform staff." />}
   </ConsoleSessionGate>;
 }

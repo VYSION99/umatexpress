@@ -85,7 +85,7 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
   const settings = workSettings(session);
   const role = session.account.delegateServices !== undefined ? "Admin delegate" : ROLE_LABEL[session.account.role] || session.account.role;
 
-  return <ConsoleShell session={session} service="account" label="YOUR ACCOUNT" title="Profile & settings" blurb="Keep your console contact details current and open the settings you are allowed to manage.">
+  return <ConsoleShell session={session} service="account" label="YOUR ACCOUNT" title="My account" blurb="Keep your console contact details current and open the settings you are allowed to manage.">
     <div className="console-profile-page">
       {error && <p className="console-alert" role="alert">{error}</p>}
       {notice && <p className="console-alert console-alert-ok" role="status">{notice}</p>}
@@ -108,6 +108,8 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
         <small>Student and console accounts use separate passwords and sign-ins. Linking a verified email does not change console permissions.</small>
       </section>
 
+      {!session.mustChangePassword && <section className="console-profile-card console-passkey-card" aria-label="Passkey security"><span className="console-profile-kicker">SIGN-IN SECURITY</span><PasskeySettings scope="CONSOLE" /></section>}
+
       <section className="console-profile-card" id="settings" aria-labelledby="console-settings-title">
         <div className="console-profile-section-heading"><GearSix size={22}/><div><span>ACCOUNT ACTIONS</span><h2 id="console-settings-title">Settings & security</h2></div></div>
         <div className="console-profile-actions">
@@ -116,7 +118,6 @@ function AccountWorkspace({ session }: { session: ConsoleSessionInfo }) {
           <Link href="/console"><UserCircle size={21}/><span><strong>Console home</strong><small>Return to your assigned services</small></span><ArrowRight size={18}/></Link>
           <button type="button" onClick={() => void signOut()} disabled={signingOut}><SignOut size={21}/><span><strong>{signingOut ? "Signing out…" : "Sign out"}</strong><small>End this console session</small></span><ArrowRight size={18}/></button>
         </div>
-        {!session.mustChangePassword && <PasskeySettings scope="CONSOLE" />}
       </section>
     </div>
   </ConsoleShell>;

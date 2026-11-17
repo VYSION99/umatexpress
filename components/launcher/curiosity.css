@@ -1,0 +1,26 @@
+.curiosity-panel { box-sizing: border-box; width: 100%; margin: 0 auto 1.5rem; padding: 1.2rem; border: 1px solid var(--home-line); border-radius: 12px; background: #fff; }
+.curiosity-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.curiosity-heading span, .curiosity-reason { color: var(--home-green); font-size: .7rem; font-weight: 800; letter-spacing: .08em; }
+.curiosity-heading h2 { margin: .3rem 0; font-size: 1.25rem; color: var(--home-ink); }
+.curiosity-heading p, .curiosity-result p, .curiosity-footnote { margin: .25rem 0 0; color: var(--home-muted); line-height: 1.5; }
+.curiosity-heading > button, .curiosity-actions button, .curiosity-off button { border: 0; background: transparent; color: var(--home-green); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.curiosity-choices { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.curiosity-choices button { min-height: 2.5rem; padding: .45rem .8rem; border: 1px solid var(--home-line); border-radius: 8px; background: #f5f8f6; color: var(--home-ink); font: inherit; font-weight: 650; cursor: pointer; }
+.curiosity-choices button[aria-pressed="true"] { border-color: var(--home-green); background: var(--home-green-soft); }
+.curiosity-choices button:disabled { opacity: .6; cursor: wait; }
+.curiosity-result { margin-top: 1rem; padding: 1rem; border: 1px solid var(--home-line); border-radius: 8px; background: #f8faf9; }
+.curiosity-result h3 { margin: .3rem 0; font-size: 1rem; }
+.curiosity-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: .8rem; }
+.curiosity-actions a { display: inline-flex; align-items: center; min-height: 2.5rem; padding: .45rem .75rem; border-radius: 8px; background: var(--home-green); color: #fff; font-weight: 750; text-decoration: none; }
+.curiosity-message { margin: .75rem 0 0; color: var(--home-muted); }
+.curiosity-footnote { font-size: .75rem; }
+.curiosity-footnote button { border: 0; background: transparent; color: var(--home-green); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.curiosity-off { display: flex; justify-content: center; gap: .4rem; margin: 0 auto 1.5rem; color: var(--home-muted); font-size: .8rem; }
+.curiosity-join { margin-top: 1rem; min-height: 2.5rem; padding: .5rem .9rem; border: 0; border-radius: 8px; background: var(--home-green); color: #fff; font: inherit; font-weight: 750; cursor: pointer; }
+.curiosity-invite .curiosity-footnote { margin-top: .8rem; }
+.curiosity-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--home-line); font-size: .85rem; }
+.curiosity-feedback button { min-height: 2.25rem; padding: .35rem .6rem; border: 1px solid var(--home-line); border-radius: 7px; background: #fff; color: var(--home-ink); font: inherit; cursor: pointer; }
+.curiosity-feedback button:disabled { opacity: .6; cursor: wait; }
+.curiosity-panel :is(button, a):focus-visible, .curiosity-off button:focus-visible { outline: 3px solid var(--home-green); outline-offset: 3px; }
+body:has(.curiosity-panel:not(.curiosity-invite)) .app-install-prompt { display: none; }
+@media (max-width: 36rem) { .curiosity-heading { flex-direction: column; } }

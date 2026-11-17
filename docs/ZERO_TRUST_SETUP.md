@@ -1,11 +1,14 @@
 # Zero Trust for UMaTeXPRESS
 
-**Status:** plan — waiting on a Cloudflare account owned by UMaTeXPRESS
-**Goal:** UMaTeXPRESS gets its own Zero Trust team, separate from `acmdresearch`.
+**Current decision (2026-11-02):** The project owner confirmed that the Cloudflare account and token already configured in the ignored local `.env` are the intended production deployment target. The account-separation plan in sections 1–5 and 7–9 is retained as historical planning material, not as a prerequisite for this release.
+
+**Current Access status:** The configured account returned zero Access applications in a read-only API check. The administrator will supply the complete staff and organizer allowlist later. The project owner chose to enable the 50% curiosity pilot on 2026-11-02 without waiting for Access. The console continues to rely on its in-app authentication.
+
+The Zero Trust edge gate described in section 6 remains a later administrator task. Its absence is recorded here as an accepted release decision for the curiosity pilot, not as evidence that the console Access policy has been verified. A production check after activation returned 401 for `/api/console/curiosity/shadow` without an in-app session.
 
 ---
 
-## 1. Why a new Cloudflare account is required
+## 1. Historical account-separation rationale
 
 Cloudflare allows exactly **one Zero Trust organization per account**. Today the
 Worker and the `acmdresearch` team live in the same account:
@@ -17,9 +20,9 @@ Worker and the `acmdresearch` team live in the same account:
 | Worker | `umatexpress` → `umatexpress.acmdevelopers2020.workers.dev` |
 
 Renaming the team would take `acmdresearch.cloudflareaccess.com` away from the
-other system, and a second team cannot be created beside it. So UMaTeXPRESS gets
-its own account, its own team (`umatexpress.cloudflareaccess.com`), and its own
-copy of the deployment.
+other system, and a second team cannot be created beside it. The original plan
+proposed a separate account, team (`umatexpress.cloudflareaccess.com`), and
+deployment. The owner has since selected the configured account for this release.
 
 What moves: the Worker, its R2 bucket, notification queue, rate-limiter Durable
 Object, and the Worker secrets. What does not move: the Turso database, Resend,

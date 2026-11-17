@@ -37,10 +37,10 @@ export async function POST(request: Request) {
   try {
     const limited = await rateLimit(request, "auth-recovery", { limit: 6, windowMs: 15 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
-    const body = await request.json() as { scope?: unknown; email?: unknown };
+    const body = await request.json() as { scope?: unknown; email?: unknown; next?: unknown };
     const scope = scopeOrThrow(body.scope);
     await assertAuthScopeHost(request, scope);
-    const result = await requestPasswordReset({ scope, email: body.email, origin: await originOf(request, scope) });
+    const result = await requestPasswordReset({ scope, email: body.email, origin: await originOf(request, scope), next: body.next });
     // The same answer for every address: asking is not a way to test who exists.
     return ok({ requested: true, expiresAt: result.expiresAt }, { headers: { "Cache-Control": "no-store" } }, request);
   } catch (error) {

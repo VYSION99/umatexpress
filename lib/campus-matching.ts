@@ -1,5 +1,6 @@
 import { distanceKm, formatDistance, type Coordinate } from "@/lib/campus-location";
 import type { CampusCorridor, CampusRide, CampusZone } from "@/lib/campus-ride";
+import { hasCampusZoneCoordinates } from "@/lib/campus-zones";
 
 export type CampusRideMatch = CampusRide & { corridor?: CampusCorridor; pickupZone?: CampusZone; destinationZone?: CampusZone; score:number; distanceLabel:string; fare:number; estimatedMinutes:number; pickupDistanceKm:number };
 
@@ -13,24 +14,34 @@ function coordinateFromZone(zone?: CampusZone): Coordinate | null {
   return { latitude: Number(zone.latitude), longitude: Number(zone.longitude) };
 }
 
+export function bookableCampusRidesForRoute(params: { rides: CampusRide[]; corridors: CampusCorridor[]; pickupZoneId?: string; destinationZoneId?: string }) {
+  const corridorById = new Map(params.corridors.map((corridor) => [corridor.id, corridor]));
+  return params.rides.filter((ride) => {
+    const corridor = corridorById.get(ride.corridorId);
+    return ride.acceptingQueue && ride.availableSlots > 0 && ride.status === "OPEN"
+      && Boolean(corridor)
+      && (!params.pickupZoneId || corridor?.originZoneId === params.pickupZoneId)
+      && (!params.destinationZoneId || corridor?.destinationZoneId === params.destinationZoneId);
+  });
+}
+
 export function findNearestCampusRides(params: { pickupZoneId?: string; destinationZoneId?: string; pickupLatitude?: number; pickupLongitude?: number; zones: CampusZone[]; corridors: CampusCorridor[]; rides: CampusRide[]; limit?: number }) {
-  const pickupZone = params.zones.find((zone) => zone.id === params.pickupZoneId);
-  const destinationZone = params.zones.find((zone) => zone.id === params.destinationZoneId);
+  const usableZones = params.zones.filter(hasCampusZoneCoordinates);
+  const zoneById = new Map(usableZones.map((zone) => [zone.id, zone]));
+  if ((params.pickupZoneId && !zoneById.has(params.pickupZoneId)) || (params.destinationZoneId && !zoneById.has(params.destinationZoneId))) return [];
+  const corridors = params.corridors.filter((corridor) => corridor.active && zoneById.has(corridor.originZoneId) && zoneById.has(corridor.destinationZoneId));
+  const pickupZone = zoneById.get(params.pickupZoneId || "");
   const passengerCoordinate = coordinateFromNumbers(params.pickupLatitude, params.pickupLongitude);
   const pickupCoordinate = passengerCoordinate || coordinateFromZone(pickupZone);
-  const zoneById = new Map(params.zones.map((zone) => [zone.id, zone]));
-  const corridorById = new Map(params.corridors.map((corridor) => [corridor.id, corridor]));
+  const corridorById = new Map(corridors.map((corridor) => [corridor.id, corridor]));
 
-  return params.rides
-    .filter((ride) => ride.acceptingQueue && ride.availableSlots > 0 && ride.status === "OPEN")
+  return bookableCampusRidesForRoute({ ...params, corridors })
     .map((ride) => {
       const corridor = corridorById.get(ride.corridorId);
       const rideZone = zoneById.get(ride.currentZoneId);
       const rideCoordinate = coordinateFromNumbers(ride.currentLatitude, ride.currentLongitude) || coordinateFromZone(rideZone);
-      const exactPickup = !pickupZone || ride.currentZoneId === pickupZone.id || corridor?.originZoneId === pickupZone.id;
-      const exactDestination = !destinationZone || corridor?.destinationZoneId === destinationZone.id;
       const km = distanceKm(pickupCoordinate, rideCoordinate);
-      const score = (exactPickup || passengerCoordinate ? 0 : 100) + (exactDestination ? 0 : 200) + (Number.isFinite(km) ? km : 50) - Math.min(ride.availableSlots, 8);
+      const score = (Number.isFinite(km) ? km : 50) - Math.min(ride.availableSlots, 8);
       return { ...ride, corridor, pickupZone: rideZone, destinationZone: corridor ? zoneById.get(corridor.destinationZoneId) : undefined, score, distanceLabel: formatDistance(km), pickupDistanceKm: km, fare: corridor?.fare || 0, estimatedMinutes: corridor?.estimatedMinutes || 0 };
     })
     .sort((a, b) => a.score - b.score)

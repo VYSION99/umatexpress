@@ -8,13 +8,13 @@ import { SheetHandle } from "@/components/ui/SheetHandle";
 
 const cedis = (pesewas: number) => pesewas > 0 ? `GH₵ ${(pesewas / 100).toFixed(2)}` : "Fare not set";
 
-export function RideMatchCard({ match, pickupZoneId, destinationZoneId, pickupLatitude, pickupLongitude, selected, onSelect }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string; pickupLatitude?: number; pickupLongitude?: number; selected: boolean; onSelect: () => void }) {
+export function RideMatchCard({ match, pickupZoneId, destinationZoneId, selected, onSelect }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string; selected: boolean; onSelect: () => void }) {
   const titleId = `ride-${match.id}-title`;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeDetails = () => dialogRef.current?.close();
   const chooseRide = () => { onSelect(); closeDetails(); };
   return <>
-    <article className={`ride-match-card${selected ? " is-selected" : ""}`} aria-labelledby={titleId}>
+    <article className={`ride-match-card${selected ? " is-selected" : ""}`} role="listitem" aria-labelledby={titleId}>
       <div><span>{match.distanceLabel}</span><strong id={titleId}>{match.corridor?.name || "Campus ride"}</strong></div>
       <p>{match.vehicleLabel} {match.plateNumber ? `· ${match.plateNumber}` : ""}</p>
       <ul>
@@ -27,7 +27,7 @@ export function RideMatchCard({ match, pickupZoneId, destinationZoneId, pickupLa
         <button type="button" className="campus-ride-secondary" onClick={() => dialogRef.current?.showModal()}>Ride details</button>
         {!selected && <button type="button" className="ride-select-control" onClick={onSelect}>Select this ride <ArrowRight size={15} aria-hidden /></button>}
       </div>
-      {selected && <div className="ride-selected-actions"><span><Check size={16}/> Selected ride</span><QueueJoinCard match={match} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} pickupLatitude={pickupLatitude} pickupLongitude={pickupLongitude} /></div>}
+      {selected && <div className="ride-selected-actions"><span><Check size={16}/> Selected ride</span><QueueJoinCard match={match} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} /></div>}
     </article>
     <dialog ref={dialogRef} className="campus-ride-dialog" aria-labelledby={`${titleId}-details`} onClick={(event) => { if (event.target === event.currentTarget) closeDetails(); }}>
       <SheetHandle onDismiss={closeDetails} />

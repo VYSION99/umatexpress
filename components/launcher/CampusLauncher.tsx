@@ -9,6 +9,7 @@ import { useLauncherLayout } from "./useLauncherLayout";
 import { ProfilePanel } from "./ProfilePanel";
 import { NotificationFeed } from "./NotificationFeed";
 import { HomeServiceSearch } from "./HomeServiceSearch";
+import { CuriosityPilot } from "./CuriosityPilot";
 import { ProfileAvatar } from "@/components/account/ProfilePhoto";
 import { useNotifications } from "@/components/account/useNotifications";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
@@ -117,6 +118,7 @@ export default function CampusLauncher() {
           ? <div className="home-rail">{homepage.map(service => <ServiceCard key={service.id} pinned={pinned.has(service.id)} service={service} />)}</div>
           : <div className="launch-empty"><Compass size={28} aria-hidden /><h2>A little space for your favourites.</h2><p>Restore a service from Open services.</p><button onClick={() => setPanel("services")}>Discover services</button></div>}
       </section>
+      {ready && <CuriosityPilot preferences={preferences} />}
       <section className="home-section" aria-labelledby="home-soon-title">
         <div className="home-section-head"><h2 id="home-soon-title">On the way</h2><span className="home-section-note">Not live yet</span></div>
         <div className="home-soon">{services.filter(service => !service.available).map(service => { const Icon = service.icon; return <div key={service.id}><Icon size={19} aria-hidden /><strong>{service.title}</strong><span>{service.detail}</span></div>; })}</div>

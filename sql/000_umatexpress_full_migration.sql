@@ -298,6 +298,48 @@ CREATE TABLE IF NOT EXISTS campus_route_corridors (
   updated_at TEXT NOT NULL
 );
 
+-- Pickup and destination zones are stored once with their map coordinates.
+-- See sql/060_campus_zone_coordinates.sql for the standalone migration.
+CREATE TRIGGER IF NOT EXISTS campus_zone_coordinates_insert
+BEFORE INSERT ON campus_zones
+WHEN NEW.latitude IS NULL OR NEW.longitude IS NULL
+  OR typeof(NEW.latitude) NOT IN ('integer', 'real')
+  OR typeof(NEW.longitude) NOT IN ('integer', 'real')
+  OR NEW.latitude NOT BETWEEN -90 AND 90
+  OR NEW.longitude NOT BETWEEN -180 AND 180
+BEGIN
+  SELECT RAISE(ABORT, 'Campus zones require valid latitude and longitude');
+END;
+
+CREATE TRIGGER IF NOT EXISTS campus_zone_coordinates_update
+BEFORE UPDATE ON campus_zones
+WHEN NEW.latitude IS NULL OR NEW.longitude IS NULL
+  OR typeof(NEW.latitude) NOT IN ('integer', 'real')
+  OR typeof(NEW.longitude) NOT IN ('integer', 'real')
+  OR NEW.latitude NOT BETWEEN -90 AND 90
+  OR NEW.longitude NOT BETWEEN -180 AND 180
+BEGIN
+  SELECT RAISE(ABORT, 'Campus zones require valid latitude and longitude');
+END;
+
+CREATE TRIGGER IF NOT EXISTS campus_corridor_zones_insert
+BEFORE INSERT ON campus_route_corridors
+WHEN NEW.origin_zone_id = NEW.destination_zone_id
+  OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.origin_zone_id AND active = 1)
+  OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.destination_zone_id AND active = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'Campus corridor requires two distinct active zones');
+END;
+
+CREATE TRIGGER IF NOT EXISTS campus_corridor_zones_update
+BEFORE UPDATE OF origin_zone_id, destination_zone_id ON campus_route_corridors
+WHEN NEW.origin_zone_id = NEW.destination_zone_id
+  OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.origin_zone_id AND active = 1)
+  OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.destination_zone_id AND active = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'Campus corridor requires two distinct active zones');
+END;
+
 CREATE TABLE IF NOT EXISTS campus_fares (
   id TEXT PRIMARY KEY,
   corridor_id TEXT NOT NULL,
@@ -1803,6 +1845,49 @@ CREATE TABLE IF NOT EXISTS cinema_reusable_room_guests (
   created_at TEXT NOT NULL, PRIMARY KEY(room_id,student_id)
 );
 
+-- 049: Print & Copy verified shop directory and private student quote requests.
+CREATE TABLE IF NOT EXISTS print_copy_providers (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+  location TEXT NOT NULL, contact_label TEXT NOT NULL, contact_href TEXT NOT NULL,
+  hours TEXT NOT NULL, services_json TEXT NOT NULL DEFAULT '[]',
+  indicative_pricing TEXT NOT NULL DEFAULT '', turnaround TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'DRAFT', verification_note TEXT NOT NULL DEFAULT '',
+  verified_by TEXT NOT NULL DEFAULT '', verified_at TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_print_copy_providers_public ON print_copy_providers(status,verified_at,updated_at DESC);
+CREATE TABLE IF NOT EXISTS print_copy_settings (
+  id TEXT PRIMARY KEY, quotes_enabled INTEGER NOT NULL DEFAULT 0,
+  support_owner TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS print_copy_quotes (
+  id TEXT PRIMARY KEY, reference TEXT NOT NULL UNIQUE, provider_id TEXT NOT NULL,
+  student_id TEXT NOT NULL, student_name TEXT NOT NULL, student_email TEXT NOT NULL,
+  requirements TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'NEW', staff_note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+  FOREIGN KEY(provider_id) REFERENCES print_copy_providers(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_print_copy_quotes_queue ON print_copy_quotes(status,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_print_copy_quotes_student ON print_copy_quotes(student_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_print_copy_quotes_expiry ON print_copy_quotes(expires_at);
+CREATE TABLE IF NOT EXISTS print_copy_listing_reports (
+  id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, category TEXT NOT NULL, message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'OPEN', resolved_by TEXT NOT NULL DEFAULT '',
+  resolution_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, resolved_at TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY(provider_id) REFERENCES print_copy_providers(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_print_copy_reports_queue ON print_copy_listing_reports(status,created_at DESC);
+
+-- 050: Optional curiosity pilot feedback, daily totals without student records.
+CREATE TABLE IF NOT EXISTS curiosity_feedback_daily (
+  day TEXT NOT NULL, policy_version TEXT NOT NULL, service_id TEXT NOT NULL,
+  outcome TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(day,policy_version,service_id,outcome)
+);
+CREATE TABLE IF NOT EXISTS curiosity_feedback_claims (
+  dedupe_hash TEXT PRIMARY KEY, expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_curiosity_feedback_claims_expiry ON curiosity_feedback_claims(expires_at);
 -- Monotonic chat cursors and reply relationships. Rows without a message are
 -- moderation placeholders; removed message text is not retained here.
 CREATE TABLE IF NOT EXISTS cinema_message_order (

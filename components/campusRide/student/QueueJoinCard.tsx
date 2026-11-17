@@ -12,8 +12,9 @@ import type { CampusRideMatch } from "@/lib/campus-matching";
 import { clearProfile, readProfile, writeProfile } from "@/lib/passenger-profile";
 import { SheetHandle } from "@/components/ui/SheetHandle";
 
-export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLatitude, pickupLongitude }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string; pickupLatitude?: number; pickupLongitude?: number }) {
+export function QueueJoinCard({ match, pickupZoneId, destinationZoneId }: { match: CampusRideMatch; pickupZoneId: string; destinationZoneId: string }) {
   const router = useRouter();
+  const returnToRide = `/campus?pickupZoneId=${encodeURIComponent(pickupZoneId)}&destinationZoneId=${encodeURIComponent(destinationZoneId)}&rideId=${encodeURIComponent(match.id)}#campus-rides`;
   const reviewRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [passengerName, setPassengerName] = useState("");
@@ -38,7 +39,7 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
 
   const review = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!account) { router.push(`/account?next=${encodeURIComponent("/campus")}`); return; }
+    if (!account) { router.push(`/account?next=${encodeURIComponent(returnToRide)}`); return; }
     setError("");
     reviewRef.current?.showModal();
   };
@@ -52,7 +53,7 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ passengerName, phone, email, pickupZoneId, destinationZoneId, rideId: match.id, pickupLatitude, pickupLongitude }),
+        body: JSON.stringify({ passengerName, phone, email, pickupZoneId, destinationZoneId, rideId: match.id }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not join ride queue.");
@@ -74,8 +75,8 @@ export function QueueJoinCard({ match, pickupZoneId, destinationZoneId, pickupLa
   };
 
   if (!open) return accountReady && !account
-    ? <Link className="campus-ride-signin" href={`/account?next=${encodeURIComponent("/campus")}`}>Sign in to join queue</Link>
-    : <button type="button" onClick={() => setOpen(true)}>Join queue &amp; pay</button>;
+    ? <Link className="campus-ride-signin" href={`/account?next=${encodeURIComponent(returnToRide)}`}>Sign in to join queue</Link>
+    : <button type="button" onClick={() => setOpen(true)}>Continue to booking</button>;
   return <>
     <form className="queue-join-form" onSubmit={review}>
       <strong>Passenger details</strong>

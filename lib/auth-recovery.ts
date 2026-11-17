@@ -19,6 +19,7 @@
  */
 
 import { assertConsolePassword, ensureConsoleAccountsTable, setConsolePassword, type ConsoleRole } from "@/lib/console-auth";
+import { safeAuthReturnPath } from "@/lib/auth-return";
 import { consoleAudit } from "@/lib/console-audit";
 import { hashPassword } from "@/lib/campus-engine/crypto";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
@@ -153,7 +154,7 @@ async function insertRequest(input: { scope: AuthRecoveryScope; accountId: strin
 /** What the caller may know: the flow started. Never whether the address exists. */
 export type AuthRecoveryRequest = { requested: true; delivered: boolean; expiresAt: string };
 
-type ResetEmailInput = { origin: string; resetPath: string; token: string; code: string; name: string };
+type ResetEmailInput = { origin: string; resetPath: string; token: string; code: string; name: string; next?: string };
 
 /**
  * The mail itself. The link and the code travel together, because a student on
@@ -161,7 +162,10 @@ type ResetEmailInput = { origin: string; resetPath: string; token: string; code:
  * the code — and both prove the same thing: control of the inbox.
  */
 async function sendResetEmail(email: string, input: ResetEmailInput, now: Date) {
-  const link = `${input.origin.replace(/\/$/, "")}${input.resetPath}?token=${encodeURIComponent(input.token)}`;
+  const resetUrl = new URL(input.resetPath, input.origin);
+  resetUrl.searchParams.set("token", input.token);
+  if (input.next && input.next !== "/") resetUrl.searchParams.set("next", input.next);
+  const link = resetUrl.toString();
   const reference = `reset:${await digest(`${email}:${now.getTime()}`)}`.slice(0, 80);
   await ensureNotificationsTable().then(() => queueNotification(turso, {
     recipient: email,
@@ -221,7 +225,7 @@ export function recoveryEmailFor(scope: AuthRecoveryScope, input: unknown) {
  * known one, and an inactive account, so this endpoint cannot be used to
  * enumerate users; the mail only goes out when there is an account to mail.
  */
-export async function requestPasswordReset(input: { scope: AuthRecoveryScope; email: unknown; origin: string; resetPath?: string; now?: Date }): Promise<AuthRecoveryRequest> {
+export async function requestPasswordReset(input: { scope: AuthRecoveryScope; email: unknown; origin: string; resetPath?: string; next?: unknown; now?: Date }): Promise<AuthRecoveryRequest> {
   await ensureAuthRecoveryTables();
   const now = input.now ?? new Date();
   const email = recoveryEmailFor(input.scope, input.email);
@@ -236,7 +240,8 @@ export async function requestPasswordReset(input: { scope: AuthRecoveryScope; em
   const token = randomToken();
   const code = randomCode();
   await insertRequest({ scope: input.scope, accountId: account.id, email, purpose: "RESET", token, code, ttlMs: RESET_TTL_MS, now });
-  await sendResetEmail(email, { origin: input.origin, resetPath, token, code, name: account.name }, now);
+  const next = input.scope === "STUDENT" ? safeAuthReturnPath(input.next) : "/";
+  await sendResetEmail(email, { origin: input.origin, resetPath, token, code, name: account.name, next }, now);
   logEvent("info", "auth_reset_requested", { scope: input.scope, accountId: account.id });
   return { ...answer, delivered: true };
 }

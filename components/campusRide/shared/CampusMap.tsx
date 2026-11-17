@@ -96,9 +96,9 @@ function popupContent(title: string, detail: string) {
   return container;
 }
 
-type CampusMapProps = { zones: CampusZone[]; corridors?: CampusCorridor[]; rides?: CampusRide[]; matches?: CampusRideMatch[]; selectedRideId?: string; title?: string };
+type CampusMapProps = { zones: CampusZone[]; corridors?: CampusCorridor[]; rides?: CampusRide[]; matches?: CampusRideMatch[]; selectedRideId?: string; title?: string; showLegend?: boolean };
 
-export function CampusMap({ zones, corridors = [], rides = [], matches = [], selectedRideId, title = "Campus map" }: CampusMapProps) {
+export function CampusMap({ zones, corridors = [], rides = [], matches = [], selectedRideId, title = "Campus map", showLegend = true }: CampusMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { instance, loading, error, disabled, retry } = useOsmMap(containerRef, OPTIONS);
   const zoneById = useMemo(() => new Map(zones.map((zone) => [zone.id, zone])), [zones]);
@@ -179,7 +179,7 @@ export function CampusMap({ zones, corridors = [], rides = [], matches = [], sel
       <MapStatus disabled={disabled} loading={loading} error={error} onRetry={retry} />
     </div>
     {!disabled && <MapLocateButton instance={instance} />}
-    {!disabled && <div className="real-map-legend">
+    {!disabled && showLegend && <div className="real-map-legend">
       <span><MapPin size={14}/> Zone</span>
       <span><Car size={14}/> Ride</span>
       {routeStats && <span>{Math.max(1, Math.round(routeStats.durationSeconds / 60))} min ETA · {(routeStats.distanceMeters / 1000).toFixed(1)} km</span>}

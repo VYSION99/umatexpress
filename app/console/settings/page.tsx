@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ConsoleSessionGate } from "@/components/admin/ConsoleSessionGate";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
@@ -17,10 +18,11 @@ export default function ConsoleSettingsPage() {
         service="settings"
         label="PLATFORM · CONTROLS"
         title="Platform settings"
-        blurb="The switches that decide how the whole deployment behaves, starting with the automation behind payouts."
+        blurb="Manage payout automation, fees and service limits."
       >
         <PlatformSettings />
+        {session.account.delegateServices === undefined && <p><Link href="/console/curiosity">Review curiosity policy diagnostics</Link></p>}
       </ConsoleShell>
-      : <ConsoleUnavailable session={session} service="settings" label="PLATFORM SETTINGS" blurb="Platform switches belong to an administrator." />}
+      : <ConsoleUnavailable session={session} service="settings" label="PLATFORM SETTINGS" blurb="Platform settings require administrator access." />}
   </ConsoleSessionGate>;
 }

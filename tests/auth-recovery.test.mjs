@@ -151,6 +151,7 @@ after(async () => vite.close());
 const {
   requestLoginCode, requestPasswordReset, resetPassword, verifyLoginCode,
 } = await vite.ssrLoadModule("/lib/auth-recovery.ts");
+const { safeAuthReturnPath } = await vite.ssrLoadModule("/lib/auth-return.ts");
 
 const resetMail = () => outbox.filter((item) => item.template === "auth_password_reset").at(-1);
 const otpMail = () => outbox.filter((item) => item.template === "auth_login_code").at(-1);
@@ -200,6 +201,23 @@ test("a reset link stores only a hash and works exactly once", async () => {
     (error) => error?.code === "INVALID_STATE",
     "a link that has been used cannot be replayed",
   );
+});
+
+test("student reset links keep a safe selected ride return path", async () => {
+  seed();
+  const ride = "/campus?pickupZoneId=main-gate&destinationZoneId=lecture-area&rideId=ride-1#campus-rides";
+  await requestPasswordReset({ scope: "STUDENT", email: "ama@st.umat.edu.gh", origin: "https://umatexpress.test", next: ride });
+  const link = resetMail().message.match(/https:\/\/\S+\/reset-password\?\S+/)?.[0];
+  assert.ok(link);
+  assert.equal(new URL(link).searchParams.get("next"), ride);
+  assert.equal(safeAuthReturnPath("https://evil.example"), "/");
+  assert.equal(safeAuthReturnPath("//evil.example"), "/");
+  assert.equal(safeAuthReturnPath("/\\evil.example"), "/");
+  assert.equal(safeAuthReturnPath(ride), ride);
+
+  seed();
+  await requestPasswordReset({ scope: "STUDENT", email: "ama@st.umat.edu.gh", origin: "https://umatexpress.test", next: "//evil.example" });
+  assert.doesNotMatch(resetMail().message, /next=/);
 });
 
 test("the emailed code finishes the reset, and stops after five wrong guesses", async () => {

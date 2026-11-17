@@ -157,3 +157,53 @@
 .console-sidebar .launch-brand{flex:none}
 .console-sidebar nav a[aria-current="page"]{font-weight:750}
 @media(max-width:800px){.console-launcher main.launch-main{width:calc(100% - 32px)}.console-launcher .console-topbar{min-height:72px}}
+
+/* Home summary: aligned metrics, with the action state kept visible. */
+.console-home .console-brief-strip { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 18px; box-shadow: none; border-radius: 14px; }
+.console-home .console-brief-strip ul { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.console-home .console-brief-strip li { min-width: 0; }
+.console-home .console-brief-strip li a, .console-home .console-brief-strip li .console-brief-plain { display: flex; flex: 1; align-items: flex-start; flex-direction: column; justify-content: center; border-radius: 10px; padding: 12px; gap: 7px; }
+.console-home .console-brief-value { font-size: 18px; padding: 0; background: transparent; }
+.console-home .console-brief-label { font-size: 11px; line-height: 1.4; }
+.console-home .console-brief-strip li a > .material-icon { display: none; }
+.console-home .console-brief-ask { grid-column: 2; grid-row: 1; width: auto; min-height: 36px; padding: 0 10px; background: #edf5ef; color: #24513c; font-size: 11px; }
+.console-home .console-brief-note { grid-column: 1 / -1; }
+.console-home .console-hero h1 { font-size: clamp(28px, 3.5vw, 38px); }
+@media(max-width:400px) { .console-home .console-brief-strip { grid-template-columns: 1fr; } .console-home .console-brief-ask { grid-column: 1; grid-row: auto; } }
+
+/* Keep the working area usable in split panels, with navigation on demand. */
+.console-sidebar-toggle,.console-header-assistant{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:8px 11px;border:1px solid #dce7df;border-radius:10px;background:#fff;color:#24513c;font:inherit;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0}
+.console-sidebar-toggle:focus-visible,.console-header-assistant:focus-visible{outline:3px solid #0d694d;outline-offset:3px}
+.console-launcher.sidebar-collapsed .console-sidebar{display:none}
+.console-sidebar nav a,.console-sidebar nav button{min-height:40px;padding-block:8px}
+.console-sidebar .launch-brand{margin-bottom:14px}
+.console-sidebar{gap:6px}
+@media(min-width:801px){
+  .console-launcher .console-topbar{gap:12px}
+  .console-launcher .console-assistant{top:84px;bottom:auto}
+  .console-launcher .console-assistant-toggle{display:none}
+}
+@media(max-width:1100px){
+  .console-launcher:not(.sidebar-expanded) .console-sidebar{display:none}
+  .console-launcher.sidebar-expanded .console-sidebar{display:flex;width:210px}
+  .console-launcher.sidebar-expanded .console-profile-trigger-copy{display:none}
+  .console-home .console-home-directory.is-admin{grid-template-columns:1fr;gap:22px}
+  .console-home .console-home-directory.is-admin .console-card-detail{font-size:14px;line-height:1.5}
+  .console-home .console-brief-strip ul{grid-template-columns:1fr;gap:0}
+  .console-home .console-brief-strip li a,.console-home .console-brief-strip li .console-brief-plain{flex-direction:row;align-items:center;justify-content:flex-start;padding:9px 10px;min-height:44px;border-radius:8px;border:0;border-bottom:1px solid #e3eae5;background:transparent;gap:12px}
+  .console-home .console-brief-value{min-width:80px;font-size:17px}
+  .console-home .console-brief-label{font-size:13px}
+  .console-home .console-brief-strip li.tone-action a{background:#fff5dc}
+}
+@media(max-width:800px){
+  .console-header-assistant{display:none}
+  .console-launcher.sidebar-expanded .console-sidebar{position:fixed;inset:72px auto 0 0;z-index:45;height:calc(100svh - 72px);box-shadow:12px 0 30px #12261f26}
+  .console-sidebar-toggle span{display:none}
+}
+@media(min-width:601px) and (max-width:1100px){
+  .console-home .console-brief-strip{gap:10px;padding:14px 18px}
+  .console-home .console-brief-strip ul{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px}
+  .console-home .console-brief-strip li.tone-action{grid-column:1/-1}
+  .console-home .console-brief-value{min-width:40px}
+  .console-home .console-brief-strip li.tone-action .console-brief-value{min-width:80px}
+}

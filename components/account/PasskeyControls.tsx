@@ -1,7 +1,7 @@
 "use client";
 
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PasskeyScope } from "@/lib/passkeys";
 import "./account.css";
 
@@ -54,12 +54,34 @@ export function PasskeySettings({ scope }: { scope: PasskeyScope }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const passwordInput = useRef<HTMLInputElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true); setLoadError("");
+    try {
+      const response = await fetch(`/api/auth/passkeys?scope=${scope}`, { credentials: "same-origin", cache: "no-store", signal });
+      if (!response.ok) throw new Error("Could not load your passkeys. Try again.");
+      const data = await response.json();
+      if (!signal?.aborted) setPasskeys(data.passkeys || []);
+    } catch (cause) {
+      if (!signal?.aborted) setLoadError(cause instanceof Error ? cause.message : "Could not load your passkeys.");
+    } finally { if (!signal?.aborted) setLoading(false); }
+  }, [scope]);
+
   useEffect(() => {
     if (!available()) return;
-    void fetch(`/api/auth/passkeys?scope=${scope}`, { credentials: "same-origin", cache: "no-store" })
-      .then(response => response.ok ? response.json() : Promise.reject())
-      .then(data => setPasskeys(data.passkeys || []))
-      .catch(() => undefined);
+    const controller = new AbortController();
+    void fetch(`/api/auth/passkeys?scope=${scope}`, { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error("Could not load your passkeys. Try again.");
+        return response.json();
+      })
+      .then(data => { if (!controller.signal.aborted) setPasskeys(data.passkeys || []); })
+      .catch(cause => { if (!controller.signal.aborted) setLoadError(cause instanceof Error ? cause.message : "Could not load your passkeys."); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, [scope]);
   useEffect(() => {
     if (window.location.hash !== "#passkeys") return;
@@ -68,30 +90,28 @@ export function PasskeySettings({ scope }: { scope: PasskeyScope }) {
   }, [supported]);
   if (!supported) return <div className="passkey-settings" id="passkeys"><h3>Passkeys</h3><p>Passkeys are unavailable in this browser or connection. Open this page over HTTPS in a browser that supports passkeys.</p></div>;
 
-  async function refresh() {
-    const response = await fetch(`/api/auth/passkeys?scope=${scope}`, { credentials: "same-origin", cache: "no-store" });
-    if (response.ok) setPasskeys((await response.json()).passkeys || []);
-  }
-
   async function add() {
-    if (!password) { setError("Enter your current password first."); return; }
+    const currentPassword = passwordInput.current?.value || password;
+    if (!currentPassword) { setError("Enter your current password first."); return; }
     setBusy(true); setError(""); setMessage("");
     try {
-      const start = await post({ scope, action: "register-options", password });
+      const start = await post({ scope, action: "register-options", password: currentPassword });
       const response = await startRegistration({ optionsJSON: start.options as Parameters<typeof startRegistration>[0]["optionsJSON"] });
       await post({ scope, action: "register-verify", challengeId: start.challengeId, response });
       setPassword(""); setMessage("Passkey added. You can use it the next time you sign in.");
       await refresh();
     } catch (cause) {
-      if (cause instanceof Error && cause.name !== "NotAllowedError") setError(cause.message);
+      if (cause instanceof Error && cause.name === "NotAllowedError") setMessage("Passkey setup was cancelled or timed out. You can try again when ready.");
+      else setError(cause instanceof Error ? cause.message : "Could not add a passkey. Try again.");
     } finally { setBusy(false); }
   }
 
   async function remove(id: string) {
-    if (!password) { setError("Enter your current password before removing a passkey."); return; }
+    const currentPassword = passwordInput.current?.value || password;
+    if (!currentPassword) { setError("Enter your current password before removing a passkey."); return; }
     setBusy(true); setError(""); setMessage("");
     try {
-      await post({ scope, id, password }, "DELETE");
+      await post({ scope, id, password: currentPassword }, "DELETE");
       setPassword(""); setMessage("Passkey removed."); await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not remove passkey."); }
     finally { setBusy(false); }
@@ -100,10 +120,23 @@ export function PasskeySettings({ scope }: { scope: PasskeyScope }) {
   return <div className="passkey-settings" id="passkeys">
     <h3>Passkeys</h3>
     <p>Use your device screen lock, fingerprint, or face unlock to sign in. Keep your password and email recovery available.</p>
-    <label>Current password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
-    <button type="button" disabled={busy} onClick={() => void add()}>{busy ? "Please wait…" : "Add a passkey"}</button>
-    {passkeys.length > 0 && <ul>{passkeys.map((passkey, index) => <li key={passkey.id}><span>Passkey {index + 1}<small>Added {new Date(passkey.created_at).toLocaleDateString()}</small></span><button type="button" disabled={busy} onClick={() => void remove(passkey.id)}>Remove</button></li>)}</ul>}
+    <div className="passkey-list" aria-busy={loading}>
+      <h4>Registered passkeys {!loading && !loadError && <span>{passkeys.length}</span>}</h4>
+      {loading ? <p role="status">Loading your passkeys…</p> : loadError ? <div><p role="alert" className="passkey-message is-error">{loadError}</p><button type="button" className="passkey-retry" onClick={() => void refresh()}>Try again</button></div> : passkeys.length === 0 ? <p>No passkeys added yet. Add one below to use it at your next sign-in.</p> : <ul>{passkeys.map((passkey, index) => <li key={passkey.id}><span>Passkey {index + 1}<small>Added {passkeyDate(passkey.created_at)}</small><small>Last used: {passkey.last_used_at ? passkeyDate(passkey.last_used_at) : "Not used yet"}</small></span><button type="button" disabled={busy} aria-label={`Remove passkey ${index + 1}`} onClick={() => void remove(passkey.id)}>Remove</button></li>)}</ul>}
+    </div>
+    <form className="passkey-setup" onSubmit={event => { event.preventDefault(); void add(); }}>
+      <h4>Add a passkey</h4>
+      <p>Your browser will guide you through choosing a device or security key.</p>
+      <label>Current password<input ref={passwordInput} type="password" autoComplete="current-password" value={password} onChange={event => { setPassword(event.target.value); setError(""); setMessage(""); }} aria-describedby="passkey-password-help" /></label>
+      <small id="passkey-password-help">Confirm your password to add or remove a passkey.</small>
+      <button type="submit" disabled={busy}>{busy ? "Please wait…" : "Add a passkey"}</button>
+    </form>
     {message && <p role="status" className="passkey-message">{message}</p>}
     {error && <p role="alert" className="passkey-message is-error">{error}</p>}
   </div>;
+}
+
+function passkeyDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }

@@ -15,6 +15,9 @@ import { runPayoutReconcileJob, runPayoutReleaseJob } from "@/lib/organizer-payo
 import { runHostelPayoutReconcileJob, runHostelPayoutReleaseJob } from "@/lib/hostel-engine/payouts";
 import { scanHostelAvailability } from "@/lib/hostel-engine/watchlist";
 import { runHostelRefundReconcile } from "@/lib/hostel-engine/refunds";
+import { purgeExpiredPrintCopyQuotes } from "@/lib/print-copy/directory";
+import { pruneExpiredRateLimitWindows } from "@/lib/rate-limit";
+import { pruneCuriosityFeedback } from "@/lib/curiosity/feedback";
 
 // Durable Object classes must be exported from the Worker entry point. The
 // binding and its migration live in build/cloudflare-binding-plan.ts.
@@ -129,6 +132,14 @@ const worker = {
     }
     if (controller?.cron === HOSTEL_AVAILABILITY_CRON) {
       ctx.waitUntil(scanHostelAvailability().catch(error => { logEvent("error", "hostel_availability_scan_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+      // Reuse the existing trigger once daily so idle quote queues still purge
+      // student contact details at the 90-day retention boundary.
+      const scheduled = new Date(controller.scheduledTime ?? Date.now());
+      if (scheduled.getUTCHours() === 2 && scheduled.getUTCMinutes() === 12) {
+        ctx.waitUntil(purgeExpiredPrintCopyQuotes().catch(error => { logEvent("error", "print_copy_quote_purge_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+        ctx.waitUntil(pruneExpiredRateLimitWindows().catch(error => { logEvent("error", "rate_limit_purge_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+        ctx.waitUntil(pruneCuriosityFeedback().catch(error => { logEvent("error", "curiosity_feedback_purge_failed", { reason: error instanceof Error ? error.message : "unknown" }); }));
+      }
       return;
     }
     if (controller?.cron === PAYOUT_RELEASE_CRON) {

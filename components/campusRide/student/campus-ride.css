@@ -6,16 +6,67 @@
 .campus-ride-page .campus-hero h1 { max-width: 16ch; letter-spacing: -.045em; line-height: 1.08; }
 .campus-ride-page .campus-hero-copy > span { display: block; max-width: 64ch; line-height: 1.55; }
 .campus-ride-page .campus-status-banner { border-radius: 15px; }
-.campus-ride-page .departure-board { width: min(1220px, 100%); margin: 0 auto 20px; }
-.campus-ride-page .departure-head h2 { font-size: clamp(21px, 3vw, 27px); }
-.campus-ride-page .departure-head > div > span { display: block; line-height: 1.5; }
-.campus-ride-page .departure-row { transition: border-color .18s ease, box-shadow .18s ease; }
+.campus-ride-page .departure-board { width: min(1220px, 100%); margin: 0 auto 20px; padding: clamp(17px, 2.3vw, 26px); }
+.campus-ride-page .departure-head { align-items: center; gap: 12px 20px; }
+.campus-ride-page .departure-head h2 { font-size: clamp(24px, 3vw, 31px); }
+.campus-ride-page .departure-head > div > span { display: block; line-height: 1.45; }
+.campus-ride-page .departure-total { flex: none; min-height: 38px; white-space: nowrap; }
+.campus-ride-page :is(#campus-departures, #campus-find, #campus-rides) { scroll-margin-top: 18px; }
+.campus-ride-page .departure-freshness { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 10px; padding: 0 0 14px; border: 0; border-bottom: 1px solid #e3ebe3; border-radius: 0; background: transparent; color: #62766a; font-size: 12px; line-height: 1.4; }
+.campus-ride-page .departure-freshness button { flex: none; min-height: 36px; padding: 5px 11px; border: 1px solid #bad4c3; border-radius: 9px; background: #fff; color: #14583f; font: inherit; font-weight: 800; cursor: pointer; }
+.campus-ride-page .departure-list { gap: 12px; margin-top: 14px; }
+.campus-ride-page .departure-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "route seats" "facts actions"; gap: 11px 16px; min-height: 133px; padding: 16px 18px; transition: border-color .18s ease, box-shadow .18s ease; }
 .campus-ride-page .departure-row:hover { border-color: #a5cdb6; box-shadow: 0 8px 24px #173d2b0d; }
-.campus-ride-page .departure-join { text-decoration: none; }
+.campus-ride-page .departure-route { grid-area: route; }
+.campus-ride-page .departure-route strong { font-size: 16px; line-height: 1.3; }
+.campus-ride-page .departure-route small { line-height: 1.35; }
+.campus-ride-page .departure-facts { grid-area: facts; gap: 18px; }
+.campus-ride-page .departure-seats { grid-area: seats; justify-self: end; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 104px; padding: 9px 12px; border-radius: 999px; white-space: nowrap; }
+.campus-ride-page .departure-seats b { font-size: 20px; line-height: 1; }
+.campus-ride-page .departure-actions { grid-area: actions; justify-content: flex-end; flex-wrap: nowrap; }
+.campus-ride-page .departure-actions .departure-join { min-width: 120px; justify-content: center; text-decoration: none; }
+.campus-ride-page .departure-actions .departure-notify { border-color: #bbd5c3; background: #eaf5ec; color: #14583f; }
+.campus-ride-page .departure-actions .departure-route-link { min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: #14583f; text-decoration: underline; text-underline-offset: 3px; }
+.campus-ride-page .departure-watch-form { grid-column: 1 / -1; }
+.campus-ride-page .departure-more { display: block; width: 100%; min-height: 42px; margin-top: 12px; border: 1px solid #d5e5d9; border-radius: 11px; background: #f4faf5; color: #14583f; font-size: 12px; font-weight: 850; cursor: pointer; }
+.campus-ride-page .departure-more:hover { background: #eaf5ec; }
+@media (min-width: 980px) { .campus-ride-page .departure-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.campus-ride-page .campus-route-search { margin-bottom: 12px; border: 1px solid #dce5de; border-radius: 14px; background: #fffefa; box-shadow: 0 8px 20px #173d2b0a; }
+.campus-ride-page .campus-route-search > summary { min-height: 48px; display: flex; align-items: center; padding: 12px 16px; color: #14583f; font-size: 13px; font-weight: 850; cursor: pointer; list-style: none; }
+.campus-ride-page .campus-route-search > summary::-webkit-details-marker { display: none; }
+.campus-ride-page .campus-route-search > summary::after { content: "+"; margin-left: auto; font-size: 20px; line-height: 1; }
+.campus-ride-page .campus-route-search[open] > summary::after { content: "−"; }
+.campus-ride-page .campus-route-search[open] > summary { border-bottom: 1px solid #e4ece5; }
 .campus-ride-page .nearest-ride-finder { padding: 20px; }
+.campus-ride-page .campus-route-search .nearest-ride-finder { margin: 0; border: 0; border-radius: 0 0 14px 14px; box-shadow: none; }
+.campus-ride-page .nearest-ride-finder .nearest-keep-route { justify-self: start; min-height: 36px; padding: 6px 10px; border: 1px solid #cbded0; background: #fff; color: #14583f; box-shadow: none; font-size: 12px; }
+.campus-ride-page .nearest-ride-finder .nearest-keep-route:hover { background: #eff8f1; box-shadow: none; }
+.campus-ride-page .nearest-ride-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
+.campus-ride-page .campus-route-field { min-width: 0; }
+.campus-ride-page .campus-route-field > span { display: inline-flex; align-items: center; gap: 5px; }
+.campus-ride-page .campus-route-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 14px; padding: 11px 13px; border: 1px solid #dceade; border-radius: 11px; background: #f4faf5; color: #355947; font-size: 12px; }
+.campus-ride-page .campus-route-preview strong { margin-right: auto; color: #173d2b; font-size: 13px; }
+.campus-ride-page .campus-route-preview span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.campus-ride-page .nearest-ride-intro { display: grid; gap: 3px; }
+.campus-ride-page .nearest-ride-intro span, .campus-ride-page .campus-rides-heading span { color: #17684f; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.campus-ride-page .nearest-ride-intro h2 { margin: 0; color: #17352a; font-size: 20px; line-height: 1.2; letter-spacing: -.025em; }
+.campus-ride-page .nearest-ride-intro p { margin: 0; color: #61766a; font-size: 12px; line-height: 1.5; }
 .campus-ride-page .nearest-ride-finder label { color: #355444; font-size: 11px; text-transform: uppercase; letter-spacing: .09em; }
 .campus-ride-page .nearest-ride-finder select { min-height: 49px; font-size: 14px; font-weight: 700; letter-spacing: normal; text-transform: none; }
-.campus-ride-page .ride-match-list > h2 { margin-bottom: 2px; }
+.campus-ride-page .campus-rides-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 2px 2px 14px; border-bottom: 1px solid #e1eae2; }
+.campus-ride-page .campus-rides-heading h2 { margin: 4px 0; color: #17352a; font-size: clamp(18px, 2.3vw, 23px); font-weight: 800; line-height: 1.2; letter-spacing: -.025em; }
+.campus-ride-page .campus-rides-heading p { margin: 0; color: #62766a; font-size: 12px; line-height: 1.4; }
+.campus-ride-page .campus-rides-heading .campus-location-note { margin-top: 7px; color: #315c46; }
+.campus-ride-page .campus-rides-heading button { flex: none; min-height: 38px; display: inline-flex; align-items: center; padding: 6px 10px; border: 1px solid #cbded0; border-radius: 9px; background: #f6faf7; color: #14583f; font-size: 12px; font-weight: 800; cursor: pointer; }
+.campus-ride-page .campus-extra-tools { align-self: start; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.campus-ride-page .campus-extra-tools > button { min-height: 48px; padding: 10px 12px; border: 1px solid #cbded0; border-radius: 12px; background: #fffefa; color: #14583f; font-size: 12px; font-weight: 850; cursor: pointer; }
+.campus-ride-page .campus-extra-tools > button:hover { background: #eff8f1; }
+.campus-ride-page .campus-extra-tools > :is(#campus-route-map, #campus-ride-help) { grid-column: 1 / -1; }
+.campus-ride-page .campus-extra-tools > [hidden] { display: none; }
+.campus-ride-page .campus-extra-tools .campus-ai-widget { margin-top: 0; }
+.campus-ride-page .campus-empty { display: grid; gap: 10px; line-height: 1.5; }
+.campus-ride-page .campus-empty p { margin: 0; }
+.campus-ride-page .campus-empty a { color: #14583f; font-weight: 800; }
 .campus-ride-page .ride-match-card { overflow: visible; }
 .campus-ride-page .ride-match-card > p { font-size: 13px; }
 .campus-ride-page .ride-match-card .campus-ride-card-actions { display: flex; align-items: stretch; gap: 9px; margin: 0 0 10px; }
@@ -23,6 +74,7 @@
 .campus-ride-page .campus-ride-card-actions .campus-ride-secondary { border: 1px solid #bfd5c6; background: #fff; color: #14573e; box-shadow: none; }
 .campus-ride-page .campus-ride-card-actions .campus-ride-secondary:hover { background: #eff8f1; box-shadow: none; }
 .campus-ride-page .ride-selected-actions { border-top: 1px solid #dbe9df; padding-top: 12px; }
+.campus-ride-page .ride-selected-actions > :is(button, a) { min-width: 170px; text-align: center; }
 .campus-ride-page .campus-ride-signin { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 14px; border-radius: 11px; background: #0d694d; color: #fff; font-size: 12px; font-weight: 850; text-decoration: none; }
 .campus-ride-page .queue-join-form { display: grid; gap: 12px; width: 100%; padding: 17px; }
 .campus-ride-page .queue-join-form > strong { font-size: 16px; }
@@ -61,18 +113,29 @@
 @media (max-width: 700px) {
   .campus-ride-page .campus-hero { border-radius: 19px; }
   .campus-ride-page .campus-hero h1 { max-width: 19ch; }
-  .campus-ride-page .departure-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .campus-ride-page .departure-route { grid-column: 1 / -1; }
-  .campus-ride-page .departure-facts { gap: 12px; }
-  .campus-ride-page .departure-seats { align-self: center; }
-  .campus-ride-page .departure-actions { grid-column: 1 / -1; }
-  .campus-ride-page .departure-actions .departure-join { flex: 1; justify-content: center; }
+  .campus-ride-page .departure-row { grid-template-areas: "route seats" "facts facts" "actions actions"; gap: 10px 12px; min-height: 0; padding: 14px; }
+  .campus-ride-page .departure-route strong { font-size: 15px; }
+  .campus-ride-page .departure-facts { gap: 14px; }
+  .campus-ride-page .departure-seats { flex-direction: column; gap: 1px; min-width: 82px; padding: 7px 8px; border-radius: 12px; }
+  .campus-ride-page .departure-seats b { font-size: 18px; }
+  .campus-ride-page .departure-seats small { font-size: 8px; }
+  .campus-ride-page .departure-actions { justify-content: flex-start; }
+  .campus-ride-page .departure-actions .departure-join, .campus-ride-page .departure-actions .departure-notify { flex: 1; justify-content: center; }
+  .campus-ride-page .departure-freshness span { flex: 1; min-width: 0; }
   .campus-ride-page .nearest-ride-finder { padding: 15px; }
+  .campus-ride-page .nearest-ride-fields { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .campus-ride-page .nearest-ride-actions { grid-template-columns: minmax(0, 1fr); }
+  .campus-ride-page .nearest-ride-actions button { white-space: normal; }
+  .campus-ride-page .campus-rides-heading { flex-direction: column; }
+  .campus-ride-page .campus-rides-heading button { align-self: flex-start; }
+  .campus-ride-page .ride-selected-actions > :is(button, a) { width: 100%; }
+  .campus-ride-page .real-map-canvas { height: 260px; min-height: 260px; }
   .campus-ride-page .campus-ride-card-actions { flex-direction: column; }
   .campus-ride-page .queue-join-actions { flex-direction: column; }
   .campus-ride-dialog .campus-ride-dialog-actions { flex-direction: column; }
   .campus-ride-dialog-actions button { width: 100%; }
 }
+body:has(.campus-ride-page) .app-install-prompt { display: none; }
 @media (prefers-reduced-motion: reduce) { .campus-ride-page .departure-row, .campus-ride-page .ride-match-card { transition: none; } }
 /* The review dialog is rendered inside a ride card; reset broad legacy card rules. */
 .campus-ride-page .campus-ride-dialog-content { display: block; justify-content: initial; }

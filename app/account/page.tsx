@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { CampusShell, CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";
+import { CampusShell } from "@/components/campusRide/shared/CampusShell";
 import { StudentAuthCard } from "@/components/account/StudentAuthCard";
 import { PassengerSupportCard } from "@/components/account/PassengerSupportCard";
+import { safeAuthReturnPath } from "@/lib/auth-return";
 
 /**
  * The platform sign-in. campusRide and vacationRide both send passengers here,
@@ -9,9 +10,11 @@ import { PassengerSupportCard } from "@/components/account/PassengerSupportCard"
  */
 export default async function AccountPage({ searchParams }: { searchParams?: Promise<{ next?: string }> }) {
   const params = await searchParams;
-  const cinemaAudience = params?.next?.startsWith("/cinema") === true;
-  const profileAccess = params?.next?.startsWith("/profile") === true;
-  return <CampusShell area="UMATEXPRESS ACCOUNT" title={cinemaAudience ? "Join Cinema events" : profileAccess ? "Your account" : "Sign in to book"} subtitle={cinemaAudience ? "A verified account lets you reserve a place and join public discussions." : profileAccess ? "Sign in or verify your email to manage your profile and security." : "One UMaT account for campusRide and vacationRide. Browsing stays open to everyone."}>
+  const destination = safeAuthReturnPath(params?.next);
+  const cinemaAudience = destination.startsWith("/cinema");
+  const profileAccess = destination.startsWith("/profile");
+  const campusRide = destination.startsWith("/campus?") && new URL(destination, "https://umatexpress.local").searchParams.has("rideId");
+  return <CampusShell area="UMATEXPRESS ACCOUNT" title={cinemaAudience ? "Join Cinema events" : profileAccess ? "Your account" : campusRide ? "Sign in to join the queue" : "Sign in to book"} subtitle={cinemaAudience ? "A verified account lets you reserve a place and join public discussions." : profileAccess ? "Sign in or verify your email to manage your profile and security." : campusRide ? "We'll take you back to your selected ride afterward." : "Use your UMaT student account to book rides."}>
     <section className={`student-auth-interface${cinemaAudience ? " student-auth-interface--cinema" : ""}`}>
       {cinemaAudience ? <aside className="cinema-auth-intro" aria-label="About Cinema access">
         <span className="cinema-auth-eyebrow">CINEMA ACCESS</span>
@@ -22,10 +25,10 @@ export default async function AccountPage({ searchParams }: { searchParams?: Pro
           <div><strong>For UMaT students</strong><span>Publish an event, host a panel, or create a smaller private room.</span></div>
         </div>
         <Link className="cinema-auth-browse" href="/cinema">Browse events without signing in</Link>
-      </aside> : !profileAccess && <CampusStatusBanner title="Only booking needs an account" message="Search rides, compare fares and check a ticket without signing in. Holding a seat or joining a queue needs your student account." />}
+      </aside> : null}
       <StudentAuthCard next={params?.next} />
       {!cinemaAudience && !profileAccess && <PassengerSupportCard />}
-      {!cinemaAudience && <Link href="/">Back to UMaTeXPRESS home</Link>}
+      {!cinemaAudience && <Link href={campusRide ? destination : "/"}>{campusRide ? "Back to selected ride" : "Back to UMaTeXPRESS home"}</Link>}
     </section>
   </CampusShell>;
 }

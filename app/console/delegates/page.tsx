@@ -75,7 +75,7 @@ function DelegateWorkspace({ session }: { session: ConsoleSessionInfo }) {
     finally { setBusy(""); }
   }
 
-  return <ConsoleShell session={session} service="delegates" label="ADMINISTRATION · TEAM ACCESS" title="Admin delegates" blurb="Give teammates access to the consoles they manage. Every change ends their active sessions.">
+  return <ConsoleShell session={session} service="delegates" label="ADMINISTRATION · TEAM ACCESS" title="Team access" blurb="Manage team accounts and service permissions. Access changes end active sessions.">
     {error && <p className="console-alert" role="alert">{error}</p>}
     {notice && <p className="delegate-notice" role="status">{notice}</p>}
     <section className="delegate-panel" aria-labelledby="delegate-create-title">

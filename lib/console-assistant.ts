@@ -174,7 +174,7 @@ function briefGreeting(name: string) {
 
 function briefSummary(items: ConsoleBriefItem[]) {
   const actions = items.filter((item) => item.tone === "action").length;
-  if (!actions) return items.length ? "Nothing needs a decision from you right now." : "Nothing is waiting on you right now.";
+  if (!actions) return items.length ? "No action items in this brief." : "No action items in this brief.";
   return actions === 1 ? "One thing needs your attention today." : `${actions} things need your attention today.`;
 }
 
@@ -214,7 +214,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const count = organizers.value.length;
       items.push({
         key: "organizer-applications",
-        label: "Organizer applications waiting",
+        label: "Applications awaiting review",
         value: String(count),
         detail: count ? "Approving one opens its console account." : "Every application has been decided.",
         href: "/console/organizers",
@@ -226,7 +226,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const oldest = review.value[0];
       items.push({
         key: "trips-review",
-        label: "Trips waiting for review",
+        label: "Trips awaiting review",
         value: String(review.value.length),
         detail: oldest ? `Oldest: ${briefText(oldest.title, 40)} (${briefText(oldest.from, 18)} → ${briefText(oldest.to, 18)})` : "The review queue is clear.",
         href: "/console/organizers",
@@ -238,7 +238,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const open = Number(disputes.value.counts.OPEN || 0) + Number(disputes.value.counts.REVIEWING || 0);
       items.push({
         key: "disputes",
-        label: "Disputes open or in review",
+        label: "Open disputes",
         value: String(open),
         detail: open ? "Passengers and organizers are waiting on a decision." : "No dispute is waiting.",
         href: "/console/disputes",
@@ -251,7 +251,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const total = ready.reduce((sum, row) => sum + Number(row.totals.ready || 0), 0);
       items.push({
         key: "payouts",
-        label: "Ready to release to organizers",
+        label: "Organizer payouts ready",
         value: briefCedis(total),
         detail: ready.length ? `${ready.length} organizer${ready.length === 1 ? "" : "s"} with a cleared balance.` : "Nothing has cleared for release yet.",
         href: "/console/payouts",
@@ -264,9 +264,9 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const live = rides.filter((ride) => ["OPEN", "PAUSED", "FULL"].includes(String(ride.status))).length;
       items.push({
         key: "campus",
-        label: "CampusRide rides live",
+        label: "Active CampusRide queues",
         value: String(live),
-        detail: `${rides.length} ride${rides.length === 1 ? "" : "s"} recorded in total.`,
+        detail: `Includes open, paused and full queues. ${rides.length} ride${rides.length === 1 ? "" : "s"} recorded in total.`,
         href: "/console/campus",
         tone: "info",
       });
@@ -284,7 +284,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const count = organizers.value.length;
       items.push({
         key: "organizer-applications",
-        label: "Organizer applications waiting",
+        label: "Applications awaiting review",
         value: String(count),
         detail: count ? "An administrator decides these." : "Every application has been decided.",
         href: "/console/organizers",
@@ -296,7 +296,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const oldest = review.value[0];
       items.push({
         key: "trips-review",
-        label: "Trips waiting for review",
+        label: "Trips awaiting review",
         value: String(review.value.length),
         detail: oldest ? `Oldest: ${briefText(oldest.title, 40)} (${briefText(oldest.from, 18)} → ${briefText(oldest.to, 18)})` : "The review queue is clear.",
         href: "/console/organizers",
@@ -308,7 +308,7 @@ async function briefItemsFor(context: AssistantContext): Promise<{ items: Consol
       const open = Number(disputes.value.counts.OPEN || 0) + Number(disputes.value.counts.REVIEWING || 0);
       items.push({
         key: "disputes",
-        label: "Disputes open or in review",
+        label: "Open disputes",
         value: String(open),
         detail: open ? "Someone is waiting on a decision." : "No dispute is waiting.",
         href: "/console/disputes",

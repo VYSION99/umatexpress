@@ -1,0 +1,14 @@
+.curiosity-console { display: grid; gap: 1rem; }
+.curiosity-console .console-card { padding: 1.2rem; }
+.curiosity-console h2 { margin: 0 0 .35rem; font-size: 1.1rem; }
+.curiosity-console p { margin: .25rem 0; line-height: 1.5; }
+.curiosity-console-intro { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.curiosity-console-intro button { min-height: 2.5rem; padding: .45rem .75rem; border: 0; border-radius: .55rem; background: #176143; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.curiosity-console-intro button:disabled { opacity: .6; cursor: wait; }
+.curiosity-console-summary { display: flex; flex-wrap: wrap; gap: 1.4rem; }
+.curiosity-console-summary div { display: grid; gap: .2rem; }
+.curiosity-console-summary span, .curiosity-console-list small { color: #607269; font-size: .8rem; }
+.curiosity-console-list { display: grid; gap: .55rem; margin-top: .85rem; }
+.curiosity-console-list > div { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(6rem, auto) minmax(9rem, auto); align-items: baseline; gap: .65rem; padding: .7rem; border: 1px solid #dce7df; border-radius: .6rem; }
+.curiosity-console-list p { grid-column: 1 / -1; color: #435e4d; font-size: .85rem; }
+@media (max-width: 42rem) { .curiosity-console-intro { flex-direction: column; } .curiosity-console-list > div { grid-template-columns: 1fr; gap: .15rem; } }

@@ -8,12 +8,12 @@ import { ConsoleBriefStrip } from "@/components/console/ConsoleBriefStrip";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 
 const ROLE_COPY: Record<string, { title: string; blurb: string }> = {
-  ADMIN: { title: "One campus. One console.", blurb: "Every UMaTeXPRESS service that runs the platform, one sign-in." },
-  MODERATOR: { title: "Review and keep it fair.", blurb: "Trips, organizer applications and hostel listings that need a decision." },
-  ORGANIZER: { title: "Your trips, your way.", blurb: "Publish coaches, watch bookings and reach your passengers." },
-  LANDLORD: { title: "Your hostels, your way.", blurb: "Build your properties and bed-spaces for students." },
-  DRIVER: { title: "Ready for the next queue.", blurb: "Your vehicle, your queue and your passengers." },
-  VENDOR: { title: "Prepare every pickup with confidence.", blurb: "Accept requests, update preparation and record each collection." },
+  ADMIN: { title: "Operations overview", blurb: "Review activity and manage campus services." },
+  MODERATOR: { title: "Review queue", blurb: "Trips, organizer applications and hostel listings that need a decision." },
+  ORGANIZER: { title: "Your trips", blurb: "Schedule trips, manage bookings and contact passengers." },
+  LANDLORD: { title: "Your hostels", blurb: "Manage properties, rooms and bed spaces for students." },
+  DRIVER: { title: "Your ride queue", blurb: "Your vehicle, your queue and your passengers." },
+  VENDOR: { title: "Your food orders", blurb: "Accept requests, update preparation and record each collection." },
 };
 
 export default function ConsoleHome() {
@@ -31,7 +31,7 @@ function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
     blurb={copy.blurb}
   >
     {session.account.role === "ADMIN" && <section className="console-home-intro" aria-label="Admin workspace">
-      <div><span>ADMIN WORKSPACE</span><h2>Operations at a glance</h2><p>Choose a service to manage, or open the controls you use most often.</p></div>
+      <div><h2>Quick access</h2></div>
       <div className="console-home-shortcuts"><Link href="/console/account"><UserCircle size={18}/> My account</Link>{session.account.delegateServices === undefined && <><Link href="/console/delegates"><UsersThree size={18}/> Team access</Link><Link href="/console/settings"><GearSix size={18}/> Platform settings</Link></>}</div>
     </section>}
     {session.account.delegateServices === undefined && <ConsoleBriefStrip />}
@@ -56,7 +56,7 @@ function ConsoleHomeWorkspace({ session }: { session: ConsoleSessionInfo }) {
 
     <footer className="console-footer">
       <span>UMaTeXPRESS Console</span>
-      <span>Signed in as {session.account.delegateServices !== undefined ? "admin delegate" : session.account.role.toLowerCase()}</span>
+      <span>Role: {session.account.delegateServices !== undefined ? "admin delegate" : session.account.role.toLowerCase()}</span>
     </footer>
   </ConsoleShell>;
 }

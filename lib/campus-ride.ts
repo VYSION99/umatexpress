@@ -1,4 +1,5 @@
 import { assertCampusFareAllowed, inspectCorridorFare } from "@/lib/campus-engine/fares";
+import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { hasColumn, rowsToObjects, runSchemaPass, turso, isTursoConfiguredRuntime } from "@/lib/turso";
 
 export type CampusZone = { id:string; name:string; description:string; landmark:string; latitude:number|null; longitude:number|null; active:boolean };
@@ -111,7 +112,7 @@ export const demoCampusRides: CampusRide[] = [
   { id:"ride-2", driverId:"drv-2", vehicleId:"veh-2", corridorId:"hostel-campus", currentZoneId:"hostel-area", currentLatitude:5.3064, currentLongitude:-1.9972, status:"OPEN", capacity:6, availableSlots:5, acceptingQueue:true, lastLocationAt:now(), driverName:"Campus Driver 2", vehicleLabel:"Campus Shuttle 2", plateNumber:"UMX-102" },
 ];
 
-const CAMPUS_SCHEMA_VERSION = "2026-09-23.2";
+const CAMPUS_SCHEMA_VERSION = "2026-11-17.1";
 
 /**
  * Everything runs as one pipeline request, so the whole pass costs a single
@@ -123,6 +124,10 @@ const CAMPUS_SCHEMA_VERSION = "2026-09-23.2";
 const campusSchemaStatements = [
   `CREATE TABLE IF NOT EXISTS campus_zones (id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',landmark TEXT NOT NULL DEFAULT '',latitude REAL,longitude REAL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_route_corridors (id TEXT PRIMARY KEY,name TEXT NOT NULL,origin_zone_id TEXT NOT NULL,destination_zone_id TEXT NOT NULL,estimated_minutes INTEGER NOT NULL DEFAULT 10,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,path TEXT,distance_km REAL NOT NULL DEFAULT 0)`,
+  `CREATE TRIGGER IF NOT EXISTS campus_zone_coordinates_insert BEFORE INSERT ON campus_zones WHEN NEW.latitude IS NULL OR NEW.longitude IS NULL OR typeof(NEW.latitude) NOT IN ('integer','real') OR typeof(NEW.longitude) NOT IN ('integer','real') OR NEW.latitude NOT BETWEEN -90 AND 90 OR NEW.longitude NOT BETWEEN -180 AND 180 BEGIN SELECT RAISE(ABORT, 'Campus zones require valid latitude and longitude'); END`,
+  `CREATE TRIGGER IF NOT EXISTS campus_zone_coordinates_update BEFORE UPDATE ON campus_zones WHEN NEW.latitude IS NULL OR NEW.longitude IS NULL OR typeof(NEW.latitude) NOT IN ('integer','real') OR typeof(NEW.longitude) NOT IN ('integer','real') OR NEW.latitude NOT BETWEEN -90 AND 90 OR NEW.longitude NOT BETWEEN -180 AND 180 BEGIN SELECT RAISE(ABORT, 'Campus zones require valid latitude and longitude'); END`,
+  `CREATE TRIGGER IF NOT EXISTS campus_corridor_zones_insert BEFORE INSERT ON campus_route_corridors WHEN NEW.origin_zone_id = NEW.destination_zone_id OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.origin_zone_id AND active = 1) OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.destination_zone_id AND active = 1) BEGIN SELECT RAISE(ABORT, 'Campus corridor requires two distinct active zones'); END`,
+  `CREATE TRIGGER IF NOT EXISTS campus_corridor_zones_update BEFORE UPDATE OF origin_zone_id,destination_zone_id ON campus_route_corridors WHEN NEW.origin_zone_id = NEW.destination_zone_id OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.origin_zone_id AND active = 1) OR NOT EXISTS (SELECT 1 FROM campus_zones WHERE id = NEW.destination_zone_id AND active = 1) BEGIN SELECT RAISE(ABORT, 'Campus corridor requires two distinct active zones'); END`,
   `CREATE TABLE IF NOT EXISTS campus_fares (id TEXT PRIMARY KEY,corridor_id TEXT NOT NULL,amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'GHS',active INTEGER NOT NULL DEFAULT 1,planned_seats INTEGER NOT NULL DEFAULT 0,floor_amount INTEGER NOT NULL DEFAULT 0,ceiling_amount INTEGER NOT NULL DEFAULT 0,acknowledged_by TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_vehicles (id TEXT PRIMARY KEY,label TEXT NOT NULL,plate_number TEXT NOT NULL DEFAULT '',vehicle_type TEXT NOT NULL DEFAULT 'Shuttle',capacity INTEGER NOT NULL DEFAULT 4,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campus_drivers (id TEXT PRIMARY KEY,name TEXT NOT NULL,phone TEXT NOT NULL,email TEXT UNIQUE,password_hash TEXT,password_salt TEXT,password_iterations INTEGER NOT NULL DEFAULT 100000,password_reset_required INTEGER NOT NULL DEFAULT 1,password_changed_at TEXT,vehicle_id TEXT,current_zone_id TEXT,current_latitude REAL,current_longitude REAL,active INTEGER NOT NULL DEFAULT 1,last_seen_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
@@ -206,16 +211,37 @@ function slug(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || crypto.randomUUID();
 }
 
+export function campusZoneCoordinate(value: unknown, axis: "latitude" | "longitude") {
+  const label = axis === "latitude" ? "Latitude" : "Longitude";
+  const limit = axis === "latitude" ? 90 : 180;
+  if ((typeof value !== "string" && typeof value !== "number") || String(value).trim() === "") {
+    throw new CampusEngineError("VALIDATION_ERROR", `${label} is required for a campus zone.`);
+  }
+  const coordinate = Number(value);
+  if (!Number.isFinite(coordinate) || coordinate < -limit || coordinate > limit) {
+    throw new CampusEngineError("VALIDATION_ERROR", `${label} must be a number between ${-limit} and ${limit}.`);
+  }
+  return coordinate;
+}
+
+function readZoneCoordinate(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const coordinate = Number(value);
+  return Number.isFinite(coordinate) ? coordinate : null;
+}
+
 export async function upsertCampusZone(input: { id?: string; name?: string; description?: string; landmark?: string; latitude?: string | number; longitude?: string | number; active?: boolean }) {
   if (!(await isTursoConfiguredRuntime())) throw new Error("Configure Turso before saving campusRide zones.");
   await ensureCampusRideTables();
   const stamp = now();
   const name = String(input.name || "").trim();
-  if (!name) throw new Error("Zone name is required.");
+  if (!name) throw new CampusEngineError("VALIDATION_ERROR", "Zone name is required.");
   const id = String(input.id || slug(name)).trim();
+  const latitude = campusZoneCoordinate(input.latitude, "latitude");
+  const longitude = campusZoneCoordinate(input.longitude, "longitude");
   await turso(
     "INSERT INTO campus_zones (id,name,description,landmark,latitude,longitude,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,landmark=excluded.landmark,latitude=excluded.latitude,longitude=excluded.longitude,active=excluded.active,updated_at=excluded.updated_at",
-    [id, name, String(input.description || ""), String(input.landmark || ""), String(input.latitude || ""), String(input.longitude || ""), input.active === false ? 0 : 1, stamp, stamp],
+    [id, name, String(input.description || ""), String(input.landmark || ""), latitude, longitude, input.active === false ? 0 : 1, stamp, stamp],
   );
   return (await getCampusData()).zones.find((zone) => zone.id === id);
 }
@@ -239,6 +265,8 @@ export async function upsertCampusCorridor(input: { id?: string; name?: string; 
   const fare = Math.max(0, Math.round(Number(input.fare || 0) * 100));
   if (!name || !origin || !destination) throw new Error("Corridor name, origin, and destination are required.");
   if (origin === destination) throw new Error("Origin and destination cannot be the same.");
+  const validZones = rowsToObjects(await turso("SELECT id FROM campus_zones WHERE active = 1 AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180 AND id IN (?,?)", [origin, destination]));
+  if (validZones.length !== 2) throw new CampusEngineError("VALIDATION_ERROR", "Choose two active campus zones with coordinates for this corridor.");
   const id = String(input.id || slug(name)).trim();
   const path = serializeCorridorPath(input.path);
   // The guardrails run before a single row is written: a fare the policy refuses
@@ -315,7 +343,7 @@ export async function getCampusData() {
     turso(`SELECT r.id,r.driver_id,r.vehicle_id,r.corridor_id,r.current_zone_id,r.current_latitude,r.current_longitude,r.status,r.capacity,r.available_slots,r.accepting_queue,COALESCE(r.last_location_at,'') AS last_location_at,COALESCE(d.name,'Unassigned driver') AS driver_name,COALESCE(v.label,'Unassigned vehicle') AS vehicle_label,COALESCE(v.plate_number,'') AS plate_number FROM campus_rides r LEFT JOIN campus_drivers d ON d.id = r.driver_id LEFT JOIN campus_vehicles v ON v.id = r.vehicle_id WHERE r.status IN ('OPEN','PAUSED','FULL') ORDER BY r.updated_at DESC`),
   ]);
   return {
-    zones: rowsToObjects(zoneResult).map((row) => ({ id:String(row.id), name:String(row.name), description:String(row.description||""), landmark:String(row.landmark||""), latitude:Number(row.latitude)||null, longitude:Number(row.longitude)||null, active:bool(row.active) })),
+    zones: rowsToObjects(zoneResult).map((row) => ({ id:String(row.id), name:String(row.name), description:String(row.description||""), landmark:String(row.landmark||""), latitude:readZoneCoordinate(row.latitude), longitude:readZoneCoordinate(row.longitude), active:bool(row.active) })),
     corridors: rowsToObjects(corridorResult).map((row) => ({ id:String(row.id), name:String(row.name), originZoneId:String(row.origin_zone_id), destinationZoneId:String(row.destination_zone_id), estimatedMinutes:Number(row.estimated_minutes)||0, active:bool(row.active), fare:Number(row.fare)||0, distanceKm:Number(row.distance_km)||0, plannedSeats:Number(row.planned_seats)||0, floorAmount:Number(row.floor_amount)||0, ceilingAmount:Number(row.ceiling_amount)||0, path:parseCorridorPath(row.path) })),
     vehicles: rowsToObjects(vehicleResult).map((row) => ({ id:String(row.id), label:String(row.label), plateNumber:String(row.plate_number||""), vehicleType:String(row.vehicle_type||"Shuttle"), capacity:Number(row.capacity)||0, active:bool(row.active) })),
     drivers: rowsToObjects(driverResult).map((row) => ({ id:String(row.id), name:String(row.name), phone:String(row.phone), email:String(row.email||""), vehicleId:String(row.vehicle_id||""), currentZoneId:String(row.current_zone_id||""), currentLatitude:Number(row.current_latitude)||null, currentLongitude:Number(row.current_longitude)||null, active:bool(row.active), lastSeenAt:String(row.last_seen_at||""), mustChangePassword:bool(row.password_reset_required), passwordChangedAt:String(row.password_changed_at||""), tokenVersion:Number(row.token_version||0) })),

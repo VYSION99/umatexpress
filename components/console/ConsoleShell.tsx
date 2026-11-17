@@ -57,6 +57,7 @@ export function ConsoleShell({
   const current = consoleServiceById(service);
   const available = consoleServicesForRole(session.account.role, session.account.delegateServices);
   const [panel, setPanel] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean | null>(null);
   const [query, setQuery] = useState("");
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
@@ -94,9 +95,9 @@ export function ConsoleShell({
     }
   }
 
-  return <div className="launcher console-launcher">
+  return <div className={`launcher console-launcher${service === "home" ? " console-home" : ""}${sidebarOpen === null ? "" : sidebarOpen ? " sidebar-expanded" : " sidebar-collapsed"}`}>
     <a href="#console-main" className="launch-skip">Skip to the console</a>
-    <aside className="console-sidebar">
+    <aside className="console-sidebar" id="console-sidebar">
       <Link href="/console" className="launch-brand">
         <img src="/console-mark.svg" width="44" height="44" alt=""/>
         <span>UMaTe<span>XPRESS</span><small>Console</small></span>
@@ -130,6 +131,7 @@ export function ConsoleShell({
 
     <div className="console-workspace">
       <header className="console-topbar">
+        <button type="button" className="console-sidebar-toggle" aria-label="Toggle service navigation" aria-controls="console-sidebar" aria-expanded={sidebarOpen === null ? undefined : sidebarOpen} onClick={() => setSidebarOpen(value => !(value ?? window.matchMedia("(min-width: 1101px)").matches))}><SquaresFour size={19}/><span>Menu</span></button>
         <Link href="/console" className="console-mobile-brand" aria-label="Console home"><img src="/console-mark.svg" width="40" height="40" alt=""/><span>Console</span></Link>
         <span className="console-breadcrumb">Console <span>/</span> {current ? current.title : "Home"}</span>
         <form className="launch-search" onSubmit={(event) => { event.preventDefault(); setPanel(true); }}>
@@ -138,6 +140,7 @@ export function ConsoleShell({
           <button aria-label="Search services"><ArrowRight size={17}/></button>
         </form>
         {actions && <div className="console-topbar-actions">{actions}</div>}
+        {session.account.delegateServices === undefined && <button type="button" className="console-header-assistant" onClick={() => window.dispatchEvent(new Event("console-assistant:open"))}>Assistant</button>}
         <ConsoleNotifications />
         <div className="console-profile-dropdown" ref={accountMenu}>
           <button type="button" className="console-profile-trigger" aria-label={`Account menu for ${session.account.name}`} aria-expanded={accountOpen} aria-controls="console-account-menu" onClick={() => setAccountOpen(value => !value)}>

@@ -1,4 +1,5 @@
 import { AuthRecoveryCard } from "@/components/account/AuthRecoveryCard";
+import { safeAuthReturnPath } from "@/lib/auth-return";
 
 export const metadata = { title: "Reset your UMaTeXPRESS password" };
 
@@ -7,13 +8,15 @@ export const metadata = { title: "Reset your UMaTeXPRESS password" };
  * to the card, so the page works with JavaScript still booting and never puts
  * the token in a client-side route.
  */
-export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string; scope?: string; mode?: string }> }) {
+export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string; scope?: string; mode?: string; next?: string }> }) {
   const params = await searchParams;
   const scope = String(params.scope || "STUDENT").toUpperCase() === "CONSOLE" ? "CONSOLE" : "STUDENT";
+  const next = safeAuthReturnPath(params.next);
+  const signInHref = next === "/" ? "/account" : `/account?next=${encodeURIComponent(next)}`;
   // `?mode=otp` turns the page into the one-time sign-in code form, which is
   // the same code with a different ending: a session instead of a new password.
   const mode = String(params.mode || "") === "otp" ? "otp" as const : "reset" as const;
   return <main className="campus-shell">
-    <AuthRecoveryCard scope={scope} mode={mode} token={mode === "otp" ? "" : String(params.token || "")} variant="student" next="/" signInHref="/account" />
+    <AuthRecoveryCard scope={scope} mode={mode} token={mode === "otp" ? "" : String(params.token || "")} variant="student" next={next} signInHref={signInHref} />
   </main>;
 }

@@ -18,7 +18,7 @@ import { createServer } from "vite";
 process.env.TURSO_DATABASE_URL = "https://campus-fares-test.turso.io";
 process.env.TURSO_AUTH_TOKEN = "test-token";
 
-const SCHEMA_VERSION = "2026-09-23.2";
+const SCHEMA_VERSION = "2026-11-17.1";
 const statements = [];
 
 function cell(value) {
@@ -40,6 +40,9 @@ globalThis.fetch = async (_url, init) => {
       statements.push({ sql: stmt.sql, args });
       // A migrated database: the schema pass reads the marker and stops.
       if (/SELECT version FROM campus_schema_meta/.test(stmt.sql)) return ok(table(["version"], [{ version: SCHEMA_VERSION }]));
+      if (/SELECT id FROM campus_zones WHERE active = 1 AND latitude BETWEEN/.test(stmt.sql)) {
+        return ok(table(["id"], args.map((id) => ({ id }))));
+      }
       return ok({ cols: [], rows: [] });
     });
   results.push({ type: "ok" });

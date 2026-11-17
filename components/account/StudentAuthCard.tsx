@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { ShieldCheck, SignOut } from "@/components/ui/MaterialIcon";
 import { STUDENT_EMAIL_DOMAIN, validStudentEmail } from "@/lib/student-email";
 import type { StudentAccount } from "@/lib/student-auth";
+import { safeAuthReturnPath } from "@/lib/auth-return";
 import { clearProfile, clearSavedTickets, notifyPassengerChanged, writeProfile } from "@/lib/passenger-profile";
 import { loadStudentAccount, publishStudentAccount, useStudentAccount } from "./useStudentAccount";
 import { CodeBoxes } from "./CodeBoxes";
@@ -13,17 +14,9 @@ import "./account.css";
 
 type Mode = "signin" | "signup";
 
-/**
- * Only same-site destinations are accepted, so `?next=` cannot be used to bounce
- * a freshly signed-in student to another origin.
- */
-export function safeNext(value?: string) {
-  const next = String(value || "");
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
-
 export function StudentAuthCard({ next }: { next?: string }) {
-  const destination = safeNext(next);
+  const destination = safeAuthReturnPath(next);
+  const returnQuery = destination === "/" ? "" : `next=${encodeURIComponent(destination)}`;
   const cinemaAudience = destination.startsWith("/cinema/") || destination === "/cinema";
   const { ready, account } = useStudentAccount();
   const [mode, setMode] = useState<Mode>("signin");
@@ -135,15 +128,14 @@ export function StudentAuthCard({ next }: { next?: string }) {
     </>}
     <label>Password<input required type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={mode === "signin" ? "Your password" : "At least 10 characters"} /></label>
     {error && <p className="campus-ai-error" role="alert">{error}</p>}
-    <p className="student-auth-hint"><ShieldCheck size={14} aria-hidden /> {cinemaAudience
+    {(cinemaAudience || mode === "signup") && <p className="student-auth-hint"><ShieldCheck size={14} aria-hidden /> {cinemaAudience
       ? "Any email address can join Cinema after verification. Student services still require a UMaT student account."
-      : mode === "signin" ? "Student services require a UMaT student address."
-      : `Student accounts are limited to @${STUDENT_EMAIL_DOMAIN}. Use uppercase, lowercase, a number and a symbol in the password.`}</p>
+      : `Student accounts are limited to @${STUDENT_EMAIL_DOMAIN}. Use uppercase, lowercase, a number and a symbol in the password.`}</p>}
     <button disabled={loading}>{loading ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}</button>
     {mode === "signin" && <>
       <PasskeySignInButton scope="STUDENT" onSuccess={() => window.location.assign(destination)} />
-      <Link className="student-auth-forgot" href="/reset-password">Forgot your password?</Link>
-      <Link className="student-auth-forgot" href="/reset-password?mode=otp">Or sign in with a one-time code</Link>
+      <Link className="student-auth-forgot" href={`/reset-password${returnQuery ? `?${returnQuery}` : ""}`}>Forgot your password?</Link>
+      <Link className="student-auth-forgot" href={`/reset-password?mode=otp${returnQuery ? `&${returnQuery}` : ""}`}>Or sign in with a one-time code</Link>
     </>}
   </form>;
 }

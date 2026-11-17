@@ -1,0 +1,6 @@
+Tool: built-in image_gen
+QR decode verified: https://umatexpress.com
+Student URL: https://umatexpress.com
+Management URL for future management cards: https://console.umatexpress.com
+
+Edit image 1 student promotional card. Preserve existing brand, students photograph, headline and all three service descriptions exactly. Rework bottom footer to add a prominent perfectly legible URL 'umatexpress.com' with small label 'Scan to explore'. Place image 2, the supplied REAL QR code, into a white square in the bottom right footer at least 230px wide. Copy the exact black-and-white QR module pattern faithfully, preserving its white quiet border, no stylization, no rounding, no pattern changes; this QR must scan to https://umatexpress.com. Make enough space by expanding the footer vertically if necessary; no overlap with service rows. Retain 'Your campus, connected.' smaller to the left above URL. Maintain green, lime and cream colors. No management URL on this student-facing card. Image 2 is a supporting insert, image 1 is the edit target.

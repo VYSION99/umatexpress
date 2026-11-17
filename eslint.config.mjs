@@ -8,5 +8,5 @@ export default defineConfig([
   { rules: { "@next/next/no-img-element": "off" } },
   // `.kilo/**` holds scratch worktrees: full copies of this repo, not source,
   // so linting them only reports every finding twice.
-  globalIgnores([".next/**", "dist/**", "out/**", "build/**", "next-env.d.ts", ".kilo/**"]),
+  globalIgnores([".next/**", ".wrangler/**", "dist/**", "out/**", "build/**", "next-env.d.ts", ".kilo/**"]),
 ]);

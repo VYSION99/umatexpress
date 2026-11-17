@@ -59,10 +59,10 @@ export async function consumeRateLimitWindow(exec: RateLimitExecutor, input: {
   const stamp = new Date(now).toISOString();
   const expiresAt = new Date(windowEnd + input.windowMs).toISOString();
 
-  // Bound storage: clear only this subject's expired windows on the way through.
+  // Clear expired windows for every subject, including one-time visitors.
   await exec(
-    "DELETE FROM rate_limit_windows WHERE scope = ? AND subject = ? AND expires_at < ?",
-    [input.scope, input.subject, stamp],
+    "DELETE FROM rate_limit_windows WHERE expires_at < ?",
+    [stamp],
   );
 
   const result = await exec(
@@ -175,6 +175,13 @@ export async function rateLimitSubject(scope: string, subject: string, options: 
 
 export async function rateLimit(request: Request, scope: string, options: RateLimitOptions) {
   return rateLimitSubject(scope, clientIp(request), options);
+}
+
+/** Daily safety net for one-time visitors who never make another request. */
+export async function pruneExpiredRateLimitWindows() {
+  if (!await isTursoConfiguredRuntime()) return;
+  await ensureRateLimitTable();
+  await turso("DELETE FROM rate_limit_windows WHERE expires_at < ?", [new Date().toISOString()]);
 }
 
 export function rateLimitResponse(retryAfter: number) {

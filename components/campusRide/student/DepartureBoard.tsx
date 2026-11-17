@@ -34,6 +34,7 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
   const { ready: accountReady, account } = useStudentAccount();
   const [email, setEmail] = useState("");
   const [openWatchFor, setOpenWatchFor] = useState("");
+  const [showUnavailable, setShowUnavailable] = useState(false);
   const [watchState, setWatchState] = useState<Record<string, WatchState>>({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -63,6 +64,9 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
   const board = useMemo(() => [...corridors]
     .map((corridor) => ({ corridor, seats: openSeats.get(corridor.id) || 0 }))
     .sort((left, right) => right.seats - left.seats || left.corridor.name.localeCompare(right.corridor.name)), [corridors, openSeats]);
+  const availableCount = board.filter(({ seats }) => seats > 0).length;
+  const unavailableCount = board.length - availableCount;
+  const visibleBoard = showUnavailable || availableCount === 0 ? board : board.filter(({ seats }) => seats > 0);
 
   const zoneName = useCallback((id: string) => zones.find((zone) => zone.id === id)?.name || id, [zones]);
 
@@ -79,7 +83,7 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "We could not save that request.");
       setWatchState((current) => ({ ...current, [corridorId]: "done" }));
-      setMessage(`Watching ${zoneName(corridors.find((item) => item.id === corridorId)?.originZoneId || "")} — we will write to ${data.watch?.email || email} when a seat opens.`);
+      setMessage(`Watching ${zoneName(corridors.find((item) => item.id === corridorId)?.originZoneId || "")} — we will write to ${data.watch?.email || email} when a queue place opens.`);
       setOpenWatchFor("");
     } catch (watchError) {
       setWatchState((current) => ({ ...current, [corridorId]: "idle" }));
@@ -89,15 +93,16 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
 
   const canWatch = Boolean(account?.email || email);
 
-  return <section className="departure-board">
+  return <section id="campus-departures" className="departure-board" aria-labelledby="campus-departures-title">
     <div className="departure-head">
       <div>
-        <p>DEPARTURES</p>
-        <h2>Every campus route, right now</h2>
-        <span>Open a route to join its queue, or ask to be told when a seat appears.</span>
+        <p>STEP 1 · CHOOSE A ROUTE</p>
+        <h2 id="campus-departures-title">Campus routes</h2>
+        <span>Compare fares, travel time, and queue places at a glance.</span>
       </div>
-      <span className="departure-total"><Car size={16}/>{rides.filter((ride) => String(ride.status).toUpperCase() === "OPEN").length} riding now</span>
+      <span className="departure-total"><Car size={16}/>{rides.length} {rides.length === 1 ? "ride" : "rides"} available</span>
     </div>
+    <div className="departure-freshness"><span>Updated on page load. We check again before payment.</span><button type="button" onClick={() => window.location.reload()}>Refresh</button></div>
 
     {message && <p className="departure-message"><CheckCircle size={15}/>{message}</p>}
     {error && <p className="departure-error">{error}</p>}
@@ -106,13 +111,14 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
       {/* A board with no routes is a blank card otherwise, which reads as a
           failure rather than a fact about the schedule. */}
       {board.length === 0 && <li className="departure-empty">No campus route is running yet. Once operations opens one it appears here with its fare and its open seats.</li>}
-      {board.map(({ corridor, seats }) => {
+      {visibleBoard.map(({ corridor, seats }) => {
         const selected = corridor.originZoneId === pickupZoneId && corridor.destinationZoneId === destinationZoneId;
         const state = watchState[corridor.id] || "idle";
+        const endpoints = `${zoneName(corridor.originZoneId)} → ${zoneName(corridor.destinationZoneId)}`;
         return <li key={corridor.id} className={`departure-row${seats > 0 ? " is-live" : ""}${selected ? " is-selected" : ""}`}>
           <div className="departure-route">
             <strong>{corridor.name}</strong>
-            <small><MapPin size={12}/>{zoneName(corridor.originZoneId)} → {zoneName(corridor.destinationZoneId)}</small>
+            {corridor.name !== endpoints && <small><MapPin size={12}/>{endpoints}</small>}
           </div>
           <div className="departure-facts">
             <span><b>{cedis(corridor.fare)}</b><small>flat fare</small></span>
@@ -120,21 +126,19 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
           </div>
           <div className="departure-seats">
             {seats > 0
-              ? <><b>{seats}</b><small>{seats === 1 ? "seat open" : "seats open"}</small></>
-              : <><b className="is-quiet">0</b><small>no seats yet</small></>}
+              ? <><b>{seats}</b><small>{seats === 1 ? "queue place" : "queue places"}</small></>
+              : <><b className="is-quiet">0</b><small>no places</small></>}
           </div>
           <div className="departure-actions">
-            <Link className="departure-join" href={`/campus?pickupZoneId=${encodeURIComponent(corridor.originZoneId)}&destinationZoneId=${encodeURIComponent(corridor.destinationZoneId)}#campus-find`}>
-              {seats > 0 ? "Join this queue" : "See this route"}
-            </Link>
-            {seats === 0 && (state === "done"
+            {seats > 0 ? <Link className="departure-join" href={`/campus?pickupZoneId=${encodeURIComponent(corridor.originZoneId)}&destinationZoneId=${encodeURIComponent(corridor.destinationZoneId)}#campus-rides`}>See rides</Link> : (state === "done"
               ? <span className="departure-watching"><BellRinging size={14}/>Watching</span>
-              : <button type="button" onClick={() => setOpenWatchFor(openWatchFor === corridor.id ? "" : corridor.id)}>
+              : <button type="button" className="departure-notify" onClick={() => setOpenWatchFor(openWatchFor === corridor.id ? "" : corridor.id)}>
                 <BellRinging size={14}/>Notify me
               </button>)}
+            {seats === 0 && <Link className="departure-route-link" href={`/campus?pickupZoneId=${encodeURIComponent(corridor.originZoneId)}&destinationZoneId=${encodeURIComponent(corridor.destinationZoneId)}#campus-rides`}>View route</Link>}
           </div>
           {openWatchFor === corridor.id && <form className="departure-watch-form" onSubmit={(event) => { event.preventDefault(); void watch(corridor.id); }}>
-            <p>Tell me when a seat opens on {corridor.name}.</p>
+            <p>Tell me when a queue place opens on {corridor.name}.</p>
             {account?.email
               ? <small>We will email {account.email}.</small>
               : <input
@@ -151,11 +155,15 @@ export function DepartureBoard({ corridors, rides, zones, pickupZoneId, destinat
               </button>
               <button type="button" onClick={() => setOpenWatchFor("")}>Not now</button>
             </div>
-            {!canWatch && <small className="departure-hint">Add an email address and we will write the moment a driver opens this route.</small>}
+            {!canWatch && <small className="departure-hint">Add an email address and we will write when a driver opens this route.</small>}
           </form>}
         </li>;
       })}
     </ul>
+
+    {availableCount > 0 && unavailableCount > 0 && <button type="button" className="departure-more" aria-expanded={showUnavailable} onClick={() => setShowUnavailable((current) => !current)}>
+      {showUnavailable ? "Hide routes without places" : `Show ${unavailableCount} ${unavailableCount === 1 ? "route" : "routes"} without places`}
+    </button>}
 
     {!accountReady && <p className="departure-hint">Checking your account…</p>}
     {accountReady && !account && <p className="departure-hint"><Link href="/account?next=%2Fcampus">Sign in</Link> to join a queue and pay; watching a route works without an account.</p>}

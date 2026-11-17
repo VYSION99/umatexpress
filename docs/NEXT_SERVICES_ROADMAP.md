@@ -1,7 +1,13 @@
 # Next student services roadmap
 
-**Planning date:** 27 September 2026
-**Status:** Food M1–M4 implemented behind controlled launch gates. Public launch remains gated on real verified providers, linked vendors and an operated pilot. Online payment has independent default-off global and provider gates; delivery remains unavailable.
+**Planning date:** 27 September 2026 · **Last updated:** 1 November 2026
+**Status:** Food M1–M4 implemented behind controlled launch gates. Print & Copy first release implemented as a verified directory with signed-in quote requests and staff review. Both public launches remain gated on verified providers and named operational owners. Food payments have independent default-off global and provider gates; delivery remains unavailable. Print & Copy file uploads and online payments are not part of its first release.
+
+## Print & Copy first implementation (1 November 2026)
+
+The first release provides a public directory at `/print-copy`, staff-managed listings at `/console/print-copy`, provider verification and suspension, student correction reports, and quote requests from signed-in UMaT students. Listings require reconfirmation every 30 days. The quote switch defaults off and requires a named support owner and a currently verified shop before staff can open it. Quotes capture a short job description only; document upload is intentionally absent. Students can track their own request status, and status changes queue an email notification. Authorized staff follow up using the student's account email. Expired quote records are purged daily after 90 days. Reading the staff quote queue is audit logged.
+
+Do not advertise the service as live until real providers are verified and staff have an owner and follow-up process for quote requests. Quote requests expire after 90 days and expired records are purged during quote service activity. Confirm the shop's process for receiving files directly with the student; the platform does not store print documents.
 
 ## Food M1 implementation (19 October 2026)
 
@@ -39,9 +45,11 @@ The deployment-wide payment switch and every provider payment profile default of
 
 ## Starting point
 
-The public launcher already runs CampusRide, VacationRide, Hostel Finder and OnlineCinema, plus two external partner links. **Food is its only public “Coming soon” service.** The console does not show a Food workspace until one exists. Its vendor application is described in `lib/console-applications.ts`, but remains `COMING_SOON`; the vendor handler, menu, order and fulfilment flows do not exist. The platform has student accounts, provider review patterns, payments, notifications and private object storage that can inform a new service, but these are not a ready-made food marketplace.
+The public launcher runs CampusRide, VacationRide, Hostel Finder and OnlineCinema, plus two external partner links. Food and Print & Copy remain in the launcher's “On the way” area while real providers are being verified. The Food service itself is implemented through M1–M4: staff-managed listings and corrections, pickup preorders, vendor operations, gated Paystack checkout, refunds and earnings records. The vendor application and Food console workspace are available. Delivery and automatic vendor transfers are not implemented, and payment enrollment defaults off globally and per provider.
 
-UMaT lists the Students Canteen, SRC Food Joint and hall snack bars as places students eat. It also describes printing and photocopy shops around campus. Its own portal and helpdesk already handle academic records, course registration, LMS help and university fee guidance. We should help students find and use local services, while linking to official academic systems instead of copying them.
+The remaining Food work is operational launch readiness: confirm willing providers, verify and publish accurate listings, link each vendor account to its provider, assign a support owner, and operate the bounded pickup pilot. Enable online payments only after the payment, cancellation, refund, reconciliation and provider payout process is approved and exercised. Do not enable delivery or advertise Food in the launcher before its launch gates pass.
+
+UMaT lists the Students Canteen, SRC Food Joint and hall snack bars as places students eat. It also describes printing and photocopy shops around campus. Its own portal and helpdesk already handle academic records, course registration, LMS help and university fee guidance. New services should help students find and use local services, while linking to official academic systems instead of copying them.
 
 UMaT also publishes a University Clinic contact, operates a Counselling and Student Support Unit, and has identified a pharmacy at its service station. These are existing services to connect students with, subject to confirmation with their operators. Health information, appointments and medicine availability must never be inferred from a directory listing.
 
@@ -49,24 +57,26 @@ UMaT also publishes a University Clinic contact, operates a Counselling and Stud
 
 | Rank | Service | Why next | First useful release | Main launch gate |
 | --- | --- | --- | --- | --- |
-| **1** | **Food** | Already promised in the launcher; frequent student need and visible campus supply. | Verified food-joint directory with menus, price and opening-hours timestamps, location, pickup details and direct contact. Pilot preorder pickup only after vendors can reliably accept or decline requests. | Named vendor owner for every listing; menu freshness and order/support process. |
-| **2** | **Print & Copy** | Existing campus providers and a recurring academic errand. | Shop directory showing services, hours, location, indicative prices and turnaround; request a quote for printing/binding. | Shop agreement on quotes, file access, pickup and handling of failed jobs. |
-| **3** | **Campus Events** | Gives students a reason to return without introducing delivery or inventory. | Verified SRC, club and university event listings with date, venue, RSVP and reminders. | Clear publisher approval and ownership of event corrections/cancellations. |
-| **4** | **Pharmacy** | Helps students find a nearby, verified place for pharmacy services. | Staff-verified location, contact, published hours and directions; link or call the operator directly. | Pharmacy agreement and an owner to keep details current. Stock, reservations and medicine orders require a pharmacy-managed process and review of applicable rules. |
-| **5** | **School Clinic** | Makes UMaT's existing clinic easier to find and contact. | Official clinic contact, location, confirmed hours, services overview and clear directions for urgent care. | Clinic approval of every operational claim. Add appointments only if the clinic agrees to manage slots, changes and patient privacy. |
-| **6** | **Counselling & Student Support** | Gives students a clear route to UMaT's existing support unit. | Official contact, location, confirmed hours, service overview and a direct link to the unit. | Unit approval of content and escalation guidance. Private appointment requests require the unit to own scheduling, consent and confidentiality. |
-| **Later** | **Campus Essentials** (groceries, stationery, laundry) | Could reuse vendor discovery and ordering once Food operations work. | Start with pickup from a small set of verified providers. | Food vendor fulfilment and support metrics are stable. Do not reuse Hostel Finder's service-plugin money flow while that feature is on hold. |
+| **Launch readiness** | **Food** | The service is built and remains a public launcher promise; students need real, maintained provider listings and a reliably operated pilot. | Verify and publish willing providers, link their vendor accounts, name support ownership, then run a bounded pickup pilot. | Real provider verification, menu freshness, vendor response, student support, payment and refund operations, and the pilot's safety gates. |
+| **Launch readiness** | **Print & Copy** | First release is built; students need real, verified shop details and a reliable quote follow-up process. | Verify and publish willing providers, assign staff follow-up ownership, then pilot directory and no-upload quote requests. | Shop agreement on quotes, file sharing outside the platform, pickup and failed jobs; honor the 90-day quote-record retention window. |
+| **1** | **Campus Events** | Gives students a reason to return without introducing delivery or inventory. | Verified SRC, club and university event listings with date, venue, RSVP and reminders. | Clear publisher approval and ownership of event corrections/cancellations. |
+| **2** | **Pharmacy** | Helps students find a nearby, verified place for pharmacy services. | Staff-verified location, contact, published hours and directions; link or call the operator directly. | Pharmacy agreement and an owner to keep details current. Stock, reservations and medicine orders require a pharmacy-managed process and review of applicable rules. |
+| **3** | **School Clinic** | Makes UMaT's existing clinic easier to find and contact. | Official clinic contact, location, confirmed hours, services overview and clear directions for urgent care. | Clinic approval of every operational claim. Add appointments only if the clinic agrees to manage slots, changes and patient privacy. |
+| **4** | **Counselling & Student Support** | Gives students a clear route to UMaT's existing support unit. | Official contact, location, confirmed hours, service overview and a direct link to the unit. | Unit approval of content and escalation guidance. Private appointment requests require the unit to own scheduling, consent and confidentiality. |
+| **Later** | **Campus Essentials** (groceries, stationery, laundry) | Could extend provider discovery and ordering after Food's operations are stable. | Start with pickup from a small set of verified providers. | Food vendor fulfilment and support metrics are stable. Do not reuse Hostel Finder's service-plugin money flow while that feature is on hold. |
 
 A student-to-student resale marketplace is **not** an early launch: identity, scams, disputes and hand-off safety make it a separate trust product. Academic records should remain with UMaT. The three health and support entries above are directory and referral concepts first, not commitments to booking, clinical advice or dispensing through the platform.
 
-## Food: the first build slice
+## Food: launch readiness
 
-1. **Discover the real demand.** Interview students from halls and off-campus hostels, the Students Canteen/SRC Food Joint, and independent food sellers. Confirm whether the pain is finding current menus, opening hours, queue time, preorder pickup or delivery. Count how often published prices and availability change.
-2. **Directory pilot.** Give each approved vendor a profile, location, contact, hours, menu items, prices, dietary/allergen information supplied by the vendor, and a visible “last updated” time. Let students report stale information. Staff review vendors before publication. Do not show an “open now” or “available” claim without an owner and update mechanism.
-3. **Pickup preorder pilot.** Add a bounded order window, vendor accept/decline, pickup time, student order status and cancellation handling. Start with pickup, not delivery. Define who answers late/missing-item complaints before accepting payment. Keep payment disabled until the acceptance, refund and reconciliation paths are tested end to end.
-4. **Expansion gate.** Add more vendors only when menus stay current, vendors acknowledge orders within the agreed window, and support can resolve failed orders. Measure repeat use and completed orders, not only page visits.
+Food's directory, pickup preorder, vendor operations and payment code are implemented. The remaining work is to prove that the service can operate safely with real providers:
 
-The vendor application should change from `COMING_SOON` only when its endpoint, review queue, account role and vendor workspace actually work. The public Food card should remain nonclickable until the directory has verified listings. Do not open the ordering surface merely because the directory is ready.
+1. **Recruit and verify providers.** Confirm provider identity, an accountable listing owner, current menu and prices, location, hours, pickup instructions and a correction contact. Publish only after staff review.
+2. **Link vendor accounts.** Review each application and confirm the person is authorized to represent exactly one provider before linking the account. Verify that vendor access is limited to that provider and that the provider can maintain service state and item availability.
+3. **Run the pickup pilot.** Agree on the response window, pickup instructions, cancellation cutoff and staff support route. Start with online payment disabled unless payment enrollment, reconciliation, refund approval and payout handling have been explicitly prepared and tested.
+4. **Review operations before widening access.** Use the Food dashboard and student reports to review response times, completed and expired requests, complaints and ratings. Set pilot thresholds before launch; pause new requests if listings go stale or issues lack an owner.
+
+Keep the launcher card unavailable until verified providers are published and the pilot owner confirms readiness. Delivery, automatic vendor transfers and unverified real-time stock claims remain out of scope.
 
 ## Student safety and comfort review
 
@@ -105,25 +115,24 @@ Observe where students hesitate, misunderstand a claim, need help, or feel press
 | Service | Extra checks before a pilot |
 | --- | --- |
 | **Food directory** | Confirm each provider and listing owner; show when menus and prices were last checked; explain how students report stale details. Do not imply an item is available now unless the vendor maintains that status. |
-| **Food preorder** | In addition to the directory gates, test vendor accept/decline, pickup timing, cancellation, late or missing items, refund handling, and who answers each complaint. Keep real payments off until the complete flow and reconciliation process are ready. |
+| **Food preorder** | In addition to the directory gates, exercise vendor accept/decline, pickup timing, cancellation, late or missing items, refund handling, and who answers each complaint. Payment code exists, but keep its global and provider switches off until payment enrollment, reconciliation, refund approval and payout handling are ready for the pilot. |
 | **Print & Copy** | Begin with directory and quote requests. Before file upload exists, approve who can access documents, transfer/storage protection, retention period, deletion, and a no-upload alternative. Test quote changes and failed or late jobs. |
 | **Campus Events** | Verify who may publish; show venue, time, cost, age/access requirements where applicable, and update time. Define who corrects or cancels an event. Make RSVP optional unless the organizer needs it. |
 | **Pharmacy, Clinic, Counselling** | Obtain operator approval for every listing and referral instruction. Link or call the official provider. Do not collect symptoms, prescriptions, counselling notes, or appointment details in a general platform form. |
 
-For the first discovery sprint, use this review with Food and Print & Copy providers and student interviews. Return with willing provider contacts, the top student problems, completed gate evidence, unresolved holds, and a recommendation for the smallest safe pilot. This review does not authorize a launch or replace any required operator or platform approval.
+Use this review for Food's provider onboarding and pilot, and for discovery and pilots of the unbuilt services. Return with willing providers or publishers, the top student problems, completed gate evidence, unresolved holds, and a recommendation for the smallest safe pilot. This review does not authorize a launch or replace any required operator or platform approval.
 
-## Shared decisions before coding orders
+## Decisions before building another service
 
-- **Operator and settlement:** decide who takes payment, who fulfils each order, when a vendor is owed money, and how a declined, late or missing order is refunded. Reuse the platform's provider review and payment-event patterns, but specify Food's own states and ledger.
-- **Listing truth:** vendor-edited menus need review or audit history, timestamps and a way to mark items unavailable. Staff need a route to suspend misleading listings.
-- **Student flow:** browse without an account; require sign-in only when an order or RSVP needs identity. Show final price, pickup point and cancellation terms before payment.
-- **Privacy:** collect only the contact and order information needed for fulfilment. For Print & Copy, decide file retention and access before accepting document uploads.
-- **Operations:** each pilot needs a named support owner, provider contact, escalation path and published service hours.
+- **Print & Copy privacy:** the first release does not accept uploads and deletes quote records with student contact details after 90 days. Any later upload feature needs its own access, retention, deletion and no-upload design.
+- **Student flow:** let students browse without an account; require sign-in only when a transaction or RSVP needs identity. Show the known price, location, timing and cancellation terms before commitment.
+- **Operations:** name a service owner, provider contact, correction process, support route and escalation owner for every pilot.
+- **Publisher control:** for Events, decide which SRC, club and university publishers may post and who handles changes, cancellations and reports.
 - **Health and support:** confirm the official owner, scope, hours and contact route before publishing Pharmacy, School Clinic or Counselling & Student Support. Do not collect symptoms, prescriptions, counselling notes or other sensitive details in a general service form. Keep emergency guidance sourced and approved by the clinic or support unit.
 
 ## Next decision
 
-Run a short discovery sprint for **Food** and **Print & Copy** before choosing the first transaction flow. Bring back a list of willing providers, the top three student problems, and a sketch of the acceptance/refund process. If vendors cannot keep menus current or accept pickup orders, launch Food as a verified directory first and build Events next while the ordering operation is prepared.
+Onboard verified Print & Copy providers and run a small directory and quote-request pilot. In parallel, start discovery for **Campus Events** while completing Food's provider onboarding and pilot-readiness work. Return with willing providers or publishers, the top student problems, operator and support owners, privacy decisions, unresolved safety holds, and a recommendation for the smallest useful pilot. Keep Pharmacy, the Clinic and Counselling as operator-approved referral directories until their owners confirm the content and contact route.
 
 ## Sources
 
@@ -135,3 +144,4 @@ Run a short discovery sprint for **Food** and **Print & Copy** before choosing t
 - [UMaT Counselling and Student Support Unit](https://cssu.umat.edu.gh/)
 - [UMaT service station pharmacy](https://umat.edu.gh/media-press/speeches/speech-presented-by-the-3rd-vice-chancellor-prof-richard-kwasi-amankwah-on-1st-august-2026-at-the-investiture-ceremony)
 - Repository: `components/launcher/services.ts`, `components/admin/console-services.ts`, `lib/console-applications.ts`, `docs/Hostels/HOSTEL_FINDER_SERVICE_PLUGINS.md`
+- Print & Copy operating guide: `docs/PRINT_COPY_M1.md`

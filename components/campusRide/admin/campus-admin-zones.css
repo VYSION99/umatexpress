@@ -1,0 +1,16 @@
+.campus-zone-form label { display: grid; gap: 5px; color: #365747; font-size: 11px; font-weight: 800; }
+.campus-zone-form-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.campus-admin-shell .campus-zone-form-head button { padding: 7px 10px; border: 1px solid #bcd8c5; background: #eef8f0; color: #14583f; font-size: 11px; box-shadow: none; }
+.campus-zone-form > small { color: #61766a; line-height: 1.5; }
+.campus-zone-directory { margin-top: 18px; padding: 16px; border: 1px solid #dce8df; border-radius: 17px; background: #f8fbf8; }
+.campus-zone-directory > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.campus-zone-directory h3 { margin: 0; color: #173d2b; font-size: 16px; }
+.campus-zone-directory > div > span { color: #60766a; font-size: 12px; }
+.campus-zone-directory ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 12px 0 0; padding: 0; list-style: none; }
+.campus-zone-directory li { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 11px 12px; border: 1px solid #dce8df; border-radius: 11px; background: #fff; }
+.campus-zone-directory li > div { display: grid; gap: 3px; min-width: 0; }
+.campus-zone-directory li strong { color: #1d3f2f; font-size: 13px; }
+.campus-zone-directory li span { color: #60766a; font-size: 11px; overflow-wrap: anywhere; }
+.campus-zone-directory li button { flex: none; min-height: 38px; padding: 7px 10px; border: 1px solid #bfd6c6; border-radius: 9px; background: #f3faf5; color: #14583f; font-size: 11px; font-weight: 800; cursor: pointer; }
+@media (max-width: 760px) { .campus-zone-directory ul { grid-template-columns: 1fr; } }
+@media (max-width: 420px) { .campus-zone-directory li { align-items: stretch; flex-direction: column; } }

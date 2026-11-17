@@ -263,7 +263,7 @@ test("campusRide engine enforces state transitions, pricing, and nearest matchin
     zones: demoCampusZones,
     corridors: demoCampusCorridors,
     rides: demoCampusRides,
-    pickupZoneId: "main-gate",
+    pickupZoneId: "hostel-area",
     destinationZoneId: "main-campus",
     pickupLatitude: 5.3064,
     pickupLongitude: -1.9972,
