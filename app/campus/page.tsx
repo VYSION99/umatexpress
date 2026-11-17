@@ -21,6 +21,6 @@ export default async function CampusPage({ searchParams }: { searchParams?: Prom
     {/* Route-first: the board answers "what is running" before the finder asks
         "where are you going", because that is the order a student asks. */}
     <DepartureBoard corridors={corridors} rides={publicRides} zones={zones} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} />
-    <CampusRideResults zones={zones} corridors={corridors} rides={routeRides} initialMatches={matches} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} requestedRideId={params?.rideId || ""} selectedPickup={selectedPickup} selectedDestination={selectedDestination}/>
+    <CampusRideResults key={`${pickupZoneId}:${destinationZoneId}:${params?.rideId || ""}`} zones={zones} corridors={corridors} rides={routeRides} initialMatches={matches} pickupZoneId={pickupZoneId} destinationZoneId={destinationZoneId} requestedRideId={params?.rideId || ""} autoDetectPickup={!params?.pickupZoneId && !params?.destinationZoneId && !params?.rideId} selectedPickup={selectedPickup} selectedDestination={selectedDestination}/>
   </CampusShell>;
 }

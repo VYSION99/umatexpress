@@ -6,7 +6,7 @@ import type { CampusCorridor, CampusZone } from "@/lib/campus-ride";
 import { formatDistance, type Coordinate } from "@/lib/campus-location";
 import { nearestCampusPickupZone } from "@/lib/campus-zones";
 
-export function NearestRideFinder({ zones, corridors, initialPickupZoneId, initialDestinationZoneId, onLocation, onDetectedPickup, onRoutePendingChange }: { zones: CampusZone[]; corridors: CampusCorridor[]; initialPickupZoneId: string; initialDestinationZoneId: string; onLocation: (coordinate: Coordinate | null) => void; onDetectedPickup: (zoneName: string) => void; onRoutePendingChange: (pending: boolean) => void }) {
+export function NearestRideFinder({ zones, corridors, initialPickupZoneId, initialDestinationZoneId, autoDetectPickup, onLocation, onDetectedPickup, onRoutePendingChange }: { zones: CampusZone[]; corridors: CampusCorridor[]; initialPickupZoneId: string; initialDestinationZoneId: string; autoDetectPickup: boolean; onLocation: (coordinate: Coordinate | null) => void; onDetectedPickup: (zoneName: string) => void; onRoutePendingChange: (pending: boolean) => void }) {
   const [pickupZoneId, setPickupZoneId] = useState(initialPickupZoneId);
   const [destinationZoneId, setDestinationZoneId] = useState(initialDestinationZoneId);
   const [locationStatus, setLocationStatus] = useState("");
@@ -91,14 +91,14 @@ export function NearestRideFinder({ zones, corridors, initialPickupZoneId, initi
 
   useEffect(() => {
     mounted.current = true;
-    if (!autoDetectionAttempted.current && navigator.permissions?.query && navigator.geolocation) {
+    if (autoDetectPickup && !autoDetectionAttempted.current && navigator.permissions?.query && navigator.geolocation) {
       autoDetectionAttempted.current = true;
       navigator.permissions.query({ name: "geolocation" }).then((permission) => {
         if (mounted.current && permission.state === "granted") detectPickup("automatic");
       }).catch(() => { /* The manual control remains available. */ });
     }
     return () => { mounted.current = false; };
-  }, [detectPickup]);
+  }, [autoDetectPickup, detectPickup]);
 
   return <form className="nearest-ride-finder" action="/campus#campus-rides" aria-labelledby="campus-route-search-title">
     <div className="nearest-ride-intro"><span>ROUTE SEARCH</span><h2 id="campus-route-search-title">Where are you going?</h2><p>Choose a campus pickup point and a destination served from there.</p></div>

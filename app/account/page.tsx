@@ -14,7 +14,9 @@ export default async function AccountPage({ searchParams }: { searchParams?: Pro
   const cinemaAudience = destination.startsWith("/cinema");
   const profileAccess = destination.startsWith("/profile");
   const campusRide = destination.startsWith("/campus?") && new URL(destination, "https://umatexpress.local").searchParams.has("rideId");
-  return <CampusShell area="UMATEXPRESS ACCOUNT" title={cinemaAudience ? "Join Cinema events" : profileAccess ? "Your account" : campusRide ? "Sign in to join the queue" : "Sign in to book"} subtitle={cinemaAudience ? "A verified account lets you reserve a place and join public discussions." : profileAccess ? "Sign in or verify your email to manage your profile and security." : campusRide ? "We'll take you back to your selected ride afterward." : "Use your UMaT student account to book rides."}>
+  const printCopy = destination === "/print-copy" || destination.startsWith("/print-copy?");
+  const printCopyQuote = printCopy && new URL(destination, "https://umatexpress.local").searchParams.has("quoteProviderId");
+  return <CampusShell area="UMATEXPRESS ACCOUNT" title={cinemaAudience ? "Join Cinema events" : profileAccess ? "Your account" : campusRide ? "Sign in to join the queue" : printCopyQuote ? "Sign in to request a quote" : printCopy ? "Sign in for Print & Copy" : "Sign in to book"} subtitle={cinemaAudience ? "A verified account lets you reserve a place and join public discussions." : profileAccess ? "Sign in or verify your email to manage your profile and security." : campusRide ? "We'll take you back to your selected ride afterward." : printCopyQuote ? "We'll take you back to this print shop afterward." : printCopy ? "We'll take you back to Print & Copy afterward." : "Use your UMaT student account to book rides."}>
     <section className={`student-auth-interface${cinemaAudience ? " student-auth-interface--cinema" : ""}`}>
       {cinemaAudience ? <aside className="cinema-auth-intro" aria-label="About Cinema access">
         <span className="cinema-auth-eyebrow">CINEMA ACCESS</span>
@@ -28,7 +30,7 @@ export default async function AccountPage({ searchParams }: { searchParams?: Pro
       </aside> : null}
       <StudentAuthCard next={params?.next} />
       {!cinemaAudience && !profileAccess && <PassengerSupportCard />}
-      {!cinemaAudience && <Link href={campusRide ? destination : "/"}>{campusRide ? "Back to selected ride" : "Back to UMaTeXPRESS home"}</Link>}
+      {!cinemaAudience && <Link href={campusRide ? destination : printCopy ? "/print-copy" : "/"}>{campusRide ? "Back to selected ride" : printCopy ? "Back to Print & Copy" : "Back to UMaTeXPRESS home"}</Link>}
     </section>
   </CampusShell>;
 }

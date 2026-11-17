@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -32,6 +34,18 @@ test("a selected route contains only rides serving both chosen zones", () => {
 test("a route with no accepting ride stays empty instead of offering another destination", () => {
   const matches = findNearestCampusRides({ ...data, pickupZoneId: "main-campus", destinationZoneId: "market-circle" });
   assert.deepEqual(matches, []);
+});
+
+test("an expired ride link asks for a new choice before showing booking controls", async () => {
+  const { CampusRideResults } = await vite.ssrLoadModule("/components/campusRide/student/CampusRideResults.tsx");
+  const matches = findNearestCampusRides({ ...data, pickupZoneId: "hostel-area", destinationZoneId: "main-campus" });
+  const html = renderToStaticMarkup(createElement(CampusRideResults, {
+    ...data, initialMatches: matches, pickupZoneId: "hostel-area", destinationZoneId: "main-campus",
+    requestedRideId: "expired-ride", autoDetectPickup: false, selectedPickup: "Hostel Area", selectedDestination: "Main Campus",
+  }));
+  assert.match(html, /previous ride is no longer available/);
+  assert.match(html, /Select this ride/);
+  assert.doesNotMatch(html, /Selected ride|Continue to booking|Sign in to join queue/);
 });
 
 test("a ride cannot create a queue entry for a different route", async () => {
