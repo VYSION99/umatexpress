@@ -8,15 +8,15 @@ import {
   verifyStudentCredentials,
 } from "@/lib/student-auth";
 import { CampusEngineError } from "@/lib/campus-engine/errors";
-import { fail, ok } from "@/lib/campus-engine/responses";
+import { assertSameOrigin, fail, ok } from "@/lib/campus-engine/responses";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { authGuardClear, authGuardFailure, authGuardStatus } from "@/lib/auth-guard";
 import { requestLoginCode } from "@/lib/auth-recovery";
 import { logEvent } from "@/lib/observability";
 
 /**
- * The one UMaTeXPRESS account endpoint. campusRide and vacationRide both use the
- * session cookie set here, so a student signs in once for the whole platform.
+ * The shared UMaTeXPRESS account endpoint. Service access is checked at each
+ * destination after the session cookie is set here.
  *
  *   GET    who is signed in (never throws: browsing does not need an account)
  *   POST   sign in
@@ -34,6 +34,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request, "Cross-origin sign-in refused.");
     const limited = await rateLimit(request, "student-signin", { limit: 10, windowMs: 15 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const body = await request.json() as { email?: string; password?: string };
@@ -54,9 +55,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    // Deliberately loose: a hostel or campus NAT shares one address, so a tight
-    // per-IP cap would block genuine students. The domain rule, the password
-    // policy and the unique index are what actually bound sign-ups.
+    assertSameOrigin(request, "Cross-origin registration refused.");
+    // Campus networks can share an IP. Keep a moderate per-IP cap while
+    // password strength, email verification, and the unique index guard sign-up.
     const limited = await rateLimit(request, "student-signup", { limit: 20, windowMs: 60 * 60_000 });
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
     const account = await registerStudent(await request.json());
@@ -73,6 +74,7 @@ export async function PUT(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    assertSameOrigin(request, "Cross-origin account update refused.");
     const body = await request.json() as { name?: string; phone?: string; currentPassword?: string; newPassword?: string };
     if (typeof body.newPassword === "string" && body.newPassword) {
       const limited = await rateLimit(request, "student-password-change", { limit: 6, windowMs: 15 * 60_000 });
@@ -90,5 +92,10 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  return ok({ signedOut: true }, { headers: { "Set-Cookie": clearStudentSessionCookie(request), "Cache-Control": "no-store" } }, request);
+  try {
+    assertSameOrigin(request, "Cross-origin sign-out refused.");
+    return ok({ signedOut: true }, { headers: { "Set-Cookie": clearStudentSessionCookie(request), "Cache-Control": "no-store" } }, request);
+  } catch (error) {
+    return fail(error, request);
+  }
 }

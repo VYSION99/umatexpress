@@ -1,4 +1,4 @@
-import { queueNotification } from "@/lib/notifications";
+import { queueNotification, queueSmsCompanion } from "@/lib/notifications";
 import { logEvent } from "@/lib/observability";
 import { ensureBookingsTable, ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
@@ -150,7 +150,7 @@ export async function scanVacationDepartures(input: { now?: Date; limit?: number
   const upper = new Date(now.getTime() + 75 * 60_000).toISOString();
   const limit = Math.max(1, Math.min(15, Math.round(input.limit || 15)));
   const rows = rowsToObjects(await turso(
-    `SELECT b.reference,b.email,b.seat,b.travel_date,b.departure_time,
+    `SELECT b.reference,b.email,COALESCE(b.phone,'') AS phone,b.seat,b.travel_date,b.departure_time,
       COALESCE(t.route_from,'') AS route_from,COALESCE(t.route_to,'') AS route_to
      FROM bookings b LEFT JOIN scheduled_trips t ON t.id=b.trip_id
      LEFT JOIN notification_outbox n ON n.reference=b.reference AND n.template='vacation_departure_reminder'
@@ -164,8 +164,19 @@ export async function scanVacationDepartures(input: { now?: Date; limit?: number
     const reference = String(row.reference || "");
     const route = [String(row.route_from || ""), String(row.route_to || "")].filter(Boolean).join(" → ");
     const message = `Your ${route || "vacationRide"} trip leaves ${humanTravelDate(row.travel_date)} at ${String(row.departure_time || "")}. Seat ${String(row.seat || "")}; reference ${reference}. Check your ticket for boarding details.`;
+    const nowIso = now.toISOString();
     try {
-      if (await queueNotification(turso, { recipient: String(row.email || ""), template: "vacation_departure_reminder", subject: "Your vacationRide departure is coming up", message, reference, nowIso: now.toISOString() })) queued += 1;
+      if (await queueNotification(turso, { recipient: String(row.email || ""), template: "vacation_departure_reminder", subject: "Your vacationRide departure is coming up", message, reference, nowIso })) queued += 1;
+      if (row.phone) {
+        await queueSmsCompanion(turso, {
+          phone: row.phone,
+          template: "vacation_departure_reminder",
+          message: `${route || "vacationRide"} leaves at ${String(row.departure_time || "")} (Seat ${String(row.seat || "")}, ${reference}).`,
+          reference,
+          nowIso,
+          expiresAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+        }).catch(() => false);
+      }
     } catch (error) {
       logEvent("error", "vacation_reminder_queue_failed", { reference, reason: error instanceof Error ? error.message : "unknown" });
     }

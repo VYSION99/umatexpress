@@ -1,6 +1,6 @@
 /* ========================================
    UMATEXPRESS ACCOUNT
-   One platform sign-in for both services.
+   One platform sign-in across services.
    Layout only; colour comes from the
    palette tokens in app/palette.css.
    ======================================== */
@@ -97,29 +97,38 @@
   .cinema-auth-browse { width: 100%; }
 }
 
-.student-auth-interface > .campus-status-banner {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  display: grid;
-  justify-content: start;
-  gap: 3px;
-}
-
 .student-auth-interface > .campus-auth-card {
   width: 100%;
   margin: 0;
 }
 
-.student-auth-interface > a {
-  display: flex;
+.student-auth-interface > .student-auth-back {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 8px;
+  justify-self: start;
   width: max-content;
-  min-height: 44px;
-  margin: 4px auto 0;
+  max-width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  background: var(--ui-surface);
   color: var(--ui-green);
-  font-weight: 750;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.student-auth-interface > .student-auth-back:hover {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+}
+
+.student-auth-interface > .student-auth-back:focus-visible {
+  outline: 3px solid var(--ui-gold);
+  outline-offset: 3px;
 }
 
 .student-auth-tabs {
@@ -197,6 +206,39 @@
   color: #fff;
 }
 
+.student-email-access {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid var(--ui-green-line);
+  border-radius: 16px;
+  background: var(--ui-green-soft);
+}
+
+.student-email-access-heading { display: grid; gap: 4px; }
+.student-email-access-heading span { color: var(--ui-green); font-size: 11px; font-weight: 850; letter-spacing: .12em; }
+.student-email-access-heading h3 { margin: 0; color: var(--ui-ink); font-size: 18px; }
+.student-email-access > p { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 1.5; }
+.student-email-access form { display: grid; gap: 9px; }
+.student-email-access label { display: grid; gap: 6px; }
+.student-email-access input { min-height: 44px; }
+.student-email-access button { min-height: 44px; }
+.student-email-access .student-email-continue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 11px;
+  background: var(--ui-green);
+  color: #fff;
+  font-size: 13px;
+}
+.student-email-access .student-email-message { color: var(--ui-green); font-weight: 700; }
+.student-email-access .student-email-error { color: #a93636; font-weight: 700; }
+.student-email-access :is(button,input,a):focus-visible { outline: 3px solid var(--ui-gold); outline-offset: 3px; }
+
 /* Passenger support: only rendered for a signed-in account, so it reads as a
    continuation of the auth card rather than a second, competing panel. */
 .passenger-support { display: grid; gap: 12px; }
@@ -228,19 +270,57 @@
 .passenger-support-list { width: 100%; }
 .passenger-support-list th, .passenger-support-list td { text-align: left; font-size: 12.5px; }
 
-/* Recovery: the reset page, and the link from sign-in. */
+/* Secondary authentication methods stay together after the primary action. */
+.student-auth-alternatives {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.student-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.student-auth-divider::before,
+.student-auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ui-line);
+}
+
+.student-auth-recovery-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .student-auth-forgot {
-  justify-self: center;
-  min-height: 40px;
+  min-width: 0;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
-  color: var(--ui-cyan, #0e7490);
-  font-size: 12.5px;
-  font-weight: 750;
+  justify-content: center;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-surface);
+  color: var(--ui-green);
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 800;
   text-decoration: none;
 }
 
-.student-auth-forgot:hover { text-decoration: underline; }
+.student-auth-forgot:hover { border-color: var(--ui-green); background: var(--ui-green-soft); }
+.student-auth-forgot:focus-visible { outline: 3px solid var(--ui-gold); outline-offset: 3px; }
+@media (max-width: 380px) { .student-auth-recovery-links { grid-template-columns: 1fr; } }
 .campus-auth-card button.auth-recovery-resend{border:1px solid var(--ui-line);background:#fff;color:var(--ui-green);font-size:13px}
 .campus-auth-card button.auth-recovery-resend:hover{background:var(--ui-green-soft)}
 

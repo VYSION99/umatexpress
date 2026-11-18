@@ -4,7 +4,8 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { CircleNotch, EnvelopeSimple, Key } from "@/components/ui/MaterialIcon";
 import { CodeBoxes } from "./CodeBoxes";
-import { safeAuthReturnPath } from "@/lib/auth-return";
+import { requiresStudentAccess, safeAuthReturnPath } from "@/lib/auth-return";
+import { normalizeStudentEmail, validStudentEmail } from "@/lib/student-email";
 import "./account.css";
 
 /** The two account surfaces the recovery endpoints serve. */
@@ -79,7 +80,8 @@ export function AuthRecoveryCard(input: {
     try {
       if (mode === "otp") {
         await post("/api/auth/otp", "PATCH", { scope: input.scope, email, code });
-        window.location.assign(next);
+        const studentOnly = input.scope === "STUDENT" && requiresStudentAccess(next);
+        window.location.assign(studentOnly && !validStudentEmail(normalizeStudentEmail(email)) ? `/account?next=${encodeURIComponent(next)}` : next);
         return;
       }
       await post("/api/auth/recovery", "PATCH", {
@@ -113,7 +115,7 @@ export function AuthRecoveryCard(input: {
     {step === "request" && <>
       <span>
         {mode === "otp"
-          ? `We will email a one-time code to the ${input.scope === "CONSOLE" ? "console" : "student"} account on that address.`
+          ? `We will email a one-time code to the ${input.scope === "CONSOLE" ? "console" : "UMaTeXPRESS"} account on that address.`
           : "Enter the email on the account and we will send a reset link and a code."}
       </span>
       <label>Email<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>

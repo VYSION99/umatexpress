@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarDots, Clock, FilmSlate, Globe, LinkSimple, Lock, MagnifyingGlass, UploadSimple } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
+import { useStudentEligibility } from "@/components/account/useStudentEligibility";
 import type { StudentAccount } from "@/lib/student-auth";
 import type { CinemaRoom } from "@/lib/cinema-engine/rooms";
 import type { YouTubeSearchResult } from "@/lib/cinema-engine/youtube";
-import { validStudentEmail } from "@/lib/student-email";
 import { CinemaDialog } from "./CinemaDialog";
 import { UploadPanel } from "./UploadPanel";
 import { CinemaReuseButton } from "./CinemaReuseButton";
@@ -42,7 +42,7 @@ export function CinemaLobby() {
 /** Account changes discard every room snapshot, dialog and pending draft. */
 function CinemaAccountLobby({ ready, account }: { ready: boolean; account: StudentAccount | null }) {
   const router = useRouter();
-  const canHost = Boolean(account && validStudentEmail(account.email));
+  const canHost = useStudentEligibility(account) === true;
   const [dialog, setDialog] = useState<"" | "create" | "join">("");
   const [filter, setFilter] = useState("CURRENT");
   const [offset, setOffset] = useState(0);

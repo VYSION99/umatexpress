@@ -1,5 +1,12 @@
-import { campusErrorPayload } from "@/lib/campus-engine/errors";
+import { CampusEngineError, campusErrorPayload } from "@/lib/campus-engine/errors";
 import { requestIdFromRequest, withRequestId } from "@/lib/observability";
+
+export function assertSameOrigin(request: Request, message = "Cross-origin request refused.") {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) {
+    throw new CampusEngineError("FORBIDDEN", message, 403);
+  }
+}
 
 export function ok<T extends Record<string, unknown>>(body: T, init?: ResponseInit, request?: Request) {
   const response = Response.json({ ok: true, ...body }, init);

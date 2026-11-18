@@ -10,6 +10,7 @@ export type CampusErrorCode =
   | "FARE_NOT_CONFIGURED"
   | "PASSWORD_CHANGE_REQUIRED"
   | "PAYMENT_REQUIRED"
+  | "RATE_LIMITED"
   | "ENGINE_ERROR";
 
 export class CampusEngineError extends Error {

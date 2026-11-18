@@ -4,7 +4,8 @@ import { notificationAction } from "@/lib/notification-destinations";
 import { renderNotificationEmail } from "@/lib/email-template";
 import { notificationQueue } from "@/lib/cloudflare-bindings";
 import { looksLikeEmail, resendReady, sendEmail, type ResendConfig } from "@/lib/resend";
-import { looksLikePhone, sailupReady, sendSms, type SailupConfig } from "@/lib/sailup";
+import { looksLikePhone, normalizeGhanaPhone, sailupReady, sendSms, type SailupConfig } from "@/lib/sailup";
+import { platformSettingState } from "@/lib/platform-settings";
 import { incrementMetric, logEvent } from "@/lib/observability";
 import { envValue } from "@/lib/runtime-env";
 import { ensureNotificationsTable, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
@@ -27,6 +28,13 @@ export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 const DEFAULT_CHANNEL: NotificationChannel = "email";
 /** Three segments is the ceiling: past that, a message is cheaper as a call. */
 const SMS_MAX_CHARACTERS = 480;
+/** Automated companion texts are clamped to one 160-character segment (1 token). */
+export const SINGLE_SEGMENT_SMS_MAX = 160;
+/** Grace window giving an active student time to read the in-app alert before SMS fires. */
+export const SMS_GRACE_DELAY_MS = 30_000;
+/** Only paid physical handoff templates may enroll a companion SMS. */
+export const SMS_ENROLLED_TEMPLATES = ["driver_arrived", "vacation_departure_reminder"] as const;
+export type SmsEnrolledTemplate = (typeof SMS_ENROLLED_TEMPLATES)[number];
 
 async function mailerConfig(): Promise<ResendConfig> {
   return {
@@ -118,6 +126,8 @@ export async function queueNotification(exec: SqlExecutor, input: {
   nowIso: string;
   /** Defaults to email; pass "sms" to reach a handset instead of an inbox. */
   channel?: NotificationChannel;
+  /** Optional future schedule time (e.g. 30s grace window before SMS dispatch). */
+  availableAt?: string;
   /** Email-only proof or other private delivery, never shown in the feed. */
   sensitive?: boolean;
   /** Time-limited messages cannot be sent after their proof expires. */
@@ -126,17 +136,60 @@ export async function queueNotification(exec: SqlExecutor, input: {
   const recipient = String(input.recipient || "").trim();
   if (!recipient) return false;
   const id = crypto.randomUUID();
+  const availableAt = String(input.availableAt || input.nowIso);
   const result = await exec(
     `INSERT INTO notification_outbox (id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at,sensitive,expires_at)
      VALUES (?,?,?,?,?,?,?,'PENDING',0,'',?,?,?,?)
      ON CONFLICT(reference, template) DO NOTHING`,
-    [id, input.channel === "sms" ? "sms" : DEFAULT_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, input.nowIso, input.nowIso, input.sensitive ? 1 : 0, input.expiresAt || ""],
+    [id, input.channel === "sms" ? "sms" : DEFAULT_CHANNEL, recipient, input.template, String(input.subject || ""), input.message, input.reference, availableAt, input.nowIso, input.sensitive ? 1 : 0, input.expiresAt || ""],
   );
   const inserted = Number(result?.affected_row_count ?? 0) > 0;
-  if (inserted) {
+  if (inserted && availableAt <= input.nowIso) {
     await wakeNotificationQueue({ id, reference: input.reference, template: input.template, queuedAt: input.nowIso });
   }
   return inserted;
+}
+
+/**
+ * Queues a 1-segment companion SMS for enrolled physical handoff events
+ * (`driver_arrived` and `vacation_departure_reminder`) while leaving the
+ * primary email/in-app row intact.
+ */
+export async function queueSmsCompanion(exec: SqlExecutor, input: {
+  phone: unknown;
+  template: SmsEnrolledTemplate | string;
+  message: string;
+  reference: string;
+  nowIso: string;
+  expiresAt?: string;
+  graceDelayMs?: number;
+  forceEnabled?: boolean;
+}) {
+  if (!(SMS_ENROLLED_TEMPLATES as readonly string[]).includes(input.template)) return false;
+  const to = normalizeGhanaPhone(input.phone);
+  if (!to) return false;
+  if (!input.forceEnabled) {
+    const state = await platformSettingState("sms_notifications_enabled").catch(() => ({ enabled: false }));
+    if (!state.enabled) return false;
+  }
+  const baseRef = String(input.reference || "").trim().replace(/:sms$/, "");
+  if (!baseRef) return false;
+  const nowMs = Date.parse(input.nowIso) || Date.now();
+  const graceMs = Math.max(0, input.graceDelayMs ?? SMS_GRACE_DELAY_MS);
+  const availableAt = new Date(nowMs + graceMs).toISOString();
+  const expiresAt = input.expiresAt || new Date(nowMs + 15 * 60_000).toISOString();
+  const compactMessage = String(input.message || "").replace(/\s+/g, " ").trim().slice(0, 110);
+  return queueNotification(exec, {
+    recipient: to,
+    channel: "sms",
+    template: input.template,
+    subject: "",
+    message: compactMessage,
+    reference: `${baseRef}:sms`,
+    nowIso: input.nowIso,
+    availableAt,
+    expiresAt,
+  });
 }
 
 /** Security mail is email-only and has no in-app action or secret payload. */
@@ -185,21 +238,28 @@ export async function pruneNotifications(exec: SqlExecutor, input: { now?: numbe
   return Number(pending?.affected_row_count ?? 0) + Number(expired?.affected_row_count ?? 0) + Number(settled?.affected_row_count ?? 0);
 }
 
+function normalizeRecipients(recipient: string | string[]): string[] {
+  const list = Array.isArray(recipient) ? recipient : [recipient];
+  return Array.from(new Set(list.map((r) => String(r || "").trim()).filter(Boolean)));
+}
+
 /**
  * The signed-in student's in-app feed, newest first. Rows are addressed by the
- * account email, so the feed needs no join back to the booking tables.
+ * account email (or verified linked addresses), so the feed needs no join back
+ * to the booking tables.
  */
-export async function listNotifications(recipient: string, limit = FEED_LIMIT) {
-  const address = String(recipient || "").trim();
-  if (!address || !(await isTursoConfiguredRuntime())) return [];
+export async function listNotifications(recipient: string | string[], limit = FEED_LIMIT) {
+  const addresses = normalizeRecipients(recipient);
+  if (!addresses.length || !(await isTursoConfiguredRuntime())) return [];
   await ensureNotificationsTable();
+  const filter = addresses.length === 1 ? "recipient = ?" : `recipient IN (${addresses.map(() => "?").join(",")})`;
   const rows = rowsToObjects(await turso(
     `SELECT id,template,subject,message,reference,created_at,read_at
      FROM notification_outbox
-     WHERE recipient = ? AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')
+     WHERE ${filter} AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')
      ORDER BY created_at DESC
      LIMIT ?`,
-    [address, Math.max(1, Math.min(FEED_LIMIT, Math.round(limit || FEED_LIMIT)))],
+    [...addresses, Math.max(1, Math.min(FEED_LIMIT, Math.round(limit || FEED_LIMIT)))],
   ));
   return rows.map((row) => ({
     id: String(row.id || ""),
@@ -212,11 +272,15 @@ export async function listNotifications(recipient: string, limit = FEED_LIMIT) {
   }));
 }
 
-export async function unreadNotificationCount(recipient: string) {
-  const address = String(recipient || "").trim();
-  if (!address || !(await isTursoConfiguredRuntime())) return 0;
+export async function unreadNotificationCount(recipient: string | string[]) {
+  const addresses = normalizeRecipients(recipient);
+  if (!addresses.length || !(await isTursoConfiguredRuntime())) return 0;
   await ensureNotificationsTable();
-  const rows = rowsToObjects(await turso("SELECT COUNT(*) AS count FROM notification_outbox WHERE recipient=? AND read_at IS NULL AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')", [address]));
+  const filter = addresses.length === 1 ? "recipient = ?" : `recipient IN (${addresses.map(() => "?").join(",")})`;
+  const rows = rowsToObjects(await turso(
+    `SELECT COUNT(*) AS count FROM notification_outbox WHERE ${filter} AND read_at IS NULL AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')`,
+    addresses,
+  ));
   return Number(rows[0]?.count || 0);
 }
 
@@ -226,18 +290,25 @@ export type FeedNotification = Awaited<ReturnType<typeof listNotifications>>[num
  * Marks one message — or the whole feed — as read. Scoped by recipient, so a
  * student can never touch another account's feed.
  */
-export async function markNotificationsRead(recipient: string, input: { id?: unknown; all?: unknown }) {
-  const address = String(recipient || "").trim();
-  if (!address || !(await isTursoConfiguredRuntime())) return 0;
+export async function markNotificationsRead(recipient: string | string[], input: { id?: unknown; all?: unknown }) {
+  const addresses = normalizeRecipients(recipient);
+  if (!addresses.length || !(await isTursoConfiguredRuntime())) return 0;
   await ensureNotificationsTable();
   const nowIso = new Date().toISOString();
+  const filter = addresses.length === 1 ? "recipient = ?" : `recipient IN (${addresses.map(() => "?").join(",")})`;
   if (input.all) {
-    const result = await turso("UPDATE notification_outbox SET read_at = ? WHERE recipient = ? AND read_at IS NULL AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')", [nowIso, address]);
+    const result = await turso(
+      `UPDATE notification_outbox SET read_at = ? WHERE ${filter} AND read_at IS NULL AND COALESCE(sensitive,0)=0 AND template NOT IN ('auth_password_reset','auth_login_code')`,
+      [nowIso, ...addresses],
+    );
     return Number(result?.affected_row_count ?? 0);
   }
   const id = String(input.id || "").trim();
   if (!id) return 0;
-  const result = await turso("UPDATE notification_outbox SET read_at = ? WHERE id = ? AND recipient = ? AND read_at IS NULL", [nowIso, id, address]);
+  const result = await turso(
+    `UPDATE notification_outbox SET read_at = ? WHERE id = ? AND ${filter} AND read_at IS NULL`,
+    [nowIso, id, ...addresses],
+  );
   return Number(result?.affected_row_count ?? 0);
 }
 
@@ -326,6 +397,32 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
     }
     // Another worker already owns this message; leave it to them.
     if (!(await claimNotification(turso, { id, leaseUntil }))) continue;
+    const rawReference = String(row.reference || "");
+    const isCompanionSms = byText && rawReference.endsWith(":sms");
+    const baseReference = isCompanionSms ? rawReference.slice(0, -4) : rawReference;
+    if (isCompanionSms) {
+      // Layer 3: If the student already read the paired in-app notification, suppress the SMS at 0 cost.
+      const readRow = rowsToObjects(await turso(
+        "SELECT id FROM notification_outbox WHERE reference = ? AND channel = 'email' AND read_at IS NOT NULL LIMIT 1",
+        [baseReference],
+      ))[0];
+      if (readRow) {
+        await turso("UPDATE notification_outbox SET status='FAILED',last_error='Suppressed: already read in app' WHERE id=? AND status='SENDING'", [id]);
+        continue;
+      }
+      // Layer 4: Enforce daily SMS segment circuit-breaker.
+      const dailyCap = (await platformSettingState("sms_daily_segment_limit").catch(() => ({ value: 200 }))).value;
+      const dayStart = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
+      const sentToday = Number(rowsToObjects(await turso(
+        "SELECT COUNT(*) AS sent_today FROM notification_outbox WHERE channel = 'sms' AND status = 'SENT' AND sent_at >= ?",
+        [dayStart],
+      ))[0]?.sent_today || 0);
+      if (sentToday >= dailyCap) {
+        await turso("UPDATE notification_outbox SET status='FAILED',last_error='Daily SMS segment limit reached' WHERE id=? AND status='SENDING'", [id]);
+        failed += 1;
+        continue;
+      }
+    }
     if (String(row.template || "") === "auth_login_code") {
       const requestId = String(row.reference || "").startsWith("otp:") ? String(row.reference).slice(4) : "";
       const current = requestId && rowsToObjects(await turso(
@@ -342,14 +439,14 @@ export async function dispatchPendingNotifications(input: { limit?: number; ids?
     try {
       const template = String(row.template || "");
       const message = String(row.message || "");
-      const action = notificationAction(template, String(row.reference || ""), message);
+      const action = notificationAction(template, baseReference, message);
       const hosts = action?.href.startsWith("/console") ? parseConsoleHosts(await envValue("CONSOLE_HOSTS")) : [];
       const origin = hosts.length ? "https://" + hosts[0] : appUrl.replace(/\/$/, "");
       const url = action && origin ? origin + action.href : "";
       const cta = action?.label || "";
       const subject = String(row.subject || "") || humanizedTemplate(template);
       const result = byText
-        ? await sendSms({ config: text, to, text: smsBody(message, url) })
+        ? await sendSms({ config: text, to, text: smsBody(message, url, isCompanionSms ? SINGLE_SEGMENT_SMS_MAX : SMS_MAX_CHARACTERS) })
         : await sendEmail({
           config,
           to,

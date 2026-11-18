@@ -1,10 +1,8 @@
 /**
- * The UMaT student email rule, kept free of server imports so both the sign-in
- * page (client) and the account service (server) enforce exactly the same
- * domain check.
+ * Email validation shared by account registration and student-only services.
  */
 
-/** The only domain that may hold a student account. */
+/** The domain that qualifies a verified account for student-only services. */
 export const STUDENT_EMAIL_DOMAIN = "st.umat.edu.gh";
 
 export function normalizeStudentEmail(value: unknown) {

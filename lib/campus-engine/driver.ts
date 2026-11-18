@@ -7,7 +7,7 @@ import { applyCampusQueueTransition, releaseCampusSlots } from "@/lib/campus-eng
 import { openCampusFailureRefund } from "@/lib/campus-engine/refunds";
 import { CAMPUS_NOTIFY_BY_STATUS, CAMPUS_NOTIFY_SUBJECTS, campusNotification } from "@/lib/campus-engine/notify-templates";
 import { authGuardClear, authGuardFailure, authGuardStatus } from "@/lib/auth-guard";
-import { queueNotification } from "@/lib/notifications";
+import { queueNotification, queueSmsCompanion } from "@/lib/notifications";
 import { incrementMetric } from "@/lib/observability";
 import { isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
@@ -34,6 +34,7 @@ async function queuePassengerNotification(row: Record<string, unknown>, driverNa
   const recipient = String(row.email || "");
   if (!template || !reference || !recipient) return;
   try {
+    const nowIso = new Date().toISOString();
     const notification = campusNotification(template, { driverName, queuePosition: Number(row.queue_position || 0) });
     const queued = await queueNotification(turso, {
       recipient,
@@ -41,9 +42,18 @@ async function queuePassengerNotification(row: Record<string, unknown>, driverNa
       subject: CAMPUS_NOTIFY_SUBJECTS[template],
       message: notification.message,
       reference,
-      nowIso: new Date().toISOString(),
+      nowIso,
     });
     if (queued) await incrementMetric("notification_queued");
+    if (template === "driver_arrived" && row.phone) {
+      await queueSmsCompanion(turso, {
+        phone: row.phone,
+        template,
+        message: notification.message,
+        reference,
+        nowIso,
+      }).catch(() => false);
+    }
   } catch {
     // Notifications are a comfort layer, not part of the ride invariant.
   }

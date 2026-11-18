@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
+import { useStudentEligibility } from "@/components/account/useStudentEligibility";
 import { FilmSlate, Lock, UploadSimple } from "@/components/ui/MaterialIcon";
 import { findCinemaPlanFit } from "@/lib/cinema-engine/plan-fit";
-import { validStudentEmail } from "@/lib/student-email";
 import "./cinema.css";
 
 type Plan = { code: string; label: string; description: string; files: number; bytes: number; minutes: number; pricePesewas: number; checkoutPesewas: number; available: boolean; eligible: boolean; eligibilityMessage: string };
@@ -46,10 +46,12 @@ function CinemaPlanFinder({ catalogue }: { catalogue: Catalogue }) {
 
 export function CinemaRoomPlansPage() {
   const { ready, account } = useStudentAccount();
+  const studentEligible = useStudentEligibility(account);
   if (!ready) return <section className="cinema-card" role="status">Checking your account…</section>;
   if (!account) return <section className="cinema-card cinema-plan-signin"><h2>Choose a room plan</h2><p>Sign in with your student account to see your room allowance and subscribe.</p><Link className="cinema-cta" href="/account?next=%2Fcinema%2Frooms%2Fplans">Sign in</Link></section>;
-  if (!validStudentEmail(account.email)) return <section className="cinema-card cinema-plan-signin"><h2>Student room plans</h2><p>UMaT student accounts can host watch rooms and subscribe to larger file allowances. This account can still join public Cinema events.</p><Link href="/cinema">Browse events</Link></section>;
-  if (account.verificationRequired && !account.emailVerified) return <section className="cinema-card cinema-plan-signin"><h2>Verify your student email</h2><p>Finish email verification before subscribing to a Cinema room plan.</p><Link className="cinema-cta" href="/account?next=%2Fcinema%2Frooms%2Fplans">Verify email</Link></section>;
+  if (account.verificationRequired && !account.emailVerified) return <section className="cinema-card cinema-plan-signin"><h2>Verify your email</h2><p>Finish account email verification before subscribing to a Cinema room plan.</p><Link className="cinema-cta" href="/account?next=%2Fcinema%2Frooms%2Fplans">Verify email</Link></section>;
+  if (studentEligible === null) return <section className="cinema-card" role="status">Checking student access…</section>;
+  if (!studentEligible) return <section className="cinema-card cinema-plan-signin"><h2>Student room plans</h2><p>Verify a UMaT student email on your account to host watch rooms and subscribe to room plans.</p><Link className="cinema-cta" href="/account?next=%2Fcinema%2Frooms%2Fplans">Verify student email</Link></section>;
   return <AccountRoomPlans key={account.id} />;
 }
 

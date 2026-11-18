@@ -547,11 +547,9 @@ CREATE TABLE IF NOT EXISTS rate_limit_windows (
   PRIMARY KEY (scope, subject, window_key)
 );
 
--- One account per UMaT student, shared by campusRide and vacationRide. Only
--- @st.umat.edu.gh addresses may be stored. Passwords are PBKDF2-SHA256 hashes;
--- token_version is bumped on a password change to retire older sessions.
--- email_verified stays 0: no email provider is configured, so the address is
--- checked against the university domain but not yet proved by delivery.
+-- One account per email across UMaTeXPRESS services. Any valid email may
+-- register. Student-only actions require a verified UMaT student address.
+-- Passwords are PBKDF2-SHA256 hashes; token_version retires older sessions.
 CREATE TABLE IF NOT EXISTS student_accounts (
   id                  TEXT PRIMARY KEY,
   email               TEXT NOT NULL UNIQUE,
@@ -562,11 +560,36 @@ CREATE TABLE IF NOT EXISTS student_accounts (
   password_iterations INTEGER NOT NULL,
   token_version       INTEGER NOT NULL DEFAULT 0,
   email_verified      INTEGER NOT NULL DEFAULT 0,
+  verification_required INTEGER NOT NULL DEFAULT 0,
   active              INTEGER NOT NULL DEFAULT 1,
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL,
   last_login_at       TEXT
 );
+
+-- Public-email accounts can prove a separate UMaT student inbox without
+-- creating a second platform account. Pending codes expire and are private.
+CREATE TABLE IF NOT EXISTS student_email_claims (
+  account_id TEXT PRIMARY KEY,
+  student_email TEXT NOT NULL,
+  code_hash TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  verified_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_student_email_claims_verified
+  ON student_email_claims(student_email) WHERE verified_at <> '';
+CREATE TRIGGER IF NOT EXISTS student_email_claim_primary_guard
+  BEFORE UPDATE OF verified_at ON student_email_claims
+  WHEN NEW.verified_at <> '' AND EXISTS (
+    SELECT 1 FROM student_accounts WHERE email = NEW.student_email AND id <> NEW.account_id
+  ) BEGIN SELECT RAISE(ABORT, 'student email already belongs to an account'); END;
+CREATE TRIGGER IF NOT EXISTS student_account_claim_guard
+  BEFORE INSERT ON student_accounts
+  WHEN EXISTS (
+    SELECT 1 FROM student_email_claims WHERE student_email = NEW.email AND verified_at <> '' AND account_id <> NEW.id
+  ) BEGIN SELECT RAISE(ABORT, 'student email already linked to an account'); END;
 
 -- One identity for every console service: admin, moderator, organizer and
 -- driver. The role decides what the account may do, and the role is always

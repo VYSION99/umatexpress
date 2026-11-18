@@ -208,13 +208,14 @@ async function notifyCounterpart(
 ) {
   const preview = content.length > 140 ? `${content.slice(0, 137)}...` : content;
   const nowIso = new Date().toISOString();
+  const bucket = Math.floor(Date.now() / 300_000);
   if (senderType === "STUDENT" && booking.landlordEmail) {
     await queueNotification(turso, {
       recipient: booking.landlordEmail,
       template: "hostel_message_staff",
       subject: `New message about ${booking.propertyName || "your hostel"}`,
       message: `${booking.studentName || booking.studentEmail} wrote: "${preview}". Reply from the console under Bookings.`,
-      reference: `${booking.reference}:msg:${crypto.randomUUID()}`,
+      reference: `${booking.reference}:msg:${bucket}`,
       nowIso,
     });
   }
@@ -224,7 +225,7 @@ async function notifyCounterpart(
       template: "hostel_message_student",
       subject: `New message about your hostel bed`,
       message: `${booking.landlordName || "Your hostel"} wrote: "${preview}". Open your resident page to reply.`,
-      reference: `${booking.reference}:msg:${crypto.randomUUID()}`,
+      reference: `${booking.reference}:msg:${bucket}`,
       nowIso,
     });
   }

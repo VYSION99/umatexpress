@@ -99,3 +99,52 @@ test("a superseded sign-in email is never sent even if its queue message arrives
   assert.equal(row.message, "");
   assert.equal(providerCalls, before);
 });
+
+test("companion SMS is suppressed when the student already read the in-app alert, and respects the 1-segment cap and daily limit", async () => {
+  await ensureNotificationsTable();
+  const prevSailupKey = process.env.SAILUP_API_KEY;
+  const prevSailupSender = process.env.SAILUP_SENDER_ID;
+  const prevDailyLimit = process.env.SMS_DAILY_SEGMENT_LIMIT;
+  process.env.SAILUP_API_KEY = "sailup_test_key";
+  process.env.SAILUP_SENDER_ID = "UMaTeXPRESS";
+  process.env.SMS_DAILY_SEGMENT_LIMIT = "10";
+  const smsPayloads = [];
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("api.sailup.io")) {
+      smsPayloads.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ id: "sms-ok", quantity: 1 }), { status: 202 });
+    }
+    return prevFetch(url, init);
+  };
+  try {
+    const now = new Date().toISOString();
+    const future = new Date(Date.now() + 15 * 60_000).toISOString();
+
+    // Case 1: Student already read the primary in-app/email row -> SMS is suppressed with 0 Sailup calls.
+    db.prepare("INSERT INTO notification_outbox(id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at,read_at) VALUES('email-read','email','ama@st.umat.edu.gh','driver_arrived','Arrived','Driver arrived','CR-READ','SENT',1,'',?,?,?)").run(now, now, now);
+    db.prepare("INSERT INTO notification_outbox(id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at,expires_at) VALUES('sms-suppressed','sms','+233201234567','driver_arrived','','Driver arrived','CR-READ:sms','PENDING',0,'',?,?,?)").run(now, now, future);
+
+    await dispatchPendingNotifications({ ids: ["sms-suppressed"] });
+    const suppressedRow = db.prepare("SELECT status,last_error FROM notification_outbox WHERE id='sms-suppressed'").get();
+    assert.equal(suppressedRow.status, "FAILED");
+    assert.match(suppressedRow.last_error, /already read in app/);
+    assert.equal(smsPayloads.length, 0, "no Sailup token spent when student already read the alert in-app");
+
+    // Case 2: Unread in-app row -> companion SMS sends in 1 segment (<= 160 chars) with clean base reference URL.
+    const longMsg = "A".repeat(140);
+    db.prepare("INSERT INTO notification_outbox(id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at) VALUES('email-unread','email','ama@st.umat.edu.gh','driver_arrived','Arrived','Driver arrived','CR-UNREAD','SENT',1,'',?,?)").run(now, now);
+    db.prepare("INSERT INTO notification_outbox(id,channel,recipient,template,subject,message,reference,status,attempts,last_error,available_at,created_at,expires_at) VALUES('sms-send','sms','+233201234567','driver_arrived','',?,'CR-UNREAD:sms','PENDING',0,'',?,?,?)").run(longMsg, now, now, future);
+
+    await dispatchPendingNotifications({ ids: ["sms-send"] });
+    assert.equal(smsPayloads.length, 1);
+    assert.ok(smsPayloads[0].body.length <= 160, "companion SMS is strictly clamped to 1 segment (160 chars)");
+    const sentRow = db.prepare("SELECT status FROM notification_outbox WHERE id='sms-send'").get();
+    assert.equal(sentRow.status, "SENT");
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevSailupKey === undefined) delete process.env.SAILUP_API_KEY; else process.env.SAILUP_API_KEY = prevSailupKey;
+    if (prevSailupSender === undefined) delete process.env.SAILUP_SENDER_ID; else process.env.SAILUP_SENDER_ID = prevSailupSender;
+    if (prevDailyLimit === undefined) delete process.env.SMS_DAILY_SEGMENT_LIMIT; else process.env.SMS_DAILY_SEGMENT_LIMIT = prevDailyLimit;
+  }
+});

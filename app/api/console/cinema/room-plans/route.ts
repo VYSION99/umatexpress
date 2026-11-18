@@ -1,8 +1,10 @@
 import { campusErrorPayload, CampusEngineError } from "@/lib/campus-engine/errors";
+import { assertSameOrigin } from "@/lib/campus-engine/responses";
 import { CINEMA_ROOM_PLANS, ensureCinemaRoomPlans, isCinemaRoomPlan } from "@/lib/cinema-engine/room-plans";
 import { requireConsoleRole } from "@/lib/console-auth";
 import { consoleAudit } from "@/lib/console-audit";
 import { validStudentEmail } from "@/lib/student-email";
+import { hasVerifiedStudentEmail } from "@/lib/student-email-claims";
 import { rowsToObjects, turso } from "@/lib/turso";
 
 const headers = { "Cache-Control": "no-store" };
@@ -19,6 +21,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    assertSameOrigin(request, "Cross-origin room-plan update refused.");
     const actor = await requireConsoleRole(request, ["ADMIN"]);
     await ensureCinemaRoomPlans();
     const body = await request.json() as { accountId?: unknown; email?: unknown; plan?: unknown; validUntil?: unknown; reason?: unknown; pricePlan?: unknown; pricePesewas?: unknown; enabled?: unknown; politicsApproval?: unknown };
@@ -48,7 +51,7 @@ export async function PATCH(request: Request) {
     if (!account) throw new CampusEngineError("NOT_FOUND", "Account not found.", 404);
     const accountId = String(account.id);
     if (approval) {
-      if (approval === "APPROVE" && !validStudentEmail(String(account.email || ""))) throw new CampusEngineError("VALIDATION_ERROR", "Student Politics Plus checkout requires a UMaT student account.", 400);
+      if (approval === "APPROVE" && !validStudentEmail(String(account.email || "")) && !await hasVerifiedStudentEmail(accountId)) throw new CampusEngineError("VALIDATION_ERROR", "Student Politics Plus checkout requires a verified UMaT student email.", 400);
       if (approval === "APPROVE") {
         await turso(`INSERT INTO cinema_room_plan_politics_approvals(account_id,valid_until) VALUES (?,?)
           ON CONFLICT(account_id) DO UPDATE SET valid_until=excluded.valid_until`, [accountId, validUntil ? new Date(validUntil).toISOString() : ""]);

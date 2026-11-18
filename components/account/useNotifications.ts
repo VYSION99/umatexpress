@@ -86,6 +86,27 @@ export function useNotifications() {
     return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisible); window.clearInterval(timer); };
   }, [accountReady, account]);
 
+  const markRead = async (id: string) => {
+    const targetId = String(id || "").trim();
+    if (!targetId) return;
+    const item = state.items.find((entry) => entry.id === targetId);
+    if (!item || item.read) return;
+    const nextItems = state.items.map((entry) => (entry.id === targetId ? { ...entry, read: true } : entry));
+    const nextUnread = Math.max(0, state.unread - 1);
+    publish({ ...state, unread: nextUnread, items: nextItems });
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: targetId }),
+      });
+      if (!response.ok) throw new Error("Could not save read state.");
+    } catch {
+      // Non-intrusive background sync failure
+    }
+  };
+
   const markAllRead = async () => {
     if (!state.unread) return;
     publish({ ...state, unread: 0, items: state.items.map((item) => ({ ...item, read: true })) });
@@ -110,5 +131,6 @@ export function useNotifications() {
     error: state.error,
     refresh: refreshNotifications,
     markAllRead,
+    markRead,
   };
 }

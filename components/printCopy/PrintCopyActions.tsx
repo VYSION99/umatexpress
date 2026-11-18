@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Copy, Flag } from "@/components/ui/MaterialIcon";
+import { CurbsideChatModal } from "@/components/campusRide/shared/CurbsideChatModal";
 
 const QUOTE_DRAFT_KEY = "umatexpress.print-copy.quote-draft";
 const QUOTE_DRAFT_MS = 15 * 60_000;
@@ -63,7 +64,7 @@ export function PrintCopyQuoteButton({ providerId, providerName }: { providerId:
     finally { setBusy(false); }
   }
   return <>
-    <button type="button" className="print-copy-action" onClick={() => { setOpen(true); setMessage(""); setNeedsSignIn(false); }}><Copy size={17} aria-hidden /> Request a quote</button>
+    <button type="button" data-tour="print-quote-trigger" className="print-copy-action" onClick={() => { setOpen(true); setMessage(""); setNeedsSignIn(false); }}><Copy size={17} aria-hidden /> Request a quote</button>
     <PrintCopyModal open={open} onClose={() => setOpen(false)} titleId={`quote-title-${providerId}`}>
         <header><div><span>QUOTE REQUEST</span><h2 id={`quote-title-${providerId}`}>{providerName}</h2></div><button type="button" aria-label="Close quote request" onClick={() => setOpen(false)}>×</button></header>
         <p>Describe the print job and any quantity or finishing needs. Don’t upload or include private documents; the shop can explain a safe way to share files after discussing the quote.</p>
@@ -80,6 +81,7 @@ export function PrintCopyQuoteButton({ providerId, providerName }: { providerId:
 type StudentQuote = { reference: string; provider_name: string; status: string; created_at: string; updated_at: string };
 export function PrintCopyMyQuotes() {
   const [quotes, setQuotes] = useState<StudentQuote[]>([]);
+  const [activeQuoteRef, setActiveQuoteRef] = useState<string | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "signed-out" | "error">("loading");
   useEffect(() => {
     let active = true;
@@ -97,13 +99,29 @@ export function PrintCopyMyQuotes() {
     window.addEventListener("print-copy-quote-created", load);
     return () => { active = false; window.removeEventListener("print-copy-quote-created", load); };
   }, []);
-  return <section className="print-copy-my-quotes" aria-labelledby="print-copy-my-quotes-title">
+  return <section className="print-copy-my-quotes" data-tour="print-my-quotes" aria-labelledby="print-copy-my-quotes-title">
     <h2 id="print-copy-my-quotes-title">My quote requests</h2>
     {state === "loading" && <p>Checking your requests…</p>}
     {state === "signed-out" && <p><Link href="/account?next=%2Fprint-copy">Sign in</Link> with your student account to see your quote requests.</p>}
     {state === "error" && <p>Quote status is temporarily unavailable. Please try again later.</p>}
-    {state === "ready" && (quotes.length ? <ul>{quotes.map((quote) => <li key={quote.reference}><div><strong>{quote.reference}</strong><span>{quote.provider_name}</span></div><div><span className={`print-copy-request-status is-${quote.status.toLowerCase()}`}>{quote.status === "IN_PROGRESS" ? "In progress" : quote.status === "CLOSED" ? "Closed" : "New"}</span><small>Updated {new Date(quote.updated_at).toLocaleDateString("en-GH", { dateStyle: "medium" })}</small></div></li>)}</ul> : <p>You have no active quote requests.</p>)}
+    {state === "ready" && (quotes.length ? <ul>{quotes.map((quote) => <li key={quote.reference}>
+      <div><strong>{quote.reference}</strong><span>{quote.provider_name}</span></div>
+      <div>
+        <span className={`print-copy-request-status is-${quote.status.toLowerCase()}`}>{quote.status === "IN_PROGRESS" ? "In progress" : quote.status === "CLOSED" ? "Closed" : "New"}</span>
+        <small>Updated {new Date(quote.updated_at).toLocaleDateString("en-GH", { dateStyle: "medium" })}</small>
+        <button type="button" className="print-copy-chat-trigger" onClick={() => setActiveQuoteRef(quote.reference)}>💬 Chat</button>
+      </div>
+    </li>)}</ul> : <p>You have no active quote requests.</p>)}
     <p className="print-copy-my-quotes-note">Requests and contact details are deleted after 90 days. Staff follow up by email; your status appears here while the request is active.</p>
+    {activeQuoteRef && (
+      <CurbsideChatModal
+        open={Boolean(activeQuoteRef)}
+        onClose={() => setActiveQuoteRef(null)}
+        service="print-copy"
+        reference={activeQuoteRef}
+        title={`Quote ${activeQuoteRef}`}
+      />
+    )}
   </section>;
 }
 

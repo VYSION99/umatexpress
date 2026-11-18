@@ -77,9 +77,74 @@ test("the feed reads and marks only the signed-in student's own messages", async
 
     const patch = await route.PATCH(request(cookie, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) }));
     assert.equal(patch.status, 200);
-    const update = statements.find((entry) => entry.sql.includes("UPDATE notification_outbox SET read_at"));
-    assert.match(update.sql, /WHERE recipient = \? AND read_at IS NULL/);
+    const update = statements.find((entry) => entry.sql.includes("UPDATE notification_outbox SET read_at = ? WHERE recipient = ? AND read_at IS NULL"));
+    assert.ok(update);
     assert.equal(update.args[1], "ama@st.umat.edu.gh");
+
+    // Single item mark read
+    const patchSingle = await route.PATCH(request(cookie, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "n-2" }) }));
+    assert.equal(patchSingle.status, 200);
+    const updateSingle = statements.find((entry) => entry.sql.includes("UPDATE notification_outbox SET read_at = ? WHERE id = ? AND recipient = ? AND read_at IS NULL"));
+    assert.ok(updateSingle);
+    assert.equal(updateSingle.args[1], "n-2");
+    assert.equal(updateSingle.args[2], "ama@st.umat.edu.gh");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previous.url === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previous.url;
+    if (previous.token === undefined) delete process.env.TURSO_AUTH_TOKEN; else process.env.TURSO_AUTH_TOKEN = previous.token;
+  }
+});
+
+test("the feed includes verified linked student email notifications", async () => {
+  const previous = { url: process.env.TURSO_DATABASE_URL, token: process.env.TURSO_AUTH_TOKEN };
+  process.env.TURSO_DATABASE_URL = "libsql://example.test";
+  process.env.TURSO_AUTH_TOKEN = "test-token";
+  const originalFetch = globalThis.fetch;
+  const statements = [];
+  const result = (names, rows) => ({ results: [{ type: "ok", response: { result: { cols: names.map((name) => ({ name })), rows: rows.map((row) => row.map((value) => ({ value }))) } } }] });
+
+  globalThis.fetch = async (_url, init) => {
+    const { sql, args } = JSON.parse(String(init?.body)).requests[0].stmt;
+    statements.push({ sql, args: (args || []).map((arg) => arg.value) });
+    if (sql.includes("FROM student_accounts WHERE id = ?")) {
+      return Response.json(result(
+        ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active", "password_hash", "password_salt", "password_iterations", "email_verified", "verification_required"],
+        [["acc-public", "kofi@gmail.com", "Kofi", "0555000222", "2026-01-01T00:00:00.000Z", "", 0, 1, "hash", "salt", 100000, 1, 1]],
+      ));
+    }
+    if (sql.includes("FROM student_email_claims WHERE account_id=?")) {
+      return Response.json(result(
+        ["account_id", "student_email", "expires_at", "attempts", "verified_at"],
+        [["acc-public", "kofi123@st.umat.edu.gh", "", 0, "2026-01-02T00:00:00.000Z"]],
+      ));
+    }
+    if (sql.includes("SELECT COUNT(*) AS count FROM notification_outbox")) return Response.json(result(["count"], [[2]]));
+    if (sql.includes("FROM notification_outbox")) {
+      return Response.json(result(
+        ["id", "template", "subject", "message", "reference", "created_at", "read_at"],
+        [
+          ["n-linked", "campus_ride", "Linked ride", "Ride for linked student.", "CR-3", "2026-03-03T10:00:00.000Z", null],
+          ["n-primary", "cinema_invite", "Cinema invite", "Invite for public email.", "C-1", "2026-03-02T10:00:00.000Z", null],
+        ],
+      ));
+    }
+    return Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [], affected_row_count: 1 } } }] });
+  };
+
+  try {
+    const { studentSessionCookie } = await vite.ssrLoadModule("/lib/student-auth.ts");
+    const cookie = (await studentSessionCookie("acc-public", new Request("https://umatexpress.test/"))).split(";")[0];
+    const route = await vite.ssrLoadModule("/app/api/notifications/route.ts");
+
+    const response = await route.GET(request(cookie));
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.unread, 2);
+
+    const query = statements.find((entry) => entry.sql.includes("FROM notification_outbox") && entry.sql.includes("recipient IN"));
+    assert.ok(query, "Expected recipient IN clause for multi-address lookup");
+    assert.deepEqual(query.args.slice(0, 2), ["kofi@gmail.com", "kofi123@st.umat.edu.gh"]);
   } finally {
     globalThis.fetch = originalFetch;
     if (previous.url === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previous.url;

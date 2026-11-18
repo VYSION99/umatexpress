@@ -1,24 +1,44 @@
 import { listNotifications, markNotificationsRead, unreadNotificationCount } from "@/lib/notifications";
-import { requireStudent } from "@/lib/student-auth";
-import { fail, ok } from "@/lib/campus-engine/responses";
+import { studentAccountFromRequest } from "@/lib/student-auth";
+import { studentEmailClaim } from "@/lib/student-email-claims";
+import { CampusEngineError } from "@/lib/campus-engine/errors";
+import { assertSameOrigin, fail, ok } from "@/lib/campus-engine/responses";
 
 /**
- * The signed-in student's in-app notification feed.
+ * Resolves all addresses that belong to the verified account (primary + linked student email).
+ */
+async function accountRecipients(account: { id: string; email: string; emailVerified: boolean }) {
+  const recipients = [account.email];
+  try {
+    const claim = await studentEmailClaim(account.id);
+    if (claim.verified && claim.studentEmail && !recipients.includes(claim.studentEmail)) {
+      recipients.push(claim.studentEmail);
+    }
+  } catch {
+    // Fallback cleanly to primary email if claims lookup cannot run
+  }
+  return recipients;
+}
+
+/**
+ * The signed-in account's in-app notification feed.
  *
- * The rows are the same ones the mail dispatcher reads, so a message stays
- * readable here even when Resend is not configured. Both verbs need the
- * platform account; the feed is per-student, so the session is the gate and a
- * `Cache-Control: no-store` response may never be reused by a shared cache.
+ * Supports both primary accounts and verified linked student emails.
  *
  *   GET   the latest messages for the account
  *   PATCH mark one message, or the whole feed, as read
  */
 export async function GET(request: Request) {
   try {
-    const student = await requireStudent(request);
-    const notifications = await listNotifications(student.email);
+    const account = await studentAccountFromRequest(request);
+    if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to your UMaTeXPRESS account to continue.", 401);
+    if (account.verificationRequired && !account.emailVerified) {
+      throw new CampusEngineError("FORBIDDEN", "Verify your account email before continuing.", 403);
+    }
+    const recipients = await accountRecipients(account);
+    const notifications = await listNotifications(recipients);
     return ok(
-      { notifications, unread: await unreadNotificationCount(student.email) },
+      { notifications, unread: await unreadNotificationCount(recipients) },
       { headers: { "Cache-Control": "no-store" } },
       request,
     );
@@ -29,9 +49,15 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const student = await requireStudent(request);
+    assertSameOrigin(request);
+    const account = await studentAccountFromRequest(request);
+    if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to your UMaTeXPRESS account to continue.", 401);
+    if (account.verificationRequired && !account.emailVerified) {
+      throw new CampusEngineError("FORBIDDEN", "Verify your account email before continuing.", 403);
+    }
+    const recipients = await accountRecipients(account);
     const body = await request.json().catch(() => ({})) as { id?: string; all?: boolean };
-    const updated = await markNotificationsRead(student.email, { id: body.id, all: body.all });
+    const updated = await markNotificationsRead(recipients, { id: body.id, all: body.all });
     return ok({ updated }, { headers: { "Cache-Control": "no-store" } }, request);
   } catch (error) {
     return fail(error, request);

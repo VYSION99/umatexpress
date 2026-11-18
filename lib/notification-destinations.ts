@@ -21,6 +21,11 @@ export function notificationAction(template: string, reference: string, message 
   if (template === "food_support_opened") return { href: "/console/food", label: "Review Food support case" };
   if (template === "food_support_closed") return { href: "/food", label: "View pickup details" };
   if (template.startsWith("food_preorder_")) return { href: "/food", label: "View pickup status" };
+  if (template === "service_message_campus") {
+    const queueRef = reference.startsWith("msg:campus:") ? reference.split(":")[2] : reference;
+    return queueRef ? { href: "/campus/ticket?reference=" + encodeURIComponent(queueRef), label: "Track ride & chat" } : { href: "/campus", label: "Open campusRide" };
+  }
+  if (template === "service_message_print_copy") return { href: "/print-copy", label: "Open quote messages" };
   if (template.startsWith("print_copy_quote_")) return { href: "/print-copy", label: "View quote status" };
   if (template.startsWith("campus_") || ["driver_accepted", "driver_arrived", "driver_cancelled", "trip_completed"].includes(template)) {
     return reference ? { href: "/campus/ticket?reference=" + encodeURIComponent(reference), label: "Track ride" } : { href: "/campus", label: "Open campusRide" };
@@ -31,7 +36,7 @@ export function notificationAction(template: string, reference: string, message 
   }
   if (template === "hostel_message_staff") return { href: "/console/hostels", label: "Open hostel messages" };
   if (template === "hostel_message_received" || template === "hostel_message_student") return { href: "/hostel/resident?section=messages", label: "Open messages" };
-  if (template === "hostel_ai_inquiry_reply") return null;
+  if (template === "hostel_ai_inquiry_reply") return { href: "/hostel", label: "View hostel" };
   if (template === "hostel_refund_requested") return { href: "/console/hostels", label: "Review refund request" };
   if (template.startsWith("hostel_refund_")) return { href: "/hostel/resident?section=payments", label: "View payments" };
   if (template.startsWith("hostel_")) {

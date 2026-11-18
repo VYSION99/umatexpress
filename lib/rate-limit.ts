@@ -39,6 +39,8 @@ export function rateLimitWindowKey(windowMs: number, now = Date.now()) {
   return String(Math.floor(now / windowMs));
 }
 
+const lastPrunedWindowByExec = new WeakMap<RateLimitExecutor, string>();
+
 /**
  * Consumes one unit from a durable fixed-window counter.
  *
@@ -59,11 +61,15 @@ export async function consumeRateLimitWindow(exec: RateLimitExecutor, input: {
   const stamp = new Date(now).toISOString();
   const expiresAt = new Date(windowEnd + input.windowMs).toISOString();
 
-  // Clear expired windows for every subject, including one-time visitors.
-  await exec(
-    "DELETE FROM rate_limit_windows WHERE expires_at < ?",
-    [stamp],
-  );
+  // Clear expired windows once per window transition rather than on every hit
+  // within the same window, halving Turso subrequests during burst traffic.
+  if (lastPrunedWindowByExec.get(exec) !== windowKey) {
+    lastPrunedWindowByExec.set(exec, windowKey);
+    await exec(
+      "DELETE FROM rate_limit_windows WHERE expires_at < ?",
+      [stamp],
+    );
+  }
 
   const result = await exec(
     `INSERT INTO rate_limit_windows (scope,subject,window_key,count,expires_at,updated_at)

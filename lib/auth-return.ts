@@ -8,3 +8,8 @@ export function safeAuthReturnPath(value: unknown): string {
     return "/";
   }
 }
+
+/** Account entry points that lead to actions reserved for UMaT students. */
+export function requiresStudentAccess(path: string): boolean {
+  return /^\/(campus|vacation|hostel|print-copy)(?:[/?#]|$)/.test(path);
+}

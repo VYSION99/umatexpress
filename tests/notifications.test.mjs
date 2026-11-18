@@ -243,3 +243,67 @@ test("notification actions stay within the service that created them", async () 
   assert.equal(notificationAction("cinema_invite", "room-1").href, "/cinema/room-1");
   assert.equal(notificationAction("unknown", "any"), null);
 });
+
+test("queueSmsCompanion enrolls only physical handoff templates, normalizes Ghana phones, and schedules a 30s grace window", async () => {
+  const { queueNotification, queueSmsCompanion, SMS_GRACE_DELAY_MS } = await vite.ssrLoadModule("/lib/notifications.ts");
+  const db = newDatabase();
+  const exec = sqliteExecutor(db);
+  const nowIso = "2026-10-03T08:00:00.000Z";
+
+  // Primary email/in-app row.
+  assert.equal(await queueNotification(exec, {
+    recipient: "ama@st.umat.edu.gh",
+    template: "driver_arrived",
+    subject: "Driver arrived",
+    message: "Your driver has arrived at the pickup zone.",
+    reference: "CR-SMS-1",
+    nowIso,
+  }), true);
+
+  // Non-enrolled templates (e.g., auth_login_code or driver_accepted) never queue a companion SMS.
+  assert.equal(await queueSmsCompanion(exec, {
+    phone: "0201234567",
+    template: "driver_accepted",
+    message: "Driver accepted",
+    reference: "CR-SMS-1",
+    nowIso,
+    forceEnabled: true,
+  }), false);
+  assert.equal(await queueSmsCompanion(exec, {
+    phone: "0201234567",
+    template: "auth_login_code",
+    message: "Code 123456",
+    reference: "CR-SMS-1",
+    nowIso,
+    forceEnabled: true,
+  }), false);
+
+  // Enrolled template with valid Ghana phone queues one companion row with :sms reference and 30s grace delay.
+  assert.equal(await queueSmsCompanion(exec, {
+    phone: "0201234567",
+    template: "driver_arrived",
+    message: "Your driver has arrived at the pickup zone.",
+    reference: "CR-SMS-1",
+    nowIso,
+    forceEnabled: true,
+  }), true);
+
+  // Dedupe: repeating the call for the same booking reference does not queue a second SMS.
+  assert.equal(await queueSmsCompanion(exec, {
+    phone: "0201234567",
+    template: "driver_arrived",
+    message: "Your driver has arrived at the pickup zone.",
+    reference: "CR-SMS-1",
+    nowIso,
+    forceEnabled: true,
+  }), false);
+
+  const rows = db.prepare("SELECT channel, recipient, reference, available_at, expires_at FROM notification_outbox ORDER BY channel").all();
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => [r.channel, r.recipient, r.reference]), [
+    ["email", "ama@st.umat.edu.gh", "CR-SMS-1"],
+    ["sms", "+233201234567", "CR-SMS-1:sms"],
+  ]);
+  assert.equal(Date.parse(rows[1].available_at) - Date.parse(nowIso), SMS_GRACE_DELAY_MS);
+  assert.ok(Date.parse(rows[1].expires_at) > Date.parse(rows[1].available_at));
+});

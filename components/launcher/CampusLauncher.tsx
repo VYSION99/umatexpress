@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowDown, ArrowRight, ArrowSquareOut, ArrowUp, Bell, Car, Compass, House, MagnifyingGlass, MapPin, PushPin, Sliders, SquaresFour, User, X } from "@/components/ui/MaterialIcon";
 import { defaultPreferences, homepageServices, services, type LauncherPreference, type OpenService, type Service } from "./services";
@@ -16,6 +16,7 @@ import { useStudentAccount } from "@/components/account/useStudentAccount";
 import { entrance } from "@/components/ui/motion";
 import { AppBottomSheet } from "@/components/ui/AppBottomSheet";
 import { FloatingDock } from "@/components/ui/FloatingDock";
+import { useTour } from "@/components/tour/TourProvider";
 import "./launcher.css";
 import "./home.css";
 
@@ -35,6 +36,7 @@ function ServiceCard({ service, pinned }: { service: OpenService; pinned: boolea
   const art = "art" in service ? service.art : null;
   const logo = "logo" in service ? service.logo : null;
   const cardClass = `home-card is-${service.accent}${logo ? " is-partner" : ""}`;
+  const tourAttr = service.id === "campus" ? "service-campus" : service.id === "hostels" ? "service-hostel" : undefined;
   const content = <>
     {logo
       ? <div className="home-card-art home-card-art--brand"><img src={logo} alt="" width={306} height={122} loading="lazy" decoding="async" /></div>
@@ -48,6 +50,7 @@ function ServiceCard({ service, pinned }: { service: OpenService; pinned: boolea
   return <Link
     className={cardClass}
     href={service.destination}
+    data-tour={tourAttr}
     aria-label={`${service.title}: ${service.action}${external ? " (opens in a new tab)" : ""}`}
     {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
   >{content}</Link>;
@@ -59,10 +62,20 @@ export default function CampusLauncher() {
   const { account } = useStudentAccount();
   // Unread count for the bell; the panel reads the same cached list.
   const { unread } = useNotifications();
+  const { startTour, hasSeenTour } = useTour();
   const greeting = (account?.name || "").trim().split(/\s+/)[0] || "";
   const [panel, setPanel] = useState<Panel>(null);
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (ready && !hasSeenTour("launcher")) {
+      const timer = setTimeout(() => {
+        startTour("launcher");
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [ready, hasSeenTour, startTour]);
   function save(next: LauncherPreference[]) {
     setNotice(saveLayout(next) ? "Layout saved on this device." : "Your layout is updated for this visit. Browser storage is unavailable.");
   }
@@ -87,8 +100,8 @@ export default function CampusLauncher() {
       <Link href="/" className="home-brand"><img className="home-mark" src="/logo-mark.png" width="40" height="40" alt="" /><span><span className="home-wordmark">UMaTe<em>X</em>PRESS</span><p className="home-tagline">Your campus companion</p></span></Link>
       <HomeServiceSearch />
       <div className="home-bar-actions">
-        <button className="home-icon-button" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} onClick={() => setPanel("notifications")}><Bell size={20} aria-hidden />{unread > 0 && <span className="home-dot" aria-hidden />}</button>
-        <button className="home-guest" onClick={() => setPanel("profile")} aria-label="Your profile">{account ? <ProfileAvatar scope="STUDENT" name={account.name} /> : <User size={18} aria-hidden />}<span>{greeting || "Guest"}</span></button>
+        <button data-tour="launcher-bell" className="home-icon-button" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} onClick={() => setPanel("notifications")}><Bell size={20} aria-hidden />{unread > 0 && <span className="home-dot" aria-hidden />}</button>
+        <button data-tour="launcher-profile" className="home-guest" onClick={() => setPanel("profile")} aria-label="Your profile">{account ? <ProfileAvatar scope="STUDENT" name={account.name} /> : <User size={18} aria-hidden />}<span>{greeting || "Guest"}</span></button>
       </div>
     </header>
     <main id="home-main" className="home-main">
@@ -118,7 +131,11 @@ export default function CampusLauncher() {
           ? <div className="home-rail">{homepage.map(service => <ServiceCard key={service.id} pinned={pinned.has(service.id)} service={service} />)}</div>
           : <div className="launch-empty"><Compass size={28} aria-hidden /><h2>A little space for your favourites.</h2><p>Restore a service from Open services.</p><button onClick={() => setPanel("services")}>Discover services</button></div>}
       </section>
-      {ready && <CuriosityPilot preferences={preferences} />}
+      {ready && (
+        <div data-tour="curiosity-pilot">
+          <CuriosityPilot preferences={preferences} />
+        </div>
+      )}
       <section className="home-section" aria-labelledby="home-soon-title">
         <div className="home-section-head"><h2 id="home-soon-title">On the way</h2><span className="home-section-note">Not live yet</span></div>
         <div className="home-soon">{services.filter(service => !service.available).map(service => { const Icon = service.icon; return <div key={service.id}><Icon size={19} aria-hidden /><strong>{service.title}</strong><span>{service.detail}</span></div>; })}</div>
@@ -126,7 +143,7 @@ export default function CampusLauncher() {
       <section className="home-note"><Compass size={19} aria-hidden /><span>Questions about a ride or booking?</span><button onClick={() => setPanel("support")}>Need a hand?</button></section>
       {/* Client footer only. The driver portal and the management console live on
           their own routes and are not advertised from the student homepage. */}
-      <footer className="home-footer"><span><strong>UMaTeXPRESS</strong> · Made for campus life.</span><button onClick={() => setPanel("support")}>Help</button></footer>
+      <footer className="home-footer"><span><strong>UMaTeXPRESS</strong> · Made for campus life.</span><button type="button" onClick={() => startTour("launcher")}>Take a tour</button><button onClick={() => setPanel("support")}>Help</button></footer>
     </main>
     <FloatingDock label="Home navigation" items={[
       { id: "home", label: "Home", icon: "home", href: "/", active: true },
@@ -148,7 +165,7 @@ export default function CampusLauncher() {
       {panel === "profile" && <ProfilePanel />}
       {panel === "tickets" && <ProfilePanel ticketsOnly />}
       {panel === "notifications" && <NotificationFeed />}
-      {panel === "support" && <div className="launch-panel-message"><Compass size={32} aria-hidden /><h3>Where would you like to go?</h3><p>Use the help assistant inside CampusRide or VacationRide for service questions. Keep your payment reference when asking about a booking.</p><Link href="/campus">CampusRide help →</Link><Link href="/vacation">VacationRide help →</Link></div>}
+      {panel === "support" && <div className="launch-panel-message"><Compass size={32} aria-hidden /><h3>Where would you like to go?</h3><p>Use the help assistant inside CampusRide or VacationRide for service questions. Keep your payment reference when asking about a booking.</p><button type="button" className="launch-reset" style={{ marginBottom: 12 }} onClick={() => { setPanel(null); setTimeout(() => startTour("launcher"), 250); }}>Take platform tour →</button><Link href="/campus">CampusRide help →</Link><Link href="/vacation">VacationRide help →</Link></div>}
       <p className="launch-save-status" role="status">{notice || error}</p></motion.div>
     </AppBottomSheet>
   </div>;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, CalendarDots, FilmSlate, MagnifyingGlass, Plus, SealCheck, Star, Ticket, UsersThree } from "@/components/ui/MaterialIcon";
 import { useStudentAccount } from "@/components/account/useStudentAccount";
-import { validStudentEmail } from "@/lib/student-email";
+import { useStudentEligibility } from "@/components/account/useStudentEligibility";
 import type { CinemaEvent } from "@/lib/cinema-engine/events";
 import { CinemaDialog } from "./CinemaDialog";
 import "./cinema.css";
@@ -13,6 +13,7 @@ const SECTIONS = ["UPCOMING", "LIVE", "REPLAY"] as const;
 
 export function CinemaEvents() {
   const { account } = useStudentAccount();
+  const canPublish = useStudentEligibility(account) === true;
   const [events, setEvents] = useState<CinemaEvent[]>([]); const [section, setSection] = useState<(typeof SECTIONS)[number]>("UPCOMING");
   const [query, setQuery] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false); const [busy, setBusy] = useState(false);
@@ -22,10 +23,10 @@ export function CinemaEvents() {
   const [organizers, setOrganizers] = useState<Array<{ name: string; type: string; status: string }>>([]);
   const [affiliation, setAffiliation] = useState("");
   const loadOrganizers = useCallback(async () => {
-    if (!account || !validStudentEmail(account.email)) return;
+    if (!account || !canPublish) return;
     const response = await fetch("/api/cinema/organizers", { credentials: "same-origin", cache: "no-store" });
     if (response.ok) { const data = await response.json() as { organizers?: Array<{ name: string; type: string; status: string }> }; setOrganizers(data.organizers || []); }
-  }, [account]);
+  }, [account, canPublish]);
   useEffect(() => {
     const timer = setTimeout(() => void loadOrganizers(), 0);
     return () => clearTimeout(timer);
@@ -86,7 +87,7 @@ export function CinemaEvents() {
   return <div className="cinema-events-page">
     <section className="cinema-events-hero">
       <div><span className="cinema-eyebrow">CAMPUS CINEMA</span><h2>Watch the event.<br />Join the conversation.</h2><p>Discover screenings, tutorials and moderated discussions. Reserve a place for a scheduled event, or catch up with a replay.</p></div>
-      <div className="cinema-controls">{account && validStudentEmail(account.email) ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">UMaT student organizers can publish events.</span>}</div>
+      <div className="cinema-controls">{canPublish ? <button className="cinema-cta" onClick={() => setCreateOpen(true)}><Plus size={18} /> Publish event</button> : !account ? <Link className="cinema-cta" href="/account?next=%2Fcinema">Sign in to participate</Link> : <span className="cinema-note">Verify a UMaT student email to publish events.</span>}</div>
     </section>
     <div className="cinema-event-tools">
       <nav className="cinema-filters" aria-label="Event sections">{SECTIONS.map((value) => <button key={value} aria-pressed={section === value} onClick={() => setSection(value)}>{value === "REPLAY" ? "Replays" : value === "LIVE" ? "Live now" : "Upcoming"}</button>)}</nav>

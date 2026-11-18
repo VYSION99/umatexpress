@@ -3,10 +3,10 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import "./brand-splash.css";
 
-export const SPLASH_DURATION_MS = 11000;
-const SPLASH_FADE_MS = 450;
-// Stretch the nine-second choreography together while keeping dismissal quick.
-const SPLASH_MOTION_SCALE = (SPLASH_DURATION_MS - SPLASH_FADE_MS) / (9000 - SPLASH_FADE_MS);
+export const SPLASH_DURATION_MS = 3200;
+const SPLASH_FADE_MS = 350;
+// Compress the choreography for a snappy mobile introduction.
+const SPLASH_MOTION_SCALE = (SPLASH_DURATION_MS - SPLASH_FADE_MS) / (9000 - 450);
 export const SPLASH_WORDMARK = "UMATeXPRESS";
 export const SPLASH_STAGES = [
   "darkness",
@@ -64,7 +64,8 @@ export function BrandSplash() {
     const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
     const reloaded = navigation?.type === "reload";
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (played || reloaded || reduced) {
+    const isMobile = window.matchMedia?.("(max-width: 768px)").matches;
+    if (played || reloaded || reduced || !isMobile) {
       const skipTimer = window.setTimeout(() => setVisible(false), 0);
       return () => window.clearTimeout(skipTimer);
     }

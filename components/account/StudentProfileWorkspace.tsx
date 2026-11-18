@@ -7,7 +7,7 @@ import { useStudentAccount, publishStudentAccount } from "./useStudentAccount";
 import { PasskeySettings } from "./PasskeyControls";
 import { ProfileAvatar, ProfilePhotoEditor } from "./ProfilePhoto";
 import { ProfilePanel } from "@/components/launcher/ProfilePanel";
-import { validStudentEmail } from "@/lib/student-email";
+import { useStudentEligibility } from "./useStudentEligibility";
 import { clearProfile, clearSavedTickets, notifyPassengerChanged, writeProfile } from "@/lib/passenger-profile";
 import type { StudentAccount } from "@/lib/student-auth";
 import "./student-profile.css";
@@ -20,6 +20,7 @@ const tabs: { id: Tab; label: string }[] = [
 
 export function StudentProfileWorkspace() {
   const { ready, account } = useStudentAccount();
+  const studentAccess = useStudentEligibility(account);
   const [tab, setTab] = useState<Tab>("overview");
   const [draft, setDraft] = useState({ accountId: "", name: "", phone: "" });
   const [currentPassword, setCurrentPassword] = useState("");
@@ -53,7 +54,7 @@ export function StudentProfileWorkspace() {
   if (!ready) return <section className="student-profile-loading" role="status">Loading your profile…</section>;
   if (!account) return <section className="student-profile-guest"><h2>Sign in to see your profile</h2><p>Your account details and security settings appear here after sign-in.</p><Link href="/account?next=%2Fprofile">Sign in <ArrowRight size={16} aria-hidden /></Link></section>;
 
-  const student = validStudentEmail(account.email);
+  const student = studentAccess === true;
   const verified = account.emailVerified;
   const name = draft.accountId === account.id ? draft.name : account.name;
   const phone = draft.accountId === account.id ? draft.phone : account.phone;
@@ -97,7 +98,7 @@ export function StudentProfileWorkspace() {
   return <div className="student-profile-workspace">
     <header className="student-profile-hero">
       <ProfileAvatar scope="STUDENT" name={account.name} />
-      <div><span>{student ? "STUDENT ACCOUNT" : "CINEMA MEMBER"}</span><h2>{account.name || "Your account"}</h2><p>{account.email}</p></div>
+      <div><span>{student ? "STUDENT ACCOUNT" : "UMATEXPRESS ACCOUNT"}</span><h2>{account.name || "Your account"}</h2><p>{account.email}</p></div>
       <span className={`student-profile-verification${verified ? " is-verified" : ""}`}><ShieldCheck size={16} aria-hidden />{verified ? "Email verified" : "Email verification needed"}</span>
     </header>
     <div className="student-profile-layout">
@@ -108,8 +109,9 @@ export function StudentProfileWorkspace() {
         {notice && <p className="student-profile-notice" role="status"><Check size={17} aria-hidden />{notice}</p>}
         {error && <p className="student-profile-error" role="alert">{error}</p>}
         {tab === "overview" && <>
-          <section className="student-profile-card"><span className="student-profile-eyebrow">ACCOUNT OVERVIEW</span><h3>Welcome, {account.name.split(/\s+/)[0] || "friend"}</h3><p>Your profile helps us prepare your bookings and protect your account. Your account photo is private and does not appear to other Cinema participants.</p><div className="student-profile-summary"><div><small>Account type</small><strong>{student ? "UMaT student" : "Cinema member"}</strong></div><div><small>Email</small><strong>{verified ? "Verified" : "Needs verification"}</strong></div><div><small>Last sign-in</small><strong>{account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleDateString() : "Not available"}</strong></div></div></section>
+          <section className="student-profile-card"><span className="student-profile-eyebrow">ACCOUNT OVERVIEW</span><h3>Welcome, {account.name.split(/\s+/)[0] || "friend"}</h3><p>Your profile helps us prepare your bookings and protect your account. Your account photo is private and does not appear to other Cinema participants.</p><div className="student-profile-summary"><div><small>Account type</small><strong>{student ? "UMaT student" : "Platform account"}</strong></div><div><small>Email</small><strong>{verified ? "Verified" : "Needs verification"}</strong></div><div><small>Last sign-in</small><strong>{account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleDateString() : "Not available"}</strong></div></div></section>
           {!verified && <section className="student-profile-card student-profile-attention"><h3>Verify your email</h3><p>Verification is needed before you can add a passkey or join activities that require a verified account.</p><Link href="/account?next=%2Fprofile">Open verification <ArrowRight size={16} aria-hidden /></Link></section>}
+          {verified && !student && <section className="student-profile-card student-profile-attention"><h3>Student access</h3><p>You can verify a UMaT student email on this account to use student-only services.</p><Link href="/account?next=%2Fprofile">Manage student access <ArrowRight size={16} aria-hidden /></Link></section>}
           {verified && <section className="student-profile-card student-linked-card"><span className="student-profile-eyebrow">CONNECTED PROFILE</span><h3>Console account</h3><p>{consoleLink === null ? "Checking for a console profile…" : consoleLink.linked ? `Your verified email also belongs to an active ${consoleLink.role} console account.` : "No active console account is linked to this verified email."} Student and console sign-ins stay separate; this profile does not grant staff access.</p></section>}
           <div className="student-profile-shortcuts"><button onClick={() => setTab("personal")}><User size={19} aria-hidden /><span><strong>Personal details</strong><small>Contact details and photo</small></span><ArrowRight size={16} aria-hidden /></button><button onClick={() => setTab("security")}><Key size={19} aria-hidden /><span><strong>Security</strong><small>Password and passkeys</small></span><ArrowRight size={16} aria-hidden /></button></div>
           <button className="student-profile-signout" type="button" disabled={signingOut} onClick={() => void signOut()}><SignOut size={16} aria-hidden />{signingOut ? "Signing out…" : "Sign out on this device"}</button>

@@ -11,7 +11,9 @@ const { curiosityCatalog } = await vite.ssrLoadModule("/lib/curiosity/catalog.ts
 const { decideCuriosity, curiosityCandidateIds } = await vite.ssrLoadModule("/lib/curiosity/policy.ts");
 const route = await vite.ssrLoadModule("/app/api/curiosity/decision/route.ts");
 const feedbackRoute = await vite.ssrLoadModule("/app/api/curiosity/feedback/route.ts");
-const { validCuriosityFeedback, curiosityFeedbackSummary } = await vite.ssrLoadModule("/lib/curiosity/feedback.ts");
+const { validCuriosityFeedback, curiosityFeedbackSummary, curiosityFeedbackHealthAlerts, pruneCuriosityFeedback } = await vite.ssrLoadModule("/lib/curiosity/feedback.ts");
+const { curiosityReadiness, clearCuriosityReadinessCache } = await vite.ssrLoadModule("/lib/curiosity/readiness.ts");
+const { interpretCuriosityGoal } = await vite.ssrLoadModule("/lib/curiosity/interpreter.ts");
 const { runCuriosityShadow } = await vite.ssrLoadModule("/lib/curiosity/shadow.ts");
 const shadowRoute = await vite.ssrLoadModule("/app/api/console/curiosity/shadow/route.ts");
 const catalog = curiosityCatalog();
@@ -165,13 +167,137 @@ test("an enabled pilot still applies live readiness and local hide controls", as
     sql.db.prepare("INSERT INTO curiosity_feedback_daily (day,policy_version,service_id,outcome,count) VALUES ('2020-01-01','curiosity-m1-1','cinema','NOT_HELPFUL',10)").run();
     assert.deepEqual(await curiosityFeedbackSummary(), [{ policyVersion: "curiosity-m1-1", serviceId: "cinema", outcome: "HELPFUL", count: 1 }]);
     assert.deepEqual(sql.db.prepare("PRAGMA table_info(curiosity_feedback_claims)").all().map((row) => row.name), ["dedupe_hash", "expires_at"]);
+    assert.equal(sql.db.prepare("SELECT COUNT(*) AS count FROM curiosity_feedback_daily WHERE day = '2020-01-01'").get().count, 1, "summary read does not delete rows as a side-effect");
+    await pruneCuriosityFeedback();
     assert.equal(sql.db.prepare("SELECT COUNT(*) AS count FROM curiosity_feedback_daily WHERE day = '2020-01-01'").get().count, 0);
     assert.deepEqual(sql.db.prepare("PRAGMA table_info(curiosity_feedback_daily)").all().map((row) => row.name), ["day", "policy_version", "service_id", "outcome", "count"]);
   } finally {
+    clearCuriosityReadinessCache();
     globalThis.fetch = saved.fetch;
     sql.db.close();
     for (const [key, value] of [["CURIOSITY_PILOT_ENABLED", saved.flag], ["TURSO_DATABASE_URL", saved.url], ["TURSO_AUTH_TOKEN", saved.token], ["CURIOSITY_EXCLUDED_SERVICES", saved.excluded], ["CURIOSITY_PILOT_SIGNING_KEY", saved.secret], ["CURIOSITY_PILOT_PERCENT", saved.percent]]) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+});
+
+test("single-branch travel resolves directly without asking a dead question", () => {
+  const onlyCampus = decideCuriosity({ intent: "travel", hiddenServiceIds: ["vacation"] }, catalog, ready);
+  assert.equal(onlyCampus.kind, "SUGGEST");
+  assert.equal(onlyCampus.service.id, "campus");
+
+  const onlyVacation = decideCuriosity({ intent: "travel", suppressedServiceIds: ["campus"] }, catalog, ready);
+  assert.equal(onlyVacation.kind, "SUGGEST");
+  assert.equal(onlyVacation.service.id, "vacation");
+
+  const bothSuppressed = decideCuriosity({ intent: "travel", hiddenServiceIds: ["campus"], suppressedServiceIds: ["vacation"] }, catalog, ready);
+  assert.equal(bothSuppressed.kind, "ABSTAIN");
+  assert.equal(bothSuppressed.reasonCode, "NO_ELIGIBLE_SERVICE");
+});
+
+test("multi-step path orchestration orders steps topologically and drops unavailable steps safely", () => {
+  // Social (cinema, stage 3) + Travel campus (campus, stage 2) -> ordered as campus -> cinema.
+  const pathDecision = decideCuriosity(
+    { intents: ["social", "travel"], travelChoice: "campus", questionsAsked: 1 },
+    catalog,
+    ready,
+  );
+  assert.equal(pathDecision.kind, "SUGGEST_PATH");
+  assert.equal(pathDecision.reasonCode, "PATH_MATCH");
+  assert.deepEqual(pathDecision.steps.map((s) => s.service.id), ["campus", "cinema"]);
+  assert.ok(pathDecision.steps.every((s) => s.uncertaintyNote.length > 10));
+
+  // Unlaunched step (print-copy) drops while ready step (cinema) is suggested with partialDropReason.
+  const partial = decideCuriosity({ intents: ["print", "social"] }, catalog, ready);
+  assert.equal(partial.kind, "SUGGEST");
+  assert.equal(partial.service.id, "cinema");
+  assert.match(partial.partialDropReason, /Print & Copy is unavailable right now/);
+
+  // Sensitive intent anywhere in a multi-step list forces ABSTAIN.
+  const sensitiveMulti = decideCuriosity({ intents: ["social", "health"] }, catalog, ready);
+  assert.equal(sensitiveMulti.kind, "ABSTAIN");
+  assert.equal(sensitiveMulti.reasonCode, "SENSITIVE_INTENT");
+
+  // Multi-intent with unresolved travel asks once when both travel branches are ready.
+  const askFirst = decideCuriosity({ intents: ["travel", "social"], questionsAsked: 0 }, catalog, ready);
+  assert.equal(askFirst.kind, "ASK");
+  assert.equal(askFirst.questionId, "TRAVEL_KIND");
+});
+
+test("parallel readiness isolates slow adapters, caches fresh checks, and flags feedback holds", async () => {
+  const saved = { flag: process.env.CURIOSITY_PILOT_ENABLED, url: process.env.TURSO_DATABASE_URL, token: process.env.TURSO_AUTH_TOKEN, secret: process.env.CURIOSITY_PILOT_SIGNING_KEY, percent: process.env.CURIOSITY_PILOT_PERCENT, fetch: globalThis.fetch };
+  const sql = sqliteTurso();
+  process.env.CURIOSITY_PILOT_ENABLED = "true";
+  process.env.CURIOSITY_PILOT_SIGNING_KEY = "test-curiosity-signing-key-with-32-bytes-minimum";
+  process.env.CURIOSITY_PILOT_PERCENT = "100";
+  process.env.TURSO_DATABASE_URL = "https://curiosity-orchestration-test.turso.io";
+  process.env.TURSO_AUTH_TOKEN = "test";
+  globalThis.fetch = sql.fetch;
+  clearCuriosityReadinessCache();
+  try {
+    // 1. Timeout isolation: hostels times out, cinema stays READY.
+    const subset = catalog.filter((c) => c.id === "hostels" || c.id === "cinema");
+    const readinessResult = await curiosityReadiness(subset, {
+      timeoutMs: 30,
+      adapterOverrides: {
+        hostels: () => new Promise((resolve) => setTimeout(() => resolve(true), 200)),
+        cinema: async () => true,
+      },
+    });
+    assert.equal(readinessResult.find((r) => r.serviceId === "hostels").reasonCode, "READINESS_CHECK_FAILED");
+    assert.equal(readinessResult.find((r) => r.serviceId === "cinema").reasonCode, "READY");
+
+    // 2. Multi-step decision route mints per-step feedback tokens.
+    const invitation = await route.GET(new Request("https://campus.example/api/curiosity/decision"));
+    const cookie = invitation.headers.get("set-cookie").split(";")[0];
+    const res = await route.POST(new Request("https://campus.example/api/curiosity/decision", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ intents: ["social", "travel"], travelChoice: "campus", questionsAsked: 1 }),
+    }));
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.decision.kind, "SUGGEST_PATH");
+    assert.equal(body.decision.steps.length, 2);
+    assert.match(body.decision.steps[0].feedbackToken, /^v1\./);
+    assert.match(body.decision.steps[1].feedbackToken, /^v1\./);
+
+    // 3. Feedback health alert triggers when >= 20 ratings in 7d have > 60% NOT_HELPFUL.
+    const today = new Date().toISOString().slice(0, 10);
+    await curiosityFeedbackSummary();
+    sql.db.prepare("INSERT INTO curiosity_feedback_daily (day,policy_version,service_id,outcome,count) VALUES (?,?,?, 'HELPFUL', 5)").run(today, "curiosity-m1-1", "campus");
+    sql.db.prepare("INSERT INTO curiosity_feedback_daily (day,policy_version,service_id,outcome,count) VALUES (?,?,?, 'NOT_HELPFUL', 18)").run(today, "curiosity-m1-1", "campus");
+    const alerts = await curiosityFeedbackHealthAlerts();
+    const campusAlert = alerts.find((a) => a.serviceId === "campus");
+    assert.equal(campusAlert.holdRecommended, true);
+    assert.equal(campusAlert.total, 23);
+  } finally {
+    clearCuriosityReadinessCache();
+    globalThis.fetch = saved.fetch;
+    sql.db.close();
+    for (const [key, value] of [["CURIOSITY_PILOT_ENABLED", saved.flag], ["TURSO_DATABASE_URL", saved.url], ["TURSO_AUTH_TOKEN", saved.token], ["CURIOSITY_PILOT_SIGNING_KEY", saved.secret], ["CURIOSITY_PILOT_PERCENT", saved.percent]]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test("deterministic goal interpreter extracts ordered intents and blocks sensitive phrases", () => {
+  assert.deepEqual(interpretCuriosityGoal("I need to print my thesis and travel home"), {
+    intents: ["print", "travel"],
+    travelChoice: "home",
+    sensitive: false,
+  });
+  assert.deepEqual(interpretCuriosityGoal("Ride around campus then watch a movie"), {
+    intents: ["travel", "social"],
+    travelChoice: "campus",
+    sensitive: false,
+  });
+  assert.deepEqual(interpretCuriosityGoal("I feel unwell and need the clinic"), {
+    intents: ["health"],
+    sensitive: true,
+  });
+  assert.deepEqual(interpretCuriosityGoal("Quantum mechanics homework"), {
+    intents: ["unknown"],
+    sensitive: false,
+  });
 });

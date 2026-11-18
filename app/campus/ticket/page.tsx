@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle, Circle, CircleNotch, Clock, ImageSquare, MapPin, ShareNetwork, ShieldCheck, Trash, WifiSlash, XCircle } from "@/components/ui/MaterialIcon";
+import { CurbsideChatModal } from "@/components/campusRide/shared/CurbsideChatModal";
 import { TripFeedback } from "@/components/campusRide/student/TripFeedback";
 import { queueProgress } from "@/lib/campus-engine/progress";
 import { paymentReceipt } from "@/lib/payments/receipt";
 import { verificationState } from "@/lib/payments/verification-client";
 import { forgetTicket, rememberTicket } from "@/lib/passenger-profile";
+import { useTour } from "@/components/tour/TourProvider";
 
 /**
  * What `verifyCampusRidePayment` returns for `ticket`. Named rather than left as
@@ -102,6 +104,7 @@ function readCachedTicket(reference: string) {
 }
 
 export default function CampusTicketPage() {
+  const { startTour, hasSeenTour } = useTour();
   const [state, setState] = useState<"loading" | "paid" | "pending" | "review" | "failed" | "unavailable" | "signin">("loading");
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [status, setStatus] = useState<QueueStatus | null>(null);
@@ -113,10 +116,20 @@ export default function CampusTicketPage() {
   // Cancelling is two taps rather than one: the first opens the policy in full,
   // the second gives up the seat, so nobody loses a ride to a stray touch.
   const [cancelStep, setCancelStep] = useState<"idle" | "confirm" | "working">("idle");
+  const [chatOpen, setChatOpen] = useState(false);
   const referenceRef = useRef("");
   const [paymentReference, setPaymentReference] = useState("");
   const verificationRequest = useRef<AbortController | null>(null);
   const receipt = ticket ? paymentReceipt(ticket.total_amount ?? ticket.amount, ticket.fare_amount, ticket.fee_amount) : null;
+
+  useEffect(() => {
+    if (state === "paid" && ticket && !hasSeenTour("campus-ticket")) {
+      const timer = window.setTimeout(() => {
+        startTour("campus-ticket");
+      }, 1000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [state, ticket, hasSeenTour, startTour]);
 
   // Progress is derived from the last poll, falling back to the ticket's own
   // status so the timeline renders even before the first refresh lands.
@@ -284,7 +297,7 @@ export default function CampusTicketPage() {
     {state === "loading" ? <><CircleNotch className="status-icon spin"/><h1>Verifying campusRide payment…</h1></> :
     state === "paid" && ticket ? <>
       {offline && <p className="campus-offline-banner"><WifiSlash size={16}/> Offline — showing the ticket saved on this device{cachedAt ? ` at ${new Date(cachedAt).toLocaleTimeString()}` : ""}.</p>}
-      <section className="campus-live-progress" aria-live="polite">
+      <section className="campus-live-progress" data-tour="ticket-progress" aria-live="polite">
         <div className="campus-live-head">
           <div><small>Live status</small><strong>{progress.label}</strong><span>{progress.hint}</span></div>
           {etaLine ? <div className="campus-live-eta">
@@ -300,10 +313,22 @@ export default function CampusTicketPage() {
           </li>)}
         </ol>
         {pickupEta?.note ? <p className="campus-live-note">{pickupEta.note}</p> : null}
-        {status?.driver.name ? <p className="campus-live-driver">
-          <MapPin size={15}/> <strong>{status.driver.name}</strong> · {status.driver.vehicleLabel} {status.driver.plateNumber}
-          {status.driver.zoneName ? ` · near ${status.driver.zoneName}` : ""}
-        </p> : null}
+        {status?.driver.name ? <div className="campus-live-driver-wrap">
+          <p className="campus-live-driver">
+            <MapPin size={15}/> <strong>{status.driver.name}</strong> · {status.driver.vehicleLabel} {status.driver.plateNumber}
+            {status.driver.zoneName ? ` · near ${status.driver.zoneName}` : ""}
+          </p>
+          {["ACCEPTED_BY_DRIVER", "DRIVER_ARRIVED", "BOARDED"].includes(String(status.status)) && (
+            <button
+              type="button"
+              data-tour="ticket-chat"
+              className="campus-chat-chip-btn"
+              onClick={() => setChatOpen(true)}
+            >
+              💬 Curbside Chat
+            </button>
+          )}
+        </div> : null}
       </section>
       <div className="ticket-card campus-ticket-card">
         <div className="ticket-head"><div className="ticket-brand"><img src="/logo-mark.png" alt="" /><div><strong>campusRide</strong><small>{ticket.corridor_name || "Campus ride ticket"}</small></div></div><span>PAID</span></div>
@@ -312,7 +337,7 @@ export default function CampusTicketPage() {
           <span><small>Passenger</small><strong>{ticket.passenger_name}</strong></span>
           <span><small>Phone</small><strong>{ticket.phone}</strong></span>
           <span><small>Queue position</small><strong>#{ticket.queue_position}</strong></span>
-          <span><small>Boarding PIN</small><strong>{ticket.ride_pin}</strong></span>
+          <span data-tour="ticket-pin"><small>Boarding PIN</small><strong>{ticket.ride_pin}</strong></span>
           {receipt?.fareAmount != null && <><span><small>Fare</small><strong>{cedisFromPesewas(receipt.fareAmount)}</strong></span>
           <span><small>Processing fee</small><strong>{cedisFromPesewas(receipt.feeAmount || 0)}</strong></span></>}
           <span><small>Total paid</small><strong>{cedisFromPesewas(Number(ticket.total_amount ?? ticket.amount))}</strong></span>
@@ -353,12 +378,26 @@ export default function CampusTicketPage() {
       {status?.status === "COMPLETED" ? <TripFeedback reference={String(ticket.reference || "")} /> : null}
       {notice && <p className="campus-ticket-notice">{notice}</p>}
       <div className="ticket-actions">
+        {["ACCEPTED_BY_DRIVER", "DRIVER_ARRIVED", "BOARDED"].includes(String(status?.status || ticket.queue_status)) ? (
+          <button type="button" data-tour="ticket-chat" onClick={() => setChatOpen(true)}>💬 Coordinate with driver</button>
+        ) : (
+          <button type="button" data-tour="ticket-chat" onClick={() => setChatOpen(true)}>💬 Curbside Chat</button>
+        )}
+        <button type="button" onClick={() => startTour("campus-ticket")}>Take ticket tour</button>
         <button onClick={saveImage}><ImageSquare size={17}/> Save/print image</button>
         <button onClick={share}><ShareNetwork size={17}/> Share trip</button>
         <button onClick={forget}><Trash size={17}/> Forget ticket</button>
         <Link href="/campus">Find another ride</Link>
         <Link href="/">Client home</Link>
       </div>
+      <CurbsideChatModal
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        service="campus"
+        reference={ticket.reference}
+        title="Curbside Coordination"
+        subtitle={status?.driver.name ? `Driver: ${status.driver.name} · ${status.driver.vehicleLabel} ${status.driver.plateNumber}` : undefined}
+      />
     </> :
     state === "pending" ? <><CircleNotch className="status-icon spin"/><h1>Payment confirmation pending</h1><p>{error || "Paystack has not returned a final result yet."} Do not pay again. We are still checking this payment.</p><p>Reference: {paymentReference}</p><button type="button" onClick={() => void verify(referenceRef.current, false)}>Check payment again</button><Link href="/account">Check your bookings</Link></> :
     state === "review" ? <><ShieldCheck className="status-icon"/><h1>Payment review needed</h1><p>This payment has been paused for staff review. Your queue reference is retained; do not make another payment.</p><p>Reference: {paymentReference}</p><Link href="/account">Open your account</Link></> :

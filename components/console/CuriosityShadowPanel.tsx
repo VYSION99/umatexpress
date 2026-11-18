@@ -11,27 +11,40 @@ type ShadowReport = {
   scenarios: Array<{ id: string; label: string; kind: string; reasonCode: string; serviceId: string | null; explanation: string | null; violations: string[] }>;
 };
 
+type FeedbackAlert = {
+  serviceId: string;
+  policyVersion: string;
+  helpful: number;
+  notHelpful: number;
+  total: number;
+  notHelpfulRatio: number;
+  holdRecommended: boolean;
+};
+
 export function CuriosityShadowPanel() {
   const [report, setReport] = useState<ShadowReport | null>(null);
   const [pilotEnabled, setPilotEnabled] = useState(false);
-  const [feedback, setFeedback] = useState<{ available: boolean; rows: Array<{ policyVersion: string; serviceId: string; outcome: string; count: number }> }>({ available: false, rows: [] });
+  const [feedback, setFeedback] = useState<{ available: boolean; rows: Array<{ policyVersion: string; serviceId: string; outcome: string; count: number }>; alerts?: FeedbackAlert[] }>({ available: false, rows: [], alerts: [] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     setBusy(true); setError(""); setReport(null);
     try {
       const response = await fetch("/api/console/curiosity/shadow", { cache: "no-store" });
-      const data = await response.json() as { report?: ShadowReport; pilotEnabled?: boolean; feedback?: { available: boolean; rows: Array<{ policyVersion: string; serviceId: string; outcome: string; count: number }> }; error?: string };
+      const data = await response.json() as { report?: ShadowReport; pilotEnabled?: boolean; feedback?: { available: boolean; rows: Array<{ policyVersion: string; serviceId: string; outcome: string; count: number }>; alerts?: FeedbackAlert[] }; error?: string };
       if (!response.ok || !data.report) throw new Error(data.error || "Curiosity diagnostics could not be loaded.");
-      setReport(data.report); setPilotEnabled(data.pilotEnabled === true); setFeedback(data.feedback || { available: false, rows: [] });
+      setReport(data.report); setPilotEnabled(data.pilotEnabled === true); setFeedback(data.feedback || { available: false, rows: [], alerts: [] });
     } catch (problem) { setError(problem instanceof Error ? problem.message : "Curiosity diagnostics could not be loaded."); }
     finally { setBusy(false); }
   }, []);
   useEffect(() => { const timer = setTimeout(() => void load(), 0); return () => clearTimeout(timer); }, [load]);
 
+  const holdAlerts = (feedback.alerts || []).filter((item) => item.holdRecommended);
+
   return <div className="curiosity-console">
     <section className="console-card curiosity-console-intro"><div><h2>Synthetic shadow check</h2><p>This runs fixed example goals against live service readiness. It does not read student sessions, store goal text, or show suggestions to students.</p></div><button type="button" onClick={() => void load()} disabled={busy}>{busy ? "Checking…" : "Refresh checks"}</button></section>
     {error && <p className="console-alert" role="alert">{error}</p>}
+    {holdAlerts.length > 0 && <p className="console-alert" role="alert">Feedback hold recommended for: {holdAlerts.map((item) => `${item.serviceId} (${Math.round(item.notHelpfulRatio * 100)}% not useful over ${item.total} ratings in 7d)`).join(", ")}.</p>}
     {report && <>
       <section className="console-card curiosity-console-summary" aria-label="Curiosity policy check summary"><div><span>Pilot</span><strong>{pilotEnabled ? "Enabled" : "Off"}</strong></div><div><span>Policy</span><strong>{report.policyVersion}</strong></div><div><span>Scenarios</span><strong>{report.summary.passed}/{report.summary.checked} passed</strong></div><div><span>Eligible services</span><strong>{report.summary.eligibleServices}</strong></div><div><span>Policy failures</span><strong>{report.summary.failed}</strong></div><div><span>Readiness holds</span><strong>{report.summary.readinessHolds}</strong></div></section>
       <section className="console-card"><h2>Service readiness</h2><p>A service can be live in navigation and still be excluded from suggestions if its required evidence is missing.</p><div className="curiosity-console-list">{report.readiness.map((item) => <div key={item.id}><strong>{item.title}</strong><span>{item.eligible ? "Eligible" : "Excluded"}</span><small>{item.reasonCode}</small></div>)}</div></section>

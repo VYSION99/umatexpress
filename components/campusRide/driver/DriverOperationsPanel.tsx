@@ -6,6 +6,7 @@ import { Crosshair } from "@/components/ui/MaterialIcon";
 import { CampusAiAssistant } from "@/components/campusRide/shared/CampusAiAssistant";
 import { CampusMap } from "@/components/campusRide/shared/CampusMap";
 import { CampusStatusBanner } from "@/components/campusRide/shared/CampusShell";
+import { CurbsideChatModal } from "@/components/campusRide/shared/CurbsideChatModal";
 import type { CampusCorridor, CampusDriver, CampusQueueEntry, CampusRide, CampusVehicle, CampusZone } from "@/lib/campus-ride";
 
 type DriverState = { driver: CampusDriver; ride?: CampusRide; zones: CampusZone[]; corridors: CampusCorridor[]; vehicles: CampusVehicle[] };
@@ -26,6 +27,7 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
   const [queue, setQueue] = useState<CampusQueueEntry[]>([]);
   const [summary, setSummary] = useState<DriverSummary | null>(null);
   const [pins, setPins] = useState<Record<string, string>>({});
+  const [activeChatRef, setActiveChatRef] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
   const [gpsStatus, setGpsStatus] = useState("");
@@ -152,6 +154,7 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
       {entry.queueStatus === "BOARDED" && <button disabled={saving==="complete"} onClick={()=>queueAction(entry, "complete")}>Complete</button>}
       {["ACCEPTED_BY_DRIVER","DRIVER_ARRIVED"].includes(entry.queueStatus) && <button disabled={saving==="no-show"} onClick={()=>queueAction(entry, "no-show")}>No-show</button>}
       {["PAID_WAITING","ACCEPTED_BY_DRIVER","DRIVER_ARRIVED","BOARDED"].includes(entry.queueStatus) && <button disabled={saving==="cancel"} onClick={()=>queueAction(entry, "cancel")}>Cancel</button>}
+      {["ACCEPTED_BY_DRIVER","DRIVER_ARRIVED","BOARDED"].includes(entry.queueStatus) && <button type="button" onClick={()=>setActiveChatRef(entry.reference)}>Chat</button>}
     </div>
   </article>;
   const vehicle = data.vehicles.find((item) => item.id === data.driver.vehicleId);
@@ -262,5 +265,14 @@ export function DriverOperationsPanel({ initialData }: { initialData?: DriverSta
       <CampusMap zones={data.zones} corridors={data.corridors} rides={data.ride ? [data.ride] : []} title="Driver live map" />
       <CampusAiAssistant area="driver" context={`Driver: ${data.driver.name}\nZone: ${currentZone?.name || "Not set"}\nRide: ${data.ride?.status || "None"}\nAvailable slots: ${data.ride?.availableSlots || 0}`} />
     </div>
+    {activeChatRef && (
+      <CurbsideChatModal
+        open={Boolean(activeChatRef)}
+        onClose={() => setActiveChatRef(null)}
+        service="campus"
+        reference={activeChatRef}
+        title="Curbside Coordination"
+      />
+    )}
   </section>;
 }

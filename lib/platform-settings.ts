@@ -85,7 +85,10 @@ export type PlatformSettingKey =
   | "campus_fare_max_amount"
   /* campusRide seat cancellations: how long a paid seat may sit unmatched, and whether the sweep may refund it unattended */
   | "campus_unmatched_refund_minutes"
-  | "campus_auto_refund_unmatched";
+  | "campus_auto_refund_unmatched"
+  /* Outbound SMS enrollment and daily segment budget */
+  | "sms_notifications_enabled"
+  | "sms_daily_segment_limit";
 export type PlatformSettingKind = "toggle" | "number";
 export type PlatformSettingSource = "SETTING" | "ENV" | "DEFAULT";
 
@@ -649,6 +652,26 @@ export const PLATFORM_SETTING_DEFINITIONS: readonly PlatformSettingDefinition[] 
     detail: "On, the sweep approves each unmatched-seat refund as it is recorded, so Paystack returns the fare on its own. Off, the refund is still recorded and the passenger is still told, but it waits for an administrator in the campus refund desk before money leaves. This is deliberately separate from the payout switches: a refund returns money the platform already holds for a service it did not deliver, which is not the same act as releasing a payee's earnings. It is still reversible, so an operator who wants every refund reviewed can turn it off and lose only the automatic part.",
     env: "CAMPUS_AUTO_REFUND_UNMATCHED",
     fallback: false,
+  },
+  {
+    key: "sms_notifications_enabled",
+    kind: "toggle",
+    label: "Curbside & departure SMS alerts",
+    summary: "Queue one 1-segment SMS for paid driver arrivals and departure reminders.",
+    detail: "On, paid CampusRide arrival alerts and VacationRide departure reminders queue a companion 160-character SMS after a 30-second in-app read grace window. If the student already read the alert in the app, the SMS is suppressed at zero cost. Off keeps all notifications on Email and the in-app feed only.",
+    env: "SMS_NOTIFICATIONS_ENABLED",
+    fallback: false,
+  },
+  {
+    key: "sms_daily_segment_limit",
+    kind: "number",
+    label: "Daily SMS segment cap",
+    summary: "Maximum SMS messages the outbox may send in one UTC day.",
+    detail: "Each companion text is clamped to a single 160-character segment. Once this daily count of sent SMS messages is reached, additional companion texts fail closed for the rest of the day while email and in-app notifications continue normally.",
+    env: "SMS_DAILY_SEGMENT_LIMIT",
+    fallback: 200,
+    min: 10,
+    max: 10_000,
   },
 ];
 

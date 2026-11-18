@@ -29,6 +29,7 @@ const {
   studentSessionCookie,
   studentAccountFromRequest,
   studentSessionFromRequest,
+  studentOwnsEmail,
   clearStudentSessionCookie,
   verifyStudentCredentials,
 } = await vite.ssrLoadModule("/lib/student-auth.ts");
@@ -61,7 +62,7 @@ test("emails are normalised before they are stored or compared", () => {
   assert.equal(validStudentEmail(normalizeStudentEmail("Ama@st.umat.edu.gh")), true);
 });
 
-test("the domain rule fails loudly for the sign-up form", () => {
+test("the student eligibility domain rule remains strict", () => {
   assert.throws(() => assertStudentEmail("ama@umat.edu.gh"), /@st\.umat\.edu\.gh/);
   assert.doesNotThrow(() => assertStudentEmail("ama@st.umat.edu.gh"));
 });
@@ -131,10 +132,11 @@ const {
   changeStudentPassword,
 } = await vite.ssrLoadModule("/lib/student-auth.ts");
 
-test("a sign-up outside the student domain never reaches the database", async () => {
-  await assert.rejects(() => registerStudent({ email: "ama@umat.edu.gh", password: "Campus!2026ride" }), /@st\.umat\.edu\.gh/);
-  await assert.rejects(() => registerStudent({ email: "ama@gmail.com", password: "Campus!2026ride" }), /@st\.umat\.edu\.gh/);
+test("registration accepts ordinary mailboxes but rejects invalid addresses and weak passwords", async () => {
+  await assert.rejects(() => registerStudent({ email: "ama@invalid", password: "Campus!2026ride" }), /valid email address/);
+  await assert.rejects(() => registerStudent({ email: "ama..mensah@example.com", password: "Campus!2026ride" }), /valid email address/);
   await assert.rejects(() => registerStudent({ email: "ama@st.umat.edu.gh", password: "weakpass" }), /at least 10 characters/);
+  await assert.rejects(() => registerStudent({ email: "ama@gmail.com", password: "Campus!2026ride" }), /accounts are not configured/);
 });
 
 test("a valid sign-up still fails closed when no account store is configured", async () => {
@@ -158,7 +160,9 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
   process.env.TURSO_AUTH_TOKEN = "test-token";
   const originalFetch = globalThis.fetch;
   const statements = [];
+  let emailVerified = 1;
   let verificationRequired = 0;
+  let accountEmail = "ama@st.umat.edu.gh";
   globalThis.fetch = async (_url, init) => {
     const sql = JSON.parse(String(init?.body)).requests[0].stmt.sql;
     statements.push(sql);
@@ -166,7 +170,7 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
     // self-heal, last-login stamp) is a no-op.
     if (sql.includes("FROM student_accounts WHERE id = ?")) {
       const columns = ["id", "email", "name", "phone", "created_at", "last_login_at", "token_version", "active", "password_hash", "password_salt", "password_iterations", "email_verified", "verification_required"];
-      const values = ["acc-1", "ama@st.umat.edu.gh", "Ama", "0555000111", "2026-01-01T00:00:00.000Z", "", 0, 1, "hash", "salt", 100000, 0, verificationRequired];
+      const values = ["acc-1", accountEmail, "Ama", "0555000111", "2026-01-01T00:00:00.000Z", "", 0, 1, "hash", "salt", 100000, emailVerified, verificationRequired];
       return Response.json({ results: [{ type: "ok", response: { result: { rows: [values.map((value) => ({ value }))], cols: columns.map((name) => ({ name })) } } }] });
     }
     return Response.json({ results: [{ type: "ok", response: { result: { rows: [], cols: [] } } }] });
@@ -174,7 +178,7 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
   try {
     const cookie = (await studentSessionCookie("acc-1", new Request("http://localhost/"))).split(";")[0];
     const account = await requireStudent(request(cookie));
-    assert.deepEqual(account, { id: "acc-1", email: "ama@st.umat.edu.gh", name: "Ama", phone: "0555000111", createdAt: "2026-01-01T00:00:00.000Z", lastLoginAt: "", emailVerified: false, verificationRequired: false });
+    assert.deepEqual(account, { id: "acc-1", email: "ama@st.umat.edu.gh", name: "Ama", phone: "0555000111", createdAt: "2026-01-01T00:00:00.000Z", lastLoginAt: "", emailVerified: true, verificationRequired: false });
 
     // The token-version probe reads the same table, so the credential columns are
     // what identify the full account lookup.
@@ -185,8 +189,14 @@ test("a session resolves to the stored account, and the lookup SQL stays well fo
     assert.equal(lookup[0].match(/FROM/g).length, 1, "exactly one FROM in the account lookup");
     assert.ok(lookup[0].indexOf("password_iterations") < lookup[0].indexOf("FROM"), "columns must all precede FROM");
     assert.match(lookup[0], /WHERE id = \? LIMIT 1$/);
+    assert.equal(await studentOwnsEmail(request(cookie), "ama@st.umat.edu.gh"), true);
+    emailVerified = 0;
     verificationRequired = 1;
-    await assert.rejects(() => requireStudent(request(cookie)), /Verify your UMaT email/);
+    await assert.rejects(() => requireStudent(request(cookie)), /Verify your account email/);
+    assert.equal(await studentOwnsEmail(request(cookie), "ama@st.umat.edu.gh"), false, "an unverified account cannot claim a booking by matching its email");
+    emailVerified = 1;
+    accountEmail = "ama@gmail.com";
+    await assert.rejects(() => requireStudent(request(cookie)), /Verify a UMaT student email/);
   } finally {
     globalThis.fetch = originalFetch;
     if (previous.url === undefined) delete process.env.TURSO_DATABASE_URL; else process.env.TURSO_DATABASE_URL = previous.url;

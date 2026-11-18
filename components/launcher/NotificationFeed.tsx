@@ -25,7 +25,7 @@ export function relativeTime(value: string, now = Date.now()) {
  * empty list, because the feed belongs to the account and not to the device.
  */
 export function NotificationFeed() {
-  const { ready, signedIn, items, unread, error, refresh, markAllRead } = useNotifications();
+  const { ready, signedIn, items, unread, error, refresh, markAllRead, markRead } = useNotifications();
 
   if (!signedIn) return <div className="launch-panel-message">
     <Bell size={32} aria-hidden />
@@ -53,14 +53,32 @@ export function NotificationFeed() {
       {unread > 0 && <button className="feed-read-all" onClick={() => void markAllRead()}><Check size={15} aria-hidden /> Mark all read</button>}
     </div>
     <ul>
-      {items.map((item) => { const action = notificationAction(item.template, item.reference, item.message); return <li key={item.id} className={item.read ? "" : "is-unread"}>
-        <div className="feed-item-head">
-          <strong>{item.subject}</strong>
-          <small>{relativeTime(item.createdAt)}</small>
-        </div>
-        <p>{item.message}</p>
-        {action && <Link href={action.href}>{action.label}<ArrowRight size={14} aria-hidden /></Link>}
-      </li>; })}
+      {items.map((item) => {
+        const action = notificationAction(item.template, item.reference, item.message);
+        return <li
+          key={item.id}
+          className={item.read ? "" : "is-unread"}
+          onClick={() => { if (!item.read) void markRead(item.id); }}
+        >
+          <div className="feed-item-head">
+            <strong>{item.subject}</strong>
+            <small>{relativeTime(item.createdAt)}</small>
+          </div>
+          <p>{item.message}</p>
+          {action && (
+            <Link
+              href={action.href}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!item.read) void markRead(item.id);
+              }}
+            >
+              {action.label}
+              <ArrowRight size={14} aria-hidden />
+            </Link>
+          )}
+        </li>;
+      })}
     </ul>
   </div>;
 }

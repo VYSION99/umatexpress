@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { AppInstallPrompt } from "@/components/pwa/AppInstallPrompt";
+import { TourProvider } from "@/components/tour/TourProvider";
 import "./globals.css";
 import "./ticket.css";
 import "./palette.css";
 import "./material-icons.css";
 import "./bottom-sheet.css";
 
-// Runs before the body paints so a reload never flashes or replays the splash.
-const splashReloadGuard = `try{var n=performance.getEntriesByType('navigation')[0];var r=(n&&n.type==='reload')||(performance.navigation&&performance.navigation.type===1);var s=sessionStorage.getItem('umatexpress:intro-played:v1')==='1';if(r)document.documentElement.classList.add('page-is-reloading');if(r||s)document.documentElement.classList.add('splash-already-seen')}catch(e){}`;
+// Runs before the body paints so desktop never flashes and a reload never replays the splash.
+const splashReloadGuard = `try{var n=performance.getEntriesByType('navigation')[0];var r=(n&&n.type==='reload')||(performance.navigation&&performance.navigation.type===1);var s=sessionStorage.getItem('umatexpress:intro-played:v1')==='1';var m=window.matchMedia&&window.matchMedia('(max-width:768px)').matches;if(r)document.documentElement.classList.add('page-is-reloading');if(r||s||!m)document.documentElement.classList.add('splash-already-seen')}catch(e){}`;
 
 export const metadata: Metadata = {
   title: "UMATeXPRESS | Your Campus Companion",
@@ -43,8 +44,10 @@ export default function RootLayout({
     <html lang="en">
       <head><script dangerouslySetInnerHTML={{ __html: splashReloadGuard }} /></head>
       <body className="antialiased">
-        {children}
-        <AppInstallPrompt />
+        <TourProvider>
+          {children}
+          <AppInstallPrompt />
+        </TourProvider>
       </body>
     </html>
   );

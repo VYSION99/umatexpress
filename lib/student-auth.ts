@@ -1,13 +1,10 @@
 /**
- * UMaTeXPRESS student accounts.
+ * UMaTeXPRESS accounts.
  *
- * One account covers the whole platform: campusRide and vacationRide both check
- * this same session, so a student signs in once and can book either service.
- * Browsing is never gated — only creating a booking or starting a payment is.
- *
- * Only UMaT student addresses are accepted. New accounts must prove control
- * of that address with an emailed code before they use authenticated services.
- * Existing accounts are grandfathered until a separate verification campaign.
+ * Any valid mailbox may create one platform account. Student-only actions need
+ * a verified UMaT address, either as the primary email or a linked address.
+ * Legacy student accounts created before verification was required retain their
+ * existing access until a separate verification migration is run.
  *
  * Nothing here ever returns a password hash, salt or iteration count.
  */
@@ -17,6 +14,7 @@ import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { envValue } from "@/lib/runtime-env";
 import { notifyPasswordChanged } from "@/lib/notifications";
 import { STUDENT_EMAIL_DOMAIN, normalizeStudentEmail, validPlatformEmail, validStudentEmail } from "@/lib/student-email";
+import { ensureStudentEmailClaimsTable, hasVerifiedStudentEmail, studentEmailClaim } from "@/lib/student-email-claims";
 import { hasColumn, isTursoConfiguredRuntime, rowsToObjects, turso } from "@/lib/turso";
 
 export const STUDENT_SESSION_COOKIE = "umx_student_session";
@@ -67,7 +65,7 @@ export function studentAccountView(row: Record<string, unknown>): StudentAccount
 /** The readable projection: everything except the credential columns. */
 const ACCOUNT_COLUMNS = "id,email,COALESCE(name,'') AS name,COALESCE(phone,'') AS phone,COALESCE(created_at,'') AS created_at,COALESCE(last_login_at,'') AS last_login_at,COALESCE(email_verified,0) AS email_verified,COALESCE(verification_required,0) AS verification_required";
 
-let studentAccountsTable: Promise<void> | null = null;
+const studentAccountsTableByUrl = new Map<string, Promise<void>>();
 
 /**
  * Self-heals the schema for previews and for databases that were migrated before
@@ -78,14 +76,17 @@ let studentAccountsTable: Promise<void> | null = null;
  * paid again on every sign-in. A failure is forgotten instead of cached, so a
  * database that is briefly unreachable is retried on the next request.
  */
-export function ensureStudentAccountsTable() {
-  if (!studentAccountsTable) {
-    studentAccountsTable = createStudentAccountsTable().catch((error: unknown) => {
-      studentAccountsTable = null;
+export async function ensureStudentAccountsTable() {
+  const url = (await envValue("TURSO_DATABASE_URL")) || "default";
+  let ready = studentAccountsTableByUrl.get(url);
+  if (!ready) {
+    ready = createStudentAccountsTable().catch((error: unknown) => {
+      studentAccountsTableByUrl.delete(url);
       throw error;
     });
+    studentAccountsTableByUrl.set(url, ready);
   }
-  return studentAccountsTable;
+  return ready;
 }
 
 async function createStudentAccountsTable() {
@@ -260,8 +261,13 @@ export async function studentOwnsEmail(request: Request, email: unknown): Promis
   const target = String(email || "").trim().toLowerCase();
   if (!target) return false;
   const student = await studentAccountFromRequest(request);
-  if (!student) return false;
-  return String(student.email || "").trim().toLowerCase() === target;
+  if (!student || (student.verificationRequired && !student.emailVerified)) return false;
+  if (String(student.email || "").trim().toLowerCase() === target) return true;
+  if (student.emailVerified && validStudentEmail(target)) {
+    const claim = await studentEmailClaim(student.id);
+    return claim.verified && claim.studentEmail === target;
+  }
+  return false;
 }
 
 /** For the booking/payment routes: a student session is required to spend money. */
@@ -269,10 +275,10 @@ export async function requireStudent(request: Request): Promise<StudentAccount> 
   const session = await studentSessionFromRequest(request);
   const account = session ? await accountFromSession(session) : null;
   if (!account) throw new CampusEngineError("UNAUTHORIZED", "Sign in to your UMaTeXPRESS account to continue.", 401);
-  if (!validStudentEmail(account.email)) throw new CampusEngineError("FORBIDDEN", "This service requires a UMaT student account.", 403);
   if (account.verificationRequired && !account.emailVerified) {
-    throw new CampusEngineError("FORBIDDEN", "Verify your UMaT email on the account page before continuing.", 403);
+    throw new CampusEngineError("FORBIDDEN", "Verify your account email before continuing.", 403);
   }
+  if (!validStudentEmail(account.email) && (!account.emailVerified || !await hasVerifiedStudentEmail(account.id))) throw new CampusEngineError("FORBIDDEN", "Verify a UMaT student email on the account page before continuing.", 403);
   return account;
 }
 
@@ -290,9 +296,10 @@ export async function registerStudent(input: { email?: unknown; password?: unkno
   const password = typeof input.password === "string" ? input.password : "";
   const name = typeof input.name === "string" ? input.name.trim().slice(0, 100) : "";
   const phone = typeof input.phone === "string" ? input.phone.trim().slice(0, 30) : "";
-  assertStudentEmail(email);
+  if (!validPlatformEmail(email)) throw new CampusEngineError("VALIDATION_ERROR", "Enter a valid email address.", 400);
   assertStudentPassword(password);
   await requireTurso();
+  await ensureStudentEmailClaimsTable();
   if (await storedAccount(email)) {
     throw new CampusEngineError("CONFLICT", "An account already exists for that email. Sign in instead.", 409);
   }

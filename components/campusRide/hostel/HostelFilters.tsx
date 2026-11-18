@@ -33,7 +33,7 @@ export function HostelFilters({ periods, value, matchCount }: { periods: PeriodO
     });
     startTransition(() => router.push(`/hostel?${params}`, { scroll: false }));
   }
-  return <form key={JSON.stringify(value)} className="hostel-filters" action="/hostel" method="get" onSubmit={submit} aria-busy={pending}>
+  return <form key={JSON.stringify(value)} className="hostel-filters" data-tour="hostel-filters" action="/hostel" method="get" onSubmit={submit} aria-busy={pending}>
     <div className="hostel-filters-head">
       <SlidersHorizontal size={16} aria-hidden />
       <strong>Find your next home</strong>
@@ -43,7 +43,7 @@ export function HostelFilters({ periods, value, matchCount }: { periods: PeriodO
     <button type="button" className="hostel-filter-toggle" aria-expanded={expanded} aria-controls="hostel-filter-options" onClick={() => setExpanded(!expanded)}>Filters & academic year</button>
     <div id="hostel-filter-options" className={`hostel-filter-grid${expanded ? " is-expanded" : ""}`}>
       <noscript><style>{`.hostel-filter-grid{display:grid!important}`}</style></noscript>
-      <label>
+      <label data-tour="hostel-periods">
         <span>Academic year</span>
         <select name="periodId" defaultValue={value.periodId}>
           {periods.map((period) => <option key={period.id} value={period.id}>{period.name}</option>)}

@@ -151,7 +151,7 @@ after(async () => vite.close());
 const {
   requestLoginCode, requestPasswordReset, resetPassword, verifyLoginCode,
 } = await vite.ssrLoadModule("/lib/auth-recovery.ts");
-const { safeAuthReturnPath } = await vite.ssrLoadModule("/lib/auth-return.ts");
+const { requiresStudentAccess, safeAuthReturnPath } = await vite.ssrLoadModule("/lib/auth-return.ts");
 
 const resetMail = () => outbox.filter((item) => item.template === "auth_password_reset").at(-1);
 const otpMail = () => outbox.filter((item) => item.template === "auth_login_code").at(-1);
@@ -214,6 +214,10 @@ test("student reset links keep a safe selected ride return path", async () => {
   assert.equal(safeAuthReturnPath("//evil.example"), "/");
   assert.equal(safeAuthReturnPath("/\\evil.example"), "/");
   assert.equal(safeAuthReturnPath(ride), ride);
+  assert.equal(requiresStudentAccess(ride), true);
+  assert.equal(requiresStudentAccess("/print-copy?quoteProviderId=shop"), true);
+  assert.equal(requiresStudentAccess("/cinema/events"), false);
+  assert.equal(requiresStudentAccess("/profile"), false);
 
   seed();
   await requestPasswordReset({ scope: "STUDENT", email: "ama@st.umat.edu.gh", origin: "https://umatexpress.test", next: "//evil.example" });
