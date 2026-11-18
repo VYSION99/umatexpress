@@ -18,7 +18,7 @@ process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-ch
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
 const state = {
-  sessions: [], participants: [], messages: [], signals: [], uploads: [], audits: [],
+  sessions: [], participants: [], messages: [], signals: [], uploads: [], audits: [], events: [],
   schema: new Map(), windows: new Map(), metrics: [],
 };
 
@@ -118,6 +118,24 @@ function handle(sql, args) {
     }
     return affected(count);
   }
+  if (/^UPDATE cinema_sessions SET join_locked = \?, updated_at = \? WHERE id = \?/.test(sql)) {
+    const [locked, updatedAt, id] = args;
+    const session = state.sessions.find((row) => row.id === id);
+    if (session && ["CREATED", "LIVE"].includes(session.status)) {
+      session.join_locked = Number(locked);
+      session.updated_at = updatedAt;
+      return affected(1);
+    }
+    return affected(0);
+  }
+  if (/^DELETE FROM cinema_participants WHERE session_id = \? AND student_id = \?/.test(sql)) {
+    const before = state.participants.length;
+    state.participants = state.participants.filter((p) => !(p.session_id === args[0] && p.student_id === args[1]));
+    return affected(before - state.participants.length);
+  }
+  if (/^DELETE FROM cinema_room_invites WHERE session_id = \? AND student_id = \?/.test(sql)) {
+    return affected(0);
+  }
   if (/^UPDATE cinema_sessions SET video_id = \?, updated_at = \? WHERE id = \? AND video_source_type = 'UPLOAD' AND video_id = \?/.test(sql)) {
     const [nextVideoId, updatedAt, id, videoId] = args;
     const session = state.sessions.find((row) => row.id === id);
@@ -208,6 +226,51 @@ function handle(sql, args) {
     return ok(rows.length ? table(SIGNAL_COLUMNS, rows) : empty);
   }
 
+  if (/FROM cinema_participants p[\s\S]*WHERE p\.session_id = \?/.test(sql)) {
+    const rows = state.participants.filter((p) => p.session_id === args[0]).map((p) => {
+      const student = STUDENTS.get(p.student_id) || {};
+      return { student_id: p.student_id, display_name: p.display_name, role: p.role || "VIEWER", joined_at: p.joined_at, last_seen_at: p.last_seen_at, email: student.email || "" };
+    });
+    return ok(rows.length ? table(["student_id", "display_name", "role", "joined_at", "last_seen_at", "email"], rows) : empty);
+  }
+  if (/FROM cinema_uploads WHERE id = \? LIMIT 1/.test(sql)) {
+    const row = state.uploads.find((u) => u.id === args[0]);
+    return ok(row ? table(UPLOAD_COLUMNS, [row]) : empty);
+  }
+  if (/FROM cinema_signals WHERE session_id = \?/.test(sql)) {
+    const rows = state.signals.filter((s) => s.session_id === args[0]);
+    return ok(rows.length ? table(SIGNAL_COLUMNS, rows) : empty);
+  }
+  if (/FROM cinema_messages WHERE session_id = \?/.test(sql)) {
+    const rows = state.messages.filter((m) => m.session_id === args[0]);
+    return ok(rows.length ? table(MESSAGE_COLUMNS, rows) : empty);
+  }
+  if (/FROM cinema_events e[\s\S]*JOIN cinema_organizers o/.test(sql)) {
+    const events = (state.events || []).map((e) => ({
+      ...e,
+      organizer_name: "Tech Club",
+      organizer_type: "CLUB",
+      organizer_verified_at: "2026-01-01T00:00:00Z",
+      rsvp_count: 5,
+      waitlist_count: 0,
+      room_status: "CREATED",
+      room_video_id: "M7lc1UVf-VE",
+      room_source_type: "YOUTUBE",
+      managed_stage: 0,
+    }));
+    return ok(events.length ? table(["id", "slug", "organizer_id", "session_id", "series_id", "title", "description", "starts_at", "ends_at", "capacity", "poster_key", "poster_content_type", "certificates_enabled", "status", "recurrence_index", "recurrence_count", "created_by", "created_at", "updated_at", "event_format", "stage_limit", "organizer_name", "organizer_type", "organizer_verified_at", "rsvp_count", "waitlist_count", "room_status", "room_video_id", "room_source_type", "managed_stage"], events) : empty);
+  }
+  if (/^UPDATE cinema_events SET status=\?, updated_at=\? WHERE \(id=\? OR slug=\?\) AND status<>'DELETED'/.test(sql)) {
+    const [nextStatus, updatedAt, id] = args;
+    const event = (state.events || []).find((e) => e.id === id || e.slug === id);
+    if (event && event.status !== "DELETED") {
+      event.status = nextStatus;
+      event.updated_at = updatedAt;
+      return affected(1);
+    }
+    return affected(0);
+  }
+
   return ok(empty);
 }
 
@@ -232,11 +295,12 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 
 const { fileCinemaReport, listCinemaSignals, resolveCinemaSignal } = await vite.ssrLoadModule("/lib/cinema-engine/signals.ts");
-const { listRoomsForConsole, endRoomAsStaff } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
+const { listRoomsForConsole, endRoomAsStaff, readRoomForConsole, lockRoomAsStaff, kickParticipantAsStaff } = await vite.ssrLoadModule("/lib/cinema-engine/rooms.ts");
 const { removeCinemaMessage } = await vite.ssrLoadModule("/lib/cinema-engine/messages.ts");
 const sessionsRoute = await vite.ssrLoadModule("/app/api/console/cinema/sessions/route.ts");
 const sessionRoute = await vite.ssrLoadModule("/app/api/console/cinema/sessions/[id]/route.ts");
 const signalsRoute = await vite.ssrLoadModule("/app/api/console/cinema/signals/route.ts");
+const eventsRoute = await vite.ssrLoadModule("/app/api/console/cinema/events/route.ts");
 const reportRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/report/route.ts");
 const { createConsoleSession, CONSOLE_SESSION_COOKIE } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const { createStudentSession, STUDENT_SESSION_COOKIE } = await vite.ssrLoadModule("/lib/student-auth.ts");
@@ -258,6 +322,7 @@ beforeEach(() => {
   state.signals = [];
   state.uploads = [];
   state.audits = [];
+  state.events = [];
   state.windows.clear();
   state.metrics = [];
 });
@@ -463,3 +528,119 @@ test("a moderator takes an uploaded video down through the console API", async (
 
   assert.equal((await call(moderator, { action: "REMOVE_VIDEO" })).status, 409, "a second takedown reports the truth");
 });
+
+test("a moderator inspects room detail, locks the room, and kicks a disruptive participant", async () => {
+  const moderator = await consoleCookie("console-moderator");
+  state.participants.push({ session_id: "room-1", student_id: "student-b", display_name: "Kwesi", joined_at: stamp(20), last_seen_at: stamp(1), left_at: "" });
+
+  // 1. GET /api/console/cinema/sessions/[id]
+  const inspected = await sessionRoute.GET(
+    new Request("https://console.example.test/api/console/cinema/sessions/room-1", { headers: { cookie: moderator } }),
+    { params: Promise.resolve({ id: "room-1" }) },
+  );
+  assert.equal(inspected.status, 200);
+  const data = await inspected.json();
+  assert.equal(data.room.id, "room-1");
+  assert.equal(data.room.participants.length, 2);
+  assert.equal(data.room.joinLocked, false);
+  assert.equal(data.room.recentMessages.length, 1);
+
+  // 2. LOCK_ROOM
+  const locked = await sessionRoute.POST(
+    new Request("https://console.example.test/api/console/cinema/sessions/room-1", {
+      method: "POST",
+      headers: { cookie: moderator, "content-type": "application/json" },
+      body: JSON.stringify({ action: "LOCK_ROOM" }),
+    }),
+    { params: Promise.resolve({ id: "room-1" }) },
+  );
+  assert.equal(locked.status, 200);
+  assert.equal(state.sessions[0].join_locked, 1);
+  assert.equal(state.audits.at(-1).action, "cinema_room_locked");
+
+  // 3. UNLOCK_ROOM
+  const unlocked = await sessionRoute.POST(
+    new Request("https://console.example.test/api/console/cinema/sessions/room-1", {
+      method: "POST",
+      headers: { cookie: moderator, "content-type": "application/json" },
+      body: JSON.stringify({ action: "UNLOCK_ROOM" }),
+    }),
+    { params: Promise.resolve({ id: "room-1" }) },
+  );
+  assert.equal(unlocked.status, 200);
+  assert.equal(state.sessions[0].join_locked, 0);
+
+  // 4. KICK_PARTICIPANT
+  const kicked = await sessionRoute.POST(
+    new Request("https://console.example.test/api/console/cinema/sessions/room-1", {
+      method: "POST",
+      headers: { cookie: moderator, "content-type": "application/json" },
+      body: JSON.stringify({ action: "KICK_PARTICIPANT", studentId: "student-b", reason: "Spam in chat" }),
+    }),
+    { params: Promise.resolve({ id: "room-1" }) },
+  );
+  assert.equal(kicked.status, 200);
+  assert.equal(state.participants.length, 1, "student-b was removed from participants");
+  assert.equal(state.audits.at(-1).action, "cinema_participant_kicked");
+  assert.equal(JSON.parse(state.audits.at(-1).details).reason, "Spam in chat");
+
+  // Cannot kick the host
+  const kickHost = await sessionRoute.POST(
+    new Request("https://console.example.test/api/console/cinema/sessions/room-1", {
+      method: "POST",
+      headers: { cookie: moderator, "content-type": "application/json" },
+      body: JSON.stringify({ action: "KICK_PARTICIPANT", studentId: "student-a" }),
+    }),
+    { params: Promise.resolve({ id: "room-1" }) },
+  );
+  assert.equal(kickHost.status, 400);
+});
+
+test("staff can list and moderate cinema events through console API", async () => {
+  const admin = await consoleCookie("console-admin");
+  state.events = [
+    {
+      id: "event-1",
+      slug: "tech-screening",
+      organizer_id: "org-1",
+      session_id: "room-1",
+      series_id: "",
+      title: "Tech Screening",
+      description: "Film event",
+      starts_at: stamp(-60),
+      ends_at: stamp(-10),
+      capacity: 100,
+      poster_key: "",
+      poster_content_type: "",
+      certificates_enabled: 0,
+      status: "PUBLISHED",
+      recurrence_index: 1,
+      recurrence_count: 1,
+      created_by: "student-a",
+      created_at: stamp(100),
+      updated_at: stamp(10),
+      event_format: "SCREENING",
+      stage_limit: 6,
+    },
+  ];
+
+  // 1. GET /api/console/cinema/events
+  const listed = await eventsRoute.GET(new Request("https://console.example.test/api/console/cinema/events", { headers: { cookie: admin } }));
+  assert.equal(listed.status, 200);
+  const data = await listed.json();
+  assert.equal(data.events.length, 1);
+  assert.equal(data.summary.published, 1);
+
+  // 2. PATCH CANCEL
+  const cancelled = await eventsRoute.PATCH(
+    new Request("https://console.example.test/api/console/cinema/events", {
+      method: "PATCH",
+      headers: { cookie: admin, "content-type": "application/json" },
+      body: JSON.stringify({ id: "event-1", action: "CANCEL", reason: "Host request" }),
+    }),
+  );
+  assert.equal(cancelled.status, 200);
+  assert.equal(state.events[0].status, "CANCELLED");
+  assert.equal(state.audits.at(-1).action, "cinema_event_cancelled");
+});
+

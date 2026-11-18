@@ -1316,6 +1316,248 @@ export async function endRoomAsStaff(input: { roomId: string; actor: string }) {
   return { id, status: "ENDED" as const, endedAt: stamp };
 }
 
+export type ConsoleRoomDetail = {
+  id: string;
+  title: string;
+  hostStudentId: string;
+  hostName: string;
+  hostEmail: string;
+  status: CinemaRoomStatus;
+  joinLocked: boolean;
+  visibility: CinemaRoomVisibility;
+  videoSourceType: CinemaSourceType;
+  videoId: string;
+  startsAt: string;
+  endsAt: string;
+  durationMinutes: number;
+  startedAt: string;
+  endedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  participants: Array<{
+    studentId: string;
+    displayName: string;
+    role: CinemaMemberRole;
+    joinedAt: string;
+    lastSeenAt: string;
+    email: string;
+  }>;
+  upload?: {
+    id: string;
+    originalFilename: string;
+    fileSizeBytes: number;
+    mimeType: string;
+    durationSeconds: number;
+    status: string;
+    expiresAt: string;
+    removedBy: string;
+    removedReason: string;
+  } | null;
+  signals: Array<{
+    id: string;
+    severity: string;
+    entityType: string;
+    entityId: string;
+    reporterName: string;
+    reportCount: number;
+    title: string;
+    detail: string;
+    status: string;
+    createdAt: string;
+  }>;
+  recentMessages: Array<{
+    id: string;
+    senderId: string;
+    senderName: string;
+    content: string;
+    createdAt: string;
+  }>;
+};
+
+/**
+ * Detailed console read: gives moderators full operational visibility over a
+ * room, including host identity, active roster, attached video upload,
+ * recent chat messages and open signals.
+ */
+export async function readRoomForConsole(roomId: string): Promise<ConsoleRoomDetail> {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireVisibleRoom(roomId);
+  const id = String(row.id);
+
+  // Host account lookup
+  let hostName = "The host";
+  let hostEmail = "";
+  try {
+    const hostRows = rowsToObjects(await turso(
+      "SELECT COALESCE(name, '') as name, COALESCE(email, '') as email FROM student_accounts WHERE id = ? LIMIT 1",
+      [String(row.host_student_id || "")],
+    ));
+    if (hostRows[0]) {
+      hostName = String(hostRows[0].name || "") || "The host";
+      hostEmail = String(hostRows[0].email || "");
+    }
+  } catch {}
+
+  // Current participant roster
+  const participants = rowsToObjects(await turso(
+    `SELECT p.student_id, COALESCE(p.display_name, '') as display_name, p.role, p.joined_at, p.last_seen_at, COALESCE(a.email, '') as email
+       FROM cinema_participants p
+       LEFT JOIN student_accounts a ON a.id = p.student_id
+      WHERE p.session_id = ?
+      ORDER BY CASE p.role WHEN 'HOST' THEN 0 WHEN 'COHOST' THEN 1 WHEN 'PRESENTER' THEN 2 ELSE 3 END, p.joined_at ASC`,
+    [id],
+  )).map((p) => ({
+    studentId: String(p.student_id || ""),
+    displayName: String(p.display_name || "") || "Guest",
+    role: (p.role || "VIEWER") as CinemaMemberRole,
+    joinedAt: String(p.joined_at || ""),
+    lastSeenAt: String(p.last_seen_at || ""),
+    email: String(p.email || ""),
+  }));
+
+  // Uploaded video status if UPLOAD source
+  let upload: ConsoleRoomDetail["upload"] = null;
+  if (String(row.video_source_type || "") === "UPLOAD" && row.video_id) {
+    try {
+      const uploadRows = rowsToObjects(await turso(
+        `SELECT id, original_filename, file_size_bytes, mime_type, duration_seconds, status, expires_at, removed_by, removed_reason
+           FROM cinema_uploads WHERE id = ? LIMIT 1`,
+        [String(row.video_id)],
+      ));
+      if (uploadRows[0]) {
+        upload = {
+          id: String(uploadRows[0].id),
+          originalFilename: String(uploadRows[0].original_filename || "video.mp4"),
+          fileSizeBytes: Number(uploadRows[0].file_size_bytes || 0),
+          mimeType: String(uploadRows[0].mime_type || "video/mp4"),
+          durationSeconds: Number(uploadRows[0].duration_seconds || 0),
+          status: String(uploadRows[0].status || "READY"),
+          expiresAt: String(uploadRows[0].expires_at || ""),
+          removedBy: String(uploadRows[0].removed_by || ""),
+          removedReason: String(uploadRows[0].removed_reason || ""),
+        };
+      }
+    } catch {}
+  }
+
+  // Moderation signals on this room
+  let signals: ConsoleRoomDetail["signals"] = [];
+  try {
+    signals = rowsToObjects(await turso(
+      `SELECT id, severity, entity_type, entity_id, reporter_name, report_count, title, detail, status, created_at
+         FROM cinema_signals WHERE session_id = ? ORDER BY created_at DESC LIMIT 20`,
+      [id],
+    )).map((s) => ({
+      id: String(s.id),
+      severity: String(s.severity || "LOW"),
+      entityType: String(s.entity_type || "ROOM"),
+      entityId: String(s.entity_id || ""),
+      reporterName: String(s.reporter_name || ""),
+      reportCount: Number(s.report_count || 1),
+      title: String(s.title || ""),
+      detail: String(s.detail || ""),
+      status: String(s.status || "OPEN"),
+      createdAt: String(s.created_at || ""),
+    }));
+  } catch {}
+
+  // Recent chat messages
+  let recentMessages: ConsoleRoomDetail["recentMessages"] = [];
+  try {
+    recentMessages = rowsToObjects(await turso(
+      `SELECT id, sender_id, sender_name, content, created_at
+         FROM cinema_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 30`,
+      [id],
+    )).map((m) => ({
+      id: String(m.id),
+      senderId: String(m.sender_id || ""),
+      senderName: String(m.sender_name || ""),
+      content: String(m.content || ""),
+      createdAt: String(m.created_at || ""),
+    })).reverse();
+  } catch {}
+
+  return {
+    id,
+    title: String(row.title || "") || "Study room",
+    hostStudentId: String(row.host_student_id || ""),
+    hostName,
+    hostEmail,
+    status: String(row.status || "CREATED") as CinemaRoomStatus,
+    joinLocked: Number(row.join_locked || 0) === 1,
+    visibility: (String(row.visibility || "PUBLIC").toUpperCase() === "PRIVATE" ? "PRIVATE" : "PUBLIC") as CinemaRoomVisibility,
+    videoSourceType: (row.video_source_type || "YOUTUBE") as CinemaSourceType,
+    videoId: String(row.video_id || ""),
+    startsAt: String(row.starts_at || ""),
+    endsAt: String(row.ends_at || ""),
+    durationMinutes: Number(row.duration_minutes || 0),
+    startedAt: String(row.started_at || ""),
+    endedAt: String(row.ended_at || ""),
+    createdAt: String(row.created_at || ""),
+    updatedAt: String(row.updated_at || ""),
+    participants,
+    upload,
+    signals,
+    recentMessages,
+  };
+}
+
+/**
+ * A moderator locks or unlocks a room's join door.
+ */
+export async function lockRoomAsStaff(input: { roomId: string; locked: boolean; actor: string }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireVisibleRoom(input.roomId);
+  const id = String(row.id);
+  if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room is not open.", 409);
+  const stamp = new Date().toISOString();
+  await turso(
+    "UPDATE cinema_sessions SET join_locked = ?, updated_at = ? WHERE id = ? AND status IN ('CREATED','LIVE')",
+    [input.locked ? 1 : 0, stamp, id],
+  );
+  await consoleAudit({
+    actor: input.actor,
+    action: input.locked ? "cinema_room_locked" : "cinema_room_unlocked",
+    targetType: "cinema_session",
+    targetReference: id,
+    details: { title: String(row.title || "") },
+  });
+  return { id, joinLocked: input.locked };
+}
+
+/**
+ * A moderator kicks an abusive guest from a room and closes their live socket.
+ */
+export async function kickParticipantAsStaff(input: { roomId: string; studentId: string; actor: string; reason?: string }) {
+  await requireTurso();
+  await ensureCinemaTables();
+  const row = await requireVisibleRoom(input.roomId);
+  const id = String(row.id);
+  if (!isRoomActive(row.status)) throw new CampusEngineError("INVALID_STATE", "This room is not open.", 409);
+  if (input.studentId === String(row.host_student_id)) {
+    throw new CampusEngineError("VALIDATION_ERROR", "Cannot kick the room host. End the room instead.", 400);
+  }
+  const result = await turso(
+    "DELETE FROM cinema_participants WHERE session_id = ? AND student_id = ?",
+    [id, input.studentId],
+  );
+  await turso(
+    "DELETE FROM cinema_room_invites WHERE session_id = ? AND student_id = ?",
+    [id, input.studentId],
+  );
+  await removeCinemaMemberFromRoom(id, input.studentId);
+  await consoleAudit({
+    actor: input.actor,
+    action: "cinema_participant_kicked",
+    targetType: "cinema_participant",
+    targetReference: `${id}:${input.studentId}`,
+    details: { roomId: id, studentId: input.studentId, reason: input.reason || "" },
+  });
+  return { roomId: id, studentId: input.studentId, kicked: Number(result.affected_row_count || 0) > 0 };
+}
+
 async function requireTurso() {
   if (await isTursoConfiguredRuntime()) return;
   throw new CampusEngineError("CONFIG_REQUIRED", "Cinema needs the database to be configured.", 503);

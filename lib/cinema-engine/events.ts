@@ -6,6 +6,7 @@ import { queueNotification } from "@/lib/notifications";
 import { parseYouTubeId } from "@/lib/cinema-engine/youtube";
 import { cancelReservedFreeJaasEntitlement, ensureCinemaStreamingEntitlements, freeJaasPolicy, reserveFreeJaasEntitlement } from "@/lib/cinema-streaming/entitlements";
 import { jaasRuntime } from "@/lib/cinema-streaming/jaas";
+import { consoleAudit } from "@/lib/console-audit";
 
 export const CINEMA_EVENT_SCHEMA_VERSION = "043_cinema_organizer_evidence";
 export const CINEMA_ORGANIZER_TYPES = ["CLUB", "DEPARTMENT", "STUDENT_GROUP"] as const;
@@ -402,3 +403,67 @@ export async function cinemaEventPoster(id: string) {
   if (!object?.body) throw new CampusEngineError("NOT_FOUND", "This event poster was not found.", 404);
   return { body: object.body, contentType: String(row.poster_content_type || "image/webp"), etag: String(object.httpEtag || "") };
 }
+
+/**
+ * List all events across the platform for staff console inspection.
+ */
+export async function listEventsForConsole(input: { status?: unknown; q?: unknown; limit?: number; offset?: number } = {}) {
+  await requireRuntime();
+  await ensureCinemaEventTables();
+  const wanted = String(input.status || "ALL").trim().toUpperCase();
+  const filter = wanted === "PUBLISHED"
+    ? "e.status='PUBLISHED'"
+    : wanted === "CANCELLED"
+      ? "e.status='CANCELLED'"
+      : "e.status<>'DELETED'";
+  const search = String(input.q || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const limit = Math.min(Math.max(Math.round(Number(input.limit) || 25), 1), 100);
+  const offset = Math.max(0, Math.min(100_000, Math.floor(Number(input.offset) || 0)));
+  const args: (string | number)[] = [];
+  let where = filter;
+  if (search) {
+    where += " AND (e.title LIKE ? OR e.slug LIKE ? OR o.name LIKE ?)";
+    args.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  const rows = rowsToObjects(await turso(
+    `SELECT e.*, o.name AS organizer_name, o.organizer_type, o.verified_at AS organizer_verified_at,
+       (SELECT COUNT(*) FROM cinema_event_rsvps r WHERE r.event_id=e.id AND r.status='GOING') AS rsvp_count,
+       (SELECT COUNT(*) FROM cinema_event_rsvps r WHERE r.event_id=e.id AND r.status='WAITLIST') AS waitlist_count,
+       COALESCE(s.status,'CREATED') AS room_status, s.video_id AS room_video_id, s.video_source_type AS room_source_type,
+       EXISTS(SELECT 1 FROM cinema_streaming_entitlements se WHERE se.event_id=e.id AND se.provider='JAAS' AND se.status IN ('RESERVED','ACTIVE')) AS managed_stage
+      FROM cinema_events e
+      JOIN cinema_organizers o ON o.id=e.organizer_id
+      LEFT JOIN cinema_sessions s ON s.id=e.session_id
+     WHERE ${where}
+     ORDER BY e.starts_at DESC
+     LIMIT ${limit} OFFSET ${offset}`,
+    args,
+  ));
+  return rows.map((row) => eventView(row));
+}
+
+/**
+ * A moderator unpublishes or cancels a public event.
+ */
+export async function moderateCinemaEvent(input: { id: string; action: "CANCEL" | "UNPUBLISH"; actor: string; reason?: string }) {
+  await requireRuntime();
+  await ensureCinemaEventTables();
+  const stamp = new Date().toISOString();
+  const nextStatus = input.action === "CANCEL" ? "CANCELLED" : "DRAFT";
+  const result = await turso(
+    "UPDATE cinema_events SET status=?, updated_at=? WHERE (id=? OR slug=?) AND status<>'DELETED'",
+    [nextStatus, stamp, input.id, input.id],
+  );
+  if (!Number(result.affected_row_count || 0)) {
+    throw new CampusEngineError("NOT_FOUND", "Event not found or already deleted.", 404);
+  }
+  await consoleAudit({
+    actor: input.actor,
+    action: input.action === "CANCEL" ? "cinema_event_cancelled" : "cinema_event_unpublished",
+    targetType: "cinema_event",
+    targetReference: input.id,
+    details: { reason: input.reason || "" },
+  });
+  return { id: input.id, status: nextStatus };
+}
+

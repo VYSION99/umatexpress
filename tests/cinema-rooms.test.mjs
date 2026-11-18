@@ -34,7 +34,8 @@ const MEMBER_COLUMNS = ["session_id", "student_id", "display_name", "joined_at",
 function handle(sql, args) {
   if (/^SELECT version FROM (campus_schema_meta|schema_passes)/.test(sql)) return ok(empty);
   if (/^INSERT OR REPLACE INTO (campus_schema_meta|schema_passes)/.test(sql)) return affected(1);
-  if (/^(CREATE (TABLE|INDEX|UNIQUE INDEX)|DROP INDEX)/.test(sql)) return ok(empty);
+  if (/^(CREATE (TABLE|INDEX|UNIQUE INDEX|TRIGGER)|DROP INDEX)/.test(sql)) return ok(empty);
+  if (/FROM student_email_claims/.test(sql)) return ok(empty);
   if (/^PRAGMA table_info\(notification_outbox\)/.test(sql)) return ok(table(["name"], ["subject", "read_at", "sensitive", "expires_at"].map(name => ({ name }))));
   if (/^UPDATE notification_outbox SET subject='Authentication message'/.test(sql)) return affected(0);
   if (/^INSERT INTO notification_outbox/.test(sql)) {
