@@ -2,25 +2,19 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ConsoleSessionGate, type ConsoleSessionInfo } from "@/components/admin/ConsoleSessionGate";
+import { delegatableConsoleServices } from "@/components/admin/console-services";
 import { ConsoleShell } from "@/components/console/ConsoleShell";
 import { ConsoleUnavailable } from "@/components/console/ConsoleUnavailable";
-
-const SERVICE_CHOICES = [
-  { id: "campus", label: "CampusRide" }, { id: "vacation", label: "VacationRide" },
-  { id: "organizers", label: "Organizer applications" }, { id: "hostels", label: "Hostel Finder" },
-  { id: "payouts", label: "Payouts" }, { id: "disputes", label: "Disputes" },
-  { id: "cinema", label: "OnlineCinema" }, { id: "settings", label: "Platform settings" },
-] as const;
 
 type Delegate = { id: string; name: string; email: string; status: string; services: string[]; mustChangePassword: boolean; createdAt: string };
 
 function ServicePicker({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
   return <fieldset className="delegate-services">
     <legend>Console access</legend>
-    <p>Choose the services this person can open and manage. Account delegation stays with the primary administrator.</p>
-    <div className="delegate-service-grid">{SERVICE_CHOICES.map((service) => <label key={service.id}>
+    <p>Choose the services this person can open and manage. New services appear here when they join the console. Existing delegates keep their current access until you assign them.</p>
+    <div className="delegate-service-grid">{delegatableConsoleServices.map((service) => <label key={service.id}>
       <input type="checkbox" checked={value.includes(service.id)} onChange={(event) => onChange(event.target.checked ? [...value, service.id] : value.filter((id) => id !== service.id))}/>
-      <span>{service.label}</span>
+      <span>{service.title}</span>
     </label>)}</div>
   </fieldset>;
 }

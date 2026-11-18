@@ -24,19 +24,34 @@ after(async () => {
     if (value === undefined) delete process.env[envKey]; else process.env[envKey] = value;
   }
 });
-const { createConsoleAccount, createConsoleSession, consoleAccountFromRequest, requireConsoleRole, setConsolePassword, delegateServiceForPath } = await vite.ssrLoadModule("/lib/console-auth.ts");
+const { createConsoleAccount, createConsoleSession, consoleAccountFromRequest, requireConsoleRole, setConsolePassword, delegateServiceForPath, DELEGATABLE_SERVICES } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const { createAdminDelegate, updateAdminDelegate, listAdminDelegates } = await vite.ssrLoadModule("/lib/console-delegates.ts");
 const { turso } = await vite.ssrLoadModule("/lib/turso.ts");
 const { ensureStudentAccountsTable } = await vite.ssrLoadModule("/lib/student-auth.ts");
 const { linkedStudentForConsole, linkedConsoleForStudent } = await vite.ssrLoadModule("/lib/account-links.ts");
 const delegateRoute = await vite.ssrLoadModule("/app/api/console/delegates/route.ts");
-const { consoleServicesForRole } = await vite.ssrLoadModule("/components/admin/console-services.ts");
+const { consoleServices, consoleServicesForRole, delegatableConsoleServices, delegatableServicesFromCatalog, delegateServiceForCatalogPath } = await vite.ssrLoadModule("/components/admin/console-services.ts");
 const ownerId = await createConsoleAccount({ name: "Primary Admin", email: "admin@example.com", password: "Admin-Password-123!", role: "ADMIN", status: "ACTIVE" });
 const ownerSession = await createConsoleSession({ id: ownerId, role: "ADMIN" });
 const request = (path, session) => new Request(`https://console.example.test${path}`, { headers: { cookie: `umx_console_session=${encodeURIComponent(session)}` } });
 
 let delegate;
 let delegateSession;
+test("the service catalog drives delegate choices and route grants", () => {
+  assert.deepEqual(DELEGATABLE_SERVICES, delegatableConsoleServices.map((service) => service.id));
+  const introduced = { ...consoleServices[0], id: "library", title: "Library", href: "/console/library", delegateRoutes: [] };
+  assert.equal(delegatableServicesFromCatalog([...consoleServices, introduced]).at(-1)?.id, "library");
+  assert.equal(delegateServiceForCatalogPath("/api/console/library", [introduced]), "library");
+  assert.ok(DELEGATABLE_SERVICES.includes("finance"));
+  assert.ok(DELEGATABLE_SERVICES.includes("print-copy"));
+  assert.equal(delegateServiceForPath("/console/finance"), "finance");
+  assert.equal(delegateServiceForPath("/api/console/finance"), "finance");
+  assert.equal(delegateServiceForPath("/api/console/print-copy/providers"), "print-copy");
+  assert.equal(delegateServiceForPath("/api/console/hostel/verifications"), "hostels");
+  assert.equal(delegateServiceForPath("/api/trips/schedule"), "vacation");
+  assert.equal(delegateServiceForPath("/api/console/delegates"), "__owner_only__");
+  assert.equal(delegateServiceForPath("/api/console/unmapped"), "__owner_only__");
+});
 test("only named service grants appear in the delegate directory", async () => {
   delegate = await createAdminDelegate({ name: "Hostel reviewer", email: "reviewer@example.com", password: "Delegate-Password-123!", services: ["hostels"], actor: "admin@example.com" });
   assert.equal(delegate.mustChangePassword, true);
@@ -47,6 +62,7 @@ test("only named service grants appear in the delegate directory", async () => {
   assert.equal((await consoleAccountFromRequest(request("/api/console/session", delegateSession)))?.mustChangePassword, true);
   assert.equal(await consoleAccountFromRequest(request("/api/console/delegates", delegateSession)), null);
   assert.equal(await consoleAccountFromRequest(request("/api/console/payouts", delegateSession)), null);
+  assert.equal(await consoleAccountFromRequest(request("/api/console/finance", delegateSession)), null, "a new catalog choice must not grant existing delegates access");
   await assert.rejects(() => requireConsoleRole(request("/api/console/hostel/verifications", delegateSession), ["ADMIN"]), (error) => error.code === "PASSWORD_CHANGE_REQUIRED");
 });
 
@@ -86,6 +102,14 @@ test("an organizer-review delegate can read schedules but cannot edit them", asy
   assert.equal((await consoleAccountFromRequest(request("/api/trips/schedule?admin=1", delegateSession)))?.id, delegate.id);
   const mutation = new Request("https://console.example.test/api/trips/schedule", { method: "PATCH", headers: { cookie: `umx_console_session=${encodeURIComponent(delegateSession)}` } });
   assert.equal(await consoleAccountFromRequest(mutation), null);
+});
+
+test("a service added through the catalog still needs an explicit grant", async () => {
+  assert.equal(await consoleAccountFromRequest(request("/api/console/finance", delegateSession)), null);
+  await updateAdminDelegate({ id: delegate.id, services: ["finance"], status: "ACTIVE", actor: "admin@example.com", actorId: ownerId });
+  delegateSession = await createConsoleSession({ id: delegate.id, role: "ADMIN" });
+  assert.equal((await consoleAccountFromRequest(request("/api/console/finance", delegateSession)))?.id, delegate.id);
+  assert.equal(await consoleAccountFromRequest(request("/api/console/hostel/verifications", delegateSession)), null);
 });
 
 test("a missing grant record never turns a delegate into a primary admin", async () => {

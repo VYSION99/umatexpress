@@ -4,14 +4,19 @@ import test from "node:test";
 
 // Renders through the built Worker, so this covers the production path: the
 // host boundary, the console pages, and the fact that they ship together.
+// React 19 RSC only allows one active renderer at a time in a process, so these
+// run sequentially with concurrency: 1.
 const workerUrl = new URL("../dist/server/index.js", import.meta.url);
 const ctx = { waitUntil() {}, passThroughOnException() {} };
 const assets = { fetch: async () => new Response("Not found", { status: 404 }) };
 
+let cachedWorker = null;
 async function loadWorker() {
   if (!existsSync(workerUrl)) return null;
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${Math.random()}`);
-  return (await import(workerUrl.href)).default;
+  if (!cachedWorker) {
+    cachedWorker = (await import(workerUrl.href)).default;
+  }
+  return cachedWorker;
 }
 
 test("the built worker serves the console sign-in page", async () => {

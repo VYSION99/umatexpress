@@ -1,0 +1,146 @@
+.cinema-room-plans {
+  width: 100%;
+  min-width: 0;
+  padding: clamp(18px, 3vw, 30px);
+  gap: 0;
+}
+
+.cinema-room-plans-heading {
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2ebe4;
+}
+
+.cinema-room-plans-eyebrow {
+  margin: 0 0 6px;
+  color: #0d694d;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .12em;
+}
+
+.cinema-room-plans h2,
+.cinema-room-plans h3,
+.cinema-room-plans p { margin-top: 0; }
+.cinema-room-plans-heading h2 { margin-bottom: 6px; color: #172d22; font-size: clamp(22px, 2.5vw, 28px); letter-spacing: -.03em; }
+.cinema-room-plans-heading p:last-child { margin-bottom: 0; color: #607568; font-size: 14px; line-height: 1.5; }
+
+.cinema-room-plans .cinema-admin-prices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 0 26px;
+}
+
+.cinema-room-price-card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #d9e6dc;
+  border-radius: 16px;
+  background: #f8fbf9;
+}
+
+.cinema-room-price-card h3 { margin: 0; color: #193529; font-size: 17px; line-height: 1.3; }
+.cinema-room-plans .cinema-room-field { display: grid; gap: 7px; min-width: 0; color: #385647; font-size: 14px; font-weight: 750; }
+.cinema-room-field small { color: #728277; font-size: 12px; font-weight: 500; }
+.cinema-room-plans .cinema-room-field input,
+.cinema-room-plans .cinema-room-field select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid #c9d9ce;
+  border-radius: 10px;
+  background: #fff;
+  color: #152e22;
+  font: inherit;
+  font-size: 16px;
+}
+
+.cinema-room-plans .cinema-room-field select {
+  appearance: none;
+  padding-right: 36px;
+  background-image: linear-gradient(45deg, transparent 50%, #456653 50%), linear-gradient(135deg, #456653 50%, transparent 50%);
+  background-position: calc(100% - 19px) 50%, calc(100% - 13px) 50%;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+.cinema-room-plans .cinema-room-field :is(input, select):focus-visible { outline: 3px solid #96c9aa; outline-offset: 1px; border-color: #0d694d; }
+.cinema-room-plans .cinema-admin-price-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; color: #345344; font-size: 14px; font-weight: 700; }
+.cinema-room-plans .cinema-admin-price-toggle input { width: 19px; height: 19px; margin: 0; accent-color: #0d694d; }
+
+.cinema-room-plans button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #b9d3c1;
+  border-radius: 10px;
+  background: #fff;
+  color: #0e6046;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.cinema-room-plans button:hover:not(:disabled) { border-color: #0d694d; background: #edf7f0; }
+.cinema-room-plans button:focus-visible { outline: 3px solid #96c9aa; outline-offset: 2px; }
+.cinema-room-plans button:disabled { opacity: .5; cursor: not-allowed; }
+.cinema-room-price-card button { justify-self: start; }
+
+.cinema-room-plans-manual,
+.cinema-room-plans-grants { min-width: 0; padding-top: 24px; border-top: 1px solid #e2ebe4; }
+.cinema-room-plans-section-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 18px; }
+.cinema-room-plans-section-heading h3 { margin: 0; color: #193529; font-size: clamp(18px, 2.2vw, 22px); letter-spacing: -.02em; }
+.cinema-room-plans-section-heading p { margin: 0; color: #63776a; font-size: 13px; line-height: 1.45; }
+.cinema-room-plans-manual form { min-width: 0; }
+.cinema-room-plans-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cinema-room-plans-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+.cinema-room-plans button.cinema-room-plans-primary { border-color: #0d694d; background: #0d694d; color: #fff; }
+.cinema-room-plans button.cinema-room-plans-primary:hover:not(:disabled) { background: #09563d; }
+
+.cinema-room-plans-approval { display: grid; gap: 14px; margin-top: 18px; padding: 16px; border: 1px solid #e8dfc8; border-radius: 13px; background: #fffbf0; }
+.cinema-room-plans-approval p { max-width: 70ch; margin: 0; color: #5e593f; font-size: 13px; line-height: 1.5; }
+.cinema-room-plans-approval > div { display: flex; flex-wrap: wrap; gap: 9px; }
+.cinema-room-plans button.cinema-room-plans-danger { border-color: #e8c8c2; color: #9c3a2e; }
+.cinema-room-plans button.cinema-room-plans-danger:hover:not(:disabled) { border-color: #ad4939; background: #fff3f0; }
+.cinema-room-plans-message { margin: 18px 0 0; padding: 12px 14px; border: 1px solid #d3e5d8; border-radius: 11px; background: #f3faf5; color: #24523a; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.cinema-room-plans-message.is-error { border-color: #ebc9c4; background: #fff5f3; color: #8b352b; }
+
+.cinema-room-plans-grants { margin-top: 26px; }
+.cinema-room-plans-table-wrap { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+.cinema-room-plans-table { min-width: 640px; table-layout: fixed; }
+.cinema-room-plans-table th,
+.cinema-room-plans-table td { overflow-wrap: anywhere; }
+.cinema-room-plans-table th:first-child,
+.cinema-room-plans-table td:first-child { width: 34%; }
+.cinema-room-plans-table th:last-child,
+.cinema-room-plans-table td:last-child { width: 30%; }
+
+@media (max-width: 760px) {
+  .cinema-room-plans .cinema-admin-prices,
+  .cinema-room-plans-fields { grid-template-columns: minmax(0, 1fr); }
+  .cinema-room-plans-table-wrap { overflow: visible; }
+  .cinema-room-plans-table,
+  .cinema-room-plans-table tbody { display: block; width: 100%; min-width: 0; }
+  .cinema-room-plans-table thead { display: none; }
+  .cinema-room-plans-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 10px; padding: 16px; border: 1px solid #dfe9e1; border-radius: 13px; background: #fbfdfb; }
+  .cinema-room-plans-table td { display: block; width: auto !important; min-width: 0; padding: 0; border: 0; color: #284737; font-size: 13px; line-height: 1.4; }
+  .cinema-room-plans-table td::before { content: attr(data-label); display: block; margin-bottom: 3px; color: #708176; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .cinema-room-plans-table td:first-child,
+  .cinema-room-plans-table td:last-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 520px) {
+  .cinema-room-plans { padding: 18px 16px; }
+  .cinema-room-price-card { padding: 16px; }
+  .cinema-room-price-card button,
+  .cinema-room-plans-actions button { width: 100%; }
+  .cinema-room-plans-approval > div { display: grid; }
+}

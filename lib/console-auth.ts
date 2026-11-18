@@ -1,5 +1,6 @@
 import { CampusEngineError } from "@/lib/campus-engine/errors";
 import { hashPassword, verifyPassword } from "@/lib/campus-engine/crypto";
+import { delegatableConsoleServices, delegateServiceForCatalogPath } from "@/components/admin/console-services";
 import { envValue } from "@/lib/runtime-env";
 import { isTursoConfiguredRuntime, rowsToObjects, turso, tursoTransaction } from "@/lib/turso";
 
@@ -9,7 +10,7 @@ import { isTursoConfiguredRuntime, rowsToObjects, turso, tursoTransaction } from
  * body or query parameter, which a caller can choose freely.
  */
 export const CONSOLE_ROLES = ["ADMIN", "MODERATOR", "ORGANIZER", "LANDLORD", "DRIVER", "VENDOR", "CINEMA"] as const;
-export const DELEGATABLE_SERVICES = ["campus", "vacation", "organizers", "payouts", "disputes", "hostels", "cinema", "food", "print-copy", "settings"] as const;
+export const DELEGATABLE_SERVICES = delegatableConsoleServices.map((service) => service.id);
 export type ConsoleRole = (typeof CONSOLE_ROLES)[number];
 
 export const CONSOLE_SESSION_COOKIE = "umx_console_session";
@@ -83,21 +84,7 @@ export async function consoleDelegateRecord(accountId: string) {
 export function delegateServiceForPath(pathname: string): string | null {
   if (pathname === "/api/console/session" || pathname === "/api/console/account" || pathname === "/api/console/account/link" || pathname === "/api/profile/photo" || pathname === "/api/auth/passkeys" || pathname === "/console" || pathname === "/console/account" || pathname === "/console/change-password") return null;
   if (pathname.startsWith("/api/console/delegates") || pathname.startsWith("/console/delegates") || pathname.startsWith("/api/console/assistant")) return "__owner_only__";
-  const paths: Array<[string, string]> = [
-    ["/api/console/campus", "campus"], ["/api/admin/campus", "campus"], ["/api/v1/campus/admin", "campus"],
-    ["/api/console/cinema", "cinema"],
-    ["/api/console/food", "food"],
-    ["/api/console/print-copy", "print-copy"],
-    ["/api/console/hostel", "hostels"], ["/api/admin/hostel", "hostels"],
-    ["/api/console/payouts", "payouts"],
-    ["/api/console/settings", "settings"], ["/api/console/bindings", "settings"],
-    ["/api/console/organizers", "organizers"],
-    ["/api/console/trips", "vacation"], ["/api/admin/bookings", "vacation"],
-    ["/api/console/disputes", "disputes"],
-    ["/api/trips/schedule", "vacation"], ["/api/trips/display", "vacation"],
-    ["/api/admin/ai", "vacation"],
-  ];
-  return paths.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1] ?? "__owner_only__";
+  return delegateServiceForCatalogPath(pathname) ?? "__owner_only__";
 }
 
 

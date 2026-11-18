@@ -142,8 +142,13 @@ where it is, which is what keeps `/admin/reset-password` working.
 5. **Add the service** to `components/admin/console-services.ts`: its `group`
    (one of `CONSOLE_GROUP_ORDER`), its `nav` (the pages inside it) and its role
    in `consoleServicesForRole`. The shell renders whatever the directory says;
-   the API guard is the access control, and a service with `href: null` is
-   listed as "coming soon" instead of linking somewhere unfinished.
+   the API guard remains the access control.
+   A new administrator service automatically appears in Team access as an
+   assignable option. Its `/console/<id>` and `/api/console/<id>` routes are
+   guarded by the same catalog entry; put legacy API roots in `delegateRoutes`.
+   Mark personal workspaces with `adminAccess: "personal"`, owner-only tools
+   with `"owner-only"`, and shared account tools with `"account"`. Existing
+   delegates receive no new grant until the primary administrator assigns it.
 6. **Test the negative case**: another role, and another tenant, must get `401`,
    `403` or `404` — never data.
 

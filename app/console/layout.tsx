@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./console.css";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "UMATeXPRESS Console",
   description: "Manage UMATeXPRESS services, operations, properties, bookings, and payments.",
