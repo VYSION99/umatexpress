@@ -169,11 +169,13 @@ action for the top bar.
 The shell adds the parts that must not differ between services: the rail, the
 breadcrumb, the service finder, the account cluster, sign-out, the mobile bar,
 and the hero. It also mounts the console assistant.
-The home page adds `ConsoleBriefStrip` above the directory: the role's daily
-brief, read from `/api/console/assistant/brief`, with the assistant panel one
-tap away. On a phone the rail steps aside for a fixed bottom bar
-(Home / Services / Security / Sign out), so a service is never more than two
-taps away.
+The home page places `ConsoleBriefStrip` above a role-specific primary
+workspace, a short list of other workspaces, and a collapsed directory for
+the remaining services. The brief is read from
+`/api/console/assistant/brief`, with the assistant panel one tap away.
+Account and security tools have their own compact links. On a phone the rail
+steps aside for the bottom dock (Home / Services / Security / Account), so a
+service is never more than two taps away.
 
 Adding a service to the sidebar is therefore one registry entry, and no page
 copies navigation markup.

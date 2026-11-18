@@ -5,6 +5,7 @@ import { consoleSessionCookie } from "@/lib/console-auth";
 import { registerLandlord } from "@/lib/hostel-engine/landlord";
 import { registerOrganizer } from "@/lib/organizers";
 import { registerFoodVendor } from "@/lib/food/vendors";
+import { registerCinemaPartner } from "@/lib/cinema-engine/partners";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -25,6 +26,8 @@ async function submitApplication(programme: string, body: Record<string, unknown
       return registerDriverApplication(body);
     case "vendor":
       return registerFoodVendor(body);
+    case "cinema":
+      return registerCinemaPartner(body);
     default:
       throw new CampusEngineError("INVALID_STATE", "This application is not being accepted yet.", 501);
   }
@@ -52,7 +55,7 @@ export async function POST(request: Request, context: { params: Promise<{ progra
         ...result,
         message: application.activation === "REVIEW"
           ? "Application received. An administrator will review it before you can sign in."
-          : application.id === "landlord" ? "Account created. Continue with your property and identity details." : "Application received. Sign in to get started; publishing goes live after a review.",
+          : application.id === "landlord" ? "Account created. Continue with your property and identity details." : application.id === "cinema" ? "Account created. Sign in to your workspace; official event publishing goes live after a review." : "Application received. Sign in to get started; publishing goes live after a review.",
       },
       { status: 202, headers: { ...NO_STORE, ...(landlordAccountId ? { "Set-Cookie": await consoleSessionCookie({ id: landlordAccountId, role: "LANDLORD" }, request) } : {}) } },
     );

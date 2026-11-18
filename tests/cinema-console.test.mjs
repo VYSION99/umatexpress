@@ -18,7 +18,7 @@ process.env.CONSOLE_SESSION_SECRET = "test-console-session-secret-at-least-32-ch
 process.env.STUDENT_SESSION_SECRET = "test-student-session-secret-at-least-32-chars";
 
 const state = {
-  sessions: [], participants: [], messages: [], signals: [], uploads: [], audits: [], events: [],
+  sessions: [], participants: [], messages: [], signals: [], uploads: [], audits: [], events: [], partners: [],
   schema: new Map(), windows: new Map(), metrics: [],
 };
 
@@ -271,6 +271,50 @@ function handle(sql, args) {
     return affected(0);
   }
 
+  if (/^SELECT id FROM console_accounts WHERE lower\(email\)=\? LIMIT 1/.test(sql)) {
+    const email = String(args[0] || "").toLowerCase();
+    const row = [...ACCOUNTS.values()].find((a) => a.email.toLowerCase() === email);
+    return ok(row ? table(["id"], [row]) : empty);
+  }
+  if (/^INSERT INTO console_accounts/.test(sql)) {
+    const [id, email, name, phone, hash, salt, iterations, role, status, profileId, createdAt, updatedAt] = args;
+    ACCOUNTS.set(id, { id, email, name, phone, role, status, profile_id: profileId, password_hash: hash, password_salt: salt, password_iterations: iterations, token_version: 0 });
+    return affected(1);
+  }
+  if (/^INSERT INTO cinema_partner_profiles/.test(sql)) {
+    const [id, accountId, organizationName, createdAt, updatedAt] = args;
+    state.partners.push({ id, account_id: accountId, organization_name: organizationName, venue_type: "VENUE", status: "PENDING", review_note: "", verified_at: "", verified_by: "", created_at: createdAt, updated_at: updatedAt });
+    return affected(1);
+  }
+  if (/FROM cinema_partner_profiles p JOIN console_accounts a ON a\.id = p\.account_id/.test(sql)) {
+    let rows = state.partners.map((p) => {
+      const acc = ACCOUNTS.get(p.account_id) || {};
+      return { ...p, name: acc.name || "", email: acc.email || "", phone: acc.phone || "" };
+    });
+    if (/WHERE p\.account_id = \? LIMIT 1/.test(sql)) {
+      rows = rows.filter((r) => r.account_id === args[0]);
+    } else if (/WHERE p\.status = \?/.test(sql)) {
+      rows = rows.filter((r) => r.status === args[0]);
+    }
+    return ok(rows.length ? table(["id", "account_id", "organization_name", "venue_type", "status", "review_note", "verified_at", "verified_by", "created_at", "updated_at", "name", "email", "phone"], rows) : empty);
+  }
+  if (/^SELECT id, account_id, status FROM cinema_partner_profiles WHERE id = \? LIMIT 1/.test(sql)) {
+    const row = state.partners.find((p) => p.id === args[0]);
+    return ok(row ? table(["id", "account_id", "status"], [row]) : empty);
+  }
+  if (/^UPDATE cinema_partner_profiles SET status = \?, verified_at = \?, verified_by = \?, review_note = \?, updated_at = \? WHERE id = \?/.test(sql)) {
+    const [status, verifiedAt, verifiedBy, reviewNote, updatedAt, id] = args;
+    const partner = state.partners.find((p) => p.id === id);
+    if (partner) {
+      Object.assign(partner, { status, verified_at: verifiedAt, verified_by: verifiedBy, review_note: reviewNote, updated_at: updatedAt });
+      return affected(1);
+    }
+    return affected(0);
+  }
+  if (/^UPDATE console_accounts SET token_version/.test(sql)) {
+    return affected(1);
+  }
+
   return ok(empty);
 }
 
@@ -301,6 +345,8 @@ const sessionsRoute = await vite.ssrLoadModule("/app/api/console/cinema/sessions
 const sessionRoute = await vite.ssrLoadModule("/app/api/console/cinema/sessions/[id]/route.ts");
 const signalsRoute = await vite.ssrLoadModule("/app/api/console/cinema/signals/route.ts");
 const eventsRoute = await vite.ssrLoadModule("/app/api/console/cinema/events/route.ts");
+const partnersRoute = await vite.ssrLoadModule("/app/api/console/cinema/partners/route.ts");
+const { registerCinemaPartner } = await vite.ssrLoadModule("/lib/cinema-engine/partners.ts");
 const reportRoute = await vite.ssrLoadModule("/app/api/cinema/sessions/[id]/report/route.ts");
 const { createConsoleSession, CONSOLE_SESSION_COOKIE } = await vite.ssrLoadModule("/lib/console-auth.ts");
 const { createStudentSession, STUDENT_SESSION_COOKIE } = await vite.ssrLoadModule("/lib/student-auth.ts");
@@ -323,6 +369,7 @@ beforeEach(() => {
   state.uploads = [];
   state.audits = [];
   state.events = [];
+  state.partners = [];
   state.windows.clear();
   state.metrics = [];
 });
@@ -642,5 +689,49 @@ test("staff can list and moderate cinema events through console API", async () =
   assert.equal(cancelled.status, 200);
   assert.equal(state.events[0].status, "CANCELLED");
   assert.equal(state.audits.at(-1).action, "cinema_event_cancelled");
+});
+
+test("cinema partners can register and administrators review partner applications", async () => {
+  const admin = await consoleCookie("console-admin");
+
+  // 1. Register a cinema partner
+  const reg = await registerCinemaPartner({
+    name: "Auditorium Manager",
+    organization: "Main Campus Auditorium",
+    phone: "0240001122",
+    email: "partner@auditorium.gh",
+    password: "Cinema-Partner-Pass-1!",
+  });
+  assert.equal(reg.status, "PENDING");
+  assert.ok(reg.id);
+  assert.ok(reg.accountId);
+
+  // 2. The registered partner can inspect their own profile via GET /api/console/cinema/partners
+  const partnerCookie = await consoleCookie(reg.accountId);
+  const selfProfile = await partnersRoute.GET(new Request("https://console.example.test/api/console/cinema/partners", { headers: { cookie: partnerCookie } }));
+  assert.equal(selfProfile.status, 200);
+  const selfData = await selfProfile.json();
+  assert.equal(selfData.partner.organizationName, "Main Campus Auditorium");
+  assert.equal(selfData.partner.status, "PENDING");
+
+  // 3. Staff lists pending partners
+  const listRes = await partnersRoute.GET(new Request("https://console.example.test/api/console/cinema/partners?status=PENDING", { headers: { cookie: admin } }));
+  assert.equal(listRes.status, 200);
+  const listData = await listRes.json();
+  assert.equal(listData.partners.length, 1);
+  assert.equal(listData.partners[0].organizationName, "Main Campus Auditorium");
+
+  // 4. Staff approves partner
+  const approveRes = await partnersRoute.PATCH(new Request("https://console.example.test/api/console/cinema/partners", {
+    method: "PATCH",
+    headers: { cookie: admin, "content-type": "application/json" },
+    body: JSON.stringify({ partnerId: reg.id, approve: true, reviewNote: "Verified with University Facilities" }),
+  }));
+  assert.equal(approveRes.status, 200);
+  const approveData = await approveRes.json();
+  assert.equal(approveData.status, "ACTIVE");
+  assert.equal(state.partners[0].status, "ACTIVE");
+  assert.equal(state.partners[0].review_note, "Verified with University Facilities");
+  assert.equal(state.audits.at(-1).action, "CINEMA_PARTNER_APPROVED");
 });
 
